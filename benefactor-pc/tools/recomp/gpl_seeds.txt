@@ -1,0 +1,177 @@
+# gpl_seeds.txt — entry seeds for the gameplay-engine bank (game_gpl_*).
+#
+# The recompiler's static descent (scanner.py) transitively follows CONSTANT
+# bsr/jsr targets, but the gameplay engine reaches many routines through
+# register-indirect jsr / jump-table dispatch ($59C714 card table, IRQ vectors,
+# $59cf1e descriptor calls) that descent cannot follow. Each such target must be
+# seeded here or rt.c hard-errors at runtime ("NO FUNCTION at $X").
+#
+# Format: hex address, optional "# comment". Commas/newlines both separate.
+# Consumed by the gpl regen in CMakeLists via $(cat gpl_seeds.txt).
+# Discover new ones by running gameplay and watching for "[rt-miss] $X" — add X.
+
+# ── Entry / per-frame loop / IRQ handlers ────────────────────────────────────
+577000   # gameplay overlay entry
+577114   # gameplay main loop (beam-syncs on VHPOSR scanline $3B)
+578272   # level-3 vblank IRQ handler (acks, jsr $59ba7a)
+57825A   # vblank IRQ handler (acks INTREQ #$20)
+59BFA6   # level-6 CIA-B timer IRQ handler (music + counters)
+59BF3E   # level-6 IRQ sub
+8272     # IRQ vector stub
+346E
+405C
+41A4
+
+# ── Disk overlay load / ATN! decrunch / level data ───────────────────────────
+57731C   # gameplay setup block
+577AE0
+577AB6
+59B80A   # ATN! descriptor parser (source ptr at $59cf1e -> records at $59d382)
+59BA56
+59BA7A
+59DD2A   # ATN! decrunch; $59DDCE writes the $4d064 level table
+59DC02   # level engine entry
+
+# ── Card state machine (jump table at $59C714, index = $5(a4)>>3) ─────────────
+59C6DC   # card state dispatch
+59C6DA   # state: rts (idle)
+59C03A
+59C262
+59C2E0
+59C302
+59C420
+59C45E
+59C4C8
+59C4DC
+59C4EA
+59C548
+59C55A
+59C56A
+59C7D8
+59C828
+59CC8C
+59CD4E
+59CDA2
+59CDC2
+59CDE2
+59CDF4
+
+# ── Engine / level subs ──────────────────────────────────────────────────────
+59DDE6
+59DF4E
+59E0FA
+59E30E
+59E58E
+59E592
+586612
+586790
+58684C
+
+# ── Card display / level-setup ($57Bxxx-$57Exxx) ──────────────────────────────
+57DBEC
+
+# ── Indirect-dispatch targets found via card->cavern convergence (2026-05-29) ─
+# (PC's $3e fix let the card advance into the level engine, exposing these.)
+57999E
+5967FE
+57D8D0
+57D7BC
+595FE4
+596A74
+596592
+597114
+596FA2
+597270
+57DB16
+57C13A
+57BA74   # overlapping with 57B0EE (backward DBcc; needs emitter tail-jump fix)
+57B0EE
+57B19E
+586E6C
+57D3C2
+57D3F4
+586B04
+57D688
+57D79A
+57EA76
+
+# ── IRQ-vector handlers installed during gameplay (found via INTENA-gated
+#    delivery once the card->cavern flow ran without the old band-aids, 2026-05-29) ─
+57DF78   # level-3/6 vector handler installed in-game
+57A386   # in-game vector/dispatch handler
+59C582   # music-loop restart target (jumped to when the song ends and loops)
+57E38A   # player movement/input handler (dispatched when a direction is held)
+57DFE0   # player movement/animation handler
+57E31A   # player movement/animation handler
+57E4E6   # player movement/animation handler
+57E9CA   # player movement/animation handler
+579D84   # player movement/animation handler
+579F3A   # player movement/animation handler
+579F86   # player movement/animation handler
+579FE0   # player movement/animation handler
+# $57E38A animation-state jump table ($57E39C, indexed by $f82(a5)) targets:
+57A018 57E4EE 57E548 57E57C 57E5AA 57E5B2 57E5C4 57E5DE 57E5F0 57E610
+57A0CC
+# auto-converge round 1
+579E02
+# auto-converge round 1
+57E07A
+57E1DC
+57E81E
+57EBD0
+57ED1E
+# auto-converge round 2
+579E80
+57E1EC
+# auto-converge round 3
+579F0E
+57E82E
+# auto-converge round 4
+57DFB2
+57E130
+57EC4A
+57ED98
+# auto-converge round 5
+579F28
+# auto-converge round 6
+579A62
+# auto-converge round 7
+579D00
+# hit during play 2026-05-29
+57DFA2
+# auto-converge round 1
+579EB0
+# auto-converge round 2
+579FF0
+# auto-converge round 3
+579D0E
+# auto-converge round 4
+57E772
+57E95A
+57EB20
+
+# pc-relative jump-table targets (extract_jumptables.py)
+57E0C8 57E10A 58ED0C 593368 595304
+
+# pc-relative jump-table targets (extract_jumptables.py)
+59C132 59C33A 59C350 59C35C 59C368 59C374 59C398 59C3F2 59C430 59C444 59C474 59C490 59C4AC 59C516 59C6BA 59C734 59C76E 59C78E 59C7B8 59C7EC 59C80C 59CC70 59CE6A 59CF44
+# auto-converge round 1
+59C5B0
+59C744
+
+# pc-relative jump-table targets (extract_jumptables.py)
+5786A8 5789FE 578AFC 578B4A 579968 5799AE 5799C8 5799E6 579A00 579DDC 579E4A 579EDE 57A100 57A116 57A138 57A15A 57A186 57A1CE 57A204 57A248 57A26A 57A280 57A2A2 57A2AC 57A2D6 57A2E0 57A2EC 57A2F6 57A30C 57A316 57A33C 57A358 57A372 57A39C 57A3A4 57A3B0 57A404 57A42A 57A496 57A516 57A574 57A590 57A5AC 57A602 57BC42 57BD88 57BDE4 57BDF2 57BE24 57BE7A 57BEAA 57BEF0 57BF4E 57BF66 57BFD4 57C042 57C050 57C0E8 57C0F8 57C16E 57C194 57C1B8 57C1E2 57C1F0 57C20A 57C236 57C246 57C2D0 57C31A 57C364 57C384 57C3A2 57C3E0 57C3FC 57C44C 57C468 57C480 57C48E 57C4B8 57C4E2 57C4FC 57C522 57C550 57C58C 57C5CA 57C5FA 57EE12 585138 585AC6 58652E
+
+# pc-relative jump-table targets (extract_jumptables.py)
+577AE2 577B30 579D1C 579D2A 579D38 579D46 57BA78 57BA82 57BABA 57BAEA 57BB26 57BB62 57BBA4 57BBD8 57BBE8 57BBF8 57BC38 57BC6A 57BC7E 57BCB4 57BCD4 57BCFC 57BD20 57BD3A 57BD44 57BD4E 58288C 5828A4 5828C8 585124 58514C 585160 585188 58519C 585278 58528C 5852A0 5852B4 5852C8 5852DC 5852F0 585304 585318 58532C 585340 5853B8 5853CC 5853E0 5853F4 585408 58541C 585430 585444 5854E4 5854F8 58550C 585520 585534 585548 58555C 585908 58591C 585930 585944 585958 58596C 585980 585994 5859A8 5859BC 5859C0 5859C4 5859C8 58851C 588580 588594 5885A8 5885BC 588620 588634 58AC54 58AC64 58AC74 58AC84
+
+# hit during play 2026-05-29
+57E35C
+# auto-converge round 1
+58778A
+# auto-converge round 2
+58BC6E
+
+# hit during play (post stack-fix) 2026-05-29
+57B2B8
+57E99C

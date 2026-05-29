@@ -1,0 +1,3 @@
+[submodule "benefactor-pc/vendor/libretro-uae"]
+	path = benefactor-pc/vendor/libretro-uae
+	url = https://github.com/libretro/libretro-uae
