@@ -24,7 +24,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default="chip_ram_dump.bin", help="Output chip RAM dump path")
     parser.add_argument("--kick-dir", default="Hard Drives/DEVS/Kickstarts", help="Kickstart directory")
-    parser.add_argument("--slave", default="whdload/Benefactor/Benefactor.slave", help="WHDLoad slave path")
+    parser.add_argument("--whdload", default="whdload/Benefactor/Benefactor.slave", help="WHDLoad install file path")
     parser.add_argument("--disk1", default="whdload/Benefactor/Disk.1", help="Disk 1 path")
     parser.add_argument("--disk2", default="whdload/Benefactor/Disk.2", help="Disk 2 path")
     parser.add_argument("--disk3", default="whdload/Benefactor/Disk.3", help="Disk 3 path")
@@ -57,7 +57,7 @@ def main() -> int:
     cmd = [
         str(harness_bin),
         args.kick_dir,
-        args.slave,
+        args.whdload,
         args.disk1,
         args.disk2,
         args.disk3,

@@ -20,7 +20,7 @@ import sys
 import os
 
 
-# ── Expected parameters (from WHDLoad slave analysis) ─────────────────────
+# ── Expected parameters (from WHDLoad install file analysis) ─────────────────────
 
 DISK_SIZES = [
     (980 * 1024,  1003520),  # Disk.1: either 980 KiB or slightly larger raw

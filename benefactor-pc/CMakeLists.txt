@@ -80,17 +80,30 @@ set(GP_GAME_SRCS
 
 file(MAKE_DIRECTORY "${GEN_DIR}")
 
-add_custom_command(
-    OUTPUT  ${GAME_SRCS} "${GAME_H}"
-    COMMAND python3 "${RECOMPILER}"
-            "${CHIP_DUMP_INPUT}" --chip-dump
-            --out-dir "${GEN_DIR}"
-    DEPENDS "${RECOMPILER}" "${CHIP_DUMP_INPUT}" "${RECOMP_DIR}/entries.py"
-            "${RECOMP_DIR}/emitter.py" "${RECOMP_DIR}/scanner.py" "${RECOMP_DIR}/helpers.py"
-    COMMENT "Recompiling 68k code from PUAE chip RAM dump"
-)
-
-add_custom_target(recompile_game DEPENDS ${GAME_SRCS} "${GAME_H}")
+# The generated 68k → C files (game.c, game_gp_*, game_gpl_*) live in
+# src/generated/ and are checked into the repo. The build uses them as-is, so
+# a user with the disks alone can build without running the recompiler.
+#
+# The 'recompile_game' target below regenerates them from chip_ram_dump.bin
+# (which you extract from your own disks via tools/extract_chipram_from_roms.py).
+# It is intentionally NOT a build dependency of the executables — run it
+# explicitly when you've changed the recompiler or the seed list.
+if(EXISTS "${CHIP_DUMP_INPUT}")
+    add_custom_command(
+        OUTPUT  ${GAME_SRCS} "${GAME_H}"
+        COMMAND python3 "${RECOMPILER}"
+                "${CHIP_DUMP_INPUT}" --chip-dump
+                --out-dir "${GEN_DIR}"
+        DEPENDS "${RECOMPILER}" "${CHIP_DUMP_INPUT}" "${RECOMP_DIR}/entries.py"
+                "${RECOMP_DIR}/emitter.py" "${RECOMP_DIR}/scanner.py" "${RECOMP_DIR}/helpers.py"
+        COMMENT "Recompiling 68k code from PUAE chip RAM dump"
+    )
+    add_custom_target(recompile_game DEPENDS ${GAME_SRCS} "${GAME_H}")
+else()
+    add_custom_target(recompile_game
+        COMMENT "chip_ram_dump.bin not found at repo root; using committed src/generated/ as-is. "
+                "Run tools/extract_chipram_from_roms.py if you want to regenerate.")
+endif()
 
 # ── Main executable (canonical PC runtime path) ───────────────────────────────
 
@@ -116,7 +129,7 @@ add_executable(benefactor-pc
     ${GP_GAME_SRCS}
 )
 
-add_dependencies(benefactor-pc recompile_game)
+# (recompile_game is opt-in; not a build dependency — see note above)
 
 target_include_directories(benefactor-pc PRIVATE
     src
@@ -396,7 +409,7 @@ add_executable(benefactor-harness
     ${HARNESS_SOURCES}
 )
 
-add_dependencies(benefactor-harness recompile_game)
+# (recompile_game is opt-in; not a build dependency — see note above)
 
 target_compile_definitions(benefactor-harness PRIVATE
     __LIBRETRO__

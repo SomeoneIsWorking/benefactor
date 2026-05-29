@@ -10,14 +10,7 @@
     Benefactor/
       Disk.1, Disk.2, Disk.3   # WHDLoad disk images (user-supplied)
       Highscore, Hints, ReadMe
-      Benefactor.slave
-  whdload_dev/          # WHDLoad SDK reference
-  extra/                # Original WHDLoad install files + slave source
-    BenefactorHd/
-      src/
-        Benefactor.asm      # Original WHDLoad slave source
-        Benefactor.islave.asm
-  kickstart/            # Kickstart ROM images (not used by recomp build)
+      Benefactor.slave    # WHDLoad install file (user-supplied)
   docs/                 # This directory
     handoff.md
     project-overview.md

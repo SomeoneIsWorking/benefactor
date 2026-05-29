@@ -65,7 +65,7 @@ int puae_run_to_loop_top(int skip)
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* PUAE boot and capture */
 
-int run_puae_phase(const char *kick_dir, const char *slave_path,
+int run_puae_phase(const char *kick_dir, const char *whdload_path,
                    int boot_frames, int n_frames,
                    char *chipram_out_path, int chipram_out_len,
                    int display_only, int interactive)
@@ -79,10 +79,10 @@ int run_puae_phase(const char *kick_dir, const char *slave_path,
     snprintf(harness_system_dir, RETRO_PATH_MAX, "%s", kick_dir);
     snprintf(harness_save_dir,   RETRO_PATH_MAX, "/tmp");
     harness_frontend_init();
-    snprintf(full_path, RETRO_PATH_MAX, "%s", slave_path);
+    snprintf(full_path, RETRO_PATH_MAX, "%s", whdload_path);
     retro_init();
 
-    struct retro_game_info gi = { slave_path, NULL, 0, NULL };
+    struct retro_game_info gi = { whdload_path, NULL, 0, NULL };
     if (!retro_load_game(&gi)) {
         GLOBAL_LOG( "[harness] retro_load_game failed\n");
         return -1;

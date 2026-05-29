@@ -54,7 +54,7 @@ int g_harness_compared_frame = 0;
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* External functions from modules */
 
-extern int run_puae_phase(const char *kick_dir, const char *slave_path,
+extern int run_puae_phase(const char *kick_dir, const char *whdload_path,
                           int boot_frames, int n_frames,
                           char *chipram_out_path, int chipram_out_len,
                           int display_only, int interactive);
@@ -82,7 +82,7 @@ int main(int argc, char **argv)
 
     if (argc < 4) {
         fprintf(stderr,
-            "Usage: %s <kick_dir> <slave_path> <disk1> [disk2] [disk3] [--headed]\n"
+            "Usage: %s <kick_dir> <whdload_path> <disk1> [disk2] [disk3] [--headed]\n"
             "\n"
             "Boots PUAE (reference) and the PC port (native disk boot) and drops\n"
             "into a REPL. The two cores run INDEPENDENTLY (no lockstep).\n"
@@ -101,7 +101,7 @@ int main(int argc, char **argv)
     }
 
     const char *kick_dir   = argv[1];
-    const char *slave_path = argv[2];
+    const char *whdload_path = argv[2];
     const char *disks[4]   = { NULL };
     int n_disks = 0;
     int headed  = 0;
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
 
     /* Boot PUAE (reference oracle) and leave it ready to step via retro_run(). */
     char chip_ram_path[512] = "";
-    if (run_puae_phase(kick_dir, slave_path, /*boot_frames*/5000, /*n_frames*/1,
+    if (run_puae_phase(kick_dir, whdload_path, /*boot_frames*/5000, /*n_frames*/1,
                        chip_ram_path, sizeof chip_ram_path,
                        /*display_only*/0, /*interactive*/1) < 0)
         return 1;
