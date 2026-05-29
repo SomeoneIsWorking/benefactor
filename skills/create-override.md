@@ -10,7 +10,7 @@ Add a native C override for a Benefactor M68K recompiled function. Use when: a r
 - A function needs to rebuild copper list entries the recompiler misses.
 - The recompiler generates bad C (e.g., wrong An-dest flag handling).
 
-## File: `benefactor-pc/src/pc.c`
+## File: `src/pc.c`
 
 ### Step 1: Write the native function
 
@@ -55,7 +55,7 @@ int pc_run(void)
 
 ### Step 3: Verify
 ```bash
-cd <repo>/benefactor-pc/build
+cd <repo>/build
 cmake --build . --target benefactor-harness -j$(nproc) 2>&1 | tail -3
 cd <repo>
 bash run_harness.sh --frames 3 --boot-frames 600 2>&1 | grep -E "DIFF|ok$|MATCH"

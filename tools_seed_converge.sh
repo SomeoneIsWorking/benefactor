@@ -4,14 +4,10 @@
 # the harness, run a scripted gameplay session with RT_ALLOW_MISS=1 (so it logs
 # ALL missed indirect-dispatch targets in one pass instead of aborting on the
 # first), append the new addresses to gpl_seeds.txt, and repeat to a fixpoint.
-#
-# Replaces the older converge script that used removed env flags; drives the
-# current non-lockstep harness REPL (fire/joy/pc) headless.
 set -u
 cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-SEEDS=benefactor-pc/tools/recomp/gpl_seeds.txt
-ARGS=( "Hard Drives/DEVS/Kickstarts" "whdload/Benefactor/Benefactor.slave"
-       "whdload/Benefactor/Disk.1" "whdload/Benefactor/Disk.2" "whdload/Benefactor/Disk.3" )
+SEEDS=tools/recomp/gpl_seeds.txt
+ARGS=( harness harness/Benefactor.slave Disk.1 Disk.2 Disk.3 )
 
 # A session that reaches gameplay and exercises every input (walk both ways,
 # up/down, jump = fire+direction) so all movement/animation handlers get hit.
@@ -64,12 +60,12 @@ q
 EOF
 
 for round in $(seq 1 24); do
-  python3 benefactor-pc/tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
+  python3 tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
     --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-    --out-dir benefactor-pc/src/generated --seed "$(cat "$SEEDS")" >/dev/null 2>&1
-  cmake --build benefactor-pc/build --target benefactor-harness -j"$(nproc)" 2>&1 | grep -iE "error:" && exit 1
+    --out-dir src/generated --seed "$(cat "$SEEDS")" >/dev/null 2>&1
+  cmake --build build --target benefactor-harness -j"$(nproc)" 2>&1 | grep -iE "error:" && exit 1
   MISS=$(printf '%s\n' "$INPUT" | timeout 220 env RT_ALLOW_MISS=1 \
-           ./benefactor-pc/build/benefactor-harness "${ARGS[@]}" 2>&1 \
+           ./build/benefactor-harness "${ARGS[@]}" 2>&1 \
          | grep -aoE '\[rt-miss\] \$[0-9A-F]+' | grep -oE '[0-9A-F]{6}' | sort -u)
   if [ -z "$MISS" ]; then echo "=== CONVERGED after round $round (no misses) ==="; exit 0; fi
   echo "round $round: + $(echo "$MISS" | tr '\n' ' ')"

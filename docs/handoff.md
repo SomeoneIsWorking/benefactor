@@ -39,9 +39,9 @@ Do a bulk replace: all `read_op(ops[` → `read_op(ops[` with `insn=insn` append
 
 ```bash
 cd <repo>
-python3 benefactor-pc/tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
-  --out-c benefactor-pc/src/generated/game.c \
-  --out-h benefactor-pc/src/generated/game.h 2>&1
+python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
+  --out-c src/generated/game.c \
+  --out-h src/generated/game.h 2>&1
 ```
 
 After the fixes above the output should report **hundreds of functions**, not just 4.
@@ -59,11 +59,11 @@ cmake --build . --parallel 4
 
 ```bash
 cd <repo>
-./benefactor-pc/build/benefactor-pc \
+./build/benefactor-pc \
   chip_ram_dump.bin \
-  whdload/Benefactor/Disk.1 \
-  whdload/Benefactor/Disk.2 \
-  whdload/Benefactor/Disk.3
+  Disk.1 \
+  Disk.2 \
+  Disk.3
 ```
 
 ---
@@ -104,7 +104,7 @@ The recompiler approach instead:
 ## File Map
 
 ```
-benefactor-pc/
+
   CMakeLists.txt          # Recomp build — Musashi removed
   tools/
     recompile68k.py       # 68k→C static recompiler (Python, uses capstone)
@@ -123,6 +123,6 @@ benefactor-pc/
     main.c                # OLD Musashi-based entry — no longer built
 ../
   chip_ram_dump.bin         # 512KB PUAE chip RAM snapshot
-  whdload/Benefactor/     # WHDLoad disk images (Disk.1, Disk.2, Disk.3)
+  Disk.1, Disk.2, Disk.3  # WHDLoad disk images (user-supplied, at repo root)
   docs/                   # This directory
 ```

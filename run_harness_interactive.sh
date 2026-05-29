@@ -5,7 +5,8 @@
 # each advance.
 set -e
 cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-cmake --build benefactor-pc/build --target benefactor-harness -j"$(nproc)" 2>&1 | tail -3
+cmake -S . -B build >/dev/null
+cmake --build build --target benefactor-harness -j"$(nproc)" 2>&1 | tail -3
 
 cat <<'EOF'
 
@@ -27,10 +28,10 @@ Commands (type then Enter):
 Tip: to reach gameplay, hold fire and run a while:  fire 1   then   both 1000
 EOF
 
-exec ./benefactor-pc/build/benefactor-harness \
-    "Hard Drives/DEVS/Kickstarts" \
-    "whdload/Benefactor/Benefactor.slave" \
-    "whdload/Benefactor/Disk.1" \
-    "whdload/Benefactor/Disk.2" \
-    "whdload/Benefactor/Disk.3" \
+exec ./build/benefactor-harness \
+    harness \
+    harness/Benefactor.slave \
+    Disk.1 \
+    Disk.2 \
+    Disk.3 \
     --play "$@"

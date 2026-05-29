@@ -23,7 +23,7 @@ This catches divergences at the **earliest possible frame**, before compounding 
 
 ```bash
 # Build (always do this after code changes)
-cd <repo>/benefactor-pc/build
+cd <repo>/build
 cmake --build . --target benefactor-harness -j$(nproc)
 
 # Standard 3-frame run

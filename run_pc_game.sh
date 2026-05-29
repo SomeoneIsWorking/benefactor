@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_PATH="$ROOT_DIR/benefactor-pc/build/benefactor-pc"
-DISK1="$ROOT_DIR/whdload/Benefactor/Disk.1"
-DISK2="$ROOT_DIR/whdload/Benefactor/Disk.2"
-DISK3="$ROOT_DIR/whdload/Benefactor/Disk.3"
+BIN_PATH="$ROOT_DIR/build/benefactor-pc"
+DISK1="$ROOT_DIR/Disk.1"
+DISK2="$ROOT_DIR/Disk.2"
+DISK3="$ROOT_DIR/Disk.3"
 
 usage() {
   cat <<'EOF'
@@ -13,7 +13,7 @@ Usage:
   ./run_pc_game.sh [--build]
 
 Options:
-  --build   Build benefactor-pc before running.
+  --build   Build before running.
   -h, --help
 EOF
 }
@@ -31,7 +31,8 @@ case "${1:-}" in
 esac
 
 if [[ "$DO_BUILD" -eq 1 ]]; then
-  cmake --build "$ROOT_DIR/benefactor-pc/build" --target benefactor-pc -j"$(nproc)"
+  cmake -S "$ROOT_DIR" -B "$ROOT_DIR/build" >/dev/null
+  cmake --build "$ROOT_DIR/build" --target benefactor-pc -j"$(nproc)"
 fi
 
 for path in "$BIN_PATH" "$DISK1" "$DISK2" "$DISK3"; do

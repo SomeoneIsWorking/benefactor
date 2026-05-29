@@ -31,18 +31,18 @@ Fix the emitter in `recomp.py`, never edit `generated/game.c`.
 
 ```bash
 # 1. Run tests first — establish baseline
-python3 benefactor-pc/tools/test_recomp.py
+python3 tools/test_recomp.py
 
 # 2. After fixing recomp.py — tests must still pass
-python3 benefactor-pc/tools/test_recomp.py
+python3 tools/test_recomp.py
 
 # 3. Regenerate game.c
-python3 benefactor-pc/tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
-    --out-c benefactor-pc/src/generated/game.c \
-    --out-h benefactor-pc/src/generated/game.h
+python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
+    --out-c src/generated/game.c \
+    --out-h src/generated/game.h
 
 # 4. Rebuild + verify harness
-cd benefactor-pc/build && cmake --build . --target benefactor-harness -j$(nproc)
+cd build && cmake --build . --target benefactor-harness -j$(nproc)
 cd ../.. && bash run_harness_headless.sh 2>&1 | grep -E "DIFF|ok$|MATCH"
 ```
 
@@ -50,10 +50,10 @@ cd ../.. && bash run_harness_headless.sh 2>&1 | grep -E "DIFF|ok$|MATCH"
 
 ```bash
 # Find the C translation of a specific function
-grep -A 50 "^void gfn_00XXXX" benefactor-pc/src/generated/game.c | head -60
+grep -A 50 "^void gfn_00XXXX" src/generated/game.c | head -60
 
 # Find all uses of a specific M68K register write pattern
-grep -n "MW16\|MW32" benefactor-pc/src/generated/game.c | grep "0x01" | head -20
+grep -n "MW16\|MW32" src/generated/game.c | grep "0x01" | head -20
 ```
 
 ## Key recompiler structure

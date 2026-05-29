@@ -1,10 +1,12 @@
 # Build output
-benefactor-pc/build/
-benefactor-pc/build-*/
+/build/
+/build-*/
 
 # User-supplied copyrighted content (see README.md)
-/Hard Drives/
-/whdload/
+/Disk.1
+/Disk.2
+/Disk.3
+/harness/
 
 # Game memory dumps / extracted assets (regenerable from your own disks)
 chip_ram_dump.bin
@@ -16,7 +18,6 @@ game_data.bin
 
 # Runtime logs / framebuffer dumps / traces
 /logs/
-/benefactor-pc/logs/
 frame_dump.bmp
 blit_trace_pc.txt
 *.gdb

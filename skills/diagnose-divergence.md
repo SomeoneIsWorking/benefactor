@@ -80,7 +80,7 @@ Then invoke the `create-override` skill if needed.
 
 ### Optional automation: summarize root cause from logs
 ```bash
-python3 benefactor-pc/tools/analyze_divergence_root_cause.py
+python3 tools/analyze_divergence_root_cause.py
 ```
 The script reads `logs/harness_report.txt`, `logs/harness_run.txt`, and `logs/*_frame_*.log`,
 finds the first `[ROOT_DIFF]`, traces last PUAE/PC writes to the diverging address, and prints:

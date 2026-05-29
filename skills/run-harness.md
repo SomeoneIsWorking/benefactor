@@ -12,7 +12,7 @@ cd <repo>
 bash run_harness.sh --frames 3 --boot-frames 600 2>&1 | tee logs/harness_run.txt
 
 # Build first if code changed
-cd benefactor-pc/build && cmake --build . --target benefactor-harness -j$(nproc) && cd -
+cd build && cmake --build . --target benefactor-harness -j$(nproc) && cd -
 
 # Quick filtered output (most useful view)
 grep -E "WATCH|SNAP|DIFF|F00[0-9]|ok$" logs/harness_run.txt

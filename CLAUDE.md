@@ -59,11 +59,11 @@ The direction is always toward correct engineering. Never evolve toward shortcut
 
 | File | Role |
 |------|------|
-| `benefactor-pc/src/recomp/native_renderer.c` | Copper-walking native renderer — the display path |
-| `benefactor-pc/src/pc.c` | Native game loop (title + gameplay state machine) |
-| `benefactor-pc/src/pc_overrides_*.c` | Hand-written C replacements for M68K functions |
-| `benefactor-pc/src/generated/game.c` | Recompiled M68K → C (generated, do not hand-edit) |
-| `benefactor-pc/tools/recomp/` | Recompiler (Python) — generates game.c from binary |
+| `src/recomp/native_renderer.c` | Copper-walking native renderer — the display path |
+| `src/pc.c` | Native game loop (title + gameplay state machine) |
+| `src/pc_overrides_*.c` | Hand-written C replacements for M68K functions |
+| `src/generated/game.c` | Recompiled M68K → C (generated, do not hand-edit) |
+| `tools/recomp/` | Recompiler (Python) — generates game.c from binary |
 
 ## Debugging Architecture (GDB-centric)
 

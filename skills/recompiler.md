@@ -8,16 +8,16 @@ Use, test, and improve the Benefactor 68k→C recompiler (`recomp.py`). Use when
 
 | File | Role |
 |------|------|
-| `benefactor-pc/tools/recomp/recomp.py` | Main translator — `Translator.translate()` handles per-instruction emission |
-| `benefactor-pc/tools/recomp/step1_disasm.py` | Capstone disassembly pass |
-| `benefactor-pc/tools/recomp/step2_descent.py` | Recursive descent — discovers all reachable functions |
-| `benefactor-pc/tools/recomp/entries.py` | Entry points with descriptive function names — **edit here to add new functions**. Merges tool-discovered targets from `discovered.py` |
-| `benefactor-pc/tools/recomp/discover_indirect.py` | Fixpoint tool: finds indirect-dispatch handlers static descent misses (see below) |
-| `benefactor-pc/tools/recomp/discovered.py` | Auto-maintained list of runtime-discovered call targets — do not hand-edit |
-| `benefactor-pc/tools/recomp/analyze.py` | Static analysis helpers |
-| `benefactor-pc/tools/recomp/validate.py` | Output validation |
-| `benefactor-pc/tools/test_recomp.py` | Unit tests for the translator — **always run after any recompiler change** |
-| `benefactor-pc/src/generated/game.c` | Output — auto-generated, do not edit |
+| `tools/recomp/recomp.py` | Main translator — `Translator.translate()` handles per-instruction emission |
+| `tools/recomp/step1_disasm.py` | Capstone disassembly pass |
+| `tools/recomp/step2_descent.py` | Recursive descent — discovers all reachable functions |
+| `tools/recomp/entries.py` | Entry points with descriptive function names — **edit here to add new functions**. Merges tool-discovered targets from `discovered.py` |
+| `tools/recomp/discover_indirect.py` | Fixpoint tool: finds indirect-dispatch handlers static descent misses (see below) |
+| `tools/recomp/discovered.py` | Auto-maintained list of runtime-discovered call targets — do not hand-edit |
+| `tools/recomp/analyze.py` | Static analysis helpers |
+| `tools/recomp/validate.py` | Output validation |
+| `tools/test_recomp.py` | Unit tests for the translator — **always run after any recompiler change** |
+| `src/generated/game.c` | Output — auto-generated, do not edit |
 
 ## Discovering indirect-dispatch handlers (static descent misses these)
 
@@ -27,7 +27,7 @@ so handler functions reached only that way are never translated. At runtime
 `rt_call` logs `no function at $X – skipping` for each — and that log is
 **proof X is a real call target** (the game tried to call it).
 
-Run the fixpoint discovery loop (from `benefactor-pc/`):
+Run the fixpoint discovery loop (from ``):
 ```bash
 python3 tools/recomp/discover_indirect.py --frames 120 --max-iters 12
 ```
@@ -47,8 +47,8 @@ $5E48–$60CC) was recovered, extending the perfect match from 34 to 37 frames.
 When chip RAM diverges but you can't see why ("identical inputs, different
 output"), compare the two CPUs instruction-by-instruction:
 ```bash
-cmake -S benefactor-pc -B benefactor-pc/build -DBENEFACTOR_TRACE_INSNS=ON   # PC-side hooks
-cmake --build benefactor-pc/build --target benefactor-harness -j$(nproc)
+cmake -S benefactor-pc -B build -DBENEFACTOR_TRACE_INSNS=ON   # PC-side hooks
+cmake --build build --target benefactor-harness -j$(nproc)
 BENEFACTOR_M68K_TRACE=1 BENEFACTOR_M68K_RANGE=5500-6100 bash run_harness.sh --frames 3
 # -> logs/pc_insn_trace.txt (recompiled) and logs/puae_insn_trace.txt (emulated)
 ```
@@ -70,9 +70,9 @@ flag/helper macro, evaluate each argument exactly once into a temp.
 
 ```bash
 cd <repo>
-python3 benefactor-pc/tools/test_recomp.py
+python3 tools/test_recomp.py
 # or with pytest for verbose output:
-python3 -m pytest benefactor-pc/tools/test_recomp.py -v
+python3 -m pytest tools/test_recomp.py -v
 ```
 
 17/17 must pass. A recompiler change that breaks tests is not done.
@@ -80,14 +80,14 @@ python3 -m pytest benefactor-pc/tools/test_recomp.py -v
 ## Regenerate game.c after a recompiler fix
 
 ```bash
-python3 benefactor-pc/tools/recomp/recomp.py benefactor-pc/build/chip_ram_dump.bin \
-    --out-c benefactor-pc/src/generated/game.c \
-    --out-h benefactor-pc/src/generated/game.h
+python3 tools/recomp/recomp.py build/chip_ram_dump.bin \
+    --out-c src/generated/game.c \
+    --out-h src/generated/game.h
 ```
 
 Then rebuild and run the harness to verify:
 ```bash
-cd benefactor-pc/build && cmake --build . --target benefactor-harness -j$(nproc)
+cd build && cmake --build . --target benefactor-harness -j$(nproc)
 cd ../.. && bash run_harness_headless.sh 2>&1 | grep -E "DIFF|ok$|MATCH"
 ```
 
@@ -147,10 +147,10 @@ Examples of the kind of patterns to look for and specialise:
 **How to find patterns:**
 ```bash
 # Find the most repeated MW16 target addresses across game.c
-grep -oP 'MW16\([^,]+' benefactor-pc/src/generated/game.c | sort | uniq -c | sort -rn | head -20
+grep -oP 'MW16\([^,]+' src/generated/game.c | sort | uniq -c | sort -rn | head -20
 
 # Find functions with many sequential MW16 writes (likely HW setup)
-grep -c 'MW16' benefactor-pc/src/generated/game.c
+grep -c 'MW16' src/generated/game.c
 ```
 
 When a pattern is identified and specialised in the recompiler, document it in this skill under a "Known Patterns" section and add a test in `test_recomp.py`.
@@ -169,7 +169,7 @@ When a pattern is identified and specialised in the recompiler, document it in t
 
 ## Adding a new entry point
 
-Edit `benefactor-pc/tools/recomp/entries.py`:
+Edit `tools/recomp/entries.py`:
 ```python
 ENTRIES = [
     # ...

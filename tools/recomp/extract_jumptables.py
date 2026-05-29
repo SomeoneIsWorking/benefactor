@@ -17,7 +17,7 @@ offset table that sits AT $BASE, and prints every target (= BASE + offset) until
 an entry yields a misaligned (odd) or out-of-range address — the table end.
 
 Run from the repo root:
-    python3 benefactor-pc/tools/recomp/extract_jumptables.py [--append]
+    python3 tools/recomp/extract_jumptables.py [--append]
 With --append, the discovered targets are appended to gpl_seeds.txt.
 """
 import os, sys

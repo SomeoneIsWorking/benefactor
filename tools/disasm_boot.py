@@ -3,7 +3,7 @@
 
 import capstone, struct, sys, os
 
-disk = os.path.join(os.path.dirname(__file__), '../whdload/Benefactor/Disk.1')
+disk = os.path.join(os.path.dirname(__file__), '../Disk.1')
 
 def disasm(data, base, label=""):
     md = capstone.Cs(capstone.CS_ARCH_M68K, capstone.CS_MODE_M68K_000)
