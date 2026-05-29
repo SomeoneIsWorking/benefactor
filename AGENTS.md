@@ -21,7 +21,7 @@ Self-evolving workflow: every session should improve tools, skills, or instructi
 2. Add any newly confirmed root cause to `instructions/harness.md` under a `## Confirmed Root Cause Fixed` entry.
 3. If the session discovered a new divergence category or pattern, update `skills/diagnose-divergence.md`.
 4. If a new tool was built, update the relevant skill with usage instructions.
-5. Run `python3 benefactor-pc/tools/test_recomp.py` after any recompiler change.
+5. Run `python3 tools/test_recomp.py` after any recompiler change.
 
 ### Self-Evolution Rules
 
@@ -37,15 +37,15 @@ Self-evolving workflow: every session should improve tools, skills, or instructi
 
 Static recompilation port of *Benefactor* (Amiga 68k → native C + SDL2). The 68k binary is translated once offline by a Python recompiler; at runtime there is no interpreter. Hardware I/O (OCS custom chips, CIA) is intercepted and emulated in SDL2.
 
-- **Active code:** `benefactor-pc/src/recomp/*`, `benefactor-pc/src/pc*.c`, `benefactor-pc/src/generated/*`
-- **Dead code (do not build):** `benefactor-pc/src/amiga/*`, `benefactor-pc/src/platform/*`, `benefactor-pc/src/main.c`
-- **Generated code (never edit manually):** `benefactor-pc/src/generated/game.c` and `game.h`
+- **Active code:** `src/recomp/*`, `src/pc*.c`, `src/generated/*`
+- **Dead code (do not build):** `src/amiga/*`, `src/platform/*`, `src/main.c`
+- **Generated code (never edit manually):** `src/generated/game.c` and `game.h`
 
 ## Exact Build / Run / Test Commands
 
 ```bash
 # Build comparison harness (most common)
-cd <repo>/benefactor-pc/build
+cd <repo>/build
 cmake --build . --target benefactor-harness -j$(nproc)
 
 # Build standalone game executable
@@ -68,12 +68,12 @@ bash run_harness_interactive.sh
 ./run_pc_game.sh --build
 
 # Recompiler tests (run before and after any recomp.py change)
-python3 benefactor-pc/tools/test_recomp.py
+python3 tools/test_recomp.py
 
 # Force regenerate game.c/game.h (or just delete them and rebuild)
-python3 benefactor-pc/tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
-  --out-c benefactor-pc/src/generated/game.c \
-  --out-h benefactor-pc/src/generated/game.h
+python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
+  --out-c src/generated/game.c \
+  --out-h src/generated/game.h
 ```
 
 **Prerequisites:** GCC 15.2, CMake 3.31, SDL2 (`libsdl2-dev`), Python 3.14 + `capstone` (`pip install capstone`).
@@ -100,7 +100,7 @@ src/generated/game.h  – forward decls + dispatch table
 
 ## Comparison Harness Workflow (Always Verify First)
 
-1. Build harness: `cd benefactor-pc/build && cmake --build . --target benefactor-harness -j$(nproc)`
+1. Build harness: `cd build && cmake --build . --target benefactor-harness -j$(nproc)`
 2. Run: `bash run_harness_and_analyze.sh 2>&1 | tee logs/harness_run.txt`
 3. If `PERFECT MATCH` → safe to port (replace a recompiled `gfn_` with native C).
 4. If `DIFF` → the harness **automatically** prints `[auto-rc]` root cause inline — read that first.

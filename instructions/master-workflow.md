@@ -10,7 +10,7 @@
 
 1. Build and run the harness to see current state:
    ```bash
-   cd <repo>/benefactor-pc/build && cmake --build . --target benefactor-harness -j$(nproc)
+   cd <repo>/build && cmake --build . --target benefactor-harness -j$(nproc)
    cd <repo> && bash run_harness_headless.sh 2>&1 | tee logs/harness_run.txt
    grep -E "WATCH|DIFF|ok$|MATCH" logs/harness_run.txt
    ```
@@ -78,7 +78,7 @@ The game was originally written for Amiga OCS hardware (copper lists, blitter, C
 
 ```bash
 # Build the comparison harness (most common)
-cd <repo>/benefactor-pc/build
+cd <repo>/build
 cmake --build . --target benefactor-harness -j$(nproc)
 
 # Build the standalone game executable
@@ -95,14 +95,14 @@ bash run_harness_interactive.sh 2>&1
 bash run_harness_interactive.sh --frames 0 2>&1
 
 # Run recompiler tests (single test suite)
-python3 benefactor-pc/tools/test_recomp.py
+python3 tools/test_recomp.py
 
 # Standalone game (not harness)
-./benefactor-pc/build/benefactor-pc \
+./build/benefactor-pc \
     chip_ram_dump.bin \
-    whdload/Benefactor/Disk.1 \
-    whdload/Benefactor/Disk.2 \
-    whdload/Benefactor/Disk.3
+    Disk.1 \
+    Disk.2 \
+    Disk.3
 ```
 
 **Check harness output:** `grep -E "WATCH|SNAP|DIFF|ok$|MATCH" logs/harness_run.txt`
@@ -113,22 +113,22 @@ python3 benefactor-pc/tools/test_recomp.py
 
 | File | Role |
 |------|------|
-| `benefactor-pc/src/recomp/rt.c` / `rt.h` | Memory routing, dispatch table, `M68KCtx` struct |
-| `benefactor-pc/src/recomp/hw.c` / `hw.h` | SDL2 hardware layer: OCS/CIA register shadows, rendering |
-| `benefactor-pc/src/generated/game.c` / `game.h` | **AUTO-GENERATED** by `recomp.py` — do not edit manually |
-| `benefactor-pc/src/pc.c` / `pc.h` | PC port core: frame loop, state machine, init/fini |
-| `benefactor-pc/src/pc_internal.h` | Shared declarations for `pc.c` and `pc_overrides.c` |
-| `benefactor-pc/src/pc_overrides.c` | Native C overrides for broken recompiled functions |
-| `benefactor-pc/tools/recomp/recomp.py` | 68k→C static recompiler (Python + capstone) |
-| `benefactor-pc/tools/recomp/entries.py` | Entry points with descriptive function names |
+| `src/recomp/rt.c` / `rt.h` | Memory routing, dispatch table, `M68KCtx` struct |
+| `src/recomp/hw.c` / `hw.h` | SDL2 hardware layer: OCS/CIA register shadows, rendering |
+| `src/generated/game.c` / `game.h` | **AUTO-GENERATED** by `recomp.py` — do not edit manually |
+| `src/pc.c` / `pc.h` | PC port core: frame loop, state machine, init/fini |
+| `src/pc_internal.h` | Shared declarations for `pc.c` and `pc_overrides.c` |
+| `src/pc_overrides.c` | Native C overrides for broken recompiled functions |
+| `tools/recomp/recomp.py` | 68k→C static recompiler (Python + capstone) |
+| `tools/recomp/entries.py` | Entry points with descriptive function names |
 | `chip_ram_dump.bin` | Extracted 68k binary (148526 bytes @ offset `$3000` from `chip_ram_dump.bin`) |
 
 **Do not delete `src/generated/game.c`** unless forcing a recompile. Sources in `src/amiga/` and `src/platform/` are **not compiled**.
 
 To manually recompile:
 ```bash
-python3 benefactor-pc/tools/recomp/recomp.py benefactor-pc/build/chip_ram_dump.bin \
-    --out-c benefactor-pc/src/generated/game.c --out-h benefactor-pc/src/generated/game.h
+python3 tools/recomp/recomp.py build/chip_ram_dump.bin \
+    --out-c src/generated/game.c --out-h src/generated/game.h
 ```
 
 ---

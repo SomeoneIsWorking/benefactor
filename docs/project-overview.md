@@ -17,7 +17,7 @@ Two prior sessions built a full Musashi + OCS/CIA emulator. It was abandoned bec
 | File | Description |
 |------|-------------|
 | `chip_ram_dump.bin` | 512 KB PUAE chip RAM snapshot used as runtime and recompilation input |
-| `whdload/Benefactor/Disk.1–3` | WHDLoad pre-processed disk images (user-supplied) |
+| `Disk.1–3` | WHDLoad pre-processed disk images (user-supplied) |
 
 ## Architecture
 

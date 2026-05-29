@@ -13,7 +13,7 @@ gameplay seed addresses into gp_seeds.txt (consumed by the build's recompile of
 the gp bank).  Mirrors discover_indirect.py for the intro bank.
 
 Run from the repo root (or anywhere; paths are resolved relative to this file):
-    python3 benefactor-pc/tools/recomp/discover_gp.py [--max-iters N]
+    python3 tools/recomp/discover_gp.py [--max-iters N]
 Requires the gameplay image at logs/chip_flow_256_0081D2.bin and the disks.
 """
 import os, re, subprocess, sys
@@ -28,11 +28,11 @@ BIN    = os.path.join(BUILD, "benefactor-harness")
 SEEDS  = os.path.join(HERE, "gp_seeds.txt")
 IMAGE  = os.path.join(ROOT, "logs", "chip_flow_256_0081D2.bin")
 
-DISKS  = ["Hard Drives/DEVS/Kickstarts",
-          "whdload/Benefactor/Benefactor.slave",
-          "whdload/Benefactor/Disk.1",
-          "whdload/Benefactor/Disk.2",
-          "whdload/Benefactor/Disk.3"]
+DISKS  = ["harness",
+          "harness/Benefactor.slave",
+          "Disk.1",
+          "Disk.2",
+          "Disk.3"]
 
 INIT_SEEDS = [0x3330, 0x3532, 0x3544]   # entry + level-3 + level-6 IRQ vectors
 FIRE       = "170,216,262,308,354,400,446,492,538"  # pulse train to the menu

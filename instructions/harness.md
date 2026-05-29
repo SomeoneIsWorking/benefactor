@@ -138,7 +138,7 @@ hw_present_frame()                  ← snap captured HERE
 ## Build & Run Commands (DO NOT CHANGE)
 ```bash
 # Build harness
-cd <repo>/benefactor-pc/build && cmake --build . --target benefactor-harness -j$(nproc)
+cd <repo>/build && cmake --build . --target benefactor-harness -j$(nproc)
 
 # Run harness (headless, 3 frames, 600 boot frames)
 cd <repo> && bash run_harness_headless.sh 2>&1 | tee logs/harness_run.txt
@@ -150,7 +150,7 @@ cd <repo> && bash run_harness_interactive.sh
 cd <repo> && bash run_harness_interactive.sh --frames 0
 
 # Run recompiler tests
-cd <repo> && python3 benefactor-pc/tools/test_recomp.py
+cd <repo> && python3 tools/test_recomp.py
 ```
 
 ## Native Override Pattern

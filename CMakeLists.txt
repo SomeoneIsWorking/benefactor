@@ -21,7 +21,7 @@ find_package(SDL2 REQUIRED)
 # Canonical source: chip_ram_dump.bin at repository root.
 # Generate/update it from ROMs + WHDLoad disks with:
 #   python3 tools/extract_chipram_from_roms.py --output chip_ram_dump.bin
-set(CHIP_DUMP_INPUT "${CMAKE_CURRENT_SOURCE_DIR}/../chip_ram_dump.bin")
+set(CHIP_DUMP_INPUT "${CMAKE_CURRENT_SOURCE_DIR}/chip_ram_dump.bin")
 
 # ── Recompiler (68k → C) ─────────────────────────────────────────────────────
 # NOTE: these set() calls must appear before add_custom_command so the OUTPUT
@@ -48,20 +48,20 @@ set(GAME_SRCS
 # (run from repo root; --seed MUST be the FULL list from tools/recomp/gp_seeds.txt,
 # not just 3330 — the extra seeds are indirectly-reached entries that static
 # descent from 3330 alone misses, dropping ~16 of the 44 functions):
-#   SEEDS=$(cat benefactor-pc/tools/recomp/gp_seeds.txt)
-#   python3 benefactor-pc/tools/recomp/recomp.py logs/chip_flow_256_0081D2.bin \
+#   SEEDS=$(cat tools/recomp/gp_seeds.txt)
+#   python3 tools/recomp/recomp.py logs/chip_flow_256_0081D2.bin \
 #     --chip-dump --base 3000 --code-size 46000 --seed "$SEEDS" \
-#     --bank gp --areg 5=511E --out-dir benefactor-pc/src/generated
+#     --bank gp --areg 5=511E --out-dir src/generated
 # Committed as source for now (no auto-regen until a canonical gameplay image
 # artifact is checked in). rt.c selects this bank when g_overlay_active.
 #
 # The gameplay-engine bank (game_gpl_*) is generated MANUALLY (no auto-regen).
 # The seed list is tracked + annotated in tools/recomp/gpl_seeds.txt (the
 # indirect-dispatch targets static descent can't reach). Regenerate with:
-#   python3 benefactor-pc/tools/recomp/recomp.py logs/gmem_after_load.bin \
+#   python3 tools/recomp/recomp.py logs/gmem_after_load.bin \
 #     --chip-dump --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-#     --out-dir benefactor-pc/src/generated \
-#     --seed "$(cat benefactor-pc/tools/recomp/gpl_seeds.txt)"
+#     --out-dir src/generated \
+#     --seed "$(cat tools/recomp/gpl_seeds.txt)"
 # (RECOMP_FOLD_LOOPS unset = goto-based DBcc, always compiles.)
 # A skipped call = dropped work = corrupt state, so rt.c HARD-ERRORS on a
 # gameplay-bank miss. Discover new seeds by running gameplay and watching for

@@ -23,11 +23,11 @@ def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default="chip_ram_dump.bin", help="Output chip RAM dump path")
-    parser.add_argument("--kick-dir", default="Hard Drives/DEVS/Kickstarts", help="Kickstart directory")
-    parser.add_argument("--whdload", default="whdload/Benefactor/Benefactor.slave", help="WHDLoad install file path")
-    parser.add_argument("--disk1", default="whdload/Benefactor/Disk.1", help="Disk 1 path")
-    parser.add_argument("--disk2", default="whdload/Benefactor/Disk.2", help="Disk 2 path")
-    parser.add_argument("--disk3", default="whdload/Benefactor/Disk.3", help="Disk 3 path")
+    parser.add_argument("--kick-dir", default="harness", help="Kickstart directory")
+    parser.add_argument("--whdload", default="harness/Benefactor.slave", help="WHDLoad install file path")
+    parser.add_argument("--disk1", default="Disk.1", help="Disk 1 path")
+    parser.add_argument("--disk2", default="Disk.2", help="Disk 2 path")
+    parser.add_argument("--disk3", default="Disk.3", help="Disk 3 path")
     parser.add_argument("--build", action="store_true", help="Build benefactor-harness before extracting")
     args = parser.parse_args()
 
@@ -38,11 +38,11 @@ def main() -> int:
     out_path = (repo / args.output).resolve() if not os.path.isabs(args.output) else Path(args.output)
 
     if args.build:
-        cfg_rc = run(["cmake", "-S", "benefactor-pc", "-B", "benefactor-pc/build", "-DCMAKE_BUILD_TYPE=Debug"], repo)
+        cfg_rc = run(["cmake", "-S", "benefactor-pc", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"], repo)
         if cfg_rc != 0:
             return cfg_rc
         jobs = str(os.cpu_count() or 4)
-        bld_rc = run(["cmake", "--build", "benefactor-pc/build", "--target", "benefactor-harness", "-j", jobs], repo)
+        bld_rc = run(["cmake", "--build", "build", "--target", "benefactor-harness", "-j", jobs], repo)
         if bld_rc != 0:
             return bld_rc
 

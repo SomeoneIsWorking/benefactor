@@ -16,22 +16,22 @@ Hashes are SHA-256.
 
 ### To play the game (standalone PC port)
 
-Just the three disk images:
+Drop the three disk images at the repo root:
 
 ```
-whdload/Benefactor/Disk.1                         25416a6e390cbe94e4b2375c9513a2adf3411072fc5b6069ea34a0f3ff697916  (1003520 bytes)
-whdload/Benefactor/Disk.2                         f3649c8db4adfce3c7da5e21cb018be098404771eceeec44741c2528e9071b73  (1003520 bytes)
-whdload/Benefactor/Disk.3                         8dd262d02174a6706d5214b25f7bd9fc4bffe94761e16c209b880bc1dd8e7a42  (1003520 bytes)
+Disk.1                                            25416a6e390cbe94e4b2375c9513a2adf3411072fc5b6069ea34a0f3ff697916  (1003520 bytes)
+Disk.2                                            f3649c8db4adfce3c7da5e21cb018be098404771eceeec44741c2528e9071b73  (1003520 bytes)
+Disk.3                                            8dd262d02174a6706d5214b25f7bd9fc4bffe94761e16c209b880bc1dd8e7a42  (1003520 bytes)
 ```
 
 ### To run the PC↔PUAE comparison harness (development only)
 
-The harness boots PUAE as a reference, so it also needs the Kickstart ROM, its decryption key, and the WHDLoad install file:
+The harness boots PUAE as a reference, so it also needs the Kickstart ROM, its decryption key, and the WHDLoad install file in a `harness/` directory:
 
 ```
-whdload/Benefactor/Benefactor.slave               7ee0edba0e0f3eb8da38fb3aaccead4324e7aa12a6d99ad81a9c15ecf33d4670  (1084 bytes)
-Hard Drives/DEVS/Kickstarts/kick40068.A1200       6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707  (524288 bytes)
-Hard Drives/DEVS/Kickstarts/rom.key               9e0677ae0979a5d9dc4d03ccc063b58bc36561dca98a3ef81df1c1c7f398a98e  (1544 bytes)
+harness/Benefactor.slave                          7ee0edba0e0f3eb8da38fb3aaccead4324e7aa12a6d99ad81a9c15ecf33d4670  (1084 bytes)
+harness/kick40068.A1200                           6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707  (524288 bytes)
+harness/rom.key                                   9e0677ae0979a5d9dc4d03ccc063b58bc36561dca98a3ef81df1c1c7f398a98e  (1544 bytes)
 ```
 
 Verify any of them with `sha256sum -c` against the lines above.
@@ -40,8 +40,8 @@ Verify any of them with `sha256sum -c` against the lines above.
 
 ```bash
 git submodule update --init --recursive
-cmake -S benefactor-pc -B benefactor-pc/build
-cmake --build benefactor-pc/build -j"$(nproc)"
+cmake -S . -B build
+cmake --build build -j"$(nproc)"
 ```
 
 ## Run
@@ -74,11 +74,11 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 
 | Path | Role |
 |------|------|
-| `benefactor-pc/src/pc.c` | Native game loop |
-| `benefactor-pc/src/recomp/` | Recompiler runtime (hw / blitter / copper / native renderer) |
-| `benefactor-pc/src/pc_overrides_*.c` | Hand-written C replacements for recompiled M68K functions |
-| `benefactor-pc/src/generated/` | Recompiler output (M68K → C) |
-| `benefactor-pc/tools/recomp/` | Python recompiler (regenerates `generated/`) |
-| `benefactor-pc/vendor/libretro-uae/` | PUAE reference, used by the comparison harness |
+| `src/pc.c` | Native game loop |
+| `src/recomp/` | Recompiler runtime (hw / blitter / copper / native renderer) |
+| `src/pc_overrides_*.c` | Hand-written C replacements for recompiled M68K functions |
+| `src/generated/` | Recompiler output (M68K → C) |
+| `tools/recomp/` | Python recompiler (regenerates `generated/`) |
+| `vendor/libretro-uae/` | PUAE reference, used by the comparison harness |
 
 See `CLAUDE.md` and `AGENTS.md` for the development workflow.

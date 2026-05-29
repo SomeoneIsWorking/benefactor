@@ -17,10 +17,10 @@ python3 tools/extract_chipram_from_roms.py --build --output chip_ram_dump.bin
 ## Step 2 — Run the recompiler from chip dump
 
 ```bash
-python3 benefactor-pc/tools/recomp/recomp.py \
+python3 tools/recomp/recomp.py \
     chip_ram_dump.bin --chip-dump \
-    --out-c benefactor-pc/src/generated/game.c \
-    --out-h benefactor-pc/src/generated/game.h
+    --out-c src/generated/game.c \
+    --out-h src/generated/game.h
 ```
 
 ## Step 3 — CMake build
@@ -44,11 +44,11 @@ cmake --build . --parallel 4
 
 ```bash
 cd <repo>
-./benefactor-pc/build/benefactor-pc \
+./build/benefactor-pc \
     chip_ram_dump.bin \
-    whdload/Benefactor/Disk.1 \
-    whdload/Benefactor/Disk.2 \
-    whdload/Benefactor/Disk.3
+    Disk.1 \
+    Disk.2 \
+    Disk.3
 ```
 
 **Controls:**
