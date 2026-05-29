@@ -1,0 +1,72 @@
+# Build & Run
+
+## Prerequisites
+
+- GCC 15.2, CMake 3.31
+- SDL2 system library (`libsdl2-dev`)
+- Python 3.14 + capstone: `pip install capstone`
+
+## Step 1 — Extract PUAE chip RAM dump from ROMs/disks
+
+```bash
+cd <repo>
+python3 tools/extract_chipram_from_roms.py --build --output chip_ram_dump.bin
+# Produces: chip_ram_dump.bin
+```
+
+## Step 2 — Run the recompiler from chip dump
+
+```bash
+python3 benefactor-pc/tools/recomp/recomp.py \
+    chip_ram_dump.bin --chip-dump \
+    --out-c benefactor-pc/src/generated/game.c \
+    --out-h benefactor-pc/src/generated/game.h
+```
+
+## Step 3 — CMake build
+
+```bash
+cd benefactor-pc
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Debug
+cmake --build . --parallel 4
+```
+
+The CMakeLists.txt **no longer uses Musashi**. It runs the recompiler against `chip_ram_dump.bin` as a build step.
+
+To force a clean recompile:
+```bash
+rm src/generated/game.c src/generated/game.h
+cmake --build . --parallel 4
+```
+
+## Step 4 — Run
+
+```bash
+cd <repo>
+./benefactor-pc/build/benefactor-pc \
+    chip_ram_dump.bin \
+    whdload/Benefactor/Disk.1 \
+    whdload/Benefactor/Disk.2 \
+    whdload/Benefactor/Disk.3
+```
+
+**Controls:**
+| Key | Action |
+|-----|--------|
+| Arrow keys | Move / joystick direction |
+| Z or Left Ctrl | Fire button |
+| F11 | Toggle fullscreen |
+| Escape | Quit |
+
+## Debugging Tips
+
+- Build with `-DCMAKE_BUILD_TYPE=Debug` — adds `-g`, no `-O2`
+- `fprintf(stderr, ...)` goes to terminal; no log files needed
+- `rt.c` `is_hw()` gate: addresses `$BFD000`, `$BFE000`, `$DFF000` are hardware — everything else is plain RAM
+- To trace hardware register writes, add prints to `hw_write16()` in `hw.c`
+- `hw_present_frame()` is the vsync point — the game's vblank poll loop terminates here
+
+## Old Emulator Build (reference only)
+
+The old Musashi-based build is preserved in `src/amiga/` and `src/platform/` but is **not compiled**. `src/main.c` is the old entry point. The new entry is `src/recomp_main.c`.

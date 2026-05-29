@@ -1,0 +1,29 @@
+# Build output
+benefactor-pc/build/
+benefactor-pc/build-*/
+
+# User-supplied copyrighted content (see README.md)
+/Hard Drives/
+/whdload/
+
+# Game memory dumps / extracted assets (regenerable from your own disks)
+chip_ram_dump.bin
+chip_ram_dump.*.bin
+assets.bin
+/assets/
+game_binary.bin
+game_data.bin
+
+# Runtime logs / framebuffer dumps / traces
+/logs/
+/benefactor-pc/logs/
+frame_dump.bmp
+blit_trace_pc.txt
+*.gdb
+
+# Editor / OS / Python
+__pycache__
+*.pyc
+.DS_Store
+.claude/
+.vscode/
