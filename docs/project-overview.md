@@ -44,7 +44,7 @@ src/generated/game.h   – forward decls + dispatch table
 | A7 / SP | `ctx->A[7]` |
 | CCR | `ctx->N`, `ctx->Z`, `ctx->V`, `ctx->C`, `ctx->X` |
 
-## Initial CPU State (from WHDLoad slave)
+## Initial CPU State (from WHDLoad install file)
 
 ```c
 ctx.A[7] = 0x07FFF0;   // Stack pointer

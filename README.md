@@ -8,7 +8,7 @@ A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosi
   <img src="screenshots/game-over.png" alt="Continue / Game Over menu" width="320" />
 </p>
 
-The repository does **not** include the original game disks, the Kickstart ROM, or the WHDLoad slave — they're copyrighted. You must supply your own copies.
+The repository does **not** include the original game disks, the Kickstart ROM, or the WHDLoad install file — they're copyrighted. You must supply your own copies.
 
 ## Required files (you provide)
 
@@ -26,7 +26,7 @@ whdload/Benefactor/Disk.3                         8dd262d02174a6706d5214b25f7bd9
 
 ### To run the PC↔PUAE comparison harness (development only)
 
-The harness boots PUAE as a reference, so it also needs the Kickstart ROM, its decryption key, and the WHDLoad slave:
+The harness boots PUAE as a reference, so it also needs the Kickstart ROM, its decryption key, and the WHDLoad install file:
 
 ```
 whdload/Benefactor/Benefactor.slave               7ee0edba0e0f3eb8da38fb3aaccead4324e7aa12a6d99ad81a9c15ecf33d4670  (1084 bytes)
