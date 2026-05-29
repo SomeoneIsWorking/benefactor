@@ -2,6 +2,12 @@
 
 A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosis / Digital Illusions), driven by a hand-written C engine plus a recompiler that translates the original M68K binary subsystem-by-subsystem.
 
+<p align="center">
+  <img src="screenshots/cavern.png" alt="In-game: cavern with the player, a boulder and a rescued merry man" width="320" />
+  <img src="screenshots/level-complete.png" alt="Level Complete banner with password" width="320" />
+  <img src="screenshots/game-over.png" alt="Continue / Game Over menu" width="320" />
+</p>
+
 The repository does **not** include the original game disks, the Kickstart ROM, or the WHDLoad slave — they're copyrighted. You must supply your own copies.
 
 ## Required files (you provide)
