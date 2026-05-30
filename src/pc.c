@@ -236,34 +236,44 @@ void pc_preload_all_level_names(void)
      * scratch is $700000 — same area we use for per-world chunks below
      * (we just reuse it; per-world load happens after we've extracted
      * the table from this scratch). */
-    uint32_t cursor = 0x577452u;
-    int loaded_table_scratch = 0;
-    if (RD32(0x577452u) == 0u) {
-        /* Table not in chip RAM yet. Load overlay chunk 2 ($0689BE on
-         * Disk.1, $012A1C compressed bytes, decrunches to ~$1D000 bytes)
-         * to scratch. */
-        if (disk_boot_load(1, 0x0689BEu, scratch, 0x012A1Cu) > 0
-            && atn_decrunch(scratch) != 0) {
-            cursor = scratch + (0x577452u - 0x577000u);
-            loaded_table_scratch = 1;
+    /* Pass 1: WALK the world-descriptor table at $577452 and snapshot
+     * each world's last-chunk (src, len) into locals. We have to do this
+     * first because the per-world chunk loads in pass 2 reuse the same
+     * scratch buffer ($700000) and would clobber the table we're walking.
+     *
+     * If $577452 is zero in chip RAM (overlay not loaded yet), load the
+     * overlay's chunk-2 (Disk.1 \$0689BE, len \$012A1C) into scratch to
+     * read the table from there. After pass 1 we no longer need the
+     * chunk-2 data — pass 2 can freely overwrite scratch. */
+    uint32_t per_world_src[7] = {0};
+    uint32_t per_world_len[7] = {0};
+    {
+        uint32_t cursor = 0x577452u;
+        uint32_t cursor_end = 0x577800u;
+        if (RD32(0x577452u) == 0u) {
+            if (disk_boot_load(1, 0x0689BEu, scratch, 0x012A1Cu) > 0
+                && atn_decrunch(scratch) != 0) {
+                cursor     = scratch + (0x577452u - 0x577000u);
+                cursor_end = scratch + (0x577800u - 0x577000u);
+            }
+        }
+        for (int world = 0; world < 7; world++) {
+            uint32_t last_src = 0, last_len = 0;
+            while (cursor < cursor_end && RD32(cursor) != 0) {
+                last_src = RD32(cursor + 4);
+                last_len = RD32(cursor + 8);
+                cursor += 12;
+            }
+            cursor += 4;  /* skip the zero terminator */
+            per_world_src[world] = last_src;
+            per_world_len[world] = last_len;
         }
     }
-    /* Adjust the table walk's $577800 upper bound when reading from
-     * scratch — the table is at the same offset within the chunk. */
-    uint32_t cursor_end = loaded_table_scratch
-                          ? scratch + (0x577800u - 0x577000u)
-                          : 0x577800u;
-    for (int world = 0; world < 7; world++) {
-        /* Walk this world's chunks: each chunk = 3 longwords
-         * (dest_metadata, src_encoded, length). Track the last one. */
-        uint32_t last_src = 0, last_len = 0;
-        while (cursor < cursor_end && RD32(cursor) != 0) {
-            last_src = RD32(cursor + 4);
-            last_len = RD32(cursor + 8);
-            cursor += 12;
-        }
-        cursor += 4;  /* skip the zero terminator */
 
+    /* Pass 2: per-world chunk load + name extraction. */
+    for (int world = 0; world < 7; world++) {
+        uint32_t last_src = per_world_src[world];
+        uint32_t last_len = per_world_len[world];
         if (last_src == 0 || last_len == 0 || last_len > 0x20000u) continue;
 
         /* src_encoded = (disk_offset << 8) | (zero-based disk index). */
