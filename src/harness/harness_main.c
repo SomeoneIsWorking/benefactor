@@ -212,6 +212,16 @@ int main(int argc, char **argv)
             extern void pc_set_start_level(int);
             pc_set_start_level(n);
         }
+        else if (!strcmp(cmd, "runtomenu")) {  /* runtomenu [maxframes] — step PC until native title menu fires */
+            extern int g_pc_in_native_title_menu;
+            unsigned maxf = 30000; sscanf(line, "%*s %u", &maxf);
+            unsigned i = 0;
+            for (; i < maxf; i++) { STEP_PC(); if (g_pc_in_native_title_menu) break; }
+            FrameState c; hw_get_snap(&c);
+            printf("[crepl] runtomenu: %s after %u frames (cop1lc=$%06X)\n",
+                   g_pc_in_native_title_menu ? "REACHED" : "gave up",
+                   i + (i < maxf), c.cop1lc);
+        }
         else if (!strcmp(cmd, "runtocard")) {  /* runtocard [maxframes] — step PC until TITLE CARD shows */
             extern int pc_is_title_card_displayed(void);
             unsigned maxf = 5000; sscanf(line, "%*s %u", &maxf);
