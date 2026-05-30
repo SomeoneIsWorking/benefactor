@@ -422,3 +422,8 @@
 589732
 589D54
 596E90
+
+# Native-overridden gpl entries (referenced by src/pc_overrides_gameplay.c)
+578C3E
+5782B4
+59DC02

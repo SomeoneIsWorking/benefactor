@@ -184,6 +184,16 @@ extern int rt_callstack_sp;
 
 void rt_trace_insn(uint32_t addr, const char *mnemonic, M68KCtx *ctx);
 void rt_dump_state(M68KCtx *ctx);
+
+/* The generated code wraps every instruction in this macro so it expands to a
+ * single line per instruction. When RT_TRACE_INSNS is defined the macro emits
+ * the rt_trace_insn call (used by the per-instruction PC ring buffer that the
+ * watchdog dumps on freeze); otherwise it's a no-op. */
+#ifdef RT_TRACE_INSNS
+# define RT_TRACE_INSN(addr, mnem) rt_trace_insn((addr), (mnem), ctx)
+#else
+# define RT_TRACE_INSN(addr, mnem) ((void)0)
+#endif
 void rt_push_call(uint32_t addr);
 void rt_pop_call(void);
 
