@@ -318,20 +318,42 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
     uint16_t cursor = MR16(ctx->A[5] - 6334u);
 
     if (cursor == 1u) {
-        /* LEVEL SELECT — mirror the original PLAY GAME exit path at
-         * $003AF4..$003B08 BEFORE rt_jump($150). Skipping these caused
-         * stale title-bank IRQ vectors ($003532 / $005694) to fire
-         * after overlay load and crash with an rt-miss, since those
-         * addresses are now overlay code that isn't in the registered
-         * function set (see [[project-card-freeze-chain]] —
-         * "Stale IRQ vectors during load").
-         *
-         *   $003AF4: move.w #$7FFF, $94(a6)   ; INTREQ — clear all pending IRQs
-         *   $003AFA: move.w #$7FFF, $98(a6)   ; ADKCON — clear audio mod
-         *   $003B00: lea    $80000.l, a7     ; reset SP to $80000
-         *   $003B06: moveq  #0, d0
-         *   $003B08: jmp    $150              ; overlay loader hand-off
-         */
+        /* LEVEL SELECT — open the interactive picker. The user picks a
+         * level here (joy UP/DOWN cycles 1..60, FIRE confirms), THEN we
+         * do the gameplay hand-off. The engine's per-frame work (audio,
+         * music, copper) keeps running because hw_vblank_wait() yields
+         * one frame per iteration, but the menu state machine is parked
+         * here until we return — no risk of $003C5A et al. double-handling
+         * the arrows. */
+        extern void hw_vblank_wait(void);
+        extern int  hw_joy_up(void);
+        extern int  hw_joy_down(void);
+        extern int  hw_get_fire(void);
+        extern int  g_level_select_visible;
+        extern void pc_set_start_level(int);
+        extern int  pc_get_start_level(void);
+
+        g_level_select_visible = 1;
+
+        /* Wait for the entry fire press to release so we don't read it
+         * as the confirm. */
+        while (hw_get_fire()) hw_vblank_wait();
+
+        int prev_up = 0, prev_down = 0;
+        for (;;) {
+            hw_vblank_wait();
+            int u = hw_joy_up(), d = hw_joy_down(), f = hw_get_fire();
+            if (u && !prev_up) pc_set_start_level(pc_get_start_level() - 1);
+            if (d && !prev_down) pc_set_start_level(pc_get_start_level() + 1);
+            prev_up = u; prev_down = d;
+            if (f) break;
+        }
+        g_level_select_visible = 0;
+
+        /* Same exit setup as the engine's PLAY GAME path
+         * ($003AF4..$003B08). The INTREQ clear matters: stale title-bank
+         * vector handlers ($003532 / $005694) fire post-overlay-load
+         * otherwise and crash. */
         MW16(ctx->A[6] + 0x94u, 0x7FFFu);
         MW16(ctx->A[6] + 0x98u, 0x7FFFu);
         ctx->A[7] = 0x00080000u;
