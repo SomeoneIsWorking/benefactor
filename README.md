@@ -26,13 +26,14 @@ Disk.3                                            8dd262d02174a6706d5214b25f7bd9
 
 ### To run the PC↔PUAE comparison harness (development only)
 
-The harness boots PUAE as a reference, so it also needs the Kickstart ROM, its decryption key, and the WHDLoad install file in a `harness/` directory:
+The harness boots PUAE as a reference, so it also needs the Kickstart 3.1 A1200 ROM and the WHDLoad install file in a `harness/` directory:
 
 ```
 harness/Benefactor.slave                          7ee0edba0e0f3eb8da38fb3aaccead4324e7aa12a6d99ad81a9c15ecf33d4670  (1084 bytes)
 harness/kick40068.A1200                           6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707  (524288 bytes)
-harness/rom.key                                   9e0677ae0979a5d9dc4d03ccc063b58bc36561dca98a3ef81df1c1c7f398a98e  (1544 bytes)
 ```
+
+If you're using a Cloanto/AmigaForever encrypted Kickstart instead, also drop the matching `harness/rom.key` next to it — PUAE will pick it up automatically. The unencrypted ROM hashed above needs no key.
 
 Verify any of them with `sha256sum -c` against the lines above.
 
