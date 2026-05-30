@@ -103,6 +103,37 @@ void pc_debug_game_over(void)
     g_mem[0x0057FEBEu] |= 0x80;
 }
 
+/* Native level-select. $20.w (low chip mem) is the SELECTED start-level
+ * (1..60), validated at the title password screen ($003A40 clamps to $3c =
+ * 60 without the "secret" flag at $38, $5a = 90 with it). When the title
+ * "start game" path runs (jmp $150 -> native_overlay_loader_reloc), the
+ * gameplay overlay's dispatcher at $5779AA reads $20.w, subtracts 1, and
+ * indexes the level table at $57782E (60 entries, 4 bytes each =
+ * world+level_in_world). So pre-writing $20.w == N picks level N directly,
+ * without touching the level-complete flow.
+ *
+ * pc_set_start_level(N) is the API the UI calls. We also adjust $1c.w
+ * (paired password seed) — the title clamps it to <= $bf = 191. Any value
+ * works; we leave it untouched. */
+void pc_set_start_level(int n)
+{
+    extern uint8_t *g_mem;
+    if (!g_mem) return;
+    if (n < 1)  n = 1;
+    if (n > 60) n = 60;   /* without the secret flag at $38; with it, 90 */
+    g_mem[0x20] = 0;
+    g_mem[0x21] = (uint8_t)n;
+    fprintf(stderr, "[level-select] $20.w = %d\n", n);
+}
+
+/* Read current $20.w. */
+int pc_get_start_level(void)
+{
+    extern uint8_t *g_mem;
+    if (!g_mem) return 1;
+    return ((int)g_mem[0x20] << 8) | g_mem[0x21];
+}
+
 int pc_step(void)
 {
     if (!hw_running) return 1;

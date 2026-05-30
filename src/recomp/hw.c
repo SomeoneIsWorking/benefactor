@@ -289,6 +289,14 @@ void hw_handle_key(int sym, int down)
     case SDLK_TAB: /* cycle real-time speed 1x -> 2x -> 4x */
         if (down) hw_cycle_speed();
         break;
+    case SDLK_F2: /* level-select: next start level (write $20.w) */
+        if (down) { extern void pc_set_start_level(int); extern int pc_get_start_level(void);
+                    pc_set_start_level(pc_get_start_level() + 1); }
+        break;
+    case SDLK_F3: /* level-select: previous start level */
+        if (down) { extern void pc_set_start_level(int); extern int pc_get_start_level(void);
+                    pc_set_start_level(pc_get_start_level() - 1); }
+        break;
     default: break;
     }
 }
