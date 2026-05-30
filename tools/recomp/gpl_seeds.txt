@@ -418,3 +418,7 @@
 59E576
 59E57A
 59E584
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+589732
+589D54
+596E90

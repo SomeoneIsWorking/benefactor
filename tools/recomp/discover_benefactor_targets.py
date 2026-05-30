@@ -63,15 +63,17 @@ DEFAULT_SEEDS = REPO / "tools" / "recomp" / "gpl_seeds.txt"
 CODE_LO = 0x577000
 CODE_HI = 0x5A0000
 
-# Function-entry opcodes we've observed in this binary. Broader than the
-# strict movem-only patterns the walker used originally — Benefactor handler
-# entries sometimes start with a bra.w trampoline or a movem.l to a buffer.
+# Function-entry opcodes we've observed in this binary. We want to be
+# permissive enough to accept anything the game's handlers actually start
+# with (some lead with `lea $X(pc),An` for self-relative data, some with a
+# direct `move.w from $X(a5)` register read, etc.) while still rejecting
+# random data bytes.
 def is_entry_opcode(op_high: int, op_full: int) -> bool:
     # movem.w (a0),<mask>  family: $4C90..$4C9F
     if (op_full & 0xFFF0) == 0x4C90:
         return True
-    # movem.w d16(a0),<mask>: $4CA8 + d16 byte after — common when saving
-    # to a per-object scratch buffer rather than the stack.
+    # movem.w d16(a0),<mask>: $4CA8..$4CAF + d16 byte after — common when
+    # saving to a per-object scratch buffer rather than the stack.
     if (op_full & 0xFFF8) == 0x4CA8:
         return True
     # movem.l <mask>,-(a7) at function entry: $48E7
@@ -80,6 +82,24 @@ def is_entry_opcode(op_high: int, op_full: int) -> bool:
     # bra.w trampoline: $6000 + signed disp16
     if op_full == 0x6000:
         return True
+    # link an,#imm: $4E50..$4E57 — classic stack-frame setup
+    if 0x4E50 <= op_full <= 0x4E57:
+        return True
+    # lea $disp(pc),An: $41FA..$4FFA in steps of 0x200 (any An). Used by
+    # object handlers that start by loading their own data area.
+    if (op_full & 0xF1FF) == 0x41FA:
+        return True
+    # lea ea,An: $41C0..$4FFF general lea encoding (a wider net).
+    # bit pattern: 0100 RRR 111 mmm rrr where mode 7/2 is d16(PC) already
+    # covered above; the broader $41C8..$4FE8 (lea (An),An) is too common,
+    # so we stop at the safer lea-pc form.
+    # move.w $d16(a5),Dn: $3X2D (where X is the dest reg). Object handlers
+    # often start by loading a state byte from the a5 work area.
+    if (op_full & 0xF1FF) == 0x302D:
+        return True
+    # tst.w/tst.b/cmpi at function entry — sometimes the first thing a
+    # handler does is test an input register. Allow any of the OPxxx forms
+    # whose high byte is a known opcode family.
     return False
 
 
@@ -143,9 +163,14 @@ def disassemble_function(data: bytes, start: int) -> tuple[set[int], int]:
     max_addr = start
 
     def branch_target(insn):
-        for op in insn.operands:
-            if op.type == M68K_OP_BR_DISP:
-                return insn.address + 2 + op.br_disp.disp
+        try:
+            for op in insn.operands:
+                if op.type == M68K_OP_BR_DISP:
+                    return insn.address + 2 + op.br_disp.disp
+        except Exception:
+            # Capstone raises CsError when operands are accessed on a SKIPDATA
+            # instruction (a byte that doesn't decode). Treat as not-a-branch.
+            pass
         return None
 
     while queue:
@@ -269,6 +294,24 @@ def read_seeds(seeds_path: Path) -> set[int]:
     return out
 
 
+def read_registered_entries() -> set[int]:
+    """Read the FULL set of registered gpl entries from the generated table.
+    gpl_seeds.txt is only one of the recompiler's input sources (entries.py
+    and discovered.py contribute too); the generated table is the union, so
+    this is what we should diff against."""
+    import re
+    out: set[int] = set()
+    table = REPO / "src" / "generated" / "game_gpl_table.c"
+    if not table.exists():
+        return out
+    pat = re.compile(r"\{\s*0x([0-9A-Fa-f]+)u,")
+    for line in table.read_text().splitlines():
+        m = pat.search(line)
+        if m:
+            out.add(int(m.group(1), 16))
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -283,7 +326,11 @@ def main() -> int:
     args = parser.parse_args()
 
     seeds = read_seeds(Path(args.seeds))
-    print(f"existing seeds: {len(seeds)}")
+    # Union with the full registered-entry set from the generated table — the
+    # recompiler accepts entries from seeds.txt PLUS entries.py + discovered.py,
+    # and we should diff against the actual final set, not just seeds.txt.
+    seeds |= read_registered_entries()
+    print(f"existing seeds + registered entries: {len(seeds)}")
 
     a_bodies = discover_chain_bodies(Path(args.freeze))
     a_new = sorted(a_bodies - seeds)
@@ -304,15 +351,25 @@ def main() -> int:
     for t in c_new:
         print(f"    {t:06X}  (return-landing)")
 
-    new = sorted(set(a_new) | set(b_new) | set(c_new))
-    print(f"\ntotal NEW: {len(new)}")
+    # Only Pattern A is safe to auto-seed. Patterns B (cross-function branch
+    # targets) and C (return-landing points) point INSIDE an existing function,
+    # and creating a new gfn entry at a mid-function label duplicates the
+    # decoded body in two functions and breaks runtime. Use B/C as a
+    # diagnostic — fix the emitter (emit `goto L_X` for in-function bra.w)
+    # rather than splitting the function.
+    safe_new = sorted(a_new)
+    diag_new = sorted(set(b_new) | set(c_new))
+    print(f"\nsafe NEW (auto-seedable): {len(safe_new)}")
+    print(f"diagnostic NEW (B+C — DO NOT auto-seed): {len(diag_new)}")
 
-    if args.append and new:
+    if args.append and safe_new:
         with open(args.seeds, "a") as f:
-            f.write("# discover_benefactor_targets.py: chain bodies + cross-function branch targets\n")
-            for x in new:
+            f.write("# discover_benefactor_targets.py: object struct chain bodies (Pattern A)\n")
+            for x in safe_new:
                 f.write(f"{x:06X}\n")
-        print(f"appended {len(new)} to {args.seeds}")
+        print(f"appended {len(safe_new)} (Pattern A only) to {args.seeds}")
+    elif args.append:
+        print("nothing to append (Pattern B/C results are diagnostic-only)")
 
     return 0
 
