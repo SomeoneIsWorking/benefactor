@@ -1060,9 +1060,7 @@ def emit_func(c, addr, insns, translator, cname=None):
 
         mnem = insn.mnemonic.replace('\\"', '"').replace('\\n', ' ')
         c.write(f'  /* {a:06X}: {mnem} {insn.op_str} */\n')
-        c.write(f'#ifdef RT_TRACE_INSNS\n')
-        c.write(f'  rt_trace_insn(0x{a:06X}u, "{mnem}", ctx);\n')
-        c.write(f'#endif\n')
+        c.write(f'  RT_TRACE_INSN(0x{a:06X}u, "{mnem}");\n')
 
         text = translator.translate(insn)
         if text:
