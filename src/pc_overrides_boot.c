@@ -341,13 +341,14 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
         /* Wait for the entry fire press to release. */
         while (hw_get_fire()) hw_vblank_wait();
 
-        /* Helpers: count levels in world; convert (world, liw) -> global. */
-        #define WCOUNT(_w_) ({ int _c = 0; \
-            for (int _n = 1; _n <= 60; _n++) { int _ww, _ll; pc_level_split(_n, &_ww, &_ll); \
-                if (_ww == (_w_)) _c++; } _c; })
-        #define GLOBAL(_w_, _l_) ({ int _g = 1; \
-            for (int _n = 1; _n <= 60; _n++) { int _ww, _ll; pc_level_split(_n, &_ww, &_ll); \
-                if (_ww == (_w_) && _ll == (_l_)) { _g = _n; break; } } _g; })
+        /* Helpers: count levels in world; convert (world, liw) -> global.
+         * Fall back to the hardcoded world layout when the engine's table
+         * at $57782E reads garbage (which it does at this point in some
+         * boot states — pc_level_split returns world > 6). */
+        static const int s_wstart[7] = { 0, 9, 18, 28, 38, 48, 58 };
+        static const int s_wcount[7] = { 9, 9, 10, 10, 10, 10, 2 };
+        #define WCOUNT(_w_) ((_w_) >= 0 && (_w_) < 7 ? s_wcount[_w_] : 0)
+        #define GLOBAL(_w_, _l_) ((_w_) >= 0 && (_w_) < 7 ? s_wstart[_w_] + (_l_) + 1 : 1)
 
         int prev_u = 0, prev_d = 0, prev_l = 0, prev_r = 0;
         for (;;) {
@@ -358,6 +359,10 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
             int level = pc_get_start_level();
             int world = 0, liw = 0;
             pc_level_split(level, &world, &liw);
+            /* Same defensive clamp as the renderer — pc_level_split can
+             * return garbage if the engine's table isn't valid yet. */
+            if (world < 0 || world > 6) world = 0;
+            if (liw   < 0 || liw   > 9) liw   = 0;
             int liw_max = WCOUNT(world) - 1;
 
             /* UP/DOWN navigate level within current world (clamped, no wrap). */
