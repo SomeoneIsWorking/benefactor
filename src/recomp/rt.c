@@ -337,9 +337,17 @@ static NativeFn override_lookup(uint32_t addr)
      * the same addresses hold different loaded code with their own gpl-bank fns.
      * Outside gameplay, only the title/intro overrides (gp=0); and intro
      * overrides are skipped once the title-state overlay is live above $3294
-     * (those addresses hold different code), except the shared resident region. */
+     * (those addresses hold different code), except the shared resident region.
+     *
+     * EXCEPTION: a few title-menu-state addresses (e.g. $003C5A, the alternate
+     * entry to the menu-input handler) DO need overrides to fire even when
+     * g_overlay_active=1, because we're in the MENU state (g_overlay_active=1,
+     * g_gameplay_active=0 — fire hasn't entered gameplay yet) and the engine
+     * still calls the title-bank code there. Allow-list those. */
     int want_gp = g_gameplay_active ? 1 : 0;
-    if (!want_gp && g_overlay_active && addr >= 0x3294u)
+    int allow_in_menu = (addr == 0x003C5Au || addr == 0x003C6Eu ||
+                         addr == 0x003C88u || addr == 0x003C9Au);
+    if (!want_gp && g_overlay_active && addr >= 0x3294u && !allow_in_menu)
         return NULL;
     for (int i = 0; i < g_override_count; i++) {
         if (g_overrides[i].addr == addr && g_overrides[i].gp == want_gp)
@@ -424,6 +432,16 @@ static GameFn dispatch_lookup(uint32_t addr)
  * (with the caller address) when hunting missing functions. */
 static void rt_miss(uint32_t addr, M68KCtx *ctx)
 {
+    /* Targeted miss trace: log full call stack for specific addrs. */
+    if (addr == 0x003C5Au) {
+        fprintf(stderr, "[miss-trace] $%06X miss; call stack (sp=%d):\n", addr, rt_callstack_sp);
+        for (int i = rt_callstack_sp - 1; i >= 0 && i >= rt_callstack_sp - 16; i--) {
+            fprintf(stderr, "  [%d] $%06X\n", i, rt_callstack[i]);
+        }
+        fprintf(stderr, "  D0=%08X D1=%08X D2=%08X D6=%08X D7=%08X\n",
+                ctx->D[0], ctx->D[1], ctx->D[2], ctx->D[6], ctx->D[7]);
+        fflush(stderr);
+    }
     /* Collect every DISTINCT missing call target to stderr (one run → full list
      * of functions to seed). A skipped call drops the function's work entirely,
      * corrupting state — so for the gameplay bank these must all be resolved. */

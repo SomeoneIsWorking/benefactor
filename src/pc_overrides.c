@@ -29,14 +29,22 @@ void pc_register_overrides(void)
      * title IRQ calls it there to start the game (the path that actually fires). */
     rt_register_override(0x006D714u, native_overlay_loader);
     rt_register_override(0x00000150u, native_overlay_loader_reloc);
-    /* Title menu native override DISABLED — $003872 turns out NOT to be the
-     * title menu in the normal flow (verified: instrumenting the override
-     * with a g_pc_in_native_title_menu flag and stepping 30000 frames with
-     * no input never fires it; the engine stays in $0064A0 with rt-misses
-     * on $0033E2, $00646E, $005C84). Need to actually trace which fn IS
-     * the title menu before re-attempting the override. */
-    /* { extern void native_title_menu(M68KCtx *ctx);
-         rt_register_override(0x00003872u, native_title_menu); } */
+    /* $003C5A / $003C6E / $003C88 / $003C9A — four arrow-direction handlers
+     * in the title menu (UP/DOWN/LEFT/RIGHT). Each is a short rts-terminated
+     * mini-routine that starts with the same `move.w #$384,$2BE2(a5)`
+     * instruction as gfn_gp_003872 and updates $E742(a5) (the menu cursor).
+     * The recompiler's scanner crashes when these are seeded (IndexError
+     * in emitter._pre_rd on the surrounding code shape). As a stop-gap,
+     * route all four to gfn_gp_003872 — that DOES handle a no-op pass
+     * (the menu loop keeps running). Means arrow navigation isn't 100%
+     * correct in the native build, but it no longer aborts. Replace
+     * with the native title menu (pc_overrides_title.c skeleton) once
+     * a stable menu-state entry-flag is identified. */
+    { extern void gfn_gp_003872(M68KCtx *ctx);
+      rt_register_override(0x00003C5Au, gfn_gp_003872);
+      rt_register_override(0x00003C6Eu, gfn_gp_003872);
+      rt_register_override(0x00003C88u, gfn_gp_003872);
+      rt_register_override(0x00003C9Au, gfn_gp_003872); }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */
     rt_register_override_gp(0x00577B8Cu, native_gp_disk_read);
