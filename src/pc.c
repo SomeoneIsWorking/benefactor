@@ -133,6 +133,87 @@ int pc_get_start_level(void)
     return g_pc_start_level > 0 ? g_pc_start_level : 1;
 }
 
+/* The 60-entry level table at $57782E maps $20.w (1..60) to (world, level_in_world).
+ * Decoded form: levels 1-9 = world 0, levels 10-18 = world 1, levels 19-28 = world 2,
+ * 29-38 = world 3, 39-48 = world 4, 49-58 = world 5, 59-60 = world 6. Note the
+ * irregularity: worlds 0-1 have 9 levels each, worlds 2-5 have 10.
+ *
+ * In code, ALWAYS use pc_level_split() rather than divmod-by-10 — it reads the
+ * real table out of g_mem so any data-driven shift stays correct. */
+void pc_level_split(int level, int *world_out, int *level_in_world_out)
+{
+    extern uint8_t *g_mem;
+    if (!g_mem || level < 1 || level > 60) {
+        if (world_out) *world_out = 0;
+        if (level_in_world_out) *level_in_world_out = 0;
+        return;
+    }
+    uint32_t addr = 0x57782Eu + (uint32_t)(level - 1) * 4u;
+    uint16_t world = ((uint16_t)g_mem[addr] << 8) | g_mem[addr + 1];
+    uint16_t liw   = ((uint16_t)g_mem[addr + 2] << 8) | g_mem[addr + 3];
+    if (world_out) *world_out = (int)world;
+    if (level_in_world_out) *level_in_world_out = (int)liw;
+}
+
+/* World names — the card displays these visually as bitmap art (no ASCII
+ * source in the loaded image), so for UI text we use a hardcoded lookup.
+ * Filled in as we play through each world. */
+static const char *const s_world_names[] = {
+    /* 0 */ "Underworld",
+    /* 1 */ "Tombs of Egypt",
+    /* 2 */ "World 2",        /* TODO: confirm from cards */
+    /* 3 */ "World 3",
+    /* 4 */ "World 4",
+    /* 5 */ "World 5",
+    /* 6 */ "World 6",
+};
+const char *pc_world_name(int world)
+{
+    if (world < 0 || world >= (int)(sizeof s_world_names / sizeof s_world_names[0]))
+        return "?";
+    return s_world_names[world];
+}
+
+/* The currently-loaded world's level-name table lives at $5786AC, 10 entries,
+ * 44 bytes per entry. Each entry: a few padding bytes, a `}.` (0x7D 0x01)
+ * marker, then `"NAME"` (ASCII, quoted), then padding to the next entry.
+ *
+ * This is per-WORLD, NOT per-level — the names in the table are for the
+ * currently-loaded world (the disk-load chunk fills this region as part of
+ * the gameplay overlay). So pc_current_level_name() reads the entry matching
+ * the CURRENT level_in_world; if you want a different level's name, you'd
+ * need to load that world first.
+ *
+ * Returns a pointer into g_mem (valid until the next world load). */
+const char *pc_current_level_name(void)
+{
+    extern uint8_t *g_mem;
+    if (!g_mem) return "?";
+    int level = ((int)g_mem[0x20] << 8) | g_mem[0x21];
+    if (level < 1 || level > 60) return "?";
+    int world, liw;
+    pc_level_split(level, &world, &liw);
+    if (liw < 0 || liw >= 10) return "?";
+    uint32_t entry = 0x5786ACu + (uint32_t)liw * 44u;
+    /* Scan forward up to ~36 bytes for an opening `"`, then read until the
+     * closing `"`. Returns a pointer into g_mem (we don't copy). */
+    for (int i = 0; i < 36; i++) {
+        if (g_mem[entry + i] == '"') return (const char *)&g_mem[entry + i + 1];
+    }
+    return "?";
+}
+
+/* "Level intro card" state: the per-level title card showing world + level
+ * name BEFORE gameplay starts. cop1lc latches to $003914 in $5783D4 (inside
+ * the level-setup routine $5782B4) right after the card art is composed,
+ * and stays there until fire dismisses it. cop1lc=$003484 is gameplay; any
+ * other value is title/loading. */
+int pc_is_level_card_displayed(void)
+{
+    extern uint32_t hw_get_cop1lc(void);
+    return hw_get_cop1lc() == 0x003914u;
+}
+
 int pc_step(void)
 {
     if (!hw_running) return 1;

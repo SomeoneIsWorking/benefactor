@@ -207,6 +207,29 @@ int main(int argc, char **argv)
             extern void pc_set_start_level(int);
             pc_set_start_level(n);
         }
+        else if (!strcmp(cmd, "levelinfo")) {
+            extern uint8_t *g_mem;
+            extern void pc_level_split(int, int*, int*);
+            extern const char *pc_world_name(int);
+            extern const char *pc_current_level_name(void);
+            extern int pc_is_level_card_displayed(void);
+            int level = g_mem ? ((int)g_mem[0x20] << 8) | g_mem[0x21] : 0;
+            int world = 0, liw = 0;
+            pc_level_split(level, &world, &liw);
+            char name[64] = {0}; const char *p = pc_current_level_name();
+            int j = 0;
+            for (int k = 0; k < 63 && p[k] && p[k] != '"'; k++) name[j++] = p[k];
+            printf("[crepl] $20.w = %d  -> world %d (%s) / level_in_world %d  name=\"%s\"  card_displayed=%d\n",
+                   level, world, pc_world_name(world), liw, name,
+                   pc_is_level_card_displayed());
+        }
+        else if (!strcmp(cmd, "dumpall")) {  /* dumpall <file> — dump first 6MB of g_mem */
+            char path[256] = "logs/gmem_runtime.bin";
+            sscanf(line, "%*s %255s", path);
+            extern uint8_t *g_mem;
+            FILE *f = fopen(path, "wb"); if (f) { fwrite(g_mem, 1, 0x600000, f); fclose(f); }
+            printf("[crepl] dumped 0..$600000 of g_mem -> %s\n", path);
+        }
         else if (!strcmp(cmd, "fire")) {
             sscanf(line, "%*s %d", &fire); printf("[crepl] fire=%d\n", fire);
         }
