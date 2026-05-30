@@ -388,6 +388,232 @@ def discover_return_landing_points(seeds: set[int], gmem_path: Path) -> set[int]
     return landings
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Pattern F: PC-relative indexed dispatch (`jmp $X(pc, dN.<sz>)`)
+# ────────────────────────────────────────────────────────────────────────────
+#
+# WHY THIS PATTERN EXISTS
+# -----------------------
+# scanner.py follows constant call targets only: bra/bsr displacements,
+# `jsr/jmp #imm`, and `jsr/jmp $d(an)` when `an` is a known constant via
+# `areg_bases`. A `jmp $X(pc, dN.w)` with a runtime data-register index has
+# NO static target, so the scanner never enqueues the block array entries.
+# Even if the dispatch base $X happens to be reachable some other way, the
+# descent absorbs the whole block array into a single function body — sub-
+# blocks are never registered as callable entries, and any call with
+# dN != 0 runtime-misses (this is what happened to $58DFE4 / $58DFF4 / ...).
+#
+# DETECTION
+# ---------
+# For every `jmp $X(pc, dN.<sz>)` inside a seeded function body:
+#   1. The dispatch base $X is itself an entry (already typically seeded;
+#      register it explicitly to be safe).
+#   2. From $X, walk linearly. Each "block" runs until an unconditional
+#      terminator (`bra`, `rts`, `rte`, `jmp` without index). The
+#      instruction AFTER that terminator is the next block's entry.
+#   3. Stop when:
+#      - we've walked past 64 blocks (safety cap), or
+#      - the next block's first opcode isn't a plausible handler entry
+#        (using is_entry_opcode + a wider net for typical dispatch blocks
+#        like `lea (pc),an` / `move.b`), or
+#      - we cross a previously-seeded entry that isn't a block start.
+# ────────────────────────────────────────────────────────────────────────────
+
+def discover_pcrel_dispatch_blocks(seeds: set[int], gmem_path: Path) -> set[int]:
+    if not gmem_path.exists():
+        return set()
+    try:
+        from capstone import Cs, CS_ARCH_M68K, CS_MODE_M68K_020
+        from capstone.m68k import M68K_OP_MEM, M68K_REG_PC
+    except ImportError:
+        return set()
+    data = gmem_path.read_bytes()
+    md = Cs(CS_ARCH_M68K, CS_MODE_M68K_020); md.detail = True
+
+    import struct as _s
+    def r16(a): return _s.unpack(">H", data[a:a + 2])[0]
+
+    sorted_seeds = sorted(s for s in seeds if CODE_LO <= s < CODE_HI)
+    out: set[int] = set()
+
+    # First pass: collect dispatch bases (jmp $X(pc,dN)) AND data-table islands
+    # (lea $X(pc),An / move.X $X(pc,dN.w/.l),Dm — these are read-only data
+    # arrays the dispatcher INDEXES; they look like garbage if disassembled).
+    dispatch_bases: set[int] = set()
+    data_islands: set[int] = set()  # addresses known to start data arrays
+    for i, fn in enumerate(sorted_seeds):
+        next_fn = sorted_seeds[i + 1] if i + 1 < len(sorted_seeds) else CODE_HI
+        end = min(fn + 0x2000, next_fn)
+        addr = fn
+        while addr < end:
+            decoded = list(md.disasm(data[addr:addr + 16], addr, count=1))
+            if not decoded:
+                addr += 2; continue
+            insn = decoded[0]
+            try:
+                m = insn.mnemonic.lower().split('.')[0]
+                # Capstone reports mode 7/3 (PC-indexed `(d8,pc,Xn)`) as
+                # base_reg=M68K_REG_PC, but mode 7/2 (plain `d16(pc)` /
+                # `(pc)`) as base_reg=0 with `(pc)` only visible in op_str.
+                # Use op_str as a fallback marker.
+                opstr = (insn.op_str or '').lower()
+                pc_rel = '(pc' in opstr
+                for o in insn.operands:
+                    if not (o.type == M68K_OP_MEM and pc_rel):
+                        continue
+                    tgt = (insn.address + 2 + o.mem.disp) & 0xFFFFFF
+                    if not (CODE_LO <= tgt < CODE_HI):
+                        continue
+                    if m == 'jmp' and o.mem.index_reg != 0:
+                        dispatch_bases.add(tgt)
+                    elif m == 'lea':
+                        # lea $X(pc),An — almost always a data table base
+                        # (code refs use bsr/bra). Mark as data.
+                        data_islands.add(tgt)
+                    elif m in ('move', 'movea'):
+                        # move.X $X(pc[,dN]),Dm — reading from a data table.
+                        data_islands.add(tgt)
+            except Exception:
+                pass
+            addr += insn.size
+
+    # For each dispatch base, walk forward and enumerate block starts. The
+    # base itself is a valid entry; each subsequent block follows an
+    # unconditional terminator. Stop if we'd cross into a known data island.
+    TERMINATORS = ('bra', 'rts', 'rte', 'jmp')
+    for base in dispatch_bases:
+        if base in data_islands:
+            continue
+        out.add(base)
+        cur = base
+        count = 0
+        while count < 64:
+            block_start = cur
+            # walk until we hit an unconditional terminator
+            block_end = None
+            steps = 0
+            # Per-block walk cap. Dispatcher blocks can run long (e.g. the
+            # $58ED00 family includes a block at $58EE02 that takes ~36
+            # instructions to reach its bra terminator), so allow up to 256.
+            while steps < 256 and cur < CODE_HI:
+                d = list(md.disasm(data[cur:cur + 16], cur, count=1))
+                if not d:
+                    block_end = None; break
+                ins = d[0]
+                m = ins.mnemonic.lower().split('.')[0]
+                # `jmp $X(pc, dN)` itself counts as a terminator (a nested
+                # dispatcher inside a block ends the block).
+                if m == 'rts' or m == 'rte':
+                    block_end = cur + ins.size; break
+                if m == 'bra':
+                    block_end = cur + ins.size; break
+                if m == 'jmp':
+                    # any jmp terminates; pc-indexed nested dispatches too
+                    block_end = cur + ins.size; break
+                cur += ins.size; steps += 1
+            if block_end is None:
+                break
+            # next block candidate
+            nxt = block_end
+            if nxt >= CODE_HI: break
+            # Walk-stop: a data island lives at this address (it's the base of
+            # a `lea (pc)` / `move (pc,dN)` table inside some seeded fn). The
+            # bytes there decode as garbage even if capstone accepts them.
+            if nxt in data_islands:
+                break
+            # Also: if the walk has crossed a data island lying between the
+            # block_start and nxt, that block is bogus (we walked through
+            # data). Detect by scanning the (block_start, nxt) range.
+            crossed_island = any(block_start < di < nxt for di in data_islands)
+            if crossed_island:
+                break
+            # validate next block's first instruction
+            d = list(md.disasm(data[nxt:nxt + 16], nxt, count=1))
+            if not d:
+                break
+            op = r16(nxt)
+            if not is_entry_opcode(op >> 8, op):
+                m0 = d[0].mnemonic.lower().split('.')[0]
+                if m0 in ('rts', 'rte', 'illegal', 'dc'):
+                    break
+                # Reject obvious data: `ori.b #0,d0` ($0000), `move.b (a7)+,-(a7)`
+                # ($1E5F) — these are zero/repeated bytes, not real entries.
+                if op in (0x0000, 0x1E5F) or op == 0xFFFF:
+                    break
+            out.add(nxt)
+            cur = nxt
+            count += 1
+
+    return out
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Pattern G: cross-function bra/bcc targets (auto-seed safe)
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Pattern B already finds these but marks them diagnostic-only, on the
+# theory that registering a mid-function label as its own entry would
+# DUPLICATE the body (the original function's range still covers it). That
+# was true with the old scanner; current scanner does iterative split-out
+# in Phase 2 — once an address is in `funcs`, _scan_func truncates the
+# preceding function at it (via the `known_entries` cross-fn-bra promotion
+# in emitter.py). So merge-point targets like $58EC8E (reached by backward
+# bras from $58EE02 / $58EE36 / $58EE9E ...) are safe to seed.
+#
+# Restriction: only emit bra/bcc targets that fall inside a DIFFERENT
+# seeded fn's body (so they're real cross-fn targets, not intra-fn loop
+# control), AND skip targets that already are entries.
+# ────────────────────────────────────────────────────────────────────────────
+
+def discover_cross_fn_bra_targets(seeds: set[int], gmem_path: Path) -> set[int]:
+    if not gmem_path.exists():
+        return set()
+    try:
+        from capstone import Cs, CS_ARCH_M68K, CS_MODE_M68K_020
+        from capstone.m68k import M68K_OP_BR_DISP
+    except ImportError:
+        return set()
+    data = gmem_path.read_bytes()
+    md = Cs(CS_ARCH_M68K, CS_MODE_M68K_020); md.detail = True
+
+    sorted_seeds = sorted(s for s in seeds if CODE_LO <= s < CODE_HI)
+    # Build fn_ranges: each seeded fn covers [start, next_seed) (approx).
+    fn_ranges: list[tuple[int, int]] = []
+    for i, fn in enumerate(sorted_seeds):
+        nxt = sorted_seeds[i + 1] if i + 1 < len(sorted_seeds) else CODE_HI
+        fn_ranges.append((fn, min(fn + 0x2000, nxt)))
+
+    def fn_of(addr: int) -> int | None:
+        for s, e in fn_ranges:
+            if s <= addr < e:
+                return s
+        return None
+
+    out: set[int] = set()
+    BRA_LIKE = {'bra', 'bcc', 'bcs', 'beq', 'bne', 'bge', 'bgt', 'bhi',
+                'ble', 'bls', 'blt', 'bmi', 'bpl', 'bvc', 'bvs'}
+    for fn, end in fn_ranges:
+        addr = fn
+        while addr < end:
+            d = list(md.disasm(data[addr:addr + 16], addr, count=1))
+            if not d:
+                addr += 2; continue
+            ins = d[0]
+            try:
+                m = ins.mnemonic.lower().split('.')[0]
+                if m in BRA_LIKE:
+                    for o in ins.operands:
+                        if o.type == M68K_OP_BR_DISP:
+                            t = ins.address + 2 + o.br_disp.disp
+                            owner = fn_of(t)
+                            if owner is not None and owner != fn and t not in seeds:
+                                out.add(t)
+            except Exception:
+                pass
+            addr += ins.size
+    return out
+
+
 def discover_cross_fn_targets(seeds: set[int], gmem_path: Path) -> set[int]:
     """For each seeded entry, disassemble and find branches that land inside
     a *different* entry's [start, end) range."""
@@ -514,6 +740,18 @@ def main() -> int:
     for t in e_new:
         print(f"    {t:06X}  (dispatcher-loop-top)")
 
+    f_blocks = discover_pcrel_dispatch_blocks(seeds_for_cross, Path(args.gmem))
+    f_new = sorted(f_blocks - seeds_for_cross)
+    print(f"\n[F] pc-rel indexed dispatch blocks (jmp $X(pc,dN.w)): {len(f_blocks)} ({len(f_blocks & seeds_for_cross)} already seeded)")
+    for t in f_new:
+        print(f"    {t:06X}  (pcrel-dispatch-block)")
+
+    g_xfn = discover_cross_fn_bra_targets(seeds_for_cross, Path(args.gmem))
+    g_new = sorted(g_xfn - seeds_for_cross)
+    print(f"\n[G] cross-function bra/bcc targets: {len(g_xfn)} ({len(g_xfn & seeds_for_cross)} already seeded)")
+    for t in g_new:
+        print(f"    {t:06X}  (cross-fn-bra)")
+
     # Only Pattern A is safe to auto-seed. Patterns B (cross-function branch
     # targets) and C (return-landing points) point INSIDE an existing function,
     # and creating a new gfn entry at a mid-function label duplicates the
@@ -524,7 +762,7 @@ def main() -> int:
     # (dispatcher loop-tops) are safe to auto-seed — they're single addresses
     # the runtime calls into. B and C point INSIDE existing functions and
     # need an emitter fix, not new entries (see the dbra-rt_jump fix).
-    safe_new = sorted(set(a_new) | set(d_new) | set(e_new))
+    safe_new = sorted(set(a_new) | set(d_new) | set(e_new) | set(f_new) | set(g_new))
     diag_new = sorted(set(b_new) | set(c_new))
     print(f"\nsafe NEW (auto-seedable): {len(safe_new)}")
     print(f"diagnostic NEW (B+C — DO NOT auto-seed): {len(diag_new)}")

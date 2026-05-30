@@ -500,9 +500,17 @@ static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
          * title overrides ($405C/$41A4/…) don't hijack the gameplay's own code. */
         NativeFn native = override_lookup(addr);
         if (native) {
+            s_rt_jump_pending = 0;
             native(ctx);
             rt_pop_call();
-            break;          /* natives don't trampoline through rt_jump */
+            /* Some overrides (e.g. native_overlay_loader at $6D714) end with
+             * rt_jump(X) to hand off to recompiled code — same trampoline
+             * semantics as generated fns. */
+            if (!s_rt_jump_pending) break;
+            addr = s_rt_jump_target;
+            is_call = 0;
+            s_rt_jump_pending = 0;
+            continue;
         }
         GameFn fn = dispatch_lookup(addr);
         if (fn) {
