@@ -237,16 +237,22 @@ void pc_preload_all_level_names(void)
      * (we just reuse it; per-world load happens after we've extracted
      * the table from this scratch). */
     /* Pass 1: WALK the world-descriptor table at $577452 and snapshot
-     * each world's last-chunk (src, len) into locals. We have to do this
-     * first because the per-world chunk loads in pass 2 reuse the same
-     * scratch buffer ($700000) and would clobber the table we're walking.
+     * each world's chunks. The last chunk has names; the earlier chunks
+     * have code / data with embedded handler pointers — we dump every
+     * chunk when PC_DUMP_WORLDS=1 so the offline scanner (Pattern I) can
+     * see the whole per-world picture.
      *
      * If $577452 is zero in chip RAM (overlay not loaded yet), load the
-     * overlay's chunk-2 (Disk.1 \$0689BE, len \$012A1C) into scratch to
-     * read the table from there. After pass 1 we no longer need the
-     * chunk-2 data — pass 2 can freely overwrite scratch. */
+     * overlay's chunk-2 (Disk.1 $0689BE, len $012A1C) into scratch to
+     * read the table from there. */
     uint32_t per_world_src[7] = {0};
     uint32_t per_world_len[7] = {0};
+    /* Per-world ALL-chunks snapshot for PC_DUMP_WORLDS. Each world has
+     * up to 6 chunks per the table layout. */
+    #define MAX_CHUNKS 6
+    uint32_t all_chunks_src[7][MAX_CHUNKS] = {{0}};
+    uint32_t all_chunks_len[7][MAX_CHUNKS] = {{0}};
+    int      all_chunks_n[7] = {0};
     {
         uint32_t cursor = 0x577452u;
         uint32_t cursor_end = 0x577800u;
@@ -259,16 +265,47 @@ void pc_preload_all_level_names(void)
         }
         for (int world = 0; world < 7; world++) {
             uint32_t last_src = 0, last_len = 0;
+            int      cn = 0;
             while (cursor < cursor_end && RD32(cursor) != 0) {
                 last_src = RD32(cursor + 4);
                 last_len = RD32(cursor + 8);
+                if (cn < MAX_CHUNKS) {
+                    all_chunks_src[world][cn] = last_src;
+                    all_chunks_len[world][cn] = last_len;
+                    cn++;
+                }
                 cursor += 12;
             }
             cursor += 4;  /* skip the zero terminator */
+            all_chunks_n[world] = cn;
             per_world_src[world] = last_src;
             per_world_len[world] = last_len;
         }
     }
+
+    /* Optional: dump EVERY chunk of every world so the offline pointer
+     * scanner can see the full per-world data. */
+    if (getenv("PC_DUMP_WORLDS")) {
+        for (int world = 0; world < 7; world++) {
+            for (int ci = 0; ci < all_chunks_n[world]; ci++) {
+                uint32_t src = all_chunks_src[world][ci];
+                uint32_t len = all_chunks_len[world][ci];
+                if (src == 0 || len == 0 || len > 0x20000u) continue;
+                uint32_t off = src >> 8;
+                int      disk = (int)(src & 0xFFu) + 1;
+                if (disk < 1 || disk > 3) continue;
+                if (disk_boot_load(disk, off, scratch, len) <= 0) continue;
+                uint32_t out = atn_decrunch(scratch);
+                if (out == 0) continue;
+                char path[64];
+                snprintf(path, sizeof path, "logs/world_%d_chunk_%d.bin", world, ci);
+                FILE *f = fopen(path, "wb");
+                if (f) { fwrite(g_mem + scratch, 1, out, f); fclose(f);
+                         fprintf(stderr, "[world-dump] %s: %u bytes\n", path, out); }
+            }
+        }
+    }
+    #undef MAX_CHUNKS
 
     /* Pass 2: per-world chunk load + name extraction. */
     for (int world = 0; world < 7; world++) {
@@ -285,6 +322,7 @@ void pc_preload_all_level_names(void)
         if (rc <= 0) continue;
         uint32_t outlen = atn_decrunch(scratch);
         if (outlen == 0) continue;
+        /* (All-chunks dump for Pattern I happened earlier, before pass 2.) */
         /* Decode the world name. Stored at offset $004, Caesar-shifted by
          * +0x1A on letters (spaces pass through). The run ends at the
          * first non-letter, non-space byte. Worlds 2 and 3 have a 2-byte

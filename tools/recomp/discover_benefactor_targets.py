@@ -663,6 +663,78 @@ def discover_state_machine_chains(seeds: set[int], gmem_path: Path) -> set[int]:
     return out
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Pattern I: per-world disk-data pointer scan
+# ────────────────────────────────────────────────────────────────────────────
+#
+# The per-world chunks loaded from disk (each "last chunk" per the world
+# descriptor table at $577452) contain embedded function pointers — the
+# game's object-state-machine handlers. They're stored as plain 32-bit
+# big-endian longwords pointing into the gpl bank code area
+# ($577000..$5A0000), interspersed with the per-level data + the level
+# name strings we already extract.
+#
+# Pre-step: run the harness with `PC_DUMP_WORLDS=1` once to dump each
+# decrunched world to `logs/world_N.bin`. The dumps are deterministic
+# (no play required; pc_preload_all_level_names already decrunches them).
+#
+# Then this pattern scans every byte-aligned position in each dump for a
+# longword whose value falls in the gpl code range AND points to bytes
+# that disassemble as 3+ consecutive valid M68K instructions in the
+# code (read from `gmem_path`). That's enough to filter out random
+# false positives from level coords / palette data / etc.
+# ────────────────────────────────────────────────────────────────────────────
+
+def discover_world_disk_pointers(seeds: set[int], gmem_path: Path,
+                                  world_dumps_dir: Path) -> set[int]:
+    if not gmem_path.exists():
+        return set()
+    try:
+        from capstone import Cs, CS_ARCH_M68K, CS_MODE_M68K_020
+    except ImportError:
+        return set()
+    code = gmem_path.read_bytes()
+    md = Cs(CS_ARCH_M68K, CS_MODE_M68K_020); md.detail = True
+    import struct as _s
+
+    out: set[int] = set()
+    found_any_dump = False
+    dump_files = sorted(world_dumps_dir.glob("world_*_chunk_*.bin"))
+    for p in dump_files:
+        found_any_dump = True
+        data = p.read_bytes()
+        # Scan every byte-aligned position (the pointers aren't always
+        # 4-byte aligned in the source data).
+        for off in range(0, len(data) - 3):
+            imm = _s.unpack(">I", data[off:off + 4])[0]
+            if not (CODE_LO <= imm < CODE_HI):
+                continue
+            if imm & 1:
+                continue
+            if imm in seeds or imm in out:
+                continue
+            # Validate: 3 consecutive valid M68K decodings in the code,
+            # no SKIPDATA / illegal.
+            ok = True
+            a = imm
+            for _ in range(3):
+                if a + 2 > len(code):
+                    ok = False; break
+                dd = list(md.disasm(code[a:a + 16], a, count=1))
+                if not dd:
+                    ok = False; break
+                m0 = dd[0].mnemonic.lower()
+                if m0 in ('dc', 'illegal'):
+                    ok = False; break
+                a += dd[0].size
+            if ok:
+                out.add(imm)
+    if not found_any_dump:
+        print(f"[I] no world dumps found in {world_dumps_dir} — run the harness "
+              f"with PC_DUMP_WORLDS=1 once to generate them", file=sys.stderr)
+    return out
+
+
 def discover_cross_fn_bra_targets(seeds: set[int], gmem_path: Path) -> set[int]:
     if not gmem_path.exists():
         return set()
@@ -856,6 +928,13 @@ def main() -> int:
     for t in h_new:
         print(f"    {t:06X}  (sm-chain)")
 
+    i_world = discover_world_disk_pointers(seeds_for_cross, Path(args.gmem),
+                                            Path(__file__).resolve().parent.parent.parent / "logs")
+    i_new = sorted(i_world - seeds_for_cross)
+    print(f"\n[I] per-world disk-data handler pointers: {len(i_world)} ({len(i_world & seeds_for_cross)} already seeded)")
+    for t in i_new:
+        print(f"    {t:06X}  (world-disk-ptr)")
+
     # Only Pattern A is safe to auto-seed. Patterns B (cross-function branch
     # targets) and C (return-landing points) point INSIDE an existing function,
     # and creating a new gfn entry at a mid-function label duplicates the
@@ -866,7 +945,7 @@ def main() -> int:
     # (dispatcher loop-tops) are safe to auto-seed — they're single addresses
     # the runtime calls into. B and C point INSIDE existing functions and
     # need an emitter fix, not new entries (see the dbra-rt_jump fix).
-    safe_new = sorted(set(a_new) | set(d_new) | set(e_new) | set(f_new) | set(g_new) | set(h_new))
+    safe_new = sorted(set(a_new) | set(d_new) | set(e_new) | set(f_new) | set(g_new) | set(h_new) | set(i_new))
     diag_new = sorted(set(b_new) | set(c_new))
     print(f"\nsafe NEW (auto-seedable): {len(safe_new)}")
     print(f"diagnostic NEW (B+C — DO NOT auto-seed): {len(diag_new)}")
