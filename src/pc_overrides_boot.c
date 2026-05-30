@@ -328,27 +328,61 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
         extern void hw_vblank_wait(void);
         extern int  hw_joy_up(void);
         extern int  hw_joy_down(void);
+        extern int  hw_joy_left(void);
+        extern int  hw_joy_right(void);
         extern int  hw_get_fire(void);
         extern int  g_level_select_visible;
         extern void pc_set_start_level(int);
         extern int  pc_get_start_level(void);
+        extern void pc_level_split(int, int *, int *);
 
         g_level_select_visible = 1;
 
-        /* Wait for the entry fire press to release so we don't read it
-         * as the confirm. */
+        /* Wait for the entry fire press to release. */
         while (hw_get_fire()) hw_vblank_wait();
 
-        int prev_up = 0, prev_down = 0;
+        /* Helpers: count levels in world; convert (world, liw) -> global. */
+        #define WCOUNT(_w_) ({ int _c = 0; \
+            for (int _n = 1; _n <= 60; _n++) { int _ww, _ll; pc_level_split(_n, &_ww, &_ll); \
+                if (_ww == (_w_)) _c++; } _c; })
+        #define GLOBAL(_w_, _l_) ({ int _g = 1; \
+            for (int _n = 1; _n <= 60; _n++) { int _ww, _ll; pc_level_split(_n, &_ww, &_ll); \
+                if (_ww == (_w_) && _ll == (_l_)) { _g = _n; break; } } _g; })
+
+        int prev_u = 0, prev_d = 0, prev_l = 0, prev_r = 0;
         for (;;) {
             hw_vblank_wait();
-            int u = hw_joy_up(), d = hw_joy_down(), f = hw_get_fire();
-            if (u && !prev_up) pc_set_start_level(pc_get_start_level() - 1);
-            if (d && !prev_down) pc_set_start_level(pc_get_start_level() + 1);
-            prev_up = u; prev_down = d;
+            int u = hw_joy_up(), d = hw_joy_down();
+            int lt = hw_joy_left(), rt = hw_joy_right(), f = hw_get_fire();
+
+            int level = pc_get_start_level();
+            int world = 0, liw = 0;
+            pc_level_split(level, &world, &liw);
+            int liw_max = WCOUNT(world) - 1;
+
+            /* UP/DOWN navigate level within current world (clamped, no wrap). */
+            if (u && !prev_u && liw > 0)
+                pc_set_start_level(GLOBAL(world, liw - 1));
+            if (d && !prev_d && liw < liw_max)
+                pc_set_start_level(GLOBAL(world, liw + 1));
+
+            /* LEFT/RIGHT cycle worlds 0..6 with wrap; reset to liw 0 of new world. */
+            if (lt && !prev_l) {
+                int nw = (world + 7 - 1) % 7;
+                pc_set_start_level(GLOBAL(nw, 0));
+            }
+            if (rt && !prev_r) {
+                int nw = (world + 1) % 7;
+                pc_set_start_level(GLOBAL(nw, 0));
+            }
+
+            prev_u = u; prev_d = d; prev_l = lt; prev_r = rt;
             if (f) break;
         }
         g_level_select_visible = 0;
+
+        #undef WCOUNT
+        #undef GLOBAL
 
         /* Same exit setup as the engine's PLAY GAME path
          * ($003AF4..$003B08). The INTREQ clear matters: stale title-bank
