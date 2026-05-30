@@ -174,93 +174,107 @@ const char *pc_world_name(int world)
     return s_world_names[world];
 }
 
-/* Full 60-entry level-name table. The engine's per-world disk-overlay load
- * writes each world's 10-entry name array (44 bytes/entry) into a fresh
- * chunk at runtime, and a copy somewhere in the engine populates the
- * renderer buffer at $5786AC from it — but that source ONLY appears for
- * the currently-loaded world, so a UI listing ALL 60 levels can't read
- * them out of g_mem. So we cache them statically here, extracted by
- * cycling each world's first level through the harness and reading the
- * $5786AC buffer per [[project-title-card-structure]] and
- * [[reference-compare-tool]].
+/* All 60 level names are read DIRECTLY from disk at gameplay-overlay-load
+ * time — no playing through, no hardcoding. The mapping:
  *
- * Indexed by GLOBAL level number (1..60). pc_static_level_name(n) is the
- * lookup the UI should use; pc_current_level_name() is for "the name the
- * card is showing right now". */
-static const char *const s_static_level_names[60] = {
-    /* World 0 — Underworld (9 levels) */
-    "AFRAID OF FUNGIES?",
-    "TRICK-JUMPIN'",
-    "KEEP YOUR FEET DRY",
-    "FOLLOW THE SIGNS",
-    "RELEASE ORDER",
-    "TROUBLESHOOTING",
-    "LET'S ROLL",
-    "SILENTS?",
-    "TURN, RUN, TURN!",
-    /* World 1 — Tombs of Egypt (9 levels) */
-    "DOUBLE TROUBLE",
-    "MIND THE FLAMES!",
-    "SWITCH-O-MANIA",
-    "A MOTHER OF A BLOW",
-    "GREED WASTES TIME",
-    "HANG TOUGH",
-    "LEMMINGS?",
-    "ORDER IS CRUCIAL",
-    "EASY JUMPING",
-    /* World 2 (10 levels) */
-    "BOUNCY, BOUNCY!",
-    "UNREACHABLE?",
-    "THE BUNGEE-TRAP",
-    "BRING YOUR AXE",
-    "FLATBACK ACTION",
-    "THE FOG THAT BE",
-    "WEIGHTWATCHERS",
-    "DOWN'N'LOAD",
-    "RUNNING COLOR",
-    "FUNNEL JUNGLE",
-    /* World 3 (10 levels) */
-    "CHANDELIER LEAP!",
-    "OPEN SESAME!",
-    "REPAIRS IN A FLASH",
-    "ELEVATOR  ACTION",
-    "SIMON SAYS, DOWN",
-    "THE CONTENTS WITHIN",
-    "THE GHOSTKEY",
-    "THE FIVE LETHALS",
-    "ABOUT TO GET STONED",
-    "THE REAPING PUZZLE",
-    /* World 4 (10 levels) */
-    "THE WALL",
-    "WET, WET, WET!",
-    "SLIPPERY WHEN WET",
-    "THREE AMIGOS",
-    "FROZEN WALKWAY",
-    "COLOR ME BAD",
-    "SECURE YOUR EXIT",
-    "THE EVIL HELPER",
-    "GUARDIAN ANGEL",
-    "THE EVIL WRECKER",
-    /* World 5 (10 levels) */
-    "WATCH THAT COLOR",
-    "EASY SWITCHING",
-    "PIPE MANIA",
-    "PROTECTED KEY",
-    "CAST-A-KEY",
-    "ACID RAIN",
-    "INVISIBLE DEATH",
-    "SWITCH ORDER",
-    "DEATH IN ZERO-G",
-    "IR PIPE HELL",
-    /* World 6 (2 levels) */
-    "THE DOOR FROM HELL",
-    "THE RAINBOW MACHINE!",
-};
+ *   gameplay overlay (loaded once by native_overlay_loader_reloc) puts
+ *   the world-descriptor table at $577452. Each world is a zero-
+ *   terminated list of chunks (each chunk = 3 longwords: dest_metadata,
+ *   src_encoded, length). The LAST chunk per world contains the 10-entry
+ *   level-name array starting at byte offset $60 (44 bytes per entry,
+ *   each entry: padding bytes + `}.` marker + `"NAME"` + padding).
+ *
+ *   src_encoded = (disk_offset << 8) | (zero_based_disk_index).
+ *
+ * pc_preload_all_level_names() reads each world's last chunk into a
+ * scratch g_mem area, runs atn_decrunch in place, and scrapes the
+ * names. Runs once. State is not perturbed. */
+static char g_pc_preloaded_names[60][32];
+static int  g_pc_preloaded_names_ready = 0;
+
+void pc_preload_all_level_names(void)
+{
+    extern uint8_t *g_mem;
+    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
+    extern uint32_t atn_decrunch(uint32_t);
+
+    if (g_pc_preloaded_names_ready) return;
+    if (!g_mem) return;
+
+    static const int wlc[7]    = { 9, 9, 10, 10, 10, 10, 2 };  /* levels per world */
+    static const int wstart[7] = { 0, 9, 18, 28, 38, 48, 58 }; /* global level offset */
+    /* Scratch buffer for decompression — picked to stay clear of every
+     * dest used by the gameplay overlay ($577000-$589A1C) and the per-level
+     * disk reads ($073880, $5AC4EA+, $5BE77E+, $5C4874+, $5D902A+, $5F1A88+).
+     * g_mem is 8MB, so $700000 sits well past all live regions. */
+    const uint32_t scratch = 0x700000u;
+
+    #define RD32(a) ( ((uint32_t)g_mem[(a)]   << 24) \
+                    | ((uint32_t)g_mem[(a)+1] << 16) \
+                    | ((uint32_t)g_mem[(a)+2] <<  8) \
+                    |  (uint32_t)g_mem[(a)+3]       )
+
+    /* Per-world cursor walks the zero-terminated chunk list at $577452. */
+    uint32_t cursor = 0x577452u;
+    for (int world = 0; world < 7; world++) {
+        /* Walk this world's chunks: each chunk = 3 longwords
+         * (dest_metadata, src_encoded, length). Track the last one. */
+        uint32_t last_src = 0, last_len = 0;
+        while (cursor < 0x577800u && RD32(cursor) != 0) {
+            last_src = RD32(cursor + 4);
+            last_len = RD32(cursor + 8);
+            cursor += 12;
+        }
+        cursor += 4;  /* skip the zero terminator */
+
+        if (last_src == 0 || last_len == 0 || last_len > 0x20000u) continue;
+
+        /* src_encoded = (disk_offset << 8) | (zero-based disk index). */
+        uint32_t disk_off = last_src >> 8;
+        int      disk_num = (int)(last_src & 0xFFu) + 1;
+        if (disk_num < 1 || disk_num > 3) continue;
+
+        int rc = disk_boot_load(disk_num, disk_off, scratch, last_len);
+        if (rc <= 0) continue;
+        if (atn_decrunch(scratch) == 0) continue;
+
+        /* Parse 10 entries (44 bytes/entry) starting at scratch + $60. The
+         * first opening-quote of name 0 lives right at offset $60; each
+         * subsequent entry is 44 bytes later. (We previously thought $61
+         * looking at $5F1AE9 - $5F1A88 — that was the FIRST CHAR of the
+         * name, not the opening quote.) */
+        for (int liw = 0; liw < wlc[world]; liw++) {
+            uint32_t entry = scratch + 0x60u + (uint32_t)liw * 44u;
+            int qa = -1;
+            for (int i = 0; i < 36; i++) {
+                if (g_mem[entry + i] == '"') { qa = i; break; }
+            }
+            if (qa < 0) continue;
+            int gi = wstart[world] + liw;
+            int j = 0;
+            for (int i = qa + 1; i < 44 && g_mem[entry + i] != '"' && j < 31; i++) {
+                g_pc_preloaded_names[gi][j++] = (char)g_mem[entry + i];
+            }
+            g_pc_preloaded_names[gi][j] = 0;
+        }
+    }
+
+    /* Zero the scratch area so we don't leave garbage where later disk
+     * reads might pass through. */
+    memset(g_mem + scratch, 0, 0x20000u);
+    #undef RD32
+    g_pc_preloaded_names_ready = 1;
+    fprintf(stderr, "[level-names] preloaded all 60 from disk overlays (first: \"%s\", last: \"%s\")\n",
+            g_pc_preloaded_names[0], g_pc_preloaded_names[59]);
+    fflush(stderr);
+}
 
 const char *pc_static_level_name(int level)
 {
     if (level < 1 || level > 60) return "?";
-    return s_static_level_names[level - 1];
+    if (g_pc_preloaded_names_ready && g_pc_preloaded_names[level - 1][0])
+        return g_pc_preloaded_names[level - 1];
+    return "?";   /* preload runs at the $150 hand-off — must have happened */
 }
 
 /* The currently-loaded world's level-name table lives at $5786AC, 10 entries,

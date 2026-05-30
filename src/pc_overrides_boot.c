@@ -238,6 +238,25 @@ void native_overlay_loader_reloc(M68KCtx *ctx)
         printf("[overlay-loader] $150 d0=0: loaded; dumped logs/gmem_after_load.bin\n");
         return;
     }
+    /* Preload all 60 level names natively, BEFORE the game ever runs.
+     *
+     * The boot-time gameplay overlay loaded at $577000 includes a per-world
+     * disk-load descriptor table at $577452. Each world is a zero-terminated
+     * list of chunks; each chunk = 3 longwords (dest_metadata, src_encoded,
+     * length). For each world, the LAST chunk is the one containing the
+     * level descriptor + 10-entry name table at byte offset $61.
+     *
+     * src_encoded layout: (disk_offset << 8) | (disk_index_zero_based).
+     *
+     * We read each world's last chunk into a scratch g_mem area, run the
+     * existing atn_decrunch on it, then scrape the names — no engine state
+     * touched, no levels played. See [[project-title-card-structure]] for
+     * the renderer-buffer copy code at $57CBBA (g_mem-resident at runtime). */
+    {
+        extern void pc_preload_all_level_names(void);
+        pc_preload_all_level_names();
+    }
+
     /* Level-select hand-off: the gameplay dispatcher at $5779AA reads $20.w
      * (subtract 1, *4, indexes the 60-entry level table at $57782E). The
      * title's password-screen code at $003A40 clamps $20.w to 1..$3c every
