@@ -210,6 +210,38 @@ int main(int argc, char **argv)
             pc_debug_complete_level();
             printf("[crepl] forced PC level-complete (win) flag\n");
         }
+        else if (!strcmp(cmd, "skiplevels")) {
+            /* skiplevels N — chain N WIN transitions. Each level-complete sets
+             * bit5 of $10AC; the per-level main loop displays the LEVEL
+             * COMPLETE banner then waits for fire to advance. We tap fire
+             * briefly after the banner shows up to dismiss it, wait for the
+             * next level to finish loading (cop1lc back at $003484), and
+             * repeat. */
+            extern void pc_debug_complete_level(void);
+            unsigned target = 1; sscanf(line, "%*s %u", &target);
+            for (unsigned step = 0; step < target; step++) {
+                pc_debug_complete_level();
+                FrameState c; unsigned k = 0;
+                /* Phase 1: wait for cop1lc to leave gameplay (banner or card). */
+                for (; k < 400; k++) { STEP_PC(); hw_get_snap(&c); if (c.cop1lc != 0x003484u) break; }
+                /* Phase 2: fire-tap to dismiss banner/card. Some screens (the
+                 * level-N intro card) need fire to advance; tap a few times. */
+                for (int tap = 0; tap < 3; tap++) {
+                    fire = 1; for (int i = 0; i < 8;  i++) STEP_PC();
+                    fire = 0; for (int i = 0; i < 8;  i++) STEP_PC();
+                }
+                /* Phase 3: wait for cop1lc to return to gameplay. */
+                for (k = 0; k < 1500; k++) { STEP_PC(); hw_get_snap(&c); if (c.cop1lc == 0x003484u) break; }
+                fire = 0;
+                { extern volatile uint32_t g_rt_last_call;
+                printf("[crepl] skiplevels %u/%u -> cop1lc=$%06X last_fn=$%06X\n",
+                       step + 1, target, c.cop1lc, (unsigned)g_rt_last_call); }
+                if (c.cop1lc != 0x003484u) {
+                    printf("[crepl] level %u did not return to $003484; aborting chain\n", step + 1);
+                    break;
+                }
+            }
+        }
         else if (!strcmp(cmd, "gameover")) {  /* debug: force PC game-over (death) */
             extern void pc_debug_game_over(void);
             pc_debug_game_over();
