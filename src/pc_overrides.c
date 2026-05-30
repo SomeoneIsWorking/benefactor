@@ -30,20 +30,33 @@ void pc_register_overrides(void)
     rt_register_override(0x006D714u, native_overlay_loader);
     rt_register_override(0x00000150u, native_overlay_loader_reloc);
     /* $003C5A / $003C6E / $003C88 / $003C9A — four arrow-direction handlers
-     * in the title menu (UP/DOWN/LEFT/RIGHT). Each is a short rts-terminated
-     * mini-routine that starts with the same `move.w #$384,$2BE2(a5)`
-     * instruction as gfn_gp_003872 and updates $E742(a5) (the menu cursor).
-     * The recompiler's scanner crashes when these are seeded (IndexError
-     * in emitter._pre_rd on the surrounding code shape). As a stop-gap,
-     * route all four to gfn_gp_003872 — that DOES handle a no-op pass
-     * (the menu loop keeps running). Means arrow navigation isn't 100%
-     * correct in the native build, but it no longer aborts. Replace
-     * with the native title menu (pc_overrides_title.c skeleton) once
-     * a stable menu-state entry-flag is identified. */
-    { extern void gfn_gp_003872(M68KCtx *ctx);
-      rt_register_override(0x00003C5Au, gfn_gp_003872);
+     * in the title menu. Each is a short rts-terminated mini-routine
+     * starting with `move.w #$384,$2BE2(a5)` (audio re-trig?) and updating
+     * the menu cursor at $E742(a5). Reconstructed from the chip-dump bytes:
+     *
+     *   $003C5A (DOWN): move.w #$384,$2BE2(a5)
+     *                   cmpi.w #$2,$E742(a5)
+     *                   beq.s  end   ; if cursor already 2, do nothing
+     *                   addq.w #1,$E742(a5)
+     *
+     *   $003C88 (UP):   move.w #$384,$2BE2(a5)
+     *                   tst.w  $E742(a5)
+     *                   beq.s  end   ; if cursor 0, do nothing
+     *                   subq.w #1,$E742(a5)
+     *
+     *   $003C6E / $003C9A handle LEFT/RIGHT — more complex (test a bit at
+     *   low-mem $1F, shifts). The menu has 3 vertical options so LEFT/RIGHT
+     *   are no-ops in normal play; we delegate them to gfn_gp_003872 (which
+     *   handles a no-op pass safely).
+     *
+     * Recompiler crashes on these (IndexError in emitter._pre_rd) so we
+     * implement them natively here. */
+    { extern void native_menu_cursor_down(M68KCtx *ctx);
+      extern void native_menu_cursor_up(M68KCtx *ctx);
+      extern void gfn_gp_003872(M68KCtx *ctx);
+      rt_register_override(0x00003C5Au, native_menu_cursor_down);
+      rt_register_override(0x00003C88u, native_menu_cursor_up);
       rt_register_override(0x00003C6Eu, gfn_gp_003872);
-      rt_register_override(0x00003C88u, gfn_gp_003872);
       rt_register_override(0x00003C9Au, gfn_gp_003872); }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */
