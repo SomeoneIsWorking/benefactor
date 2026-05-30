@@ -549,3 +549,8 @@
 59948A
 5994A8
 57AB1A  # backward bcc target from $57AB30 (gfn_gpl_57AB24) into label inside gfn_gpl_57A934
+# pc-relative dispatch table at $57AD0A (loaded by lea (pc) in gfn_gpl_57AB24
+# at $57AB38, written into object state slot for later indirect dispatch).
+579806
+57987C
+5798F2
