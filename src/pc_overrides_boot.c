@@ -318,10 +318,23 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
     uint16_t cursor = MR16(ctx->A[5] - 6334u);
 
     if (cursor == 1u) {
-        /* LEVEL SELECT — start the F2/F3-picked level. The original PLAY
-         * GAME exit at $003B06 does `moveq #0, d0` before jmp $150 — mirror
-         * that so native_overlay_loader_reloc takes the d0==0 path
-         * (otherwise it logs "unhandled" and bails). */
+        /* LEVEL SELECT — mirror the original PLAY GAME exit path at
+         * $003AF4..$003B08 BEFORE rt_jump($150). Skipping these caused
+         * stale title-bank IRQ vectors ($003532 / $005694) to fire
+         * after overlay load and crash with an rt-miss, since those
+         * addresses are now overlay code that isn't in the registered
+         * function set (see [[project-card-freeze-chain]] —
+         * "Stale IRQ vectors during load").
+         *
+         *   $003AF4: move.w #$7FFF, $94(a6)   ; INTREQ — clear all pending IRQs
+         *   $003AFA: move.w #$7FFF, $98(a6)   ; ADKCON — clear audio mod
+         *   $003B00: lea    $80000.l, a7     ; reset SP to $80000
+         *   $003B06: moveq  #0, d0
+         *   $003B08: jmp    $150              ; overlay loader hand-off
+         */
+        MW16(ctx->A[6] + 0x94u, 0x7FFFu);
+        MW16(ctx->A[6] + 0x98u, 0x7FFFu);
+        ctx->A[7] = 0x00080000u;
         ctx->D[0] = 0;
         rt_jump(ctx, 0x150u);
         return;
