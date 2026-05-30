@@ -238,6 +238,20 @@ void native_overlay_loader_reloc(M68KCtx *ctx)
         printf("[overlay-loader] $150 d0=0: loaded; dumped logs/gmem_after_load.bin\n");
         return;
     }
+    /* Level-select hand-off: the gameplay dispatcher at $5779AA reads $20.w
+     * (subtract 1, *4, indexes the 60-entry level table at $57782E). The
+     * title's password-screen code at $003A40 clamps $20.w to 1..$3c every
+     * frame it runs, so any pre-fire poke gets reverted. We're past the
+     * title now (it just jmp'd to $150), so this is the right moment to
+     * apply the user's selection from pc_set_start_level(). g_pc_start_level
+     * is 0 when no override was set — leave $20.w alone in that case so the
+     * normal title-driven value (level 1 at fresh boot) stands. */
+    extern int g_pc_start_level;
+    if (g_pc_start_level > 0) {
+        int n = g_pc_start_level;
+        g_mem[0x20] = 0; g_mem[0x21] = (uint8_t)n;
+        printf("[level-select] applying $20.w = %d at $150 hand-off\n", n);
+    }
     g_gameplay_entry = 0x577000u;
     g_enter_gameplay = 1;
     printf("[overlay-loader] $150 d0=0: gameplay overlay loaded; entering $577000\n");
