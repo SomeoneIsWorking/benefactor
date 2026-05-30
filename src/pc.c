@@ -142,36 +142,31 @@ int pc_get_start_level(void)
  * real table out of g_mem so any data-driven shift stays correct. */
 void pc_level_split(int level, int *world_out, int *level_in_world_out)
 {
-    extern uint8_t *g_mem;
-    if (!g_mem || level < 1 || level > 60) {
+    if (level < 1 || level > 60) {
         if (world_out) *world_out = 0;
         if (level_in_world_out) *level_in_world_out = 0;
         return;
     }
-    uint32_t addr = 0x57782Eu + (uint32_t)(level - 1) * 4u;
-    uint16_t world = ((uint16_t)g_mem[addr] << 8) | g_mem[addr + 1];
-    uint16_t liw   = ((uint16_t)g_mem[addr + 2] << 8) | g_mem[addr + 3];
-    /* The engine's level table at $57782E lives in the gameplay overlay's
-     * $577000+ region — only populated in chip RAM AFTER native_overlay_load
-     * runs (which happens when the user picks PLAY GAME / LEVEL SELECT).
-     * Before that, the table reads as zeros or junk. Detect "world > 6"
-     * (table not populated yet) and fall back to the hardcoded layout that
-     * mirrors the engine's data: worlds 0-1 = 9 levels each, 2-5 = 10,
-     * 6 = 2. */
-    if (world > 6) {
-        static const int wstart[7] = { 0, 9, 18, 28, 38, 48, 58 };
-        static const int wcount[7] = { 9, 9, 10, 10, 10, 10, 2 };
-        int n = level - 1;
-        for (int w = 0; w < 7; w++) {
-            if (n < wstart[w] + wcount[w]) {
-                world = (uint16_t)w;
-                liw   = (uint16_t)(n - wstart[w]);
-                break;
-            }
+    /* This mirrors the engine's table at $57782E exactly — worlds 0-1
+     * have 9 levels each, worlds 2-5 have 10, world 6 has 2. We compute
+     * directly rather than reading $57782E because that region only gets
+     * populated in chip RAM when native_overlay_load runs (PLAY GAME /
+     * LEVEL SELECT hand-off); before that it's zeros, which would map
+     * EVERY level to (world 0, liw 0) and pin the picker cursor at the
+     * top. The table is fixed game data — the hardcoded version can't
+     * diverge from the engine's. */
+    static const int wstart[7] = { 0, 9, 18, 28, 38, 48, 58 };
+    static const int wcount[7] = { 9, 9, 10, 10, 10, 10, 2 };
+    int n = level - 1;
+    for (int w = 0; w < 7; w++) {
+        if (n < wstart[w] + wcount[w]) {
+            if (world_out) *world_out = w;
+            if (level_in_world_out) *level_in_world_out = n - wstart[w];
+            return;
         }
     }
-    if (world_out) *world_out = (int)world;
-    if (level_in_world_out) *level_in_world_out = (int)liw;
+    if (world_out) *world_out = 0;
+    if (level_in_world_out) *level_in_world_out = 0;
 }
 
 /* World names — preloaded from disk alongside the level names. They live
