@@ -84,8 +84,12 @@ static void draw_menu_overlay(uint32_t *fb, int show_levelsel_hint)
 /* Replacement for gfn_gp_003872. Runs as a native override on the disk-boot
  * coroutine — hw_vblank_wait() yields each iteration so the SDL window
  * pumps events, frames present, audio ticks, etc. */
+int g_pc_in_native_title_menu = 0;
 void native_title_menu(M68KCtx *ctx)
 {
+    fprintf(stderr, "[native-title-menu] ENTERED — override $003872 fired\n");
+    fflush(stderr);
+    g_pc_in_native_title_menu = 1;
     /* Edge-trigger nav so a held-down direction doesn't fly past every
      * option in one frame. */
     int prev_up = 0, prev_down = 0, prev_fire = 0;
@@ -115,6 +119,7 @@ void native_title_menu(M68KCtx *ctx)
                  * has already been written by F2/F3 if the player changed
                  * it; native_overlay_loader_reloc will apply $20.w at
                  * the $150 hand-off. */
+                g_pc_in_native_title_menu = 0;
                 rt_jump(ctx, 0x150u);
                 return;
             }
@@ -128,6 +133,7 @@ void native_title_menu(M68KCtx *ctx)
                 }
                 /* Already open + fire = commit -> jmp $150. */
                 g_level_select_visible = 0;
+                g_pc_in_native_title_menu = 0;
                 rt_jump(ctx, 0x150u);
                 return;
             }

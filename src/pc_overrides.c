@@ -29,9 +29,14 @@ void pc_register_overrides(void)
      * title IRQ calls it there to start the game (the path that actually fires). */
     rt_register_override(0x006D714u, native_overlay_loader);
     rt_register_override(0x00000150u, native_overlay_loader_reloc);
-    /* Title menu — full-native replacement (pc_overrides_title.c). */
-    { extern void native_title_menu(M68KCtx *ctx);
-      rt_register_override(0x00003872u, native_title_menu); }
+    /* Title menu native override DISABLED — $003872 turns out NOT to be the
+     * title menu in the normal flow (verified: instrumenting the override
+     * with a g_pc_in_native_title_menu flag and stepping 30000 frames with
+     * no input never fires it; the engine stays in $0064A0 with rt-misses
+     * on $0033E2, $00646E, $005C84). Need to actually trace which fn IS
+     * the title menu before re-attempting the override. */
+    /* { extern void native_title_menu(M68KCtx *ctx);
+         rt_register_override(0x00003872u, native_title_menu); } */
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */
     rt_register_override_gp(0x00577B8Cu, native_gp_disk_read);
