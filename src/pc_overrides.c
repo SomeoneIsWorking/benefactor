@@ -29,6 +29,17 @@ void pc_register_overrides(void)
      * title IRQ calls it there to start the game (the path that actually fires). */
     rt_register_override(0x006D714u, native_overlay_loader);
     rt_register_override(0x00000150u, native_overlay_loader_reloc);
+    /* Main-menu fire-dispatch at $0039D0 — intercepts the cursor-based
+     * dispatch (PLAY GAME / ENTER PASSWORD / LOAD EXTRA LEVELS) so cursor=1
+     * routes to LEVEL SELECT (gameplay overlay with the F2/F3-picked $20.w)
+     * instead of the password screen. cursor=0 still delegates to the
+     * original (PLAY GAME). cursor=2 returns to the menu top until Disk.4
+     * is supported. The fire detection itself stays in the engine — this
+     * fn is only entered when the engine already decided fire was pressed
+     * (see comments in pc_overrides_boot.c). */
+    { extern void native_main_menu_fire_dispatch(M68KCtx *ctx);
+      rt_register_override(0x000039D0u, native_main_menu_fire_dispatch); }
+
     /* $003C5A / $003C6E / $003C88 / $003C9A — four arrow-direction handlers
      * in the title menu. Each is a short rts-terminated mini-routine
      * starting with `move.w #$384,$2BE2(a5)` (audio re-trig?) and updating
