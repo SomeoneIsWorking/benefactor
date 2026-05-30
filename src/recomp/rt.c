@@ -459,54 +459,83 @@ static void rt_miss(uint32_t addr, M68KCtx *ctx)
  * too high per call level → arg reads land on garbage → corruption. So in the
  * gameplay bank we reserve the RA slot around the call. Gated to gameplay to
  * preserve the already-correct title/intro behaviour. */
+/* rt_jump trampoline state (single-threaded by design). The generated code
+ * emits `rt_jump(ctx, X); return;` — without this, each rt_jump invokes
+ * rt_call_impl → fn → rt_jump → rt_call_impl ... and a state-machine cycle
+ * like $59E198 ↔ $59E28C ↔ $59E1FA ↔ $59E1C6 grows the C stack until SIGSEGV.
+ * Instead, rt_jump records the target and returns; the enclosing rt_call_impl
+ * loops, picking up the new target. The Amiga RA slot is reserved once for
+ * the outermost call and released once on exit. */
+static int      s_rt_jump_pending = 0;
+static uint32_t s_rt_jump_target  = 0;
+
 static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
 {
-    g_rt_last_call = addr;        /* watchdog diagnostic: function most recently entered */
-    rt_recent[rt_recent_pos] = addr;
-    rt_recent_pos = (rt_recent_pos + 1) % RT_RECENT;
-    rt_push_call(addr);
     extern int g_gameplay_active;
-    int ra = (is_call && g_gameplay_active);
-    if (ra) { ctx->A[7] -= 4u; rt_write32(ctx, ctx->A[7], rt_last_insn_addr); }
-    if (rt_trace_calls && (addr == 0x00593Au || addr == 0x0055A0u || addr == 0x00377Au || addr == 0x003818u)) {
-        extern int hw_get_frame_num(void);
-        GLOBAL_LOG("CALL $%06X from $%06X frame=%d A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X D0=%08X D1=%08X D2=%08X D7=%08X\n",
-                   addr, rt_last_insn_addr, hw_get_frame_num(),
-                   ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3],
-                   ctx->A[4], ctx->A[5], ctx->D[0], ctx->D[1], ctx->D[2], ctx->D[7]);
-        if (addr == 0x003818u || addr == 0x00377Au) {
-            GLOBAL_LOG("  STACK: ");
-            for (int _si = 0; _si < rt_callstack_sp && _si < 8; _si++)
-                GLOBAL_LOG("$%06X ", rt_callstack[_si]);
-            GLOBAL_LOG("\n");
+    int ra_set = 0;
+
+    for (;;) {
+        g_rt_last_call = addr;    /* watchdog diagnostic: function most recently entered */
+        rt_recent[rt_recent_pos] = addr;
+        rt_recent_pos = (rt_recent_pos + 1) % RT_RECENT;
+        rt_push_call(addr);
+        if (is_call && g_gameplay_active && !ra_set) {
+            ctx->A[7] -= 4u; rt_write32(ctx, ctx->A[7], rt_last_insn_addr);
+            ra_set = 1;
         }
-    }
-    /* override_lookup is bank-aware: in gameplay only gp-overrides fire, so the
-     * title overrides ($405C/$41A4/…) don't hijack the gameplay's own code. */
-    NativeFn native = override_lookup(addr);
-    if (native) {
-        native(ctx);
-        if (ra) ctx->A[7] += 4u;
-        rt_pop_call();
-        return;
-    }
-    GameFn fn = dispatch_lookup(addr);
-    if (fn) {
-        fn(ctx);
-    } else {
+        if (rt_trace_calls && (addr == 0x00593Au || addr == 0x0055A0u || addr == 0x00377Au || addr == 0x003818u)) {
+            extern int hw_get_frame_num(void);
+            GLOBAL_LOG("CALL $%06X from $%06X frame=%d A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X D0=%08X D1=%08X D2=%08X D7=%08X\n",
+                       addr, rt_last_insn_addr, hw_get_frame_num(),
+                       ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3],
+                       ctx->A[4], ctx->A[5], ctx->D[0], ctx->D[1], ctx->D[2], ctx->D[7]);
+            if (addr == 0x003818u || addr == 0x00377Au) {
+                GLOBAL_LOG("  STACK: ");
+                for (int _si = 0; _si < rt_callstack_sp && _si < 8; _si++)
+                    GLOBAL_LOG("$%06X ", rt_callstack[_si]);
+                GLOBAL_LOG("\n");
+            }
+        }
+        /* override_lookup is bank-aware: in gameplay only gp-overrides fire, so the
+         * title overrides ($405C/$41A4/…) don't hijack the gameplay's own code. */
+        NativeFn native = override_lookup(addr);
+        if (native) {
+            native(ctx);
+            rt_pop_call();
+            break;          /* natives don't trampoline through rt_jump */
+        }
+        GameFn fn = dispatch_lookup(addr);
+        if (fn) {
+            s_rt_jump_pending = 0;
+            fn(ctx);
+            rt_pop_call();
+            if (!s_rt_jump_pending) break;
+            addr = s_rt_jump_target;
+            is_call = 0;
+            s_rt_jump_pending = 0;
+            continue;
+        }
         if (getenv("RT_SKIPLOG"))
             GLOBAL_LOG("[rt-skip] no function at $%06X (from $%06X) D0=%08X D1=%08X D2=%08X A0=%08X A1=%08X\n",
                        addr, rt_last_insn_addr, ctx->D[0], ctx->D[1], ctx->D[2], ctx->A[0], ctx->A[1]);
         RT_LOG("rt_call: no function at $%06X – skipping\n", addr);
         rt_miss(addr, ctx);
+        rt_pop_call();
+        break;
     }
-    if (ra) ctx->A[7] += 4u;
-    rt_pop_call();
+    if (ra_set) ctx->A[7] += 4u;
 }
 
 void rt_call(M68KCtx *ctx, uint32_t addr) { rt_call_impl(ctx, addr, 1); }
 
-void rt_jump(M68KCtx *ctx, uint32_t addr) { rt_call_impl(ctx, addr, 0); }
+void rt_jump(M68KCtx *ctx, uint32_t addr)
+{
+    /* Generated callers do `rt_jump(ctx, X); return;` — defer dispatch to the
+     * enclosing rt_call_impl loop so a state-machine cycle doesn't recurse. */
+    s_rt_jump_pending = 1;
+    s_rt_jump_target  = addr;
+    (void)ctx;
+}
 
 void rt_call_generated(M68KCtx *ctx, uint32_t addr)
 {
