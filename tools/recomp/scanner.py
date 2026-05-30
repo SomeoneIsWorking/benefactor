@@ -114,10 +114,25 @@ def _scan_func(data, base, start, md, known_entries=None):
                         continue
                     branch_targets.add(t)
 
+        # Forward unconditional bra over a small inline data table (≤64 bytes)
+        # — the skipped bytes are data, not code. If nothing else branches into
+        # the gap, resume scanning AT the target so we don't decode the data as
+        # bogus instructions (which would misalign and hide the real landing
+        # from `cur_insn_addrs`, causing the emitter to fall back to rt_jump
+        # for an intra-function goto).
+        if m == 'bra' and not any(o.type == M68K_OP_REG for o in ops):
+            t = insn.address + 2 + ops[0].br_disp.disp
+            gap = t - addr
+            if 4 <= gap <= 64 and not any(addr <= bt < t for bt in branch_targets):
+                addr = t
+                continue
+
         can_stop = False
         if m in ('rts', 'rte', 'illegal'):
             can_stop = True
         if m == 'jmp' and not any(o.type == M68K_OP_REG for o in ops):
+            can_stop = True
+        if m == 'bra' and not any(o.type == M68K_OP_REG for o in ops):
             can_stop = True
         if insn.size < 2:
             can_stop = True
@@ -212,13 +227,19 @@ def collect_functions(data, base, entries, md, areg_bases=None, bank=None):
                 t = None
                 if op.type == M68K_OP_BR_DISP and m == 'bsr':
                     t = insn.address + 2 + op.br_disp.disp
-                # gpl-bank-specific: the $577xxx/$58xxxx gameplay code uses
-                # `bra.w X` to jump over inline jump-offset data tables to
-                # alternate runtime-callable landings (e.g. $589792 -> $5897D0
-                # over the offset table at $589796). Promote the long-form
-                # forward bra targets to separate function entries so the
-                # runtime can rt_jump to them. (Short-form `bra.b` is
-                # typically intra-function control flow and is excluded.)
+                # gpl-bank-specific: FORWARD `bra` targets in the
+                # $577xxx/$58xxxx gameplay code are runtime-callable entries
+                # — the dispatcher jumps over inline jump-offset data tables
+                # to alternate landings. Both long form (`bra.w X` 4 bytes,
+                # e.g. $589792 -> $5897D0 over the offset table at $589796)
+                # and short form (`bra.b X` 2 bytes, e.g. $57DE02 -> $57DE0C
+                # over a small data table) appear. Phase 2's overlap check
+                # still rejects promotions that would corrupt other
+                # functions' ranges. Backward bra is left alone here — it's
+                # typically intra-function loop control; backward
+                # cross-function tail-jumps (e.g. dispatcher loop tops like
+                # $57DD3E -> $57DCC4) are caught by Pattern E in
+                # discover_benefactor_targets.py instead.
                 elif (op.type == M68K_OP_BR_DISP and m == 'bra'
                       and bank == 'gpl' and insn.size >= 4
                       and op.br_disp.disp > 0):

@@ -117,6 +117,19 @@ def discover_chain_bodies(freeze_path: Path) -> set[int]:
     def r32(a: int) -> int: return struct.unpack(">I", data[a:a + 4])[0]
 
     def body_for(p: int) -> int | None:
+        # Case 1: P is itself a direct function pointer (a 32-bit code ptr in
+        # an array like the table at $5800A4 that the $57DCD2 dispatcher
+        # reads with `move.l (a2)+, d0; movea.l d0, a4; jmp (a4)`). The
+        # validate just checks whether the *target* is a real function entry.
+        if CODE_LO <= p < CODE_HI:
+            op = r16(p)
+            if is_entry_opcode(op >> 8, op):
+                return p
+        # Case 2: P is a struct pointer in the object-chain format
+        # ($586xxx / $596xxx families). The first word is a method offset
+        # (mo); body is at struct+mo or struct+mo+2 depending on which
+        # dispatcher reads it ($57D3F0 uses struct+mo+2, $57D8CE uses
+        # struct+mo).
         mo = r16(p)
         if mo > 0x400 or mo < 4:
             return None
@@ -197,6 +210,140 @@ def disassemble_function(data: bytes, start: int) -> tuple[set[int], int]:
             addr += insn.size
 
     return targets, max_addr
+
+
+def discover_dispatcher_continuations(seeds: set[int], gmem_path: Path) -> set[int]:
+    """The gpl bank's `jmp (an)`-style dispatchers (e.g. the table walker at
+    $57DCC4..$57DCD2 doing `move.l (a2)+, d0; movea.l d0, a4; jmp (a4)`) load
+    function pointers from arrays and call them via jmp. The called handlers
+    return by `bra.w` BACK to the dispatcher's continuation — the instruction
+    address right after `jmp (an)`. Statically there's no branch to that
+    continuation address (the callback is dynamic, from level-N code we
+    don't have), so the recompiler never registers it as an entry and the
+    runtime rt-misses on the `bra.w X` callback.
+
+    Heuristic: scan seeded function bodies for `jmp (an)` (opcode $4ED0..$4ED7,
+    EA mode 2 = (An)). The next instruction's address is a callback landing
+    that the runtime is going to bra into. Register it as an entry."""
+    if not gmem_path.exists():
+        return set()
+    data = gmem_path.read_bytes()
+    import struct as _s
+
+    def r16(a):
+        return _s.unpack(">H", data[a:a + 2])[0]
+
+    JMP_AN = set(range(0x4ED0, 0x4ED8))  # jmp (a0)..(a7)
+    out: set[int] = set()
+    sorted_seeds = sorted(s for s in seeds if CODE_LO <= s < CODE_HI)
+    for i, fn in enumerate(sorted_seeds):
+        next_fn = sorted_seeds[i + 1] if i + 1 < len(sorted_seeds) else CODE_HI
+        # Walk the function linearly looking for `jmp (an)`.
+        addr = fn
+        while addr < min(fn + 0x2000, next_fn):
+            op = r16(addr)
+            if op in JMP_AN:
+                continuation = addr + 2
+                if (CODE_LO <= continuation < CODE_HI
+                        and continuation != fn
+                        and continuation not in sorted_seeds):
+                    out.add(continuation)
+                addr += 2
+                continue
+            # Approximate next-insn step via Capstone (per-instruction sizes
+            # vary). Use a small disasm to get insn.size.
+            try:
+                from capstone import Cs, CS_ARCH_M68K, CS_MODE_M68K_020
+            except ImportError:
+                return out
+            md = Cs(CS_ARCH_M68K, CS_MODE_M68K_020)
+            md.detail = True
+            decoded = list(md.disasm(data[addr:addr + 16], addr, count=1))
+            if not decoded:
+                break
+            addr += decoded[0].size
+    return out
+
+
+def discover_dispatcher_loop_tops(seeds: set[int], gmem_path: Path) -> set[int]:
+    """Companion to Pattern D: when a function has the dispatcher pattern
+
+        LOOP_TOP:               <- here
+          move.l (a2)+, d0
+          beq endpath
+          ...
+          jmp (An)              <- via Pattern D, the addr after this is a
+        CONTINUATION:              callable landing
+          ...
+          bra LOOP_TOP          <- here: backward bra after the jmp
+
+    the LOOP_TOP is ALSO a callable entry — level-N handler code tail-jumps
+    back to it (e.g. $57DD3E -> $57DCC4). Detect: a function with a
+    `jmp (An)` whose later instructions contain a `bra X` (forward or
+    backward) to a target X that's earlier in the function than the jmp.
+    That X is the loop-top entry."""
+    if not gmem_path.exists():
+        return set()
+    try:
+        from capstone import Cs, CS_ARCH_M68K, CS_MODE_M68K_020
+        from capstone.m68k import M68K_OP_BR_DISP
+    except ImportError:
+        return set()
+    data = gmem_path.read_bytes()
+    md = Cs(CS_ARCH_M68K, CS_MODE_M68K_020)
+    md.detail = True
+
+    import struct as _s
+    def r16(a):
+        return _s.unpack(">H", data[a:a + 2])[0]
+    JMP_AN = set(range(0x4ED0, 0x4ED8))
+
+    out: set[int] = set()
+    sorted_seeds = sorted(s for s in seeds if CODE_LO <= s < CODE_HI)
+    # First pass: identify dispatcher functions (those with jmp (An)) and their
+    # jmp addresses. Also collect every bra source/target in every function so
+    # we can find cross-function backward bras into dispatcher loop tops.
+    dispatcher_jmps: dict[int, int] = {}  # fn -> earliest jmp(An) addr
+    all_bras: list[tuple[int, int]] = []  # (bra_addr, target)
+    for i, fn in enumerate(sorted_seeds):
+        next_fn = sorted_seeds[i + 1] if i + 1 < len(sorted_seeds) else CODE_HI
+        end = min(fn + 0x2000, next_fn)
+        addr = fn
+        while addr < end:
+            op = r16(addr)
+            if op in JMP_AN:
+                if fn not in dispatcher_jmps:
+                    dispatcher_jmps[fn] = addr
+                addr += 2
+                continue
+            decoded = list(md.disasm(data[addr:addr + 16], addr, count=1))
+            if not decoded:
+                addr += 2
+                continue
+            insn = decoded[0]
+            try:
+                m = insn.mnemonic.lower().split('.')[0]
+                if m == 'bra':
+                    for o in insn.operands:
+                        if o.type == M68K_OP_BR_DISP:
+                            t = insn.address + 2 + o.br_disp.disp
+                            all_bras.append((insn.address, t))
+                            break
+            except Exception:
+                pass
+            addr += insn.size
+
+    # Second pass: a `bra X` whose target X falls between a dispatcher
+    # function's entry and its jmp(An) is a loop-top entry. (X comes AFTER
+    # the function's entry — skipping the prologue — and the bra source can
+    # be anywhere, including a different function created by Pattern D
+    # splitting the original dispatcher.)
+    for bra_a, t in all_bras:
+        for fn, jmp_a in dispatcher_jmps.items():
+            if fn < t < jmp_a and t not in sorted_seeds:
+                out.add(t)
+                break
+    return out
 
 
 def discover_return_landing_points(seeds: set[int], gmem_path: Path) -> set[int]:
@@ -355,13 +502,29 @@ def main() -> int:
     for t in c_new:
         print(f"    {t:06X}  (return-landing)")
 
+    d_landings = discover_dispatcher_continuations(seeds_for_cross, Path(args.gmem))
+    d_new = sorted(d_landings - seeds_for_cross)
+    print(f"\n[D] dispatcher-continuation landings (after jmp (An)): {len(d_landings)} ({len(d_landings & seeds_for_cross)} already seeded)")
+    for t in d_new:
+        print(f"    {t:06X}  (dispatcher-continuation)")
+
+    e_loops = discover_dispatcher_loop_tops(seeds_for_cross, Path(args.gmem))
+    e_new = sorted(e_loops - seeds_for_cross)
+    print(f"\n[E] dispatcher loop-tops (bra back to before jmp (An)): {len(e_loops)} ({len(e_loops & seeds_for_cross)} already seeded)")
+    for t in e_new:
+        print(f"    {t:06X}  (dispatcher-loop-top)")
+
     # Only Pattern A is safe to auto-seed. Patterns B (cross-function branch
     # targets) and C (return-landing points) point INSIDE an existing function,
     # and creating a new gfn entry at a mid-function label duplicates the
     # decoded body in two functions and breaks runtime. Use B/C as a
     # diagnostic — fix the emitter (emit `goto L_X` for in-function bra.w)
     # rather than splitting the function.
-    safe_new = sorted(a_new)
+    # Patterns A (chain bodies), D (dispatcher continuations), and E
+    # (dispatcher loop-tops) are safe to auto-seed — they're single addresses
+    # the runtime calls into. B and C point INSIDE existing functions and
+    # need an emitter fix, not new entries (see the dbra-rt_jump fix).
+    safe_new = sorted(set(a_new) | set(d_new) | set(e_new))
     diag_new = sorted(set(b_new) | set(c_new))
     print(f"\nsafe NEW (auto-seedable): {len(safe_new)}")
     print(f"diagnostic NEW (B+C — DO NOT auto-seed): {len(diag_new)}")
