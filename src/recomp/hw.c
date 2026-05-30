@@ -289,13 +289,20 @@ void hw_handle_key(int sym, int down)
     case SDLK_TAB: /* cycle real-time speed 1x -> 2x -> 4x */
         if (down) hw_cycle_speed();
         break;
+    case SDLK_F1: /* toggle level-select overlay */
+        if (down) { extern int g_level_select_visible; g_level_select_visible = !g_level_select_visible; }
+        break;
     case SDLK_F2: /* level-select: next start level (write $20.w) */
         if (down) { extern void pc_set_start_level(int); extern int pc_get_start_level(void);
-                    pc_set_start_level(pc_get_start_level() + 1); }
+                    extern int g_level_select_visible;
+                    pc_set_start_level(pc_get_start_level() + 1);
+                    g_level_select_visible = 1; }
         break;
     case SDLK_F3: /* level-select: previous start level */
         if (down) { extern void pc_set_start_level(int); extern int pc_get_start_level(void);
-                    pc_set_start_level(pc_get_start_level() - 1); }
+                    extern int g_level_select_visible;
+                    pc_set_start_level(pc_get_start_level() - 1);
+                    g_level_select_visible = 1; }
         break;
     default: break;
     }
@@ -428,6 +435,11 @@ int hw_present_frame(void)
     /* Execute copper list (updates register shadows), then render natively */
     hw_execute_copper();
     native_render_frame();  /* walks copper list from chip RAM, renders s_fb[] */
+
+    /* PC-native overlays (post-composit): the level-select panel goes here
+     * so it stacks on top of whatever the engine just drew. */
+    { extern void pc_level_select_overlay(uint32_t *fb);
+      pc_level_select_overlay(s_fb); }
 
     /* Harness snap is taken by the caller (pc.c) AFTER the timer interrupt,
      * to match PUAE's ordering where VBlank fires after copper and before snap. */
