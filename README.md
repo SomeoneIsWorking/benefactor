@@ -82,4 +82,4 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 | `tools/recomp/` | Python recompiler (regenerates `generated/`) |
 | `vendor/libretro-uae/` | PUAE reference, used by the comparison harness |
 
-See `CLAUDE.md` and `AGENTS.md` for the development workflow.
+See `CLAUDE.md` and `AGENTS.md` for the development workflow, and `docs/recompiler.md` if you want to regenerate `src/generated/` from your own chip-RAM dumps.
