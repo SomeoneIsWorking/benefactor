@@ -207,6 +207,31 @@ int main(int argc, char **argv)
             extern void pc_set_start_level(int);
             pc_set_start_level(n);
         }
+        else if (!strcmp(cmd, "runtocard")) {  /* runtocard [maxframes] — step PC until card shows */
+            extern int pc_is_level_card_displayed(void);
+            unsigned maxf = 5000; sscanf(line, "%*s %u", &maxf);
+            unsigned i = 0;
+            for (; i < maxf; i++) { STEP_PC(); if (pc_is_level_card_displayed()) break; }
+            FrameState c; hw_get_snap(&c);
+            printf("[crepl] runtocard: %s after %u frames (cop1lc=$%06X)\n",
+                   pc_is_level_card_displayed() ? "REACHED" : "gave up", i + (i < maxf), c.cop1lc);
+        }
+        else if (!strcmp(cmd, "lnames")) {
+            /* Print all 10 names from the currently-loaded world's table. */
+            extern uint8_t *g_mem;
+            if (g_mem) {
+                for (int liw = 0; liw < 10; liw++) {
+                    uint32_t e = 0x5786ACu + (uint32_t)liw * 44u;
+                    int qa = -1;
+                    for (int i = 0; i < 36; i++) if (g_mem[e + i] == '"') { qa = i; break; }
+                    if (qa < 0) { printf("  liw %d: (no name)\n", liw); continue; }
+                    char name[64] = {0}; int j = 0;
+                    for (int i = qa + 1; i < 44 && g_mem[e + i] != '"' && j < 63; i++)
+                        name[j++] = (char)g_mem[e + i];
+                    printf("  liw %d: \"%s\"\n", liw, name);
+                }
+            }
+        }
         else if (!strcmp(cmd, "levelinfo")) {
             extern uint8_t *g_mem;
             extern void pc_level_split(int, int*, int*);
