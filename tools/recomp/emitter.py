@@ -429,15 +429,16 @@ class Translator:
             r     = reg_name(ops[0].reg)
             t     = self.br_target(insn, 2)
             c_var = f'_c_{self.current_pc:x}'
-            # Loop-back target: a label inside this function -> goto; otherwise a
-            # separate known function entry (overlapping seeds) -> tail rt_jump so
-            # the label isn't left undefined.
+            # Loop-back target: a label inside this function -> goto. Otherwise
+            # the target lives in another translation unit (a different gfn_
+            # function), so a `goto L_X` here would reference a label that
+            # isn't defined in the current C function — tail rt_jump instead,
+            # same fallback emit_branch uses. The runtime will either resolve
+            # it via the dispatch table or rt-miss cleanly.
             if (not self.cur_insn_addrs) or (t in self.cur_insn_addrs):
                 back = f'if ({c_var} != -1) goto L_{t:06X};'
-            elif t in self.func_addrs:
-                back = f'if ({c_var} != -1) {{ rt_jump(ctx, 0x{t:06X}u); return; }}'
             else:
-                back = f'if ({c_var} != -1) goto L_{t:06X};'
+                back = f'if ({c_var} != -1) {{ rt_jump(ctx, 0x{t:06X}u); return; }}'
             dec   = (f'int16_t {c_var} = (int16_t)(uint16_t)ctx->{r} - 1;\n'
                      f'ctx->{r} = (ctx->{r} & 0xFFFF0000u) | (uint16_t){c_var};\n'
                      f'{back}')
