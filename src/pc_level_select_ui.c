@@ -156,33 +156,59 @@ void pc_level_select_overlay(uint32_t *fb)
     int world = 0, liw = 0;
     pc_level_split(level, &world, &liw);
     const char *wn = pc_world_name(world);
-    const char *ln = pc_static_level_name(level);
 
-    /* Panel: centered, 280×80 with dark-translucent fill + bright border. */
-    const int pw = 280, ph = 80;
+    /* Count levels in the current world by scanning the 60-entry level
+     * table. Worlds 0/1 have 9, worlds 2..5 have 10, world 6 has 2. */
+    int liw_count = 0;
+    for (int n = 1; n <= 60; n++) {
+        int w_, l_; pc_level_split(n, &w_, &l_);
+        if (w_ == world) liw_count++;
+    }
+
+    /* Panel: centered, large enough for header + world name + up to 10 rows. */
+    const int pw = 280;
+    const int row_h = 11;
+    const int ph = 36 + liw_count * row_h + 18;   /* header + rows + footer */
     const int px = (FB_W - pw) / 2;
     const int py = (FB_H - ph) / 2;
 
-    /* Translucent dark fill (we don't have alpha; just paint solid dark blue). */
+    /* Background + border. */
     fill_rect(fb, px, py, pw, ph, 0xFF101830);
-    /* Border (yellow). */
     fill_rect(fb, px,           py,            pw, 1, 0xFFFFD040);
     fill_rect(fb, px,           py + ph - 1,   pw, 1, 0xFFFFD040);
     fill_rect(fb, px,           py,            1,  ph, 0xFFFFD040);
     fill_rect(fb, px + pw - 1,  py,            1,  ph, 0xFFFFD040);
 
-    /* Header: "LEVEL SELECT  F2/F3  FIRE TO START" small white. */
-    draw_text(fb, px + 8, py + 6,
-              "LEVEL SELECT   F2/F3   FIRE = START",
-              1, 0xFFB0C0FF);
+    /* Header line. */
+    draw_text(fb, px + 8, py + 5, "LEVEL SELECT", 1, 0xFFB0C0FF);
 
-    /* Level number line: "LEVEL NN" large yellow. */
-    char buf[64];
-    snprintf(buf, sizeof buf, "LEVEL %d", level);
-    draw_text(fb, px + 8, py + 20, buf, 2, 0xFFFFD040);
+    /* World name + LEFT/RIGHT arrows hint. */
+    char wbuf[64];
+    snprintf(wbuf, sizeof wbuf, "< %s >", wn);
+    /* Center the world line. */
+    int w_text_len = (int)strlen(wbuf) * 6;
+    int wx = px + (pw - w_text_len) / 2;
+    draw_text(fb, wx, py + 18, wbuf, 1, 0xFFFFD040);
 
-    /* World name. */
-    draw_text(fb, px + 8, py + 42, wn, 1, 0xFFFFFFFF);
-    /* Level name. */
-    draw_text(fb, px + 8, py + 56, ln, 1, 0xFFA0FFA0);
+    /* Level list: rows are 1..liw_count, with cursor marker on row==liw. */
+    int list_y0 = py + 33;
+    for (int i = 0; i < liw_count; i++) {
+        int row_level = -1;
+        /* Find the global level number for (world, i). */
+        for (int n = 1; n <= 60; n++) {
+            int w_, l_; pc_level_split(n, &w_, &l_);
+            if (w_ == world && l_ == i) { row_level = n; break; }
+        }
+        uint32_t col = (i == liw) ? 0xFFFFD040 : 0xFFB0B0B0;
+        int ry = list_y0 + i * row_h;
+        if (i == liw) draw_text(fb, px + 8, ry, ">", 1, col);
+        char rbuf[64];
+        const char *nm = (row_level >= 1) ? pc_static_level_name(row_level) : "?";
+        snprintf(rbuf, sizeof rbuf, "%2d. %s", row_level, nm);
+        draw_text(fb, px + 20, ry, rbuf, 1, col);
+    }
+
+    /* Footer. */
+    draw_text(fb, px + 8, py + ph - 12,
+              "FIRE = START   UP/DN LEVEL   L/R WORLD", 1, 0xFF808080);
 }
