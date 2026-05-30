@@ -161,9 +161,11 @@ void pc_level_split(int level, int *world_out, int *level_in_world_out)
  * decodes + caches them. */
 static char g_pc_preloaded_world_names[7][32];
 static int  g_pc_preloaded_names_ready;   /* defined below */
+extern void pc_preload_all_level_names(void);  /* forward decl, defined below */
 const char *pc_world_name(int world)
 {
     if (world < 0 || world >= 7) return "?";
+    if (!g_pc_preloaded_names_ready) pc_preload_all_level_names();
     if (g_pc_preloaded_names_ready && g_pc_preloaded_world_names[world][0])
         return g_pc_preloaded_world_names[world];
     return "?";
@@ -209,13 +211,39 @@ void pc_preload_all_level_names(void)
                     | ((uint32_t)g_mem[(a)+2] <<  8) \
                     |  (uint32_t)g_mem[(a)+3]       )
 
-    /* Per-world cursor walks the zero-terminated chunk list at $577452. */
+    /* The world-descriptor table lives at $577452, INSIDE the gameplay
+     * overlay's $577000+ chunk. That chunk is loaded into $577000 by
+     * native_overlay_load when the user actually picks PLAY GAME — but
+     * we want names available the moment the main-menu shows up.
+     *
+     * Solution: load the overlay's chunk-2 (the one containing $577452)
+     * into a SCRATCH location, point our table-walker at it, then
+     * proceed normally. The title bank at $3000+ stays untouched. The
+     * scratch is $700000 — same area we use for per-world chunks below
+     * (we just reuse it; per-world load happens after we've extracted
+     * the table from this scratch). */
     uint32_t cursor = 0x577452u;
+    int loaded_table_scratch = 0;
+    if (RD32(0x577452u) == 0u) {
+        /* Table not in chip RAM yet. Load overlay chunk 2 ($0689BE on
+         * Disk.1, $012A1C compressed bytes, decrunches to ~$1D000 bytes)
+         * to scratch. */
+        if (disk_boot_load(1, 0x0689BEu, scratch, 0x012A1Cu) > 0
+            && atn_decrunch(scratch) != 0) {
+            cursor = scratch + (0x577452u - 0x577000u);
+            loaded_table_scratch = 1;
+        }
+    }
+    /* Adjust the table walk's $577800 upper bound when reading from
+     * scratch — the table is at the same offset within the chunk. */
+    uint32_t cursor_end = loaded_table_scratch
+                          ? scratch + (0x577800u - 0x577000u)
+                          : 0x577800u;
     for (int world = 0; world < 7; world++) {
         /* Walk this world's chunks: each chunk = 3 longwords
          * (dest_metadata, src_encoded, length). Track the last one. */
         uint32_t last_src = 0, last_len = 0;
-        while (cursor < 0x577800u && RD32(cursor) != 0) {
+        while (cursor < cursor_end && RD32(cursor) != 0) {
             last_src = RD32(cursor + 4);
             last_len = RD32(cursor + 8);
             cursor += 12;
@@ -292,9 +320,10 @@ void pc_preload_all_level_names(void)
 const char *pc_static_level_name(int level)
 {
     if (level < 1 || level > 60) return "?";
+    if (!g_pc_preloaded_names_ready) pc_preload_all_level_names();
     if (g_pc_preloaded_names_ready && g_pc_preloaded_names[level - 1][0])
         return g_pc_preloaded_names[level - 1];
-    return "?";   /* preload runs at the $150 hand-off — must have happened */
+    return "?";
 }
 
 /* The currently-loaded world's level-name table lives at $5786AC, 10 entries,
