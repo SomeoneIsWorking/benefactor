@@ -155,23 +155,18 @@ void pc_level_split(int level, int *world_out, int *level_in_world_out)
     if (level_in_world_out) *level_in_world_out = (int)liw;
 }
 
-/* World names — the card displays these visually as bitmap art (no ASCII
- * source in the loaded image), so for UI text we use a hardcoded lookup.
- * Filled in as we play through each world. */
-static const char *const s_world_names[] = {
-    /* 0 */ "Underworld",
-    /* 1 */ "Tombs of Egypt",
-    /* 2 */ "World 2",        /* TODO: confirm from cards */
-    /* 3 */ "World 3",
-    /* 4 */ "World 4",
-    /* 5 */ "World 5",
-    /* 6 */ "World 6",
-};
+/* World names — preloaded from disk alongside the level names. They live
+ * in each world's last chunk near the start, Caesar-shifted by +0x1A on
+ * letters (spaces pass through unchanged). pc_preload_all_level_names()
+ * decodes + caches them. */
+static char g_pc_preloaded_world_names[7][32];
+static int  g_pc_preloaded_names_ready;   /* defined below */
 const char *pc_world_name(int world)
 {
-    if (world < 0 || world >= (int)(sizeof s_world_names / sizeof s_world_names[0]))
-        return "?";
-    return s_world_names[world];
+    if (world < 0 || world >= 7) return "?";
+    if (g_pc_preloaded_names_ready && g_pc_preloaded_world_names[world][0])
+        return g_pc_preloaded_world_names[world];
+    return "?";
 }
 
 /* All 60 level names are read DIRECTLY from disk at gameplay-overlay-load
@@ -190,7 +185,7 @@ const char *pc_world_name(int world)
  * scratch g_mem area, runs atn_decrunch in place, and scrapes the
  * names. Runs once. State is not perturbed. */
 static char g_pc_preloaded_names[60][32];
-static int  g_pc_preloaded_names_ready = 0;
+/* g_pc_preloaded_names_ready forward-declared above (used by pc_world_name). */
 
 void pc_preload_all_level_names(void)
 {
@@ -236,7 +231,31 @@ void pc_preload_all_level_names(void)
 
         int rc = disk_boot_load(disk_num, disk_off, scratch, last_len);
         if (rc <= 0) continue;
-        if (atn_decrunch(scratch) == 0) continue;
+        uint32_t outlen = atn_decrunch(scratch);
+        if (outlen == 0) continue;
+        /* Decode the world name. Stored at offset $004, Caesar-shifted by
+         * +0x1A on letters (spaces pass through). The run ends at the
+         * first non-letter, non-space byte. Worlds 2 and 3 have a 2-byte
+         * header at $002 that LOOKS like ASCII (chars in printable range
+         * but not in the cipher's letter window) — starting strictly at
+         * $004 avoids picking those up as "JSTONES" / "THE  TREETOP". */
+        {
+            int run_len = 0;
+            for (int i = 0; i < 28; i++) {
+                uint8_t c = g_mem[scratch + 4 + i];
+                if (c == ' ') { run_len++; continue; }
+                int d = (int)c - 0x1A;
+                if (d >= 'A' && d <= 'Z') { run_len++; continue; }
+                break;
+            }
+            int j = 0;
+            for (int i = 0; i < run_len && j < 31; i++) {
+                uint8_t c = g_mem[scratch + 4 + i];
+                g_pc_preloaded_world_names[world][j++] =
+                    (c == ' ') ? ' ' : (char)((int)c - 0x1A);
+            }
+            g_pc_preloaded_world_names[world][j] = 0;
+        }
 
         /* Parse 10 entries (44 bytes/entry) starting at scratch + $60. The
          * first opening-quote of name 0 lives right at offset $60; each
@@ -264,8 +283,9 @@ void pc_preload_all_level_names(void)
     memset(g_mem + scratch, 0, 0x20000u);
     #undef RD32
     g_pc_preloaded_names_ready = 1;
-    fprintf(stderr, "[level-names] preloaded all 60 from disk overlays (first: \"%s\", last: \"%s\")\n",
-            g_pc_preloaded_names[0], g_pc_preloaded_names[59]);
+    fprintf(stderr, "[level-names] preloaded all 60 from disk overlays:\n");
+    for (int w = 0; w < 7; w++)
+        fprintf(stderr, "  world %d: \"%s\"\n", w, g_pc_preloaded_world_names[w]);
     fflush(stderr);
 }
 
