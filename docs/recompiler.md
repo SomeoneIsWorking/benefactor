@@ -80,13 +80,24 @@ python3 tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
 
 The `--seed` lists hold entry points reached via indirect dispatch — jump tables, handler pointers, computed jumps — that static descent from the bank's entry can't find on its own. When the runtime hits an unseen indirect-dispatch target, it logs `[rt-miss] $XXXXXX`; append that address to the relevant seed file and rerun.
 
-## Seed convergence loop
+## Recovering object handlers from a post-mortem dump
 
-The `tools_seed_converge.sh` script automates the seed-discovery loop for the gpl bank: regen → build → run a scripted gameplay session with `RT_ALLOW_MISS=1` (log all misses in one pass) → append the new addresses to `gpl_seeds.txt` → repeat until no misses, up to 24 rounds.
+When the standalone hits an `[rt-miss]` in the gameplay loop, the strict-abort handler dumps `g_mem` to `logs/pc_freeze.bin`. The live object structures for the current level (plus the spawn list for the *next* level) are sitting in chip RAM at that moment, and the dispatcher arithmetic that the runtime missed can be replayed statically:
 
 ```bash
-./tools_seed_converge.sh
+./run_pc_game.sh                                          # runs until rt-miss
+python3 tools/recomp/discover_object_handlers.py          # show new bodies
+python3 tools/recomp/discover_object_handlers.py --append # append to gpl_seeds.txt
+cmake --build build --target recompile_game               # (if chip_ram_dump.bin present)
+# or run the gpl regen command shown above
+cmake --build build -j"$(nproc)"
 ```
+
+The walker scans the `$57F000..$580000` work-area window for struct pointers into the gpl code range, tries both dispatcher arithmetics (`struct+mo` and `struct+mo+2` — different struct families use one or the other), and accepts the one whose target starts with the standard `movem.w (a0),...` / `movem.l <regs>,-(sp)` entry preamble. That recovers every object body the level needs in one shot, not one miss at a time.
+
+## Seed convergence loop (legacy)
+
+The `tools_seed_converge.sh` script automates seed-discovery for the gpl bank by iterating regen → build → scripted gameplay → append → repeat. It used `RT_ALLOW_MISS=1` to harvest misses in batches; **do not run gameplay with that flag** — a skipped miss leaves the caller in a corrupt state and every downstream watchdog/freeze becomes a meaningless symptom of the corruption, not a real bug. The post-mortem walker above is the strict-mode replacement.
 
 ## Rebuilding after a regen
 

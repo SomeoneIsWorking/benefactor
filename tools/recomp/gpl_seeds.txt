@@ -201,3 +201,10 @@
 597114
 597188
 5972FA
+# level-3 object handlers (walked from logs/pc_freeze.bin after rt-miss at $597482)
+588F62
+589132
+5971FC
+597482
+59832A
+59AE3C
