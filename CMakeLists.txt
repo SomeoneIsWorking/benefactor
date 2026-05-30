@@ -31,7 +31,11 @@ set(RECOMPILER      "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp/recomp.py")
 set(RECOMP_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp")
 set(GEN_DIR         "${CMAKE_CURRENT_SOURCE_DIR}/src/generated")
 set(GAME_H          "${GEN_DIR}/game.h")
-set(GAME_SRCS
+# The recompiler splits each bank's output across multiple .c files when the
+# function count grows, so the build picks them up by glob. CONFIGURE_DEPENDS
+# re-runs the glob on each build, so a regen that adds (or removes) bank
+# files doesn't need a manual reconfigure.
+file(GLOB GAME_SRCS    CONFIGURE_DEPENDS
     "${GEN_DIR}/game_boot.c"
     "${GEN_DIR}/game_blitter.c"
     "${GEN_DIR}/game_loop.c"
@@ -71,11 +75,9 @@ set(GAME_SRCS
 # into tail rt_jump so overlapping seeds (e.g. 57B0EE/57BA74) compile.
 # Gameplay runs 1500 frames clean (no misses, no hang) + renders the level-intro
 # card. Card->cavern advance ($3914->$3484) is the next gate (not input-driven).
-set(GP_GAME_SRCS
-    "${GEN_DIR}/game_gp_0.c"
-    "${GEN_DIR}/game_gp_table.c"
-    "${GEN_DIR}/game_gpl_0.c"
-    "${GEN_DIR}/game_gpl_table.c"
+file(GLOB GP_GAME_SRCS CONFIGURE_DEPENDS
+    "${GEN_DIR}/game_gp_*.c"
+    "${GEN_DIR}/game_gpl_*.c"
 )
 
 file(MAKE_DIRECTORY "${GEN_DIR}")
