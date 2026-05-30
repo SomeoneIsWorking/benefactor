@@ -100,6 +100,10 @@ static void put_pixel(uint32_t *fb, int x, int y, uint32_t argb)
     fb[y * FB_W + x] = argb;
 }
 
+/* Exposed for pc_overrides_title.c (the native title menu). */
+void pc_fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb);
+int  pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb);
+
 static void fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb)
 {
     for (int y = y0; y < y0 + h; y++) {
@@ -134,6 +138,14 @@ static int draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint3
         x += 6 * scale;
     }
     return x;
+}
+
+/* Public wrappers used by pc_overrides_title.c. */
+void pc_fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb) {
+    fill_rect(fb, x0, y0, w, h, argb);
+}
+int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb) {
+    return draw_text(fb, x, y, s, scale, argb);
 }
 
 void pc_level_select_overlay(uint32_t *fb)
