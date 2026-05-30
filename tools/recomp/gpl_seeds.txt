@@ -503,3 +503,49 @@
 598AB8
 598BD8
 598C3C
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+58D0D2
+59881A
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+586B1C
+587272
+58BF24
+58C186
+58CA6A
+58CC48
+598718
+598890
+598906
+598962
+59899A
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+59B0B0
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+58C790
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+58733A
+58D6D8
+58DB22
+58DCBA
+596762
+59897E
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+58D774
+58D8FC
+58DE2A
+58E8EC
+58F63A
+590562
+5906EE
+597C22
+598E56
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+58DFD4
+58EC44
+5990AE
+59922E
+599272
+59929A
+59948A
+5994A8
+57AB1A  # backward bcc target from $57AB30 (gfn_gpl_57AB24) into label inside gfn_gpl_57A934
