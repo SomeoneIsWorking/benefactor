@@ -202,6 +202,11 @@ int main(int argc, char **argv)
                 harness_interactive_delay(ms);
             }
         }
+        else if (!strcmp(cmd, "lsui")) {  /* toggle level-select overlay */
+            extern int g_level_select_visible;
+            g_level_select_visible = !g_level_select_visible;
+            printf("[crepl] level-select overlay: %s\n", g_level_select_visible ? "ON" : "OFF");
+        }
         else if (!strcmp(cmd, "setlevel")) {  /* setlevel N — pre-apply $20.w for next $150 hand-off */
             int n = 1; sscanf(line, "%*s %d", &n);
             extern void pc_set_start_level(int);
