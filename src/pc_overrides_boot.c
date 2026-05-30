@@ -204,6 +204,31 @@ void native_gp_disk_read(M68KCtx *ctx)
     ctx->D[0] = 0;   /* success: caller does neg.w d0; bmi error -> d0=0 continues */
 }
 
+/* Title-menu cursor handlers — direct C ports of $003C5A (DOWN) and
+ * $003C88 (UP). See the comment in pc_register_overrides() for the
+ * disassembly each one mimics. */
+void native_menu_cursor_down(M68KCtx *ctx)
+{
+    /* $003C5A — direct port:
+     *   move.w #$384, $2BE2(a5)   ; signal redraw
+     *   cmpi.w #$2,   -$18BE(a5)  ; cursor at max (PLAY/PWD/EXTRA = 0/1/2)?
+     *   beq.s  end
+     *   addq.w #1,    -$18BE(a5)  ; advance cursor
+     *
+     * Confirmed working at the main-menu screen (cop1lc=$008302). */
+    MW16(ctx->A[5] + 0x2BE2u, 0x0384);
+    uint16_t cur = MR16(ctx->A[5] - 6334u);
+    if (cur != 2) MW16(ctx->A[5] - 6334u, cur + 1);
+}
+
+void native_menu_cursor_up(M68KCtx *ctx)
+{
+    /* $003C88 — symmetric: decrement cursor if > 0. */
+    MW16(ctx->A[5] + 0x2BE2u, 0x0384);
+    uint16_t cur = MR16(ctx->A[5] - 6334u);
+    if (cur != 0) MW16(ctx->A[5] - 6334u, cur - 1);
+}
+
 void native_overlay_loader_reloc(M68KCtx *ctx)
 {
     extern uint8_t *g_mem;
