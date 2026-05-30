@@ -119,6 +119,7 @@ add_executable(benefactor-pc
     src/pc_overrides_render.c
     src/pc_overrides_gameplay.c
     src/pc_level_select_ui.c
+    src/pc_overrides_title.c
     src/pc.h
     src/pc_internal.h
     src/recomp/rt.c
@@ -402,6 +403,7 @@ set(HARNESS_SOURCES
     src/pc_overrides_render.c
     src/pc_overrides_gameplay.c
     src/pc_level_select_ui.c
+    src/pc_overrides_title.c
     ${GAME_SRCS}
     ${GP_GAME_SRCS}
 )

@@ -29,6 +29,9 @@ void pc_register_overrides(void)
      * title IRQ calls it there to start the game (the path that actually fires). */
     rt_register_override(0x006D714u, native_overlay_loader);
     rt_register_override(0x00000150u, native_overlay_loader_reloc);
+    /* Title menu — full-native replacement (pc_overrides_title.c). */
+    { extern void native_title_menu(M68KCtx *ctx);
+      rt_register_override(0x00003872u, native_title_menu); }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */
     rt_register_override_gp(0x00577B8Cu, native_gp_disk_read);
