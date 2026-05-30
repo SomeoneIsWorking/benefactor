@@ -214,11 +214,15 @@ void hw_set_no_pace(int on) { s_no_pace = on; }
 /* Real-time speed multiplier for the standalone (1x/2x/4x). Only changes the
  * 50Hz pacing delay — the per-frame game logic is unchanged, so the game simply
  * advances faster in wall-clock time. Cycled by the speed key. */
-static int s_speed_mult = 1;
+static int s_speed_mult  = 1;
+static int s_speed_turbo = 0;
 void hw_cycle_speed(void)
 {
-    s_speed_mult = (s_speed_mult >= 4) ? 1 : s_speed_mult * 2;   /* 1 -> 2 -> 4 -> 1 */
-    fprintf(stderr, "[speed] %dx\n", s_speed_mult);
+    if (s_speed_turbo)            { s_speed_turbo = 0; s_speed_mult = 1; }
+    else if (s_speed_mult >= 16)  { s_speed_turbo = 1; }
+    else                          { s_speed_mult = s_speed_mult < 4 ? s_speed_mult * 2 : 16; }
+    if (s_speed_turbo) fprintf(stderr, "[speed] TURBO (no pacing)\n");
+    else               fprintf(stderr, "[speed] %dx\n", s_speed_mult);
     fflush(stderr);
 }
 
@@ -429,7 +433,7 @@ int hw_present_frame(void)
         /* Pace to PAL 50 Hz (20 ms/frame). s_next_frame_ms self-corrects and
          * resyncs if we fall far behind, so the game runs at the intended speed
          * regardless of monitor refresh. */
-        if (!s_no_pace) {
+        if (!s_no_pace && !s_speed_turbo) {
             static uint64_t s_next_frame_ms = 0;
             uint64_t now = SDL_GetTicks64();
             if (s_next_frame_ms == 0 || now > s_next_frame_ms + 100)
