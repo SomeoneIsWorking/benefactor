@@ -155,6 +155,12 @@ void pc_level_select_overlay(uint32_t *fb)
     int level = pc_get_start_level();
     int world = 0, liw = 0;
     pc_level_split(level, &world, &liw);
+    /* Defensive: pc_level_split reads the engine's table at $57782E. If
+     * that table isn't valid yet at runtime (e.g. overlay not in chip RAM
+     * at this state), `world` can come back as garbage like $FFFF, which
+     * would render ~60 "-1. ?" rows and an off-screen panel. Clamp. */
+    if (world < 0 || world > 6) world = 0;
+    if (liw   < 0 || liw   > 9) liw   = 0;
     const char *wn = pc_world_name(world);
 
     /* Count levels in the current world by scanning the 60-entry level
@@ -164,6 +170,12 @@ void pc_level_select_overlay(uint32_t *fb)
         int w_, l_; pc_level_split(n, &w_, &l_);
         if (w_ == world) liw_count++;
     }
+    if (liw_count <= 0 || liw_count > 10) {
+        /* Hardcoded fallback if the table is unreadable. */
+        static const int fallback[7] = { 9, 9, 10, 10, 10, 10, 2 };
+        liw_count = fallback[world];
+    }
+    if (liw >= liw_count) liw = liw_count - 1;
 
     /* Panel: centered, large enough for header + world name + up to 10 rows. */
     const int pw = 280;
@@ -192,18 +204,24 @@ void pc_level_select_overlay(uint32_t *fb)
 
     /* Level list: rows are 1..liw_count, with cursor marker on row==liw. */
     int list_y0 = py + 33;
+    /* World offsets for the global level number (mirrors the engine's
+     * table at $57782E — worlds 0+1 have 9 levels each, 2..5 have 10,
+     * 6 has 2). Used as fallback when pc_level_split can't resolve. */
+    static const int wstart_fallback[7] = { 0, 9, 18, 28, 38, 48, 58 };
     for (int i = 0; i < liw_count; i++) {
         int row_level = -1;
-        /* Find the global level number for (world, i). */
+        /* Try the engine's table first. */
         for (int n = 1; n <= 60; n++) {
             int w_, l_; pc_level_split(n, &w_, &l_);
             if (w_ == world && l_ == i) { row_level = n; break; }
         }
+        /* If table unreadable, fall back to the known layout. */
+        if (row_level < 1) row_level = wstart_fallback[world] + i + 1;
         uint32_t col = (i == liw) ? 0xFFFFD040 : 0xFFB0B0B0;
         int ry = list_y0 + i * row_h;
         if (i == liw) draw_text(fb, px + 8, ry, ">", 1, col);
         char rbuf[64];
-        const char *nm = (row_level >= 1) ? pc_static_level_name(row_level) : "?";
+        const char *nm = pc_static_level_name(row_level);
         snprintf(rbuf, sizeof rbuf, "%2d. %s", row_level, nm);
         draw_text(fb, px + 20, ry, rbuf, 1, col);
     }
