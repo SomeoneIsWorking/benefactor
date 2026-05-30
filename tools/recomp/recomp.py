@@ -111,7 +111,7 @@ def main():
     md = Cs(CS_ARCH_M68K, CS_MODE_M68K_000 | CS_MODE_BIG_ENDIAN)
     md.detail = True
 
-    funcs = collect_functions(data, base, entries, md, areg_bases=areg_bases)
+    funcs = collect_functions(data, base, entries, md, areg_bases=areg_bases, bank=bank)
     print(f'Collected {len(funcs)} functions')
 
     translator = Translator(set(funcs.keys()))

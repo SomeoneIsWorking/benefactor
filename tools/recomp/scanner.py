@@ -132,7 +132,7 @@ def _scan_func(data, base, start, md, known_entries=None):
 # Public API
 # ---------------------------------------------------------------------------
 
-def collect_functions(data, base, entries, md, areg_bases=None):
+def collect_functions(data, base, entries, md, areg_bases=None, bank=None):
     """Collect all reachable functions starting from the given entry points.
 
     `areg_bases` optionally maps a capstone address-register id (e.g.
@@ -211,6 +211,17 @@ def collect_functions(data, base, entries, md, areg_bases=None):
             for op in ops:
                 t = None
                 if op.type == M68K_OP_BR_DISP and m == 'bsr':
+                    t = insn.address + 2 + op.br_disp.disp
+                # gpl-bank-specific: the $577xxx/$58xxxx gameplay code uses
+                # `bra.w X` to jump over inline jump-offset data tables to
+                # alternate runtime-callable landings (e.g. $589792 -> $5897D0
+                # over the offset table at $589796). Promote the long-form
+                # forward bra targets to separate function entries so the
+                # runtime can rt_jump to them. (Short-form `bra.b` is
+                # typically intra-function control flow and is excluded.)
+                elif (op.type == M68K_OP_BR_DISP and m == 'bra'
+                      and bank == 'gpl' and insn.size >= 4
+                      and op.br_disp.disp > 0):
                     t = insn.address + 2 + op.br_disp.disp
                 elif op.type == M68K_OP_IMM and m in ('jsr', 'jmp'):
                     t = op.value.imm

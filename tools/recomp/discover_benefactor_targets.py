@@ -129,7 +129,11 @@ def discover_chain_bodies(freeze_path: Path) -> set[int]:
         return None
 
     structs: set[int] = set()
-    for a in range(0x57F000, 0x580000, 4):
+    # Work-area scan: a5=$0057EE12 in gameplay, so $10E6(a5) (the live
+    # object chain head) is at $57FEF8. Per-level spawn arrays extend
+    # well past $580000 — observed pointer slots at $580014 — so widen
+    # the window to cover them.
+    for a in range(0x57F000, 0x582000, 4):
         p = r32(a)
         if CODE_LO <= p < CODE_HI:
             structs.add(p)
