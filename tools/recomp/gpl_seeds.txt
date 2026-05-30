@@ -175,3 +175,29 @@
 # hit during play (post stack-fix) 2026-05-29
 57B2B8
 57E99C
+596AF2
+586F9C
+588AF4
+# level-2 object handlers (from walking spawn list at $57FF74 + struct method offsets in post-mortem dump)
+595FE6
+59619C
+5964A8
+5964AA
+596678
+596800
+596A76
+596AF4
+5970A2
+597116
+59718A
+5972FC
+# corrected level-2 entries — walked with validation against 4C90/48E7 entry opcodes
+595FE4
+59619A
+596676
+5967FE
+596A74
+5970A0
+597114
+597188
+5972FA

@@ -439,6 +439,12 @@ static void rt_miss(uint32_t addr, M68KCtx *ctx)
                 " — gameplay/RT_FAIL_ON_MISS, aborting ***\n", addr, rt_last_insn_addr);
         fprintf(stderr, "    D0=%08X D1=%08X D2=%08X A0=%08X A1=%08X A2=%08X\n",
                 ctx->D[0], ctx->D[1], ctx->D[2], ctx->A[0], ctx->A[1], ctx->A[2]);
+        /* Dump g_mem so post-mortem tools can walk the live object/dispatch
+         * structures (which contain the runtime-computed code pointers static
+         * descent can't reach). Same file the watchdog uses. */
+        { FILE *f = fopen("logs/pc_freeze.bin", "wb");
+          if (f) { fwrite(g_mem, 1, RT_MEM_SIZE, f); fclose(f);
+                   fprintf(stderr, "    dumped g_mem -> logs/pc_freeze.bin\n"); } }
         fflush(stderr);
         abort();
     }

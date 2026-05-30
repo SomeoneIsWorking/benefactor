@@ -828,6 +828,25 @@ def _find_patterns(insns):
         except Exception:
             return False
 
+    def is_fire_wait_tst(insn):
+        # The post-level-complete "press fire to continue" idiom is
+        #   tst.b $bfe001.l   ; CIA-A PRA byte; bit7 = /FIR1 (active-low)
+        #   bmi/bpl  self     ; loop while fire NOT pressed / IS pressed
+        # On real OCS the busy-loop is fine; in our coroutine model it never
+        # yields so the input layer can't update fire state and the watchdog
+        # fires. Fold the self-loop into hw_wait_fire(...) which yields a frame
+        # per check (same approach as hw_vblank_wait for the VPOSR pairs).
+        try:
+            if mnem0(insn) != 'tst':
+                return False
+            ops = insn.operands
+            if len(ops) < 1 or ops[0].type != M68K_OP_MEM:
+                return False
+            mode = getattr(ops[0], 'address_mode', 0)
+            return mode in (16, 17) and ops[0].imm == 0xBFE001
+        except Exception:
+            return False
+
     def is_vposr_btst(insn):
         # The vblank-sync idiom is `btst #0, d(a6)` testing the VPOSR frame-parity
         # byte, used in tight (wait-set / wait-clear) pairs == "wait one frame".
@@ -865,6 +884,19 @@ def _find_patterns(insns):
             nxt = insns[i + 1]
             if mnem0(nxt) == 'bne' and get_target(nxt) == insn.address:
                 override[insn.address] = 'hw_blitter_sync();'
+                skip_insns.add(nxt.address)
+                i += 2
+                continue
+
+        # ── Fire-wait self-loop: tst.b $bfe001; b(mi|pl) self ────────────
+        # bmi self  = loop while bit7=1 = fire NOT pressed → wait FOR press
+        # bpl self  = loop while bit7=0 = fire IS pressed  → wait FOR release
+        if is_fire_wait_tst(insn) and i + 1 < n:
+            nxt = insns[i + 1]
+            nm  = mnem0(nxt)
+            if nm in ('bmi', 'bpl') and get_target(nxt) == insn.address:
+                want = '1' if nm == 'bmi' else '0'
+                override[insn.address] = f'hw_wait_fire({want});'
                 skip_insns.add(nxt.address)
                 i += 2
                 continue
