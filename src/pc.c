@@ -326,16 +326,34 @@ const char *pc_current_level_name(void)
     return "?";
 }
 
-/* "Level intro card" state: the per-level title card showing world + level
- * name BEFORE gameplay starts. cop1lc latches to $003914 in $5783D4 (inside
- * the level-setup routine $5782B4) right after the card art is composed,
- * and stays there until fire dismisses it. cop1lc=$003484 is gameplay; any
- * other value is title/loading. */
-int pc_is_level_card_displayed(void)
+/* Banner state (cop1lc=$003914): GENERIC banner copper. Three engine paths
+ * use it — title card ($5782B4), LEVEL COMPLETE banner ($578C3E),
+ * GET READY banner ($578D0E) — so cop1lc alone can't tell them apart.
+ *
+ * The title-card path uniquely owns the wait-counter at $57FEF6: $5782B4
+ * writes $258 (600 frames = 12s upper bound) on entry, then decrements it
+ * every frame in its wait loop (subq.w #1, $57FEF6 at $5784AC) until it
+ * hits 0 OR fire is pressed. The other two banner paths don't touch this
+ * counter. So $57FEF6 > 0 means "title card is showing right now."
+ *
+ * pc_is_banner_displayed(): true for any of the three banners (cop1lc).
+ * pc_is_title_card_displayed(): true only for the world+level title card. */
+int pc_is_banner_displayed(void)
 {
     extern uint32_t hw_get_cop1lc(void);
     return hw_get_cop1lc() == 0x003914u;
 }
+
+int pc_is_title_card_displayed(void)
+{
+    extern uint8_t *g_mem;
+    if (!g_mem) return 0;
+    uint16_t timer = ((uint16_t)g_mem[0x57FEF6u] << 8) | g_mem[0x57FEF7u];
+    return timer > 0 && pc_is_banner_displayed();
+}
+
+/* Legacy alias — old code says "level card" but means "any banner". */
+int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
 
 int pc_step(void)
 {
