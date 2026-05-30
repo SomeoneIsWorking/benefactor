@@ -204,6 +204,90 @@ void native_gp_disk_read(M68KCtx *ctx)
     ctx->D[0] = 0;   /* success: caller does neg.w d0; bmi error -> d0=0 continues */
 }
 
+#include <string.h>
+
+/* Native port of the title-bank glyph blitter at $0049B6 — the routine
+ * the menu uses to draw "PLAY GAME" / "ENTER PASSWORD" / "LOAD EXTRA
+ * LEVELS" onto the menu bitmap. Once it's ours we can do whatever
+ * substitution we want before the blit runs.
+ *
+ * Algorithm (faithfully translated from the M68K disassembly):
+ *   a2 = ASCII string ptr (null-terminated), post-incremented
+ *   a1 = pixel destination (bitplane base byte)
+ *   d6 = 2nd-column shift offset (caller-provided)
+ *   a0 = font glyph base = $1BB30 (16 rows x 86 bytes per row, char_idx
+ *        = ascii - $20 indexes into each row)
+ *
+ *   for each char in (a2)+:
+ *     a4 = font + (char - $20)
+ *     a3 = a1
+ *     for row = 0..15:
+ *       d0 = (a4)
+ *       OR d0 into 5 bitplanes at $00/$28/$50/$78/$A0 of (a3)
+ *       ror #1, d0
+ *       OR d0 into (a3, d6.w)
+ *       not d0, AND into $28(a3, d6.w)
+ *       a4 += $56  ; next row of glyph data
+ *       a3 += $C8  ; next row of bitmap
+ *     a1 += 1     ; advance one char-column
+ *
+ * Substitution: when the engine asks us to render "ENTER PASSWORD", we
+ * actually blit "LEVEL SELECT" instead. */
+void native_menu_glyph_blit(M68KCtx *ctx)
+{
+    uint32_t orig_a2 = ctx->A[2];
+
+    /* Read up to 31 chars + null. */
+    char buf[32] = {0};
+    int len = 0;
+    while (len < 31) {
+        uint8_t c = MR8(orig_a2 + (uint32_t)len);
+        if (c == 0) break;
+        buf[len++] = (char)c;
+    }
+    const char *render = buf;
+    if (strcmp(buf, "ENTER PASSWORD") == 0) {
+        render = "LEVEL SELECT";
+    }
+
+    const uint32_t font_base = 0x1BB30u;
+    uint32_t a1 = ctx->A[1];
+    int16_t   d6 = (int16_t)(uint16_t)ctx->D[6];
+
+    for (int ci = 0; render[ci]; ci++) {
+        uint8_t  c    = (uint8_t)render[ci];
+        uint32_t a4   = font_base + (uint32_t)(c - 0x20);
+        uint32_t a3   = a1;
+
+        for (int row = 0; row < 16; row++) {
+            uint8_t d0 = MR8(a4);
+            MW8(a3,            MR8(a3)            | d0);
+            MW8(a3 + 0x28u,    MR8(a3 + 0x28u)    | d0);
+            MW8(a3 + 0x50u,    MR8(a3 + 0x50u)    | d0);
+            MW8(a3 + 0x78u,    MR8(a3 + 0x78u)    | d0);
+            MW8(a3 + 0xA0u,    MR8(a3 + 0xA0u)    | d0);
+
+            /* ror.b #1, d0 — rotate right by 1. */
+            d0 = (uint8_t)((d0 >> 1) | ((d0 & 1) << 7));
+
+            uint32_t addr_d6      = a3        + (uint32_t)(int32_t)d6;
+            uint32_t addr_d6_p28  = a3 + 0x28u + (uint32_t)(int32_t)d6;
+            MW8(addr_d6,     MR8(addr_d6)     | d0);
+            MW8(addr_d6_p28, MR8(addr_d6_p28) & (uint8_t)~d0);
+
+            a4 += 0x56u;
+            a3 += 0xC8u;
+        }
+        a1 += 1u;
+    }
+
+    /* Engine's exit state: a2 advanced past the null. Even though we used
+     * a substituted string for rendering, the caller's a2 should reflect
+     * "consumed" the original string. */
+    ctx->A[2] = orig_a2 + (uint32_t)len + 1u;
+    ctx->A[1] = a1;
+}
+
 /* Title-menu cursor handlers — direct C ports of $003C5A (DOWN) and
  * $003C88 (UP). See the comment in pc_register_overrides() for the
  * disassembly each one mimics. */

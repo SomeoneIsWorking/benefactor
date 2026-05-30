@@ -29,6 +29,13 @@ void pc_register_overrides(void)
      * title IRQ calls it there to start the game (the path that actually fires). */
     rt_register_override(0x006D714u, native_overlay_loader);
     rt_register_override(0x00000150u, native_overlay_loader_reloc);
+    /* Native port of the title-bank glyph blitter ($0049B6) — the engine's
+     * menu-text drawer. Lets us render "LEVEL SELECT" when asked to draw
+     * "ENTER PASSWORD" without touching the chip-RAM strings. See
+     * native_menu_glyph_blit() for the full disassembly translation. */
+    { extern void native_menu_glyph_blit(M68KCtx *ctx);
+      rt_register_override(0x000049B6u, native_menu_glyph_blit); }
+
     /* Main-menu fire-dispatch at $0039D0 — intercepts the cursor-based
      * dispatch (PLAY GAME / ENTER PASSWORD / LOAD EXTRA LEVELS) so cursor=1
      * routes to LEVEL SELECT (gameplay overlay with the F2/F3-picked $20.w)

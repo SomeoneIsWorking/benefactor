@@ -152,6 +152,11 @@ uint8_t rt_read8(M68KCtx *ctx, uint32_t addr)
     (void)ctx;
     addr &= 0xFFFFFF;
     _rt_spin_check(ctx, addr);
+    { static int w = -1; if (w < 0) w = getenv("MENUTEXT_WATCH") ? 1 : 0;
+      if (w && addr >= 0x004A78u && addr < 0x004AC0u) {
+          static int n = 0; if (n++ < 16)
+              printf("[menutext-read8] $%06X pc=$%06X last_call=$%06X\n",
+                     addr, _rt_current_pc(), (unsigned)g_rt_last_call); } }
     if (addr < RT_MEM_SIZE && !is_hw(addr))
         return g_mem[addr];
     return hw_read8(addr);
@@ -347,7 +352,7 @@ static NativeFn override_lookup(uint32_t addr)
     int want_gp = g_gameplay_active ? 1 : 0;
     int allow_in_menu = (addr == 0x003C5Au || addr == 0x003C6Eu ||
                          addr == 0x003C88u || addr == 0x003C9Au ||
-                         addr == 0x000039D0u);
+                         addr == 0x000039D0u || addr == 0x000049B6u);
     if (!want_gp && g_overlay_active && addr >= 0x3294u && !allow_in_menu)
         return NULL;
     for (int i = 0; i < g_override_count; i++) {
