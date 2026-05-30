@@ -1485,6 +1485,20 @@ void hw_vblank_wait(void)
     if (g_hw_vblank_yield) g_hw_vblank_yield();
 }
 
+void hw_wait_fire(int want_pressed)
+{
+    /* Folded `tst.b $bfe001; b(mi|pl) self` busy-loop. On real OCS the loop is
+     * fine (CPU spins until the joystick fire bit flips); under our coroutine
+     * model the spin never yields, so input never updates and the watchdog
+     * fires. Yield a frame per check so the input layer can flip s_fire_pressed
+     * (either via the keyboard mapper or the harness REPL). */
+    if (want_pressed) {
+        while (!s_fire_pressed && !s_mouse_lmb && hw_running) hw_vblank_wait();
+    } else {
+        while ((s_fire_pressed || s_mouse_lmb) && hw_running) hw_vblank_wait();
+    }
+}
+
 void hw_vsync(void)
 {
     /* Wait for next frame boundary */

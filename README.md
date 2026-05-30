@@ -3,8 +3,9 @@
 A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosis / Digital Illusions), driven by a hand-written C engine plus a recompiler that translates the original M68K binary subsystem-by-subsystem.
 
 <p align="center">
-  <img src="screenshots/cavern.png" alt="In-game: cavern with the player, a boulder and a rescued merry man" width="320" />
-  <img src="screenshots/level-complete.png" alt="Level Complete banner with password" width="320" />
+  <img src="screenshots/cavern.png" alt="Level 1: the player, a boulder and a rescued merry man" width="320" />
+  <img src="screenshots/level-complete.png" alt="Level Complete banner with the level password" width="320" />
+  <img src="screenshots/level-2.png" alt="Level 2: different cavern layout after the win transition" width="320" />
   <img src="screenshots/game-over.png" alt="Continue / Game Over menu" width="320" />
 </p>
 

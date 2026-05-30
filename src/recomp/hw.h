@@ -146,6 +146,10 @@ void hw_vsync(void);
  * On PC this is a no-op — frame timing is driven by SDL in hw_present_frame(). */
 void hw_vblank_wait(void);
 
+/* Yield-per-frame fire-wait — replaces the folded `tst.b $bfe001; b(mi|pl) self`
+ * busy-loop. want_pressed=1: block until fire is pressed; =0: until released. */
+void hw_wait_fire(int want_pressed);
+
 /* ── Harness hooks (used only when building benefactor-harness) ───────────── */
 
 /* Set this to a callback that fires at the end of every hw_present_frame().
