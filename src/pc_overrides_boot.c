@@ -207,15 +207,66 @@ void native_gp_disk_read(M68KCtx *ctx)
 /* Title-menu cursor handlers — direct C ports of $003C5A (DOWN) and
  * $003C88 (UP). See the comment in pc_register_overrides() for the
  * disassembly each one mimics. */
+/* Native main-menu fire-dispatch (gfn_gp_0039D0). Reached when fire was
+ * pressed on the main-menu (the original code's $0039BC: btst #5,d0; bne
+ * $39D0 — only branches here when the "select" bit is set). cursor =
+ * -$18BE(a5) — 0=PLAY GAME, 1=(was PASSWORD, now LEVEL SELECT), 2=LOAD
+ * EXTRA LEVELS.
+ *
+ * Mapping:
+ *   cursor 0 -> PLAY GAME      -> rt_jump($150) overlay loader
+ *   cursor 1 -> LEVEL SELECT   -> rt_jump($150) using $20.w as set by
+ *                                 F2/F3 hotkeys. The original engine path
+ *                                 would have run a password-entry screen
+ *                                 here and rewritten $20.w to 1 — by
+ *                                 intercepting BEFORE that, our F2/F3
+ *                                 selection survives.
+ *   cursor 2 -> LOAD EXTRA LVL -> needs Disk.4 (see [[project-disk4-extra-levels]]).
+ *                                 For now, return to the menu loop top so
+ *                                 the user can pick a different row.
+ *
+ * This override fires INSTEAD of gfn_gp_0039D0; the menu's per-frame
+ * setup (drawing, audio, copper) still runs through gfn_gp_003872 each
+ * frame, only the final fire-dispatch is ours. */
+void native_main_menu_fire_dispatch(M68KCtx *ctx)
+{
+    extern uint8_t *g_mem;
+    uint16_t cursor = MR16(ctx->A[5] - 6334u);
+
+    if (cursor == 1u) {
+        /* LEVEL SELECT — start the F2/F3-picked level. The original PLAY
+         * GAME exit at $003B06 does `moveq #0, d0` before jmp $150 — mirror
+         * that so native_overlay_loader_reloc takes the d0==0 path
+         * (otherwise it logs "unhandled" and bails). */
+        ctx->D[0] = 0;
+        rt_jump(ctx, 0x150u);
+        return;
+    }
+    if (cursor == 2u) {
+        /* LOAD EXTRA LEVELS — Disk.4 not yet supported. Return to menu top. */
+        rt_jump(ctx, 0x003872u);
+        return;
+    }
+    /* cursor == 0 — PLAY GAME — preserve the original engine's behaviour
+     * by delegating to the recompiled function. */
+    extern void gfn_gp_0039D0(M68KCtx *ctx);
+    gfn_gp_0039D0(ctx);
+}
+
 void native_menu_cursor_down(M68KCtx *ctx)
 {
     /* $003C5A — direct port:
-     *   move.w #$384, $2BE2(a5)   ; signal redraw
-     *   cmpi.w #$2,   -$18BE(a5)  ; cursor at max (PLAY/PWD/EXTRA = 0/1/2)?
+     *   move.w #$384, $2BE2(a5)
+     *   cmpi.w #$2,   -$18BE(a5)
      *   beq.s  end
-     *   addq.w #1,    -$18BE(a5)  ; advance cursor
+     *   addq.w #1,    -$18BE(a5)
      *
-     * Confirmed working at the main-menu screen (cop1lc=$008302). */
+     * Confirmed working at main-menu (cop1lc=$008302). Cap = 2 because
+     * the menu has 3 options: PLAY GAME / ENTER PASSWORD / LOAD EXTRA
+     * LEVELS. The third is backed by Disk.4 and is conditional on the
+     * disk being present (see [[project-disk4-extra-levels]]) — when
+     * the row is hidden we still leave the engine's cursor cap at 2;
+     * the UI just doesn't render row 3. */
     MW16(ctx->A[5] + 0x2BE2u, 0x0384);
     uint16_t cur = MR16(ctx->A[5] - 6334u);
     if (cur != 2) MW16(ctx->A[5] - 6334u, cur + 1);

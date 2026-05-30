@@ -346,7 +346,8 @@ static NativeFn override_lookup(uint32_t addr)
      * still calls the title-bank code there. Allow-list those. */
     int want_gp = g_gameplay_active ? 1 : 0;
     int allow_in_menu = (addr == 0x003C5Au || addr == 0x003C6Eu ||
-                         addr == 0x003C88u || addr == 0x003C9Au);
+                         addr == 0x003C88u || addr == 0x003C9Au ||
+                         addr == 0x000039D0u);
     if (!want_gp && g_overlay_active && addr >= 0x3294u && !allow_in_menu)
         return NULL;
     for (int i = 0; i < g_override_count; i++) {
