@@ -706,3 +706,12 @@
 # rt-miss observed during play
 59AAE6
 595542
+595A46
+# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
+578A4A
+59AA92
+59AB24
+59ABB8
+59AC38
+59AD18
+59E65A

@@ -565,6 +565,104 @@ def discover_pcrel_dispatch_blocks(seeds: set[int], gmem_path: Path) -> set[int]
 # control), AND skip targets that already are entries.
 # ────────────────────────────────────────────────────────────────────────────
 
+# ────────────────────────────────────────────────────────────────────────────
+# Pattern H: state-machine handler chains (`move.l #ADDR, dest`)
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Benefactor's object engine is a state machine: each per-frame handler
+# updates the object and INSTALLS the next-state handler with
+# `move.l #NEXT_HANDLER, $offset(an)` (often `$f70(a5)` — the slot the
+# top-level dispatcher reads for the next call). Static descent only
+# follows constant `jsr/jmp #IMM`, not `move.l #IMM, ...`, so the chain
+# breaks at each handoff. Pattern A (object chain bodies) catches the
+# missing ones IF they happen to be live in pc_freeze.bin — but the chain
+# you've never reached at runtime stays invisible.
+#
+# Detection: for each seeded handler-shaped function body (entries that
+# match `is_entry_opcode`), scan for `move.l #IMM, ...` whose IMM is in
+# the gpl bank range and points to bytes that themselves match a handler
+# entry signature. Add IMM as a new seed.
+#
+# This is the static analog of Pattern A — it transitively walks the
+# state-machine graph from any seed without needing a runtime trace of
+# which handlers were currently installed.
+# ────────────────────────────────────────────────────────────────────────────
+
+def discover_state_machine_chains(seeds: set[int], gmem_path: Path) -> set[int]:
+    if not gmem_path.exists():
+        return set()
+    try:
+        from capstone import Cs, CS_ARCH_M68K, CS_MODE_M68K_020
+        from capstone.m68k import M68K_OP_IMM
+    except ImportError:
+        return set()
+    data = gmem_path.read_bytes()
+    md = Cs(CS_ARCH_M68K, CS_MODE_M68K_020); md.detail = True
+
+    import struct as _s
+    def r16(a):
+        if a + 2 > len(data): return 0
+        return _s.unpack(">H", data[a:a + 2])[0]
+
+    sorted_seeds = sorted(s for s in seeds if CODE_LO <= s < CODE_HI)
+    out: set[int] = set()
+
+    # Walk every move.l #IMM, ... instruction in seeded function bodies.
+    # When IMM is a plausible handler entry (in code range AND first opcode
+    # matches is_entry_opcode), seed it.
+    for i, fn in enumerate(sorted_seeds):
+        next_fn = sorted_seeds[i + 1] if i + 1 < len(sorted_seeds) else CODE_HI
+        end = min(fn + 0x2000, next_fn)
+        addr = fn
+        while addr < end:
+            d = list(md.disasm(data[addr:addr + 16], addr, count=1))
+            if not d:
+                addr += 2; continue
+            ins = d[0]
+            try:
+                m = ins.mnemonic.lower().split('.')[0]
+                # `move.l` and `movea.l` are both relevant — movea.l #X, An
+                # also plants a handler pointer that gets jmp'd-into later.
+                if m in ('move', 'movea'):
+                    for o in ins.operands:
+                        if o.type != M68K_OP_IMM:
+                            continue
+                        imm = o.value.imm & 0xFFFFFFFF
+                        if not (CODE_LO <= imm < CODE_HI):
+                            continue
+                        if imm in seeds or imm in out:
+                            continue
+                        if imm & 1:
+                            continue  # M68K code is always word-aligned
+                        # Accept if either is_entry_opcode matches the
+                        # first word, OR capstone can decode 3 consecutive
+                        # valid instructions from here without a SKIPDATA.
+                        # The latter catches handler bodies that don't use
+                        # the standard movem.w prologue (e.g. starting
+                        # with bset / lea (a5) / move(a5) — common for the
+                        # secondary handlers installed via
+                        # `move.l #X, $5A456E.l`).
+                        op0 = r16(imm)
+                        if is_entry_opcode(op0 >> 8, op0):
+                            out.add(imm); continue
+                        ok = True
+                        a = imm
+                        for _ in range(3):
+                            dd = list(md.disasm(data[a:a + 16], a, count=1))
+                            if not dd:
+                                ok = False; break
+                            m0 = dd[0].mnemonic.lower()
+                            if m0 in ('dc', 'illegal'):
+                                ok = False; break
+                            a += dd[0].size
+                        if ok:
+                            out.add(imm)
+            except Exception:
+                pass
+            addr += ins.size
+    return out
+
+
 def discover_cross_fn_bra_targets(seeds: set[int], gmem_path: Path) -> set[int]:
     if not gmem_path.exists():
         return set()
@@ -752,6 +850,12 @@ def main() -> int:
     for t in g_new:
         print(f"    {t:06X}  (cross-fn-bra)")
 
+    h_chain = discover_state_machine_chains(seeds_for_cross, Path(args.gmem))
+    h_new = sorted(h_chain - seeds_for_cross)
+    print(f"\n[H] state-machine handler chains (move.l #IMM, ...): {len(h_chain)} ({len(h_chain & seeds_for_cross)} already seeded)")
+    for t in h_new:
+        print(f"    {t:06X}  (sm-chain)")
+
     # Only Pattern A is safe to auto-seed. Patterns B (cross-function branch
     # targets) and C (return-landing points) point INSIDE an existing function,
     # and creating a new gfn entry at a mid-function label duplicates the
@@ -762,7 +866,7 @@ def main() -> int:
     # (dispatcher loop-tops) are safe to auto-seed — they're single addresses
     # the runtime calls into. B and C point INSIDE existing functions and
     # need an emitter fix, not new entries (see the dbra-rt_jump fix).
-    safe_new = sorted(set(a_new) | set(d_new) | set(e_new) | set(f_new) | set(g_new))
+    safe_new = sorted(set(a_new) | set(d_new) | set(e_new) | set(f_new) | set(g_new) | set(h_new))
     diag_new = sorted(set(b_new) | set(c_new))
     print(f"\nsafe NEW (auto-seedable): {len(safe_new)}")
     print(f"diagnostic NEW (B+C — DO NOT auto-seed): {len(diag_new)}")
