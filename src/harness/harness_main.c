@@ -202,6 +202,11 @@ int main(int argc, char **argv)
                 harness_interactive_delay(ms);
             }
         }
+        else if (!strcmp(cmd, "setlevel")) {  /* setlevel N — pre-apply $20.w for next $150 hand-off */
+            int n = 1; sscanf(line, "%*s %d", &n);
+            extern void pc_set_start_level(int);
+            pc_set_start_level(n);
+        }
         else if (!strcmp(cmd, "fire")) {
             sscanf(line, "%*s %d", &fire); printf("[crepl] fire=%d\n", fire);
         }

@@ -103,35 +103,34 @@ void pc_debug_game_over(void)
     g_mem[0x0057FEBEu] |= 0x80;
 }
 
-/* Native level-select. $20.w (low chip mem) is the SELECTED start-level
- * (1..60), validated at the title password screen ($003A40 clamps to $3c =
- * 60 without the "secret" flag at $38, $5a = 90 with it). When the title
- * "start game" path runs (jmp $150 -> native_overlay_loader_reloc), the
- * gameplay overlay's dispatcher at $5779AA reads $20.w, subtracts 1, and
- * indexes the level table at $57782E (60 entries, 4 bytes each =
- * world+level_in_world). So pre-writing $20.w == N picks level N directly,
- * without touching the level-complete flow.
+/* Native level-select. The gameplay dispatcher at $5779AA reads $20.w
+ * (low chip mem), does (level-1)*4, and indexes the 60-entry level table
+ * at $57782E to pick (world, level_in_world). So $20.w == N selects level
+ * N directly.
  *
- * pc_set_start_level(N) is the API the UI calls. We also adjust $1c.w
- * (paired password seed) — the title clamps it to <= $bf = 191. Any value
- * works; we leave it untouched. */
+ * BUT the title's password-screen code at $003A40 clamps $20.w EVERY frame
+ * it runs (and at $003A04 unconditionally writes 1 when the password sub-
+ * menu is entered), so any pre-fire poke to $20.w gets reverted. The right
+ * moment to apply the user's selection is INSIDE native_overlay_loader_reloc
+ * (the $150 override), which fires once when the title's "start game" path
+ * jumps to $150 — after the title is done validating. Store the selection
+ * here; the loader override reads it.
+ *
+ * 0 = no override (use the title's natural value, level 1 at fresh boot). */
+int g_pc_start_level = 0;
+
 void pc_set_start_level(int n)
 {
-    extern uint8_t *g_mem;
-    if (!g_mem) return;
     if (n < 1)  n = 1;
     if (n > 60) n = 60;   /* without the secret flag at $38; with it, 90 */
-    g_mem[0x20] = 0;
-    g_mem[0x21] = (uint8_t)n;
-    fprintf(stderr, "[level-select] $20.w = %d\n", n);
+    g_pc_start_level = n;
+    fprintf(stderr, "[level-select] start level := %d (applied at $150 hand-off)\n", n);
 }
 
-/* Read current $20.w. */
+/* Read pending level-select choice (0 = none / pass-through). */
 int pc_get_start_level(void)
 {
-    extern uint8_t *g_mem;
-    if (!g_mem) return 1;
-    return ((int)g_mem[0x20] << 8) | g_mem[0x21];
+    return g_pc_start_level > 0 ? g_pc_start_level : 1;
 }
 
 int pc_step(void)
