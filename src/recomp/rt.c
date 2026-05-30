@@ -190,6 +190,11 @@ void rt_write8(M68KCtx *ctx, uint32_t addr, uint8_t v)
               printf("[rdy-write8] $%06X (hi=%s) = %02X (pc=$%06X)%s\n", addr,
                      addr==0x57FEBEu?"yes":"no", v, _rt_current_pc(),
                      (addr==0x57FEBEu && (v&0x80))?"  <-- BIT15 READY":""); } }
+    { static int w = -1; if (w < 0) w = getenv("LNAME_WATCH") ? 1 : 0;
+      if (w && (addr >= 0x5786ACu && addr < 0x5786ACu + 440u)) {
+          static int n = 0; if (n++ < 32)
+              printf("[lname-write8] $%06X = %02X  pc=$%06X  last_call=$%06X\n",
+                     addr, v, _rt_current_pc(), (unsigned)g_rt_last_call); } }
     if (addr < RT_MEM_SIZE && !is_hw(addr)) {
 #ifdef HARNESS_BUILD
         if (_rt_is_state_watch_addr(addr))
@@ -247,6 +252,11 @@ void rt_write16(M68KCtx *ctx, uint32_t addr, uint16_t v)
       if (w && addr == 0x57FEBEu) {   /* $10AC(a5) gameplay status word; bit15=level-ready */
           static int n = 0; if (n++ < 80)
               printf("[rdy-write] $10AC(a5)=%04X (pc=$%06X)%s\n", v, _rt_current_pc(), (v&0x8000)?"  <-- BIT15 READY":""); } }
+    { static int w = -1; if (w < 0) w = getenv("LNAME_WATCH") ? 1 : 0;
+      if (w && (addr >= 0x5786ACu && addr < 0x5786ACu + 440u)) {
+          static int n = 0; if (n++ < 32)
+              printf("[lname-write16] $%06X = %04X  pc=$%06X  last_call=$%06X\n",
+                     addr, v, _rt_current_pc(), (unsigned)g_rt_last_call); } }
     if (addr + 1 < RT_MEM_SIZE && !is_hw(addr)) {
 #ifdef HARNESS_BUILD
         if (_rt_addr_interesting(addr)) {
@@ -265,6 +275,11 @@ void rt_write32(M68KCtx *ctx, uint32_t addr, uint32_t v)
 {
     addr &= 0xFFFFFF;
     _gp4d(addr, v, 4);
+    { static int w = -1; if (w < 0) w = getenv("LNAME_WATCH") ? 1 : 0;
+      if (w && ((addr >= 0x5786ACu && addr < 0x5786ACu + 440u) || (addr >= 0x114u && addr < 0x118u))) {
+          static int n = 0; if (n++ < 32)
+              printf("[lname-write32] $%06X = %08X  pc=$%06X  last_call=$%06X\n",
+                     addr, v, _rt_current_pc(), (unsigned)g_rt_last_call); } }
     if (addr + 3 < RT_MEM_SIZE && !is_hw(addr)) {
 #ifdef HARNESS_BUILD
         if (_rt_addr_interesting(addr) || _rt_addr_interesting(addr + 2)) {
