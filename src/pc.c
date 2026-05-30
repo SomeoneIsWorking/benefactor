@@ -174,6 +174,95 @@ const char *pc_world_name(int world)
     return s_world_names[world];
 }
 
+/* Full 60-entry level-name table. The engine's per-world disk-overlay load
+ * writes each world's 10-entry name array (44 bytes/entry) into a fresh
+ * chunk at runtime, and a copy somewhere in the engine populates the
+ * renderer buffer at $5786AC from it — but that source ONLY appears for
+ * the currently-loaded world, so a UI listing ALL 60 levels can't read
+ * them out of g_mem. So we cache them statically here, extracted by
+ * cycling each world's first level through the harness and reading the
+ * $5786AC buffer per [[project-title-card-structure]] and
+ * [[reference-compare-tool]].
+ *
+ * Indexed by GLOBAL level number (1..60). pc_static_level_name(n) is the
+ * lookup the UI should use; pc_current_level_name() is for "the name the
+ * card is showing right now". */
+static const char *const s_static_level_names[60] = {
+    /* World 0 — Underworld (9 levels) */
+    "AFRAID OF FUNGIES?",
+    "TRICK-JUMPIN'",
+    "KEEP YOUR FEET DRY",
+    "FOLLOW THE SIGNS",
+    "RELEASE ORDER",
+    "TROUBLESHOOTING",
+    "LET'S ROLL",
+    "SILENTS?",
+    "TURN, RUN, TURN!",
+    /* World 1 — Tombs of Egypt (9 levels) */
+    "DOUBLE TROUBLE",
+    "MIND THE FLAMES!",
+    "SWITCH-O-MANIA",
+    "A MOTHER OF A BLOW",
+    "GREED WASTES TIME",
+    "HANG TOUGH",
+    "LEMMINGS?",
+    "ORDER IS CRUCIAL",
+    "EASY JUMPING",
+    /* World 2 (10 levels) */
+    "BOUNCY, BOUNCY!",
+    "UNREACHABLE?",
+    "THE BUNGEE-TRAP",
+    "BRING YOUR AXE",
+    "FLATBACK ACTION",
+    "THE FOG THAT BE",
+    "WEIGHTWATCHERS",
+    "DOWN'N'LOAD",
+    "RUNNING COLOR",
+    "FUNNEL JUNGLE",
+    /* World 3 (10 levels) */
+    "CHANDELIER LEAP!",
+    "OPEN SESAME!",
+    "REPAIRS IN A FLASH",
+    "ELEVATOR  ACTION",
+    "SIMON SAYS, DOWN",
+    "THE CONTENTS WITHIN",
+    "THE GHOSTKEY",
+    "THE FIVE LETHALS",
+    "ABOUT TO GET STONED",
+    "THE REAPING PUZZLE",
+    /* World 4 (10 levels) */
+    "THE WALL",
+    "WET, WET, WET!",
+    "SLIPPERY WHEN WET",
+    "THREE AMIGOS",
+    "FROZEN WALKWAY",
+    "COLOR ME BAD",
+    "SECURE YOUR EXIT",
+    "THE EVIL HELPER",
+    "GUARDIAN ANGEL",
+    "THE EVIL WRECKER",
+    /* World 5 (10 levels) */
+    "WATCH THAT COLOR",
+    "EASY SWITCHING",
+    "PIPE MANIA",
+    "PROTECTED KEY",
+    "CAST-A-KEY",
+    "ACID RAIN",
+    "INVISIBLE DEATH",
+    "SWITCH ORDER",
+    "DEATH IN ZERO-G",
+    "IR PIPE HELL",
+    /* World 6 (2 levels) */
+    "THE DOOR FROM HELL",
+    "THE RAINBOW MACHINE!",
+};
+
+const char *pc_static_level_name(int level)
+{
+    if (level < 1 || level > 60) return "?";
+    return s_static_level_names[level - 1];
+}
+
 /* The currently-loaded world's level-name table lives at $5786AC, 10 entries,
  * 44 bytes per entry. Each entry: a few padding bytes, a `}.` (0x7D 0x01)
  * marker, then `"NAME"` (ASCII, quoted), then padding to the next entry.
