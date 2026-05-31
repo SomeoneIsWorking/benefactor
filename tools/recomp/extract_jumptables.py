@@ -27,14 +27,28 @@ from capstone.m68k import M68K_OP_MEM, M68K_OP_IMM
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))   # repo root
 MEM  = os.path.join(ROOT, "logs", "gmem_after_load.bin")
-SEEDS = os.path.join(HERE, "gpl_seeds.txt")
+# These targets are now AUTO-DERIVED at regen time (recomp.py calls
+# discover_jumptable_targets), so --append is only for inspection/debugging; it
+# writes into the discovered bucket of the structured seed tree.
+SEEDS = os.path.join(HERE, "seeds", "zz-discovered.txt")
 
 CODE_LO, CODE_HI = 0x577000, 0x59F000     # gameplay code region (data/zeros above this)
 
-def main():
-    d = open(MEM, "rb").read()
-    md = Cs(CS_ARCH_M68K, CS_MODE_M68K_000 | CS_MODE_BIG_ENDIAN)
-    md.detail = True
+
+def discover_jumptable_targets(d, md=None, verbose=False):
+    """Return the set of gpl handler addresses reachable through the engine's
+    dispatch tables — derived structurally so they don't have to be hand-seeded:
+
+      * pc-relative jump tables   (`jmp $BASE(pc,Dn.w)` + 16-bit offset table)
+      * installed handler pointers (code-range `move.l #h,slot` / `cmpi.l #h,..`)
+      * dc.l function-pointer tables (runs of >=4 consecutive in-range code ptrs)
+
+    `d` is the full chip dump (indexed by absolute address; the gpl bank loads at
+    its real address so no rebasing). Pass `verbose=True` to print the tables.
+    """
+    if md is None:
+        md = Cs(CS_ARCH_M68K, CS_MODE_M68K_000 | CS_MODE_BIG_ENDIAN)
+        md.detail = True
 
     def s16(o):
         v = (d[o] << 8) | d[o + 1]
@@ -156,14 +170,15 @@ def main():
 
     allt = set()
     for base, tg in sorted(tables.items()):
-        print("table @ $%06X: %d entries, %d unique targets" % (base, 0, len(tg)))
-        print("   ", " ".join("%06X" % t for t in tg))
+        if verbose:
+            print("table @ $%06X: %d unique targets" % (base, len(tg)))
+            print("   ", " ".join("%06X" % t for t in tg))
         allt |= set(tg)
-    print("TOTAL unique jump-table targets: %d" % len(allt))
+    if verbose:
+        print("TOTAL unique jump-table targets: %d" % len(allt))
 
     # Validate immediate handler pointers as real code starts before seeding.
     handlers = sorted(h for h in handler_imms if is_code(h))
-    print("handler-pointer immediates (validated code): %d" % len(handlers))
     allt |= set(handlers)
 
     # dc.l function-pointer tables: the game also dispatches state handlers
@@ -187,9 +202,19 @@ def main():
             p = q
         else:
             p += 4
-    print("dc.l pointer-table handlers (validated code): %d" % len(ptrs))
     allt |= ptrs
-    print("TOTAL unique discovered handlers: %d" % len(allt))
+    if verbose:
+        print("handler-pointer immediates (validated code): %d" % len(handlers))
+        print("dc.l pointer-table handlers (validated code): %d" % len(ptrs))
+        print("TOTAL unique discovered handlers: %d" % len(allt))
+    return allt
+
+
+def main():
+    d = open(MEM, "rb").read()
+    md = Cs(CS_ARCH_M68K, CS_MODE_M68K_000 | CS_MODE_BIG_ENDIAN)
+    md.detail = True
+    allt = discover_jumptable_targets(d, md, verbose=True)
 
     if "--append" in sys.argv and allt:
         existing = open(SEEDS).read()

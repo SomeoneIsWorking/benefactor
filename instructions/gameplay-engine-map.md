@@ -11,32 +11,42 @@ The engine dispatches per-object handlers via `jmp (a1,d0.w)` (`$57D3EC`, `$58C6
 …) where the handler address is computed from runtime object data — static descent
 can't follow it, and `table_search` resolves a runtime jump by EXACT address, so
 every handler must be registered at its true start. Coverage comes from three
-static passes (no play-testing dependence), all wired in `recomp.py` for `bank=='gpl'`:
+AUTO-DERIVED static passes (no play-testing dependence), wired in `recomp.py` for
+`bank=='gpl'`, plus a small structured seed tree for the irreducible remainder:
 
-1. **Prologue-pin** (`discover_object_handlers` in `scanner.py`): scans `$577000..$59F000`
-   for the canonical handler opening `movem (a0)/(a0)+/d(a0), <regs>` ($4C90/98/A8 .w,
-   $4CD0/D8/E8 .l) and pins each validated, rts/jmp-terminated, emittable block as an
-   entry. One heuristic recovered ~19 levels (35→54).
-2. **Gap-fill** (phase 3 in `collect_functions`): every validated, terminated,
-   emittable code block in the region not already covered becomes a function. Safe
-   superset — data won't disassemble to a clean terminator, and the `_emittable`
-   guard rejects misdecoded blocks (e.g. `ori.b #x,ccr` padding → `UNK_R_27`).
-   ⚠️ Gap-fill alone REGRESSES (54→35): it registers blocks at gap *starts*, so a
-   dispatch target inside a fall-through chain gets absorbed and its exact address
-   isn't a table entry → miss. Always pair it with the prologue-pin.
-3. **Explicit seeds** (`gpl_seeds.txt`): the handful of dispatch targets that don't
-   start with `movem` and are absorbed by a neighbour (so neither pass catches them):
-   `$58865C` (btst), `$586E40` (tst), `$58C5DA`, and the direct-`jsr` target `$586940`.
+1. **Jump-table extraction** (`extract_jumptables.discover_jumptable_targets`): pc-rel
+   `jmp $BASE(pc,Dn.w)` offset tables, installed handler-pointer immediates, and `dc.l`
+   function-pointer tables (~207 targets).
+2. **Prologue-pin** (`discover_object_handlers` in `scanner.py`): the canonical handler
+   opening `movem (a0)/(a0)+/d(a0), <regs>` ($4C90/98/A8 .w, $4CD0/D8/E8 .l), pinned at
+   its exact start (~276 targets; recovered ~19 levels, 35→54).
+3. **Gap-fill** (phase 3 in `collect_functions`): every validated, terminated, emittable
+   block not already covered. `_emittable` rejects misdecoded data (e.g. `ori.b #x,ccr`
+   → `UNK_R_27`). ⚠️ Gap-fill ALONE regresses (54→35): it registers blocks at gap
+   *starts*, so a dispatch target inside a fall-through chain gets absorbed — its exact
+   address stops being a table entry → miss. Always pair it with the prologue-pin.
+
+What the passes CAN'T reach is the **structured seed tree** `tools/recomp/seeds/`
+(~430 entries, down from a flat 831-line file): the bulk are **mutually-terminating
+dispatch-stub tables** (`$59DDxx-$59E0xx`, `$585xxx`, `$596xxx`) where each stub decodes
+*through* its neighbours to a shared terminator — `_scan_func` only stops early when the
+next stub is already a known entry, so they can only be segmented when the whole set is
+seeded (they defeat static auto-segmentation). Plus a few non-`movem` / mis-aligned
+stragglers (`09-dispatch-stragglers.txt`). A seed may carry a name
+(`577000 game_overlay_entry`) → `gfn_gpl_577000_<name>` (with a bare-address alias in
+the header) to document the engine map; add names as routines are understood.
 
 Regen command:
 ```
 python3 tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
   --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-  --out-dir src/generated --seed "$(cat tools/recomp/gpl_seeds.txt)"
+  --out-dir src/generated --seed-dir tools/recomp/seeds
 ```
-Verify with the level-entry sweep (fire past the level card into `cop1lc=$003484`
-gameplay, run frames + joystick): all 60 levels must enter and survive with no
-`rt_call: NO FUNCTION ... (from $57D3EC)`. After any emitter change, also
+After regen, `python3 tools/recomp/check_unregistered_targets.py` flags any literal
+`rt_jump/rt_call` target that isn't a function (seed the clean-code ones; PC-rel-index /
+skipdata results are data artifacts — don't seed). Verify with the level-entry sweep
+(fire past the level card into `cop1lc=$003484` gameplay, run frames + joystick): all 60
+levels must enter and survive with no `rt_call: NO FUNCTION ...`. Also
 `grep UNK src/generated/game_gpl_*.c`.
 
 ## Cardinal facts

@@ -1,0 +1,13 @@
+# Entry, per-frame main loop, and IRQ handlers
+# Format: ADDR [name]  [# comment].  See ../seeds_loader.py.
+
+00346E
+00405C
+0041A4
+008272  irq_vector_stub  # IRQ vector stub
+577000  game_overlay_entry  # gameplay overlay entry
+577114  main_loop  # gameplay main loop (beam-syncs on VHPOSR scanline $3B)
+57825A  vblank_irq_ack  # vblank IRQ handler (acks INTREQ #$20)
+578272  lvl3_vblank_irq  # level-3 vblank IRQ handler (acks, jsr $59ba7a)
+59BF3E  lvl6_irq_sub  # level-6 IRQ sub
+59BFA6  lvl6_timer_irq  # level-6 CIA-B timer IRQ handler (music + counters)
