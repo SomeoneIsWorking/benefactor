@@ -1,6 +1,6 @@
 # Benefactor (Amiga 1994) — Native PC Port
 
-A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosis / Digital Illusions), driven by a hand-written C engine plus a recompiler that translates the original M68K binary subsystem-by-subsystem.
+A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosis / Digital Illusions), driven by a hand-written C engine plus a recompiler that lifts the original M68K binary subsystem-by-subsystem.
 
 <p align="center">
   <img src="screenshots/cavern.png" alt="Level 1: the player, a boulder and a rescued merry man" width="320" />
@@ -64,43 +64,85 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 
 | Key | Action |
 |-----|--------|
-| Arrows | Move |
-| Z / Ctrl / Space / Return | Fire / Action |
+| Arrows | Move (also: navigate menus; ←/→ cycles level in the LEVEL SELECT panel) |
+| Z / Ctrl / Space / Return | Fire / Action / Menu select |
+| Esc | In-game **pause menu** (Resume / Retry / Exit to main menu / Quit); elsewhere it quits |
 | TAB | Cycle real-time speed (1× / 2× / 4×) |
 | S / D | Save / load a savestate (`logs/savestate.bin`) |
-| L | Debug: trigger LEVEL COMPLETE (the win banner) |
-| O | Debug: trigger GAME OVER |
 | F11 | Toggle fullscreen |
-| Esc | Pause menu (in-game) — Resume / Retry / Exit to main menu / Quit |
+| L | Debug: trigger LEVEL COMPLETE |
+| O | Debug: trigger GAME OVER |
 
-### Extras
+## How it runs
 
-- **Level select (from the main menu)** — the original "ENTER PASSWORD" row is replaced with **LEVEL SELECT**. Pick it on the main menu, choose any level (1..60), fire to play. No passwords to type. If you want to skip the menu entirely from a script or dev shell, the standalone also accepts `--level N`:
+The original binary is a moving target — different overlays load different code at the same chip-RAM addresses depending on game state. The port handles this as a hybrid:
 
-  ```bash
-  ./build/benefactor-pc --level 60 Disk.1 Disk.2 Disk.3   # straight into W6L2
-  ```
+- A **Python recompiler** (`tools/recomp/`) lifts the M68K binary to C, one bank per overlay. `rt.c`'s dispatch picks the right bank at runtime based on which overlay is active.
+- A growing set of **hand-written native C** (`src/pc_overrides_*.c`, `src/recomp/native_renderer.c`, etc.) replaces recompiled M68K with code we own.
+- A **native renderer** walks the copper list from chip RAM each frame and rasterises directly into an SDL framebuffer — no PUAE emulation at runtime.
 
-- **Savestates** — press **S** at any in-game moment to write the full game state (M68K register file, coroutine + 4 MB stack, custom-chip shadows, audio channels, bank-routing flags) plus 8 MB of M68K memory to `logs/savestate.bin`. Press **D** to reload it. The file is bound to the exact binary that wrote it: ASLR is pinned on startup and an identity word in the header rejects loads from a different build with a clear error rather than crashing.
+### Reverse-engineered (native C, ours)
 
-  You can also resume directly into a save from the command line:
+These subsystems don't run recompiled M68K — they're hand-written C:
 
-  ```bash
-  ./build/benefactor-pc --load logs/savestate.bin Disk.1 Disk.2 Disk.3
-  ```
+| Subsystem | Files | Notes |
+|-----------|-------|-------|
+| Frame renderer | `recomp/native_renderer.c` | Walks the copper list each frame, composites BPLs + sprites, writes ARGB into the SDL framebuffer. |
+| Blitter | `recomp/hw_blitter.c` | Implements asc/desc, line, cookie-cut, fill. Sufficient to render the game. |
+| Audio | `recomp/hw_audio.c` | Mixes the 4 Paula channels from the live register shadows into 22050 Hz SDL audio. |
+| Boot disk loader + ATN! decrunch | `recomp/disk_boot.c`, `pc_overrides_boot.c` | Reads raw `Disk.N` images, runs the ATN!-decruncher. Replaces the M68K-side raw-MFM disk reader. |
+| Overlay loader (`$6D714` / `$150`) | `pc_overrides_boot.c` | All four `D0` paths: gameplay overlay (`d0=0`), boot/title (`d0=1`), reserved (`d0=2`), end-game/credits (`d0=3`). Replays the `$6D734→$150..$2A57` block-copy so low-RAM engine state is correct. |
+| Title main menu | `pc_overrides_title.c` | Our menu loop replaces `$003872`. PLAY GAME / LEVEL SELECT / LOAD EXTRA LEVELS. |
+| Menu glyph blit | `pc_overrides_boot.c` | "ENTER PASSWORD" → "LEVEL SELECT" substitution without touching chip RAM. |
+| Per-level disk reader (`$577B8C`) | `pc_overrides_boot.c` `native_gp_disk_read` | Gameplay engine's "stream level data from disk" — natively a `disk_boot_load`. |
+| Timer-IRQ delivery | `pc.c` `coro_deliver_timer_irq`, `pc_music_tick` | We call the game's installed LVL3 / LVL6 handlers at the right rate; no CIA-B timer emulation. |
+| Pause menu / level-select UI / poster-on-exit | `pc_pause_menu.c`, `pc_level_select_ui.c`, `pc.c` `title_coro_entry` | Wholly new code. |
 
-- **In-game pause menu (ESC)** — opens an overlay with four options navigated by ↑ / ↓ and selected with Fire (Z / Ctrl / Space / Return):
+Many other overrides in `pc_overrides_*.c` are **wrappers** around recompiled M68K — they delegate to the recompiled function and then patch a small detail (a copper write-back, a missed flag toggle, etc.). Those aren't reverse-engineered, just guarded.
+
+### Still recompiled (static M68K → C)
+
+These banks are mechanical translations of the original code. They run unchanged when the matching bank flag is set.
+
+| Bank | File(s) | Functions | What it covers |
+|------|---------|-----------|----------------|
+| Intro / system | `game_boot.c`, `game_loop.c`, `game_animation.c`, `game_blitter.c`, `game_sprite.c`, `game_render.c`, `game_timer.c`, `game_misc.c`, `game_discovered.c` | ~65 | Cold boot at `$3000`, intro/crawl, top-level state-machine dispatch. |
+| Title / gp bank | `game_gp_*.c` | 57 | Title cover-art attract loop, main menu, poster, leaderboard. |
+| Gameplay engine | `game_gpl_*.c` | 914 | All in-cavern gameplay — player, enemies, level transitions, level-card. The big chunk that hasn't been re-engineered yet. |
+| End-game / credits | `game_credits_*.c` | 14 | Teleport-out cutscene + credits, loaded from Disk.3 on the W6L2 win. |
+
+See `instructions/gameplay-engine-map.md` for the working RE map of the gameplay engine — subsystem labels are best-guesses from first-instruction patterns, refined as native ports replace them.
+
+## Additions to the game itself
+
+These change what the player can do — features that didn't exist in the 1994 release.
+
+- **In-game pause menu (ESC)** — overlay with four options:
 
   | Option | Effect |
   |--------|--------|
-  | **Resume** | Close the menu, continue play. |
-  | **Retry** | Restart the current level — back to its title card, fresh state. |
-  | **Exit to main menu** | Drop straight into the cover-art / poster screen, same code path the engine reaches naturally after the intro. |
+  | **Resume** | Continue play. |
+  | **Retry** | Restart the current level at its title card. |
+  | **Exit to main menu** | Drop straight into the cover-art / poster screen. |
   | **Quit to desktop** | `exit(0)`. |
 
-  ESC outside gameplay keeps its old "quit immediately" behaviour.
+  Navigate with ↑/↓, select with Fire (Z / Ctrl / Space / Return).
 
-- **Win cutscene / end-game credits** — the original credits engine is recompiled as its own bank (loaded by Disk.3 on the win sequence). Beating world 6 level 2 plays the proper teleport-out + cutscene path, not a placeholder.
+- **Main-menu LEVEL SELECT** — replaces the original "ENTER PASSWORD" row. Fire on it to open a per-world panel, ←/→ cycle through 60 levels, fire again to play. No password typing.
+
+## Executable / dev features
+
+These wrap the binary, not the game logic:
+
+- **Turbo** — TAB cycles real-time speed (1× / 2× / 4×).
+- **Savestate (S/D)** — dumps the full game state (M68K register file, coroutine + 4 MB stack, custom-chip shadows, audio channels, bank-routing flags) plus 8 MB of M68K memory to `logs/savestate.bin`; D reloads. The format is bound to the exact binary that wrote it: ASLR is pinned at startup so the file survives process restarts, and an identity word in the header rejects loads from a different build. `--load <path>` does the same from CLI.
+- **Direct level entry** — `--level N` jumps the standalone to level N (1..60) without going through the title flow.
+- **Headless mode** — `--headless` runs the standalone with no SDL window (used by automation).
+- **Comparison harness** — `run_harness_interactive.sh` boots both PUAE and the PC port side-by-side with a REPL for stepping, dumping framebuffers, watching chip-RAM reads/writes, finding writers/readers of any address.
+
+## Considered (not implemented)
+
+- **Save slots with screenshots.** A proper Save Game / Load Game UI built on top of the existing savestate format — multiple named slots, each with a thumbnail of the framebuffer captured at save time, dates. Replaces the all-purpose `logs/savestate.bin` with a real UX.
 
 ## Layout
 
@@ -108,9 +150,11 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 |------|------|
 | `src/pc.c` | Native game loop |
 | `src/recomp/` | Recompiler runtime (hw / blitter / copper / native renderer) |
-| `src/pc_overrides_*.c` | Hand-written C replacements for recompiled M68K functions |
-| `src/generated/` | Recompiler output (M68K → C) |
+| `src/pc_overrides_*.c` | Native C replacements / wrappers for recompiled M68K functions |
+| `src/pc_pause_menu.c`, `src/pc_level_select_ui.c` | Wholly-PC-side UI |
+| `src/generated/` | Recompiler output (M68K → C), per bank |
 | `tools/recomp/` | Python recompiler (regenerates `generated/`) |
 | `vendor/libretro-uae/` | PUAE reference, used by the comparison harness |
+| `instructions/gameplay-engine-map.md` | Working RE map of the gameplay engine |
 
-See `CLAUDE.md` and `AGENTS.md` for the development workflow, and `docs/recompiler.md` if you want to regenerate `src/generated/` from your own chip-RAM dumps.
+See `CLAUDE.md` and `AGENTS.md` for the development workflow.
