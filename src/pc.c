@@ -477,11 +477,28 @@ int g_pc_pending_load = 0;
 
 int pc_step(void)
 {
+    /* Service any deferred pause-menu action (Resume/Retry/ExitToMenu/Quit)
+     * before anything else — we're on the main stack here, not the game
+     * coroutine, so we can safely rebuild s_game_uc if needed. */
+    { extern void pc_pause_tick(void); pc_pause_tick(); }
+
     if (g_pc_pending_load) {
         g_pc_pending_load = 0;
         pc_loadstate("logs/savestate.bin");
     }
     if (!hw_running) return 1;
+
+    /* While paused, freeze the game coroutine entirely — don't swap in.
+     * Still call hw_present_frame so the pause overlay stays visible and
+     * SDL events keep flowing (so the user can navigate the menu). */
+    extern int pc_pause_active(void);
+    if (pc_pause_active()) {
+        if (g_harness_prerender_hook) g_harness_prerender_hook();
+        if (hw_present_frame() != 0) return 1;
+        if (g_harness_frame_hook) g_harness_frame_hook();
+        return 0;
+    }
+
     hw_watchdog_arm("PC", 2);          /* catch an infinite loop in one frame */
     int r = pc_step_coro();            /* disk-boot: run the game's own flow */
     hw_watchdog_disarm();
@@ -713,6 +730,28 @@ int pc_init_from_disk(const char **disks, int n_disks)
     makecontext(&s_game_uc, game_coro_entry, 0);
     fprintf(stderr, "[pc] disk boot: running game flow on coroutine\n");
     return 0;
+}
+
+/* "Exit to main menu" from the pause menu — soft-reset the coroutine back to
+ * cold boot. Clears all g_state (bank flags, register file, ucontext, shadow
+ * regs, audio channels), re-decrunches the boot loader at $3000 in case an
+ * overlay-load (d0=0/2/3) overwrote it, and re-installs game_coro_entry on
+ * the coroutine. The next swapcontext from pc_step_coro runs the whole intro/
+ * title/menu chain again, landing at the poster/main-menu screen. */
+void pc_request_cold_restart(void)
+{
+    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
+    extern uint32_t atn_decrunch(uint32_t);
+    pc_state_reset_defaults();           /* zeros g_state, resets non-zero defaults */
+    disk_boot_load(1, 0x1880u, 0x3000u, 0x2442Eu);
+    atn_decrunch(0x3000u);
+    memset(&s_game_ctx, 0, sizeof s_game_ctx);
+    getcontext(&s_game_uc);
+    s_game_uc.uc_stack.ss_sp   = s_game_stack;
+    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
+    s_game_uc.uc_link          = &s_main_uc;
+    makecontext(&s_game_uc, game_coro_entry, 0);
+    fprintf(stderr, "[pc] cold-restart: coroutine reset to $3000\n");
 }
 
 /* Direct-to-gameplay entry. Skips intro/title/menu entirely: the gameplay

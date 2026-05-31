@@ -258,6 +258,40 @@ int  hw_joy_right(void) { return s_joy_right; }
  * key advances every screen. */
 void hw_handle_key(int sym, int down)
 {
+    /* Pause-menu interception: when the menu is up, arrows + fire navigate the
+     * menu instead of being delivered to the game. ESC toggles the menu in
+     * gameplay; outside gameplay it falls through to exit(). */
+    {
+        extern int  pc_pause_active(void);
+        extern void pc_pause_toggle(void);
+        extern void pc_pause_input_up(void);
+        extern void pc_pause_input_down(void);
+        extern void pc_pause_input_select(void);
+        if (sym == SDLK_ESCAPE) {
+            if (down) {
+                if (pc_pause_active() || g_gameplay_active) {
+                    pc_pause_toggle();
+                    return;
+                }
+                exit(0);
+            }
+            return;
+        }
+        if (pc_pause_active()) {
+            if (!down) return;
+            switch (sym) {
+                case SDLK_UP:    pc_pause_input_up();   return;
+                case SDLK_DOWN:  pc_pause_input_down(); return;
+                case SDLK_z:
+                case SDLK_LCTRL:
+                case SDLK_SPACE:
+                case SDLK_RETURN:
+                                 pc_pause_input_select(); return;
+                default: return;   /* swallow other keys while paused */
+            }
+        }
+    }
+
     switch (sym) {
     case SDLK_UP:    s_joy_up    = down; break;
     case SDLK_DOWN:  s_joy_down  = down; break;
@@ -415,7 +449,9 @@ int hw_present_frame(void)
             }
             if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
                 int down = (ev.type == SDL_KEYDOWN);
-                if (ev.key.keysym.sym == SDLK_ESCAPE) { s_in_present_frame = 0; return 1; }
+                /* ESC is handled inside hw_handle_key — it toggles the pause
+                 * menu in gameplay, falls back to exit(0) elsewhere. Don't
+                 * short-circuit return 1 here or pause never engages. */
                 if (ev.key.keysym.sym == SDLK_F11) {
                     if (!s_headless && down) {
                         uint32_t flags = SDL_GetWindowFlags(s_window);
@@ -437,6 +473,10 @@ int hw_present_frame(void)
      * so it stacks on top of whatever the engine just drew. */
     { extern void pc_level_select_overlay(uint32_t *fb);
       pc_level_select_overlay(s_fb); }
+    /* Pause menu — last, so it stacks above everything including the level
+     * select. */
+    { extern void pc_pause_menu_overlay(uint32_t *fb);
+      pc_pause_menu_overlay(s_fb); }
 
     /* Harness snap is taken by the caller (pc.c) AFTER the timer interrupt,
      * to match PUAE's ordering where VBlank fires after copper and before snap. */
