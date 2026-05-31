@@ -1,9 +1,43 @@
 # Gameplay engine map
 
 The recompiled gameplay-engine bank (`$577000+`, file `src/generated/game_gpl_*.c`,
-914 functions) is the largest piece of code we don't own. This document tracks what
+1075 functions) is the largest piece of code we don't own. This document tracks what
 each high-leverage routine does so we can replace them with native C one subsystem
 at a time. **Updated by walking the recompiled output + `pc_freeze.bin` state.**
+
+## Object-handler dispatch coverage (how the bank reaches 60/60 levels)
+
+The engine dispatches per-object handlers via `jmp (a1,d0.w)` (`$57D3EC`, `$58C64E`,
+…) where the handler address is computed from runtime object data — static descent
+can't follow it, and `table_search` resolves a runtime jump by EXACT address, so
+every handler must be registered at its true start. Coverage comes from three
+static passes (no play-testing dependence), all wired in `recomp.py` for `bank=='gpl'`:
+
+1. **Prologue-pin** (`discover_object_handlers` in `scanner.py`): scans `$577000..$59F000`
+   for the canonical handler opening `movem (a0)/(a0)+/d(a0), <regs>` ($4C90/98/A8 .w,
+   $4CD0/D8/E8 .l) and pins each validated, rts/jmp-terminated, emittable block as an
+   entry. One heuristic recovered ~19 levels (35→54).
+2. **Gap-fill** (phase 3 in `collect_functions`): every validated, terminated,
+   emittable code block in the region not already covered becomes a function. Safe
+   superset — data won't disassemble to a clean terminator, and the `_emittable`
+   guard rejects misdecoded blocks (e.g. `ori.b #x,ccr` padding → `UNK_R_27`).
+   ⚠️ Gap-fill alone REGRESSES (54→35): it registers blocks at gap *starts*, so a
+   dispatch target inside a fall-through chain gets absorbed and its exact address
+   isn't a table entry → miss. Always pair it with the prologue-pin.
+3. **Explicit seeds** (`gpl_seeds.txt`): the handful of dispatch targets that don't
+   start with `movem` and are absorbed by a neighbour (so neither pass catches them):
+   `$58865C` (btst), `$586E40` (tst), `$58C5DA`, and the direct-`jsr` target `$586940`.
+
+Regen command:
+```
+python3 tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
+  --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
+  --out-dir src/generated --seed "$(cat tools/recomp/gpl_seeds.txt)"
+```
+Verify with the level-entry sweep (fire past the level card into `cop1lc=$003484`
+gameplay, run frames + joystick): all 60 levels must enter and survive with no
+`rt_call: NO FUNCTION ... (from $57D3EC)`. After any emitter change, also
+`grep UNK src/generated/game_gpl_*.c`.
 
 ## Cardinal facts
 

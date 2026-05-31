@@ -25,7 +25,7 @@ from capstone import Cs, CS_ARCH_M68K, CS_MODE_M68K_000, CS_MODE_BIG_ENDIAN
 from capstone.m68k import M68K_OP_MEM, M68K_OP_IMM
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))   # repo root
+ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))   # repo root
 MEM  = os.path.join(ROOT, "logs", "gmem_after_load.bin")
 SEEDS = os.path.join(HERE, "gpl_seeds.txt")
 

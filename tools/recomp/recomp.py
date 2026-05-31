@@ -27,13 +27,13 @@ from capstone.m68k import *
 
 try:
     from .entries  import get_entry_addrs, get_fn_name, get_fn_group, GROUPS
-    from .scanner  import collect_functions
+    from .scanner  import collect_functions, discover_object_handlers
     from .emitter  import Translator, emit_func
 except ImportError:
     import importlib, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     from recomp.entries  import get_entry_addrs, get_fn_name, get_fn_group, GROUPS  # type: ignore
-    from recomp.scanner  import collect_functions                                    # type: ignore
+    from recomp.scanner  import collect_functions, discover_object_handlers          # type: ignore
     from recomp.emitter  import Translator, emit_func                                # type: ignore
 
 __all__ = ['Translator', 'emit_func', 'collect_functions']
@@ -111,7 +111,32 @@ def main():
     md = Cs(CS_ARCH_M68K, CS_MODE_M68K_000 | CS_MODE_BIG_ENDIAN)
     md.detail = True
 
-    funcs = collect_functions(data, base, entries, md, areg_bases=areg_bases, bank=bank)
+    # The gameplay engine dispatches per-object handlers via pointer tables in
+    # RAM that static descent can't follow ($57D3EC: jmp (a1,d0.w), where a1
+    # walks (a2)+ object data and d0 is from the object's first u16). Those
+    # handlers are never reached from the seed entries, and which ones a level
+    # needs depends on its objects — so seed-by-playtest is whack-a-mole. We get
+    # COMPLETE coverage with two static passes, independent of play:
+    #   1. Pin handler ENTRIES by their canonical `movem (a0),<regs>` prologue.
+    #      table_search resolves a runtime jump by EXACT address, so each handler
+    #      must register at its true start — this guarantees that boundary.
+    #   2. Gap-fill the rest of the code region: every validated, rts-terminated,
+    #      emittable block not already covered becomes a function. Catches
+    #      handlers whose prologue isn't a movem (e.g. tst/btst starts) and any
+    #      other runtime-reached code. Data won't disassemble to a clean rts, so
+    #      this is a safe superset.
+    SCAN_LO, SCAN_HI = 0x577000, 0x59F000
+    gapfill = None
+    if bank == 'gpl':
+        extras = discover_object_handlers(data, base, md, SCAN_LO, SCAN_HI)
+        before = len(entries)
+        entries = sorted(set(entries) | extras)
+        print(f'Pinned {len(extras)} object-handler prologues '
+              f'(`movem (a0),...`); {len(entries) - before} new vs. seeds')
+        gapfill = (SCAN_LO, SCAN_HI)
+
+    funcs = collect_functions(data, base, entries, md, areg_bases=areg_bases,
+                              bank=bank, gapfill=gapfill)
     print(f'Collected {len(funcs)} functions')
 
     translator = Translator(set(funcs.keys()))
