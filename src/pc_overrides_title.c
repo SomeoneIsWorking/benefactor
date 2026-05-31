@@ -115,17 +115,17 @@ void native_title_menu(M68KCtx *ctx)
         /* Fire edge: act on the chosen item. */
         if (f && !prev_fire) {
             if (s_menu_sel == MI_PLAY) {
-                /* Start the currently-selected level — pc_set_start_level
-                 * has already been written by F2/F3 if the player changed
-                 * it; native_overlay_loader_reloc will apply $20.w at
-                 * the $150 hand-off. */
+                /* Start the currently-selected level. If the player opened
+                 * the LEVEL SELECT panel and cycled it with ←/→,
+                 * pc_set_start_level wrote the choice; native_overlay_loader_reloc
+                 * applies $20.w at the $150 hand-off. */
                 g_pc_in_native_title_menu = 0;
                 rt_jump(ctx, 0x150u);
                 return;
             }
             if (s_menu_sel == MI_LEVEL_SELECT) {
-                /* Open the level-select panel; user cycles with F2/F3
-                 * and presses fire again to commit. */
+                /* Open the level-select panel; user cycles with ←/→ and
+                 * presses fire again to commit. */
                 if (!g_level_select_visible) {
                     g_level_select_visible = 1;
                     prev_fire = f;
