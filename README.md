@@ -67,8 +67,6 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 | Arrows | Move |
 | Z / Ctrl / Space / Return | Fire / Action |
 | TAB | Cycle real-time speed (1× / 2× / 4×) |
-| F1 | Toggle level-select overlay |
-| F2 / F3 | Cycle the selected start level (1..60) |
 | S / D | Save / load a savestate (`logs/savestate.bin`) |
 | L | Debug: trigger LEVEL COMPLETE (the win banner) |
 | O | Debug: trigger GAME OVER |
@@ -77,7 +75,7 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 
 ### Extras
 
-- **Level select** — F1 opens an on-screen panel listing every world/level. F2 / F3 cycle the chosen level. When you fire on the title menu the game jumps straight to that level instead of starting at world 1 level 1. The `--level N` command-line flag does the same thing without the UI.
+- **Level select (from the main menu)** — the original "ENTER PASSWORD" row is replaced with **LEVEL SELECT**. Pick it on the main menu, choose any level (1..60), fire to play. No passwords to type. If you want to skip the menu entirely from a script or dev shell, the standalone also accepts `--level N`:
 
   ```bash
   ./build/benefactor-pc --level 60 Disk.1 Disk.2 Disk.3   # straight into W6L2
