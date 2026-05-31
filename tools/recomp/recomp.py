@@ -21,7 +21,7 @@ Sub-modules:
   emitter.py  – Translator class + emit_func
   entries.py  – entry-point table, name lookup, group assignment
 """
-import sys, os, argparse
+import sys, os, re, argparse
 from capstone import *
 from capstone.m68k import *
 
@@ -188,6 +188,14 @@ def main():
                     h.write(f'#define gfn_{bank}_{a:06X} gfn_{cname(a)}\n')
             h.write(f'\n#define {count_macro} {len(funcs)}\n')
             h.write(f'extern const GameFnEntry {table_name}[{count_macro}];\n')
+
+        # Remove stale chunk files from a previous (larger) regen — otherwise a
+        # build that GLOBs game_<bank>_*.c picks them up and double-defines
+        # functions. Only the numbered chunk files; the table file is rewritten.
+        import glob as _glob
+        for stale in _glob.glob(os.path.join(out_dir, f'game_{bank}_*.c')):
+            if re.match(rf'game_{bank}_\d+\.c$', os.path.basename(stale)):
+                os.remove(stale)
 
         CHUNK = 500
         chunks = [sorted_addrs[i:i+CHUNK] for i in range(0, len(sorted_addrs), CHUNK)] or [[]]

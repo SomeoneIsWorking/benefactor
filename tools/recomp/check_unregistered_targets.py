@@ -34,12 +34,14 @@ from recomp.scanner import _scan_func, mem_base, mem_index
 
 
 def main():
-    src = "".join(open(os.path.join(GEN, f)).read()
-                  for f in ("game_gpl_0.c", "game_gpl_1.c", "game_gpl_2.c"))
+    import glob
+    # Chunk count varies with the function total — glob, don't hardcode 3.
+    src = "".join(open(f).read()
+                  for f in sorted(glob.glob(os.path.join(GEN, "game_gpl_[0-9]*.c"))))
     targets = set(int(x, 16) for x in
                   re.findall(r'rt_(?:jump|call)\(ctx, 0x([0-9A-Fa-f]+)u\)', src))
     reg = set(int(x, 16) for x in
-              re.findall(r'0x([0-9A-Fa-f]{6})u, gfn_gpl_',
+              re.findall(r'\{\s*0x([0-9A-Fa-f]{6})u,',
                          open(os.path.join(GEN, "game_gpl_table.c")).read()))
     missing = sorted(t for t in targets
                      if t not in reg and GPL_LO <= t < GPL_HI)
