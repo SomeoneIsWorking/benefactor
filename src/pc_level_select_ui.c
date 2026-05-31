@@ -228,5 +228,5 @@ void pc_level_select_overlay(uint32_t *fb)
 
     /* Footer. */
     draw_text(fb, px + 8, py + ph - 12,
-              "FIRE = START   UP/DN LEVEL   L/R WORLD", 1, 0xFF808080);
+              "FIRE START  UP/DN LEVEL  L/R WORLD  ESC CLOSE", 1, 0xFF808080);
 }
