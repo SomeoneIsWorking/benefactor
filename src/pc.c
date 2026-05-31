@@ -734,69 +734,56 @@ int pc_init_from_disk(const char **disks, int n_disks)
     return 0;
 }
 
-/* Intro-skip state — set by pc_request_cold_restart, ticked by pc_step.
- * While active, programmatically holds fire so the engine auto-advances
- * crawl → logos → car → poster → main-menu. Released the moment cop1lc
- * lands on the main-menu copper list ($008302). MAX_FRAMES is a safety
- * cap (the natural intro takes ~3000 frames; under fire-hold-skip it's
- * usually a few hundred). */
-static int s_intro_skip_frames_left = 0;
-#define INTRO_SKIP_MAX_FRAMES 6000
+/* Coroutine entry that drops directly into the gp/title bank's attract-mode
+ * entry at $003330. The gp $3330 self-initialises a5=$511E, a6=$DFF000,
+ * a7=$80000, sets up the title copper ($86CC + cover-art), then calls
+ * $0033E2 which is the poster/leaderboard attract loop. Same code the
+ * engine reaches naturally after the intro — but we skip the intro by
+ * jumping past it. */
+static void title_coro_entry(void)
+{
+    g_overlay_active  = 1;       /* gp bank holds the title-state code at $3330+ */
+    g_gameplay_active = 0;
+    g_credits_active  = 0;
+    s_game_ctx.A[5] = 0x0000511Eu;       /* gp bank a5 base */
+    s_game_ctx.A[6] = 0x00DFF000u;
+    s_game_ctx.A[7] = 0x00080000u;
+    rt_call(&s_game_ctx, 0x00003330u);
+    s_game_done = 1;
+    for (;;) swapcontext(&s_game_uc, &s_main_uc);
+}
 
-/* "Exit to main menu" from the pause menu — soft-reset the coroutine back to
- * cold boot. Clears all g_state (bank flags, register file, ucontext, shadow
- * regs, audio channels), re-decrunches the boot loader at $3000 in case an
- * overlay-load (d0=0/2/3) overwrote it, and re-installs game_coro_entry on
- * the coroutine. After the reset, hold fire so the engine skips through
- * intro/logos/car/poster and lands at the main menu, then release fire. */
+/* "Exit to main menu" from the pause menu — drop into the gp/title bank's
+ * attract entry ($003330), which renders the poster ("cover art" screen).
+ * No fire-skip hack: we land there directly because $003330 IS the poster
+ * entry (the same address the engine reaches after the intro, and the same
+ * one the menu's fade-back-to-attract path jumps to).
+ *
+ * Steps:
+ *   1. Clear all g_state (bank flags, register file, shadow regs, audio).
+ *   2. Reload the title overlay (native_overlay_load) — d0=1 equivalent.
+ *      Required because if we're coming from gameplay/credits, the bytes
+ *      at $3330+ have been overwritten with gameplay/credits code. Also
+ *      replays the $6D714 block-copy so low-RAM engine state is fresh.
+ *   3. Re-install the coroutine pointing at title_coro_entry which calls
+ *      $003330. Next pc_step swap enters the poster directly. */
 void pc_request_cold_restart(void)
 {
-    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
-    extern uint32_t atn_decrunch(uint32_t);
+    extern void native_overlay_load(void);
     pc_state_reset_defaults();           /* zeros g_state, resets non-zero defaults */
-    disk_boot_load(1, 0x1880u, 0x3000u, 0x2442Eu);
-    atn_decrunch(0x3000u);
+    native_overlay_load();               /* reload title/intro overlay + block-copy */
     memset(&s_game_ctx, 0, sizeof s_game_ctx);
     getcontext(&s_game_uc);
     s_game_uc.uc_stack.ss_sp   = s_game_stack;
     s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
     s_game_uc.uc_link          = &s_main_uc;
-    makecontext(&s_game_uc, game_coro_entry, 0);
-    s_intro_skip_frames_left = INTRO_SKIP_MAX_FRAMES;
-    fprintf(stderr, "[pc] cold-restart: coroutine reset to $3000;"
-            " holding fire to skip intro to main menu\n");
+    makecontext(&s_game_uc, title_coro_entry, 0);
+    fprintf(stderr, "[pc] exit-to-menu: coroutine reset to $003330 (poster)\n");
 }
 
-/* Called from pc_step before swapping into the coroutine. While the skip is
- * pending, force fire ON so the engine zooms through intro screens (crawl
- * → logos → car), then release fire as soon as cop1lc reaches the poster
- * ($0081D2). The poster is attract-mode and only advances on a fire EDGE,
- * so as long as we release fire on the frame we detect $0081D2 the engine
- * stays on the poster — the player presses fire themselves to enter the
- * main menu, exactly as in a fresh boot. */
-void pc_intro_skip_tick_internal(void)
-{
-    if (s_intro_skip_frames_left <= 0) return;
-    uint32_t cop = hw_get_cop1lc();
-    if (cop == 0x0081D2u) {
-        /* Reached the poster — release fire and stop skipping. */
-        hw_set_fire(0);
-        hw_set_mouse_lmb(0);
-        s_intro_skip_frames_left = 0;
-        fprintf(stderr, "[pc] intro-skip complete: poster (cop1lc=$0081D2)\n");
-        return;
-    }
-    hw_set_fire(1);
-    hw_set_mouse_lmb(1);
-    if (--s_intro_skip_frames_left == 0) {
-        /* Timed out — give up holding fire and let whatever screen we're
-         * on stay; user can navigate from there. */
-        hw_set_fire(0);
-        hw_set_mouse_lmb(0);
-        fprintf(stderr, "[pc] intro-skip timed out at cop1lc=$%06X — releasing fire\n",
-                (unsigned)cop);
-    }
-}
+/* Stub kept so pc_step's call into pc_intro_skip_tick_internal still
+ * resolves; no-op now that we enter the poster directly. */
+void pc_intro_skip_tick_internal(void) { }
 
 /* Direct-to-gameplay entry. Skips intro/title/menu entirely: the gameplay
  * overlay is loaded, $20.w is written, and the coroutine is set to enter
