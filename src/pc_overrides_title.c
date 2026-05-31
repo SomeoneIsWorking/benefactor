@@ -84,7 +84,7 @@ static void draw_menu_overlay(uint32_t *fb, int show_levelsel_hint)
 /* Replacement for gfn_gp_003872. Runs as a native override on the disk-boot
  * coroutine — hw_vblank_wait() yields each iteration so the SDL window
  * pumps events, frames present, audio ticks, etc. */
-int g_pc_in_native_title_menu = 0;
+/* g_pc_in_native_title_menu moved to g_state (see game_state.h). */
 void native_title_menu(M68KCtx *ctx)
 {
     fprintf(stderr, "[native-title-menu] ENTERED — override $003872 fired\n");

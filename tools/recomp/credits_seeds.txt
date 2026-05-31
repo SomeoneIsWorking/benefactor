@@ -1,0 +1,15 @@
+# credits_seeds.txt — entry seeds for the end-game/credits bank
+# Loaded by $150 d0=3 (Disk.3 $0C7100 → $3330, len $1888C).
+#
+# The recompiler's static descent (scanner.py) only follows constant
+# bsr/jsr targets; indirect dispatch (jump tables, vector installs)
+# must be seeded here.
+
+# Engine entry — the address d0=3's $jmp $100 lands on
+3330
+
+# IRQ vectors the engine installs at $6C and $78 (see disasm of $3330+):
+#   move.l #$350a, $6c.w    LVL3 vblank
+#   move.l #$351c, $78.w    LVL6 CIA-B timer
+350A
+351C

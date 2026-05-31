@@ -19,9 +19,22 @@ static inline void     w32(uint32_t a, uint32_t v) { g_chip[a]=v>>24; g_chip[a+1
 
 /* Single PC execution path: native boot from the original disk images. */
 int pc_init_from_disk(const char **disks, int n_disks);
+
+/* Direct-to-gameplay entry: bypass intro/title/menu, load the gameplay
+ * overlay, and enter $577000 at the given level (1..60). Use this for
+ * iteration / level-specific debugging — the title flow is irrelevant to
+ * any gameplay work, and routing every test through 5000+ frames of intro
+ * is the wrong abstraction for that work. Returns 0 on success. */
+int pc_init_to_gameplay(const char **disks, int n_disks, int level);
+
 int pc_run(void);
 int pc_step(void);  /* single frame, returns 0=continue, 1=quit */
 void pc_fini(void);
+/* Save/restore the game coroutine + 8MB M68K memory to disk. Call between
+ * pc_step()s — the coro is paused at coro_yield then, the cleanest boundary.
+ * Returns 0 on success, -1 on failure. */
+int pc_savestate(const char *path);
+int pc_loadstate(const char *path);
 /* When set, pc_run skips host-rate pacing (harness drives stepping itself). */
 void pc_set_harness_mode(int on);
 

@@ -24,6 +24,7 @@
 #include "recomp/hw.h"
 #include "recomp/rt.h"
 #include "pc.h"
+#include "game_state.h"   /* g_state + legacy-name macros */
 #include "harness/puae_state.h"
 #include "harness/harness_internal.h"
 
@@ -76,6 +77,9 @@ extern void retro_set_controller_port_device(unsigned port, unsigned device);
 
 int main(int argc, char **argv)
 {
+    extern void pc_pin_address_space(int, char **);
+    pc_pin_address_space(argc, argv);
+
     /* Line-buffer stdout so messages survive the watchdog's _exit (which would
      * otherwise drop the buffered loader/diagnostic output). */
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -106,9 +110,13 @@ int main(int argc, char **argv)
     int n_disks = 0;
     int headed  = 0;
     int play_mode = 0;
+    int direct_level = 0;   /* 0 = full title boot; 1..60 = jump straight to that level */
     for (int i = 3; i < argc; i++) {
         if (!strcmp(argv[i], "--headed")) headed = 1;
         else if (!strcmp(argv[i], "--play")) { play_mode = 1; headed = 1; }
+        else if (!strcmp(argv[i], "--level") && i + 1 < argc) {
+            direct_level = atoi(argv[++i]);
+        }
         else if (n_disks < 3)             disks[n_disks++] = argv[i];
     }
     if (n_disks < 1) { fprintf(stderr, "[harness] need at least disk1\n"); return 1; }
@@ -123,11 +131,16 @@ int main(int argc, char **argv)
                        /*display_only*/0, /*interactive*/1) < 0)
         return 1;
 
-    /* Boot the PC port via its single path: native disk boot. The harness owns
-     * the display (side-by-side), so the PC port must not open its own window. */
+    /* Boot the PC port. The harness owns the display (side-by-side), so the PC
+     * port must not open its own window. Use the direct-to-gameplay path when
+     * --level was supplied — skips intro/title/menu and enters at $577000. */
     hw_request_headless();
-    if (pc_init_from_disk(disks, n_disks) < 0) {
-        fprintf(stderr, "[harness] PC disk boot failed\n");
+    int pc_init_rc = direct_level > 0
+        ? pc_init_to_gameplay(disks, n_disks, direct_level)
+        : pc_init_from_disk(disks, n_disks);
+    if (pc_init_rc < 0) {
+        fprintf(stderr, "[harness] PC %s failed\n",
+                direct_level > 0 ? "direct-to-gameplay" : "disk boot");
         return 1;
     }
     pc_set_harness_mode(1);   /* harness drives stepping; skip host-rate pacing */
@@ -166,7 +179,8 @@ int main(int argc, char **argv)
         }
     }
 
-    printf("[crepl] ready (headed=%d). cmds: play|headed|fire|joy|pc|pu|both|state|cmp|fb|m|mp|q\n", headed);
+    printf("[crepl] ready (headed=%d). cmds: play|headed|fire|joy|pc|pu|both|state|cmp|fb|m|mp|save|load|goto|pcread|pcreadclear|pcwatch|pcwatchclear|puwatch|puwatchclear|pufind|q\n", headed);
+    printf("[crepl] play mode keys: S=save, D=load (logs/savestate.bin)\n");
     fflush(stdout);
 
     char line[256];
@@ -213,7 +227,7 @@ int main(int argc, char **argv)
             pc_set_start_level(n);
         }
         else if (!strcmp(cmd, "runtomenu")) {  /* runtomenu [maxframes] — step PC until native title menu fires */
-            extern int g_pc_in_native_title_menu;
+
             unsigned maxf = 30000; sscanf(line, "%*s %u", &maxf);
             unsigned i = 0;
             for (; i < maxf; i++) { STEP_PC(); if (g_pc_in_native_title_menu) break; }
@@ -272,6 +286,124 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(cmd, "fire")) {
             sscanf(line, "%*s %d", &fire); printf("[crepl] fire=%d\n", fire);
+        }
+        else if (!strcmp(cmd, "goto")) {  /* goto <N> — restart PC coroutine at level N (1..60), bypassing title */
+            int n = 0; sscanf(line, "%*s %d", &n);
+            if (n < 1 || n > 60) {
+                printf("[crepl] usage: goto <1..60>\n");
+            } else {
+                extern uint8_t *g_mem;
+                /* Re-pin level + ensure overlay is loaded; trigger coroutine
+                 * restart via the existing g_enter_gameplay path. */
+                if (!g_overlay_active) {
+                    extern void native_overlay_load_d0(void);
+                    native_overlay_load_d0();
+                    extern void pc_preload_all_level_names(void);
+                    pc_preload_all_level_names();
+                    for (uint32_t a = 0x3eu; ; a = 0x184u) {
+                        g_mem[a]=0x00; g_mem[a+1]=0x00; g_mem[a+2]=0x0A; g_mem[a+3]=0x68;
+                        if (a == 0x184u) break;
+                    }
+                }
+                g_mem[0x20] = 0; g_mem[0x21] = (uint8_t)n;
+                g_gameplay_entry = 0x577000u;
+                g_enter_gameplay = 1;
+                printf("[crepl] goto level %d — coroutine will restart at $577000 on next step\n", n);
+            }
+        }
+        else if (!strcmp(cmd, "pufind")) {  /* pufind <hex> [max_frames] — step PUAE 1 frame at a time, watching when mem[hex..+3] first changes; reports the frame */
+            extern int puae_dump_mem(uint32_t addr, void *buf, int len);
+            unsigned a = 0, maxf = 5000;
+            if (sscanf(line, "%*s %x %u", &a, &maxf) < 1) {
+                printf("[crepl] usage: pufind <hex> [max_frames]\n");
+            } else {
+                uint8_t prev[4], cur[4];
+                puae_dump_mem(a, prev, 4);
+                printf("[crepl] pufind $%06X baseline = %02X %02X %02X %02X — stepping up to %u frames\n",
+                       a, prev[0], prev[1], prev[2], prev[3], maxf);
+                unsigned f;
+                for (f = 0; f < maxf; f++) {
+                    STEP_PU();
+                    puae_dump_mem(a, cur, 4);
+                    if (memcmp(prev, cur, 4) != 0) {
+                        printf("[crepl] pufind: changed at frame +%u: %02X %02X %02X %02X -> %02X %02X %02X %02X\n",
+                               f + 1, prev[0], prev[1], prev[2], prev[3], cur[0], cur[1], cur[2], cur[3]);
+                        memcpy(prev, cur, 4);
+                        /* Keep watching for additional changes — report each. */
+                    }
+                }
+                printf("[crepl] pufind: done after %u frames\n", f);
+            }
+        }
+        else if (!strcmp(cmd, "pcread")) {  /* pcread <hex>[-<hex>] — log PC reads (rt_read*) of chip-RAM addr/range */
+            extern void rt_chip_rwatch_add(uint32_t lo, uint32_t hi);
+            char arg[32] = {0};
+            if (sscanf(line, "%*s %31s", arg) == 1) {
+                unsigned lo = 0, hi = 0;
+                const char *p = arg; if (*p == '$') p++;
+                char *end = NULL;
+                lo = (unsigned)strtoul(p, &end, 16);
+                if (*end == '-') { p = end + 1; if (*p == '$') p++;
+                                   hi = (unsigned)strtoul(p, &end, 16); }
+                else hi = lo;
+                rt_chip_rwatch_add(lo, hi);
+            } else {
+                printf("[crepl] usage: pcread <hex>[-<hex>]\n");
+            }
+        }
+        else if (!strcmp(cmd, "pcreadclear")) {
+            extern void rt_chip_rwatch_clear(void);
+            rt_chip_rwatch_clear();
+        }
+        else if (!strcmp(cmd, "pcwatch")) {  /* pcwatch <hex>[-<hex>] — log PC writes (rt_write*) to chip-RAM addr/range */
+            extern void rt_chip_watch_add(uint32_t lo, uint32_t hi);
+            char arg[32] = {0};
+            if (sscanf(line, "%*s %31s", arg) == 1) {
+                unsigned lo = 0, hi = 0;
+                const char *p = arg; if (*p == '$') p++;
+                char *end = NULL;
+                lo = (unsigned)strtoul(p, &end, 16);
+                if (*end == '-') { p = end + 1; if (*p == '$') p++;
+                                   hi = (unsigned)strtoul(p, &end, 16); }
+                else hi = lo;
+                rt_chip_watch_add(lo, hi);
+            } else {
+                printf("[crepl] usage: pcwatch <hex>[-<hex>]\n");
+            }
+        }
+        else if (!strcmp(cmd, "pcwatchclear")) {
+            extern void rt_chip_watch_clear(void);
+            rt_chip_watch_clear();
+        }
+        else if (!strcmp(cmd, "puwatch")) {  /* puwatch <hex>[-<hex>] — log PUAE writes to chip-RAM addr/range */
+            extern void puae_watch_chip_add(uint32_t lo, uint32_t hi);
+            char arg[32] = {0};
+            if (sscanf(line, "%*s %31s", arg) == 1) {
+                unsigned lo = 0, hi = 0;
+                const char *p = arg; if (*p == '$') p++;
+                char *end = NULL;
+                lo = (unsigned)strtoul(p, &end, 16);
+                if (*end == '-') { p = end + 1; if (*p == '$') p++;
+                                   hi = (unsigned)strtoul(p, &end, 16); }
+                else hi = lo;
+                puae_watch_chip_add(lo, hi);
+            } else {
+                printf("[crepl] usage: puwatch <hex>[-<hex>]\n");
+            }
+        }
+        else if (!strcmp(cmd, "puwatchclear")) {
+            extern void puae_watch_chip_clear(void);
+            puae_watch_chip_clear();
+        }
+        else if (!strcmp(cmd, "save")) {  /* save [path] — dump PC coroutine state */
+            char path[256] = "logs/savestate.bin";
+            sscanf(line, "%*s %255s", path);
+            extern int pc_savestate(const char *); pc_savestate(path);
+        }
+        else if (!strcmp(cmd, "load")) {  /* load [path] — restore PC coroutine state */
+            char path[256] = "logs/savestate.bin";
+            sscanf(line, "%*s %255s", path);
+            extern int pc_loadstate(const char *); pc_loadstate(path);
         }
         else if (!strcmp(cmd, "done")) {  /* debug: force PC level-complete (win) */
             extern void pc_debug_complete_level(void);

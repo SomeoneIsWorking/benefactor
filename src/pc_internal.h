@@ -4,6 +4,7 @@
 #include "common_log.h"
 #include "recomp/hw.h"
 #include "recomp/rt.h"
+#include "game_state.h"   /* single g_state instance + legacy-name macros */
 /* NOTE: generated/game.h is intentionally NOT included here.
  * pc_overrides.c and boot/engine code must not call gfn_* functions by name.
  * Use rt_call(ctx, addr) for sub-functions without an override, or

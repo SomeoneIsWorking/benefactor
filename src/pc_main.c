@@ -2,6 +2,7 @@
 #include "pc.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <signal.h>
 
 static volatile int s_running = 1;
@@ -9,18 +10,47 @@ static void handler(int sig) { (void)sig; s_running = 0; }
 
 int main(int argc, char **argv)
 {
+    extern void pc_pin_address_space(int, char **);
+    pc_pin_address_space(argc, argv);
+
     const char *disks[4] = {NULL};
     int nd = 0;
+    int direct_level = 0;
+    const char *load_path = NULL;
+    int headless = 0;
 
-    /* Accept "--disk Disk.1 [Disk.2] [Disk.3]" or just "Disk.1 [..]". */
-    int i = 1;
-    if (argc > 1 && argv[1][0] == '-' && argv[1][1] == '-') i = 2;
-    for (; i < argc && nd < 4; i++) disks[nd++] = argv[i];
+    /* Accept "--disk Disk.1 [Disk.2] [Disk.3]" or just "Disk.1 [..]".
+     * "--level N" skips intro/title/menu and starts directly at level N.
+     * "--load <path>" loads a savestate immediately after init (replaces the
+     * full intro/title boot; the game resumes at the saved coroutine yield). */
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--disk")) continue;
+        if (!strcmp(argv[i], "--level") && i + 1 < argc) {
+            direct_level = atoi(argv[++i]);
+            continue;
+        }
+        if (!strcmp(argv[i], "--load") && i + 1 < argc) {
+            load_path = argv[++i];
+            continue;
+        }
+        if (!strcmp(argv[i], "--headless")) {
+            headless = 1;
+            continue;
+        }
+        if (!strcmp(argv[i], "--force-load")) {
+            extern int g_pc_force_load_identity_mismatch;
+            g_pc_force_load_identity_mismatch = 1;
+            continue;
+        }
+        if (nd < 4) disks[nd++] = argv[i];
+    }
 
     if (nd < 1) {
         fprintf(stderr,
             "Usage:\n"
-            "  %s [--disk] Disk.1 [Disk.2] [Disk.3]   (boot natively from the disk images)\n",
+            "  %s [--disk] Disk.1 [Disk.2] [Disk.3] [--level N] [--load path]\n"
+            "     N = 1..60: skip intro/title/menu and start directly at that level.\n"
+            "     --load: resume from a savestate immediately after init.\n",
             argv[0]);
         return 1;
     }
@@ -29,7 +59,22 @@ int main(int argc, char **argv)
     signal(SIGTERM, handler);
     (void)s_running;
 
-    if (pc_init_from_disk(disks, nd) < 0) { fprintf(stderr, "[pc] disk boot failed\n"); return 1; }
+    if (headless) {
+        extern void hw_request_headless(void);
+        hw_request_headless();
+    }
+    int init_rc = direct_level > 0
+        ? pc_init_to_gameplay(disks, nd, direct_level)
+        : pc_init_from_disk(disks, nd);
+    if (init_rc < 0) { fprintf(stderr, "[pc] init failed\n"); return 1; }
+
+    if (load_path) {
+        if (pc_loadstate(load_path) < 0) {
+            fprintf(stderr, "[pc] --load %s failed\n", load_path);
+            return 1;
+        }
+        fprintf(stderr, "[pc] resuming from savestate %s\n", load_path);
+    }
     pc_run();
     fprintf(stderr, "[pc] done\n");
     pc_fini();
