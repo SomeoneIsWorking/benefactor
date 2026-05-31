@@ -1,0 +1,333 @@
+# Gameplay engine map
+
+The recompiled gameplay-engine bank (`$577000+`, file `src/generated/game_gpl_*.c`,
+914 functions) is the largest piece of code we don't own. This document tracks what
+each high-leverage routine does so we can replace them with native C one subsystem
+at a time. **Updated by walking the recompiled output + `pc_freeze.bin` state.**
+
+## Cardinal facts
+
+- **`a5 = $57EE12`** in the gameplay bank — set by `$5770B0: lea $57ee12(pc), a5`.
+  Every `$X(a5)` reference in this doc has its absolute address shown as `(= $YYYY)`.
+- **`a6 = $DFF000`** (custom-chip base) — set at `$57700A`.
+- **`a7 = $5A1BE8`** initial gameplay SP — set at `$577004`.
+- The whole engine assumes the gameplay overlay has been loaded into chip RAM and the
+  loader-handoff registers (`d5=$1000, d6=$FFFF`) are valid (see [[direct-to-gameplay-entry]]).
+
+## Entry sequence
+
+| Addr | Role | Notes |
+|------|------|-------|
+| `$577000` | Engine prologue | SR=$2700; a7=$5A1BE8; a6=$DFF000; build copper list at $5773B8; install vectors $68/$6C/$78 ($578272); a5=$57EE12; init $1c/$2c/$1e/$46. **One-shot per gameplay session.** |
+| `$5770D0` | Save-RNG branch | `tst.l $42.w` → if non-zero, persist via `jsr -$747C(a5)` |
+| `$5770DC` | Save-RNG body | Pushes a5/a6, calls `jsr -$747C(a5)` ($57768E), then $42.w-driven branch |
+| `$5770F8` | Per-level setup | `$1092(a5)=$20`, `$10D4(a5)=$28.w`, `$1c.w=$2c.w`, then **`jsr -$6B5E(a5) = $5782B4`** (level decompressor — the big one), then falls into `$577114` |
+| `$577114` | **Per-frame main loop** | Calls 23 subsystems in order — see below |
+| `$5771FE` | Level-complete | `$20.w++`, set $1c timer, fade, wait fire, branch back to `$5770D0` |
+
+## Per-frame main loop — `$577114` callee list
+
+Each call is `jsr -$X(a5)`. **Status = OWNED if there's a native override registered**;
+otherwise we still run the recompiled function.
+
+Order is significant — the engine relies on subsystem A having run before subsystem B
+in the same frame. Don't reorder when native-porting.
+
+| # | Call addr | Resolved | First instructions (RE hint) | Subsystem guess | Status |
+|---|-----------|----------|-------------------------------|-----------------|--------|
+| 1 | -$4008(a5) | `$57AE0A` | `lea $5A1BE8,a0; lea $43E9,a1; bclr.b d2,(a1,d0.w); adda.w #$50,a1` | Sprite-table bit clear (loops 16×, 80-byte stride) | not owned |
+| 2 | -$26E8(a5) | `$57C72A` | `lea $692(a5),a0; lea $67A(a5),a1; move.l (a1)+,d0; move.l d0,(a1); move.l a3,-(a1)` | Double-buffer pointer swap | not owned |
+| 3 | -$3FE2(a5) | `$57AE30` | `lea $5A231C,a0; lea $43E9,a1; lea $10A6(a5),a2` | Sprite mask/composite | not owned |
+| 4 | -$3F42(a5) | `$57AED0` | Init d0/d1=0; `lea $1094(a5),a0; lea $49F4(a5),a1; lea $1098(a5),a2; lea $4A40(a5),a3` | Multi-channel state/scroll? | not owned |
+| 5 | -$40FC(a5) | `$57AD16` | `lea $1028(a5),a0; lea $5AC4E6,a1; cmp.l (a1),d0` | Per-frame compare against constant table | not owned |
+| 6 | -$278C(a5) | `$57C686` | `movea.l $10DC(a5),a0; move.l $10D8(a5),d1; add.w (a0)+,d1; swap d1; add.w $6(a6),d1` | Reads VPOSR `$6(a6)` — beam-position related, scrolling? | not owned |
+| 7 | -$2738(a5) | `$57C6DA` | `lea $5A5272,a0; lea $5800F8,a1; lea $FB0(a5),a2; move.w $F82(a5),d0; cmpi.w #$8,d0` | Reads `$F82(a5)` ("game state index"), dispatch | not owned |
+| 8 | -$5782(a5) | `$579690` | `move.l $F90(a5),$10C0(a5); move.w $FA4(a5),$FA6(a5); clr.w $FA4(a5); bsr $57DEAC` | Frame-state housekeeping | not owned |
+| 9 | -$44DE(a5) | `$57A934` | `lea $10A6(a5),a2; move.w $F6A(a5),d7; cmp.w $2(a2),d7` | Player-vs-enemy compare? `$F6A` looks like player coord | not owned |
+| 10 | -$1678(a5) | **`$57D79A`** | `move.l #$5A27DC,$78E0(a5); lea $16A6(a5),a0; lea $1162(a5),a2; lea $5A3F86,a6` | **Outer object-list walker** (the one whose loop body is `$57D7BC`) — animation cursor dispatcher | not owned |
+| 11 | -$13D2(a5) | `$57DA40` | `move.w #$8400,$96(a6); btst #6,$2(a6) BBUSY wait; lea $5A3F86,a0; lea $50(a6),a2; lea $64(a6),a3` | Blitter pass over $5A3F86 list (animation cursor B?) | not owned |
+| 12 | -$1B90(a5) | `$57D282` | `move.l $67E(a5),d6; move.l #$45864,d7; movea.l $682(a5),a0` | Buffer flip / page swap | not owned |
+| 13 | -$4588(a5) | `$57A88A` | `move.w $F88(a5),d0; beq $57A932; movea.l $67E(a5),a1; lea $45864,a0` | Conditional buffer setup (gated by `$F88`) | not owned |
+| 14 | -$12FC(a5) | `$57DB16` | `move.w #$8400,$96(a6); btst #6,$2(a6); lea $5A3B6C,a0` | Blitter pass over $5A3B6C list | not owned |
+| 15 | -$3D96(a5) | `$57B07C` | `btst #6,$10AC(a5); beq $57B0AE; lea $5A452A,a0; moveq #$F,d0; and.w $FA2(a5),d0; lsl #6,d0` | `$10AC` flag-gated 64-byte table lookup | not owned |
+| 16 | -$1A6E(a5) | `$57D3A4` | `subi.l #$20,$78E0(a5); lea $12E6(a5),a0; lea $10E6(a5),a2; movea.l $1036(a5),a3` | Counter dec + object update (mirror of `$57D79A`?) | not owned |
+| 17a | -$47AC(a5) | `$57A666` | `lea $23E2(a5),a0; lea $253E(a5),a1; lea $F8A(a5),a2; lea $269A(a5),a3; lea $10A6(a5),a4` | Big multi-table routine (player input + position?) | not owned |
+| 17b | -$18A6(a5) | `$57D56C` | `move.w #$8400,$96(a6); BBUSY wait; lea $5A371C,a0` | Blitter pass over $5A371C list | not owned |
+| 17c | -$178A(a5) | `$57D688` | `move.w #$8400,$96(a6); BBUSY wait; movea.l $57D684(pc),a0` | Blitter pass via PC-relative pointer | not owned |
+| | | | `*** Subsystems 17a/b/c are run in different orders depending on `btst #5,$10AD(a5)` ***` | | |
+| 18 | -$1164(a5) | `$57DCAE` | `lea $2006(a5),a0; lea $5ABB60,a1; lea $1292(a5),a2; move.w #$FFFF,(a3); move.l (a2)+,d0` | Per-frame table build (some pipeline?) | not owned |
+
+After the main loop, decrement timer `$108E(a5)`, then a state-machine branch:
+
+| Test | If true → | Notes |
+|------|----------|-------|
+| `btst #3,$10AC(a5)` | jump `$579152` | a death/explosion path? |
+| `btst #4,$1093(a5)` | jump `$578D0E` | another state path |
+| `tst.w $10AC(a5); bmi` | jump `$5772FA` | "exit early" (a5-$61D4) |
+| `cmpi.w #$1B, $F82(a5); beq` | sets `$10AC=$8243; $F70(a5)=$5799E6` | special state transition |
+| `btst #5,$10AC(a5); bne` | jump **`$5771FE`** (level-complete) | the win path we saw |
+| `btst #0,$1093(a5); bne` | jump `$5793DA` | another transition |
+| else | loops back to `$577114` for next frame | normal continuation |
+
+## Level decompressor — `$5782B4` (`-$6B5E(a5)`)
+
+**Critical** — this is where per-level disk reads + per-level data table setup happen.
+Not yet RE'd in detail. First instructions (from earlier reading):
+
+```
+$5782B4: btst.b #6, $2(a6)         ; BBUSY spin
+$5782BA: bne   $5782B4
+$5782BC: move.l #$1000000, $40(a6) ; BLTAFWM = all-bits
+$5782C4: clr.w  $66(a6)            ; BLT?MOD
+$5782C8: move.l #$2B3EC, $54(a6)   ; BLTBPT
+$5782D0: move.w #$8032, $58(a6)    ; BLTCPT (or BLTSIZE? - $58 is BLTCPT, $58 of $DFF is BLTCPTH)
+...
+$5782F6: move.w #$258, $57FEF6.l   ; some state init
+$578302: lea $2B3EC.l, a0
+$578308: lea $5A4562.l, a1
+$57830E: lea $45864.l, a2
+$578314: lea $38628.l, a3
+$57831C: jsr $59DC02.l              ; ← per-level data dispatcher (Disk.N reader chain)
+$578322: move.l $57FEF2.l, d0
+$578328: lea $4D064.l, a0
+... another dispatcher call
+```
+
+That `jsr $59DC02` is the chain that runs the actual per-level `gp-disk-read` calls
+(produces the `[gp-disk-read]` log lines). **The per-level data tables — including
+the jump table at `$59AC6C` and the level-engine state byte at `$1890.w` — almost
+certainly get populated here.** RE this function next when chasing any "per-level
+state missing" symptom.
+
+## Object / animation system
+
+Reached from per-frame loop call #10 (`$57D79A`):
+
+```
+$57D79A: move.l #$5A27DC, $78E0(a5)
+$57D7A2: lea $16A6(a5), a0       ; a0 = ANIMATION CURSOR base (= $5804B8)
+$57D7A6: lea $1162(a5), a2       ; a2 = OBJECT POINTER LIST  (= $57FF74)
+$57D7AA: lea $5A3B6C, a3         ; a3 = blitter list A
+$57D7B0: lea $5A43A0, a4         ; a4 = blitter list B
+$57D7B6: lea $5A3F86, a6         ; a6 = animation cursor mirror (NOTE: a6 overwritten!)
+
+$57D7BC: tst.l (a2)              ; next object pointer
+$57D7BE: beq.w $57DA28            ; end-of-list → cleanup (restores a6=$DFF000, RTS)
+$57D7C2: movea.l (a2)+, a1        ; a1 = current object descriptor
+$57D7C4: move.w (a1), d2          ; d2 = first word
+$57D7C6: bmi.w $57D81C            ; high bit set → special-handler branch
+$57D7CA: adda.w d2, a1            ; a1 += d2  (handler offset within object)
+$57D7CC: move.l a0, -(a7)         ; save animation cursor
+$57D7CE: tst.b -$1(a1)            ; flag byte before handler
+$57D7D2: bpl.b $57D7DC            ; bit7 clear → normal path
+$57D7D4: addi.l #$20, $78E0(a5)   ; advance global cursor
+$57D7DC: tst.w (a0)+              ; read+advance animation script word
+$57D7DE: bne.b $57D7F2             ; non-zero → in-script
+$57D7E0: move.l #$ffffffff, (a4)+  ; zero → emit "no blit" sentinel into list B
+$57D7E6: move.w #$3, (a4)+
+$57D7EA: pop a0; lea $20(a0),a0
+$57D7F0: bra.b $57D7BC             ; next object
+$57D7F2: moveq #$3F, d2; and.w -$C(a1), d2
+$57D7F8: bne.w $57D8B4             ; mask path
+$57D816: movem.l a2-a4, -(a7); jmp (a1)   ; ← dispatch into the object's handler
+```
+
+The handler at `(a1)` is something like `$59AC38` for "ordinary" objects.
+
+`$59AC38` itself: object frame-advance handler. Reads 3 words from animation cursor
+(`movem.w (a0), d0-d1/d5` = x, y, frame), advances frame by 2 (wraps at $9A),
+writes frame back to `$4(a0)`, then a level-identity check (the `$1890.w` cmp) that
+splits to either a jump-table dispatch at `$59AC64` or `adda.w #$645,a7; jmp (a0)`
+at `$59AC5E` (the path whose status under real play is unknown — see
+[[w6l2-crash-status-unknown]]).
+
+## Low chip-RAM state map (in-progress)
+
+The engine reads low chip-RAM addresses (`$0..$2FFF`) heavily during boot + level
+setup. These are mostly stack-pointer save slots, RNG seed, level number, IRQ
+vectors, the disk-chunk pointer table, and the `$150..$2A57` block-copy region
+(initialised by the `$6D714` block copy — see [[w6l2-crash-root-caused]]).
+
+Observed reads during `--level 60` boot + cavern entry + 500 idle frames
+(harvested via `pcread 0-2FFF`):
+
+| Addr | Width | Read by (M68K PC) | Purpose (best read) |
+|------|-------|-------------------|----------------------|
+| `$00` | l | `$5782B4` | reset vector (read as a long during init?) |
+| `$10` | w | `$57CC1A` | unknown system var |
+| `$1C` | w | `$577000`, `$57AED0`, `$57CC1A` | engine timer or scroll counter (paired with `$2C`) |
+| `$1E` | w | `$577000`, `$5782B4`, `$57CC1A`, `$57DEAC` | engine state (input-related?) |
+| `$20` | w | `$577996`, `$5782B4` | **LEVEL NUMBER** (1..60) |
+| `$28` | l | `$5770F8` | RNG / save-game seed snapshot |
+| `$2C` | w | `$5770F8` | timer or copy of `$1C` |
+| `$2E` | w | `$5782B4` | engine state |
+| `$30` | w | `$57CC1A` | unknown |
+| `$32` | l | `$577996` | unknown long |
+| `$36` | w | `$577996` | unknown |
+| `$3E` | l | `$577996`, `$578162` | **`$A68` sentinel** (display ptr — set by overlay loader) |
+| `$42` | l | `$577000`, `$5770DC` | save-game flag (controls $5770D0 branch) |
+| `$68` | l | `$577000` | IRQ vector ($68 = LVL2) |
+| `$6C` | l | `$577000` | IRQ vector ($6C = LVL3 — vertical blank) |
+| `$78` | l | `$577000`, `$59BF3E` | IRQ vector ($78 = LVL6 — CIA-B timer / music) |
+| `$100` | l | `$57CC1A` | disk-chunk pointer (raw e1 dest = `$50000`) |
+| `$104` | l | `$5782B4` | disk-chunk pointer (decrunched e2 dest = `$3330`) |
+| `$108` | l | `$5782B4` | disk-chunk pointer (gameplay code dest = `$577000`) |
+| `$10C` | l | `$5782B4` | disk-chunk pointer +4 (post-end?) |
+| `$110` | l | `$57CC1A` | unknown chunk-table tail |
+| `$114` | l | `$57CBBA` | unknown chunk-table tail |
+
+Notable absences in this snapshot: **NO reads to `$150..$2A57`** during the
+basic cavern-entry play. That region's reads only fire when specific
+gameplay state engages (e.g. `$59AC4A: move.w $1890.w, d2` only runs when an
+object of type `$59AC26` is being processed by the animation walker). Don't
+assume the region is dormant — it just isn't exercised by idle cavern frames.
+
+Method: this map was built by `pcread 0-2FFF` (REPL command) + grepping the
+log. Re-running with different gameplay activities will surface more reads
+and progressively flesh out which low-RAM word holds what state.
+
+## A5-relative state map (in-progress)
+
+Each `$X(a5)` is an absolute address `$57EE12+X` (or `−X` for negative
+displacements). Tracking only the ones we've seen referenced so far.
+
+| Offset | Abs addr | Type | Use |
+|--------|----------|------|-----|
+| `+$0248` | `$57F05A` | ptr | extra-life count area? (`lea $248(a5),a4` in `$5772DE`) |
+| `+$067A` | `$57F48C` | longs | double-buffer ptr A |
+| `+$067E` | `$57F490` | longs | double-buffer ptr B |
+| `+$0682` | `$57F494` | long | active drawing target |
+| `+$0F70` | `$57FD82` | long ptr | current top-level handler (the `$5799E6` default) |
+| `+$0F6A` | `$57FD7C` | word | player something (`cmp.w $f6a, $2(a2)` in `$57A934`) |
+| `+$0F82` | `$57FD94` | word | "game state index" (cmpi #$8 / #$1B branches) |
+| `+$0F88` | `$57FD9A` | word | gated subsystem flag (`$57A88A`) |
+| `+$0F90` | `$57FDA2` | long | per-frame backup target |
+| `+$0F98` | `$57FDAA` | word | clear-on-frame counter |
+| `+$0FA2` | `$57FDB4` | word | `and.w $FA2,d0` — selector |
+| `+$0FA4` | `$57FDB6` | word | copied to `$FA6` then cleared (input edge?) |
+| `+$0FA6` | `$57FDB8` | word | (paired with `$FA4`) |
+| `+$0FB0` | `$57FDC2` | ? | `lea $FB0(a5),a2` in `$57C6DA` |
+| `+$1028` | `$57FE3A` | long | compared against `$5AC4E6` |
+| `+$10A6` | `$57FEB8` | array | player position+state block (`movem.w (a4),d1-d4` reads 4 words) |
+| `+$10AC` | `$57FEBE` | bits | **MAIN STATE-FLAG WORD** (bits 1/3/4/5/6/7/15 all tested) |
+| `+$10AD` | `$57FEBF` | bits | low byte of above; bit5 swaps subsystem 17 order |
+| `+$10C0` | `$57FED2` | long | backup of `$F90` |
+| `+$10D4` | `$57FEE6` | long | snapshot of `$28.w` at level start |
+| `+$10D8` | `$57FEEA` | long | (`$57C686`) scroll/position acc |
+| `+$10DC` | `$57FEEE` | long | (`$57C686`) ptr fed to acc |
+| `+$1092` | `$57FEA4` | word | set to `$20` at `$5770F8` |
+| `+$1093` | `$57FEA5` | bits | bit7 = "no-input-fire" flag, bit0/bit5 = branches |
+| `+$1162` | `$57FF74` | array | **OBJECT POINTER LIST** (null-terminated longs) |
+| `+$16A6` | `$5804B8` | array | **ANIMATION CURSOR base** |
+| `+$78E0` | `$5866F2` | long | global animation cursor counter |
+
+`$5A3F86`, `$5A3B6C`, `$5A43A0`, `$5A1D18`, `$5A27DC` are gameplay-bank tables
+(not a5-relative); accessed as absolute longs.
+
+`$1890.w` — low chip RAM, read by `$59AC38`, **never written by any literal-abs
+instruction in the binary** (verified via static scan). Writer must be
+register-indirect; identifying it is currently an open question.
+
+## Overlay-loader (`$6D714` / `$150`) — chunk descriptor table
+
+The loader body relocated to `$150..$2A57` (via `$6D714`'s block copy) contains a
+chunk descriptor table at relocated `$8D6` (source `$6DEBA`). `D0` selects which
+group to load. Decoded from `gmem_after_load.bin`:
+
+| `D0` | Caller | Loads | Then |
+|------|--------|-------|------|
+| 0 | title-fire `$003B08` | Disk.1: reloc-table `$0548A0→$6E000`, gameplay `$0565BA→$3330`, level engine `$0689BE→$577000` | `jmp $108` → `$577000` (gameplay entry). Implemented natively. |
+| 1 | boot `$003144 → $6D714` | Disk.1 raw `$F3780→$50000` + ATN `$026270→$3330` | `jmp $104` → `$3330`. Boot-phase loader. Implemented natively (`native_overlay_load`). |
+| 2 | unknown | Disk.1 raw `$F3780→$70000` + ATN `$0DE080→$3330` | `jmp $104` → `$3330`. Path not yet exercised. |
+| **3** | **`$5773A2` (win-tail)** | **Disk.3 `$0C7100→$3330` (ATN, len `$1888C`)** | **`jmp $100` → `$3330`. Loads end-game/credits engine. Implemented natively in `native_overlay_loader_reloc`.** |
+
+Loader-internal entry format (per entry, 16 bytes / 4 longs):
+- `+0`: header marker (non-null = real entry; null = group terminator)
+- `+4`: `(disk_off<<8) | (disk_idx_zero_based)` source
+- `+8`: chunk length
+- `+12`: destination (high-bit-set forms add `mem[$10.w]` as base)
+
+After a group's null-terminator long, the next long is a CALLBACK POINTER. The
+loader does `movea.l next, a0; movea.l (a0), a0; jmp (a0)` — i.e. it dereferences
+the pointer (e.g. `$100`, the dest-pointer stack) and jumps to whatever address
+got pushed there.
+
+## Credits / end-game engine (`$3330` post-d0=3) — owned (basic)
+
+**Recompiled as a third bank.** `tools/recomp/recomp.py --bank credits --base 3330
+--code-size 1888C --areg 5=355C --seed "$(cat tools/recomp/credits_seeds.txt)"`
+produces `game_credits_*.c` + `game_credits.h` + `game_credits_table.c` with
+14 functions (entry `$3330`, LVL3 ISR `$350A`, LVL6 ISR `$351C`, plus 11 reached
+by static descent). Wired into the build via `GP_GAME_SRCS` glob.
+
+Bank selection: `g_credits_active` (in `g_state`) is flipped on by
+`native_overlay_loader_reloc d0=3` together with clearing `g_gameplay_active`
+and `g_overlay_active`. `rt.c`'s `dispatch_lookup` prefers
+`g_fn_table_credits` when this flag is set; the IRQ-delivery in `pc.c`
+(`coro_deliver_timer_irq` + `pc_music_tick`) treats `g_credits_active` like
+the gameplay/overlay path so the credits-engine's own LVL3/LVL6 vectors fire
+each frame.
+
+Seeds live in `tools/recomp/credits_seeds.txt` — extend if rt-misses surface
+during the credits run.
+
+Status: with the user's "marry-man-with-gear" savestate, the credits engine
+runs clean to natural exit (0 rt-misses). Exits by calling `$150 d0=2` which
+is still unhandled (would load the return-to-title overlay).
+
+## Credits / end-game engine (`$3330` post-d0=3) — original notes (kept for reference)
+
+After `$150 d0=3` runs, the bytes at `$3330` are a **separate ~98KB credits/
+cutscene engine**, not the gameplay engine. First instructions:
+
+```
+$003330  lea $355c(pc), a5       ; credits-engine base register
+$003334  lea $DFF002.l, a6
+$00333A  lea $80000.l, a7
+$003340  btst #6, (a6) ; bne     ; blitter wait
+$003346  btst #0, $3(a6) ; ...   ; vblank parity wait
+$003356  move.l #$7FFF7FFF, d0    ; clear INTREQ + INTENA + DMACON
+$00336E  move.l #$350a, $6c.w     ; install own LVL3 IRQ
+$003376  move.l #$351c, $78.w     ; install own LVL6 IRQ
+$00338C  jsr (a5)                  ; main entry into credits engine
+```
+
+It's a complete mini-game (own IRQ vectors, own state base, own copper). The
+recompiler hasn't seen these bytes — they only exist in chip RAM after the d0=3
+load. Reaching the credits / "you beat the game" cutscene **requires** one of:
+
+1. **Separate recompiler bank**: capture chip dump after d0=3 load (`PC_DUMP_CREDITS=1` style hook), run recompiler with `--bank credits --base 3330 --code-size 1888C`, integrate the resulting `game_credits_*.c`, route rt dispatch to that bank when `g_overlay_active` is the credits flavour. Same shape as the existing gpl bank.
+2. **Native port** of the credits sequence (text scroll + animation playback).
+3. **Stub-out**: replace `$5773A2`'s `jmp $150` with a native "show end card / return to title" override. Loses original credits visuals.
+
+This is the gating issue for the W6L2 win-sequence crash the user observed:
+`$5773A2` is now correctly handled (via `native_overlay_loader_reloc d0=3` path
+that loads the chunk + jumps `$3330`), but `$3330` post-load has no recompiled
+function so dispatch rt-misses.
+
+## Subsystems we DO own (overrides)
+
+These hook the gameplay bank via `pc_register_overrides()`:
+
+| Addr | Native fn | Notes |
+|------|-----------|-------|
+| `$577B8C` | `native_gp_disk_read` | The engine's "stream-from-disk" routine (raw MFM on hardware, file-read on PC). Critical — every per-level data load goes through this. |
+| `$003160` / `$0055A0` | timer ISR | LVL6 music tick (not gameplay-bank but interacts) |
+| `$0058C2` | audio-shadow copy | LVL6 second leg |
+
+That's it. Everything else in `$577000+` is recompiled.
+
+## Highest-leverage next ownership targets
+
+1. **`$5782B4` level decompressor** — owns per-level data loading; once native, we control
+   every byte of per-level state and can directly fill `$1890.w`, the `$59AC6C` jump
+   table, etc. instead of relying on opaque decompressed disk data.
+2. **`$57D79A` outer object-list walker** — small loop, well-bounded. Once native, every
+   object-handler dispatch goes through C we wrote, so weird `jmp(a0)` cases like
+   `$59AC5E` become explicit C code we can reason about.
+3. **`$577000` engine prologue** — one-shot, foundational, easy to verify (compare chip RAM
+   + register state after). Replaces the implicit "engine boots itself" magic with code we
+   wrote.
+
+(1) gives the biggest ownership win because it eliminates the "what does the engine think
+the level is?" black box. (3) is the safest first step because it's bounded and one-shot.

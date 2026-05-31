@@ -99,12 +99,35 @@ void native_boot_anim_iterator(M68KCtx *ctx)
  * gameplay bank (g_overlay_active so rt dispatch uses g_fn_table_gp), and enter
  * at $3330. */
 /* Load + decrunch the gameplay overlay into chip RAM and flip to the gp bank.
- * Does NOT enter the code — callers choose how to transfer control. */
+ * Does NOT enter the code — callers choose how to transfer control.
+ *
+ * IMPORTANT: replicate the `$6D714` block-copy that the original loader does
+ * BEFORE jumping into its own relocated body at `$150`. The copy moves
+ * $1504 words = 10760 bytes from `$6D734` to `$150..$2A57`. This is not
+ * cosmetic relocation: data words inside that source block end up at low-RAM
+ * fixed addresses the gameplay engine later reads. Confirmed concrete
+ * example: `$1890.w` gets its `$0200` value from this copy (source at
+ * `$6EE74`). Without the copy `$1890 = 0`, and `$59AC38`'s level-identity
+ * `cmp` at `$59AC56` takes the wrong branch into `jmp(a0)` over data
+ * (the W6L2 cold-boot crash).
+ *
+ * The copy goes IN-PLACE in the post-decrunch chip RAM, so the source bytes
+ * at `$6D734` must already be valid by the time we copy. The disk_boot_load
+ * + atn_decrunch above populates them. */
 void native_overlay_load(void)
 {
     extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
     extern uint32_t atn_decrunch(uint32_t);
-    extern int      g_overlay_active;
+    extern uint8_t *g_mem;
+
+    /* The $6D714 block copy comes FIRST — before any subsequent load that
+     * could overwrite $6D734..$6F134. The boot decrunch already populated
+     * those bytes in chip RAM, so they're valid at entry. The copy moves
+     * 1504 words ($2A08 bytes = 10760) to $150..$2A57. This is what
+     * initialises $1890.w (= $0200 at level 60) and many other low-RAM
+     * engine state words. Without it, $59AC38's level-identity cmp routes
+     * to the unsafe branch and crashes on jmp(a0) into data. */
+    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
 
     /* E1: raw data -> $50000 (Disk.1 off $F3780, len $1880) */
     disk_boot_load(1, 0x0F3780u, 0x00050000u, 0x1880u);
@@ -113,7 +136,6 @@ void native_overlay_load(void)
     atn_decrunch(0x00003330u);
 
     /* Dest-pointer stack the original loader builds at $100/$104 (big-endian). */
-    extern uint8_t *g_mem;
     g_mem[0x100] = 0x00; g_mem[0x101] = 0x05; g_mem[0x102] = 0x00; g_mem[0x103] = 0x00;
     g_mem[0x104] = 0x00; g_mem[0x105] = 0x00; g_mem[0x106] = 0x33; g_mem[0x107] = 0x30;
 
@@ -144,12 +166,34 @@ void native_overlay_load_d0(void)
     extern uint8_t *g_mem;
     extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
     extern uint32_t atn_decrunch(uint32_t);
-    extern int      g_overlay_active;
     static const struct { uint32_t off, dst, len; } ch[3] = {
         { 0x0548A0u, 0x06E000u, 0x001D1Au },
         { 0x0565BAu, 0x003330u, 0x012404u },
         { 0x0689BEu, 0x577000u, 0x012A1Cu },
     };
+    /* $6D714 block copy — MUST run BEFORE the chunk loads above, except in
+     * this $150 path the chunks have ALREADY loaded by the time we get here
+     * via the title-fire flow. The actual right place for the copy is at the
+     * BOOT phase (gfn_00311A → jmp $6D714, which our native_overlay_loader
+     * handles). The copy moves $6D734..$2A57 to $150..$2A57; $1890's value
+     * (which $59AC38's level-identity cmp reads) comes from $6EE74 which is
+     * already-overwritten here.
+     *
+     * Order in the original game:
+     *   boot → gfn_00311A → $6D714 (BLOCK COPY happens here, source $6EE74
+     *     still has the original loader-tail data $0200A004)
+     *   → relocated $150 with d0=1 → title runs
+     *   → user fires → title jumps to $150 with d0=0 → native_overlay_load_d0
+     *     (which is THIS function) → loads chunks. By this point $1890 is
+     *     already $0200, copied at the EARLIER $6D714 step.
+     *
+     * In our cold-boot path that we just added (pc_init_to_gameplay) we
+     * SKIP the boot phase entirely, so we have to do the copy ourselves AND
+     * we must do it BEFORE we overwrite $6E000..$6FD1A with chunk 0. The
+     * boot decrunch (called by pc_common_bringup) puts the source data at
+     * $6D734..$6F134 — the source bytes are present at this point. */
+    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
+
     for (int i = 0; i < 3; i++) { disk_boot_load(1, ch[i].off, ch[i].dst, ch[i].len);
                                   atn_decrunch(ch[i].dst); }
     g_mem[0x100]=0x00; g_mem[0x101]=0x06; g_mem[0x102]=0xE0; g_mem[0x103]=0x00;
@@ -441,8 +485,38 @@ void native_menu_cursor_up(M68KCtx *ctx)
 void native_overlay_loader_reloc(M68KCtx *ctx)
 {
     extern uint8_t *g_mem;
-    extern int g_enter_gameplay;
-    extern uint32_t g_gameplay_entry;
+    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
+    extern uint32_t atn_decrunch(uint32_t);
+
+    if (ctx->D[0] == 3u) {
+        /* d0=3: END-GAME / credits overlay. Path taken by $5773A2 (the win-
+         * sequence tail: marry-man-repairs-machine → teleport → cutscene).
+         * Decoded from the chunk descriptor table at relocated $8D6 (source
+         * $6DEBA): group d0=3 has ONE entry — Disk.3 off $0C7100, len $1888C,
+         * decrunch to $3330 — followed by a callback `$00000100` meaning
+         * "after load, jmp via mem[$100]" (which is the dest just pushed:
+         * $3330). So effectively: load disk3 → decrunch at $3330 → jmp $3330. */
+        disk_boot_load(3, 0x000C7100u, 0x00003330u, 0x0001888Cu);
+        atn_decrunch(0x00003330u);
+        g_mem[0x100] = 0x00; g_mem[0x101] = 0x00;
+        g_mem[0x102] = 0x33; g_mem[0x103] = 0x30;
+        if (getenv("DUMP_GMEM_AFTER_CREDITS")) {
+            FILE *df = fopen("logs/gmem_after_credits.bin", "wb");
+            if (df) { fwrite(g_mem, 1, 0x600000, df); fclose(df); }
+            fprintf(stderr, "[overlay-loader] $150 d0=3: credits overlay"
+                    " loaded; dumped logs/gmem_after_credits.bin; exiting.\n");
+            exit(0);
+        }
+        /* Flip dispatch to the credits/end-game bank — different bytes at
+         * $3330+ than gameplay, so the gpl table mustn't match here. */
+        g_credits_active  = 1;
+        g_gameplay_active = 0;
+        g_overlay_active  = 0;
+        printf("[overlay-loader] $150 d0=3: end-game/credits overlay loaded;"
+               " entering $3330 with credits bank active\n");
+        rt_jump(ctx, 0x00003330u);
+        return;
+    }
     if (ctx->D[0] != 0) {
         printf("[overlay-loader] $150 d0=%u unhandled\n", (unsigned)ctx->D[0]);
         return;
@@ -499,7 +573,6 @@ void native_overlay_loader_reloc(M68KCtx *ctx)
      * apply the user's selection from pc_set_start_level(). g_pc_start_level
      * is 0 when no override was set — leave $20.w alone in that case so the
      * normal title-driven value (level 1 at fresh boot) stands. */
-    extern int g_pc_start_level;
     if (g_pc_start_level > 0) {
         int n = g_pc_start_level;
         g_mem[0x20] = 0; g_mem[0x21] = (uint8_t)n;

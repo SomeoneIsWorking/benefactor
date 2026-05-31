@@ -19,6 +19,28 @@ uint8_t *g_chip = NULL;
 const int g_fn_count = GAME_FN_COUNT;
 static int s_harness_mode = 0;
 
+/* Diagnostic flag: when nonzero, pc_loadstate accepts a savestate whose
+ * identity word doesn't match this binary's `&g_state`. The coroutine resume
+ * will probably crash (saved IP/SP point at the old binary's .text), but the
+ * register file + g_mem load cleanly so we can read the saved game state. */
+int g_pc_force_load_identity_mismatch = 0;
+
+/* Single source of truth for every piece of state that constitutes a savestate
+ * (M68K registers, coroutine, custom-chip shadows, audio, bank-routing flags,
+ * state-machine flags). All the legacy names (s_regs, s_dmacon, g_overlay_active,
+ * …) are macros that alias fields on this instance — see game_state.h. */
+GameState g_state;
+
+/* Apply the non-zero defaults that the original-storage initializers used to
+ * carry. Called at startup (and could be called by a "reset" sequence). */
+static void pc_state_reset_defaults(void)
+{
+    memset(&g_state, 0, sizeof g_state);
+    s_diwstrt       = 0x2C81;
+    s_diwstop       = 0x2CC1;
+    g_gameplay_entry = 0x00003330u;
+}
+
 void pc_set_harness_mode(int on) { s_harness_mode = on; hw_set_no_pace(on); }
 
 /* Per-frame audio: one displayed frame's worth of samples (50Hz @ 22050Hz). */
@@ -88,7 +110,6 @@ void pc_music_tick(void);
  * would. */
 void pc_debug_complete_level(void)
 {
-    extern int g_gameplay_active;
     if (!g_gameplay_active || !g_mem) return;
     g_mem[0x0057FEBEu] |= 0x20;
 }
@@ -98,7 +119,6 @@ void pc_debug_complete_level(void)
  * ($578C3E, $1E!=8 → banner → CONTINUE/GAME OVER menu). */
 void pc_debug_game_over(void)
 {
-    extern int g_gameplay_active;
     if (!g_gameplay_active || !g_mem) return;
     g_mem[0x0057FEBEu] |= 0x80;
 }
@@ -117,7 +137,7 @@ void pc_debug_game_over(void)
  * here; the loader override reads it.
  *
  * 0 = no override (use the title's natural value, level 1 at fresh boot). */
-int g_pc_start_level = 0;
+/* g_pc_start_level moved to g_state (see game_state.h). */
 
 void pc_set_start_level(int n)
 {
@@ -446,14 +466,30 @@ int pc_is_title_card_displayed(void)
 /* Legacy alias — old code says "level card" but means "any banner". */
 int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
 
+/* Deferred save/load: SDLK_s / SDLK_d fire from inside hw_present_frame, which
+ * is called from coro_yield — i.e. WHILE the game coroutine is live on the CPU.
+ * Doing the I/O there snapshots a stale s_game_uc and a live s_game_stack
+ * (their pairing is broken, load crashes inside swapcontext). The keys instead
+ * set these flags and the work happens at the next pc_step exit, after the
+ * coroutine has yielded back to main and s_game_uc holds the current state. */
+int g_pc_pending_save = 0;
+int g_pc_pending_load = 0;
+
 int pc_step(void)
 {
+    if (g_pc_pending_load) {
+        g_pc_pending_load = 0;
+        pc_loadstate("logs/savestate.bin");
+    }
     if (!hw_running) return 1;
     hw_watchdog_arm("PC", 2);          /* catch an infinite loop in one frame */
     int r = pc_step_coro();            /* disk-boot: run the game's own flow */
     hw_watchdog_disarm();
+    if (g_pc_pending_save) {
+        g_pc_pending_save = 0;
+        pc_savestate("logs/savestate.bin");
+    }
 
-    extern int g_overlay_active;
     short ab[PC_AUD_SPF * 2];
     if (g_overlay_active) {
         /* The overlay music player (menu, level card, gameplay — all the same
@@ -485,10 +521,8 @@ int pc_step(void)
  * then resumes the game. This follows the game's intended control flow exactly.
  */
 #include <ucontext.h>
-static ucontext_t s_game_uc, s_main_uc;
-static char       s_game_stack[4u * 1024u * 1024u];
-static M68KCtx    s_game_ctx;
-static int        s_game_done = 0;
+/* s_game_uc / s_main_uc / s_game_stack / s_game_ctx / s_game_done all live on
+ * g_state via game_state.h. */
 
 /* Deliver the game's level-6 CIA-B timer interrupt service routines. On real
  * hardware the timer IRQ alternates two handlers on the $78 vector:
@@ -515,8 +549,7 @@ static int irq_level_enabled(uint16_t levelbits)
  * vector from a previous screen doesn't run during a masked load. */
 void pc_music_tick(void)
 {
-    extern int g_overlay_active;
-    if (!g_overlay_active) return;
+    if (!g_overlay_active && !g_credits_active) return;
     if (!irq_level_enabled(INTENA_LVL6)) return;
     uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16)
                 | ((uint32_t)g_chip[0x7a] << 8)  |  (uint32_t)g_chip[0x7b];
@@ -525,13 +558,14 @@ void pc_music_tick(void)
 
 static void coro_deliver_timer_irq(void)
 {
-    extern int g_overlay_active;
-    extern int g_gameplay_active;
-    if (g_gameplay_active || g_overlay_active) {
-        /* Gameplay / overlay install their own level-3 ($6c, vblank — sets the
-         * frame's copper/COP1LC) and level-6 ($78, music/timer) handlers. Fire
-         * each only when the game has that interrupt level enabled, so stale
-         * vectors from the previous screen don't run during the masked load. */
+    if (g_gameplay_active || g_overlay_active || g_credits_active) {
+        /* Gameplay / overlay / credits each install their own level-3 ($6c,
+         * vblank — sets the frame's copper/COP1LC) and level-6 ($78, music/
+         * timer) handlers. Fire each only when the game has that interrupt
+         * level enabled, so stale vectors from the previous screen don't run
+         * during the masked load. Credits sets $6c=$350A, $78=$351C; gameplay
+         * sets $6c=$57825A, $78=$59BF3E etc. Either way, just deliver whatever
+         * the game installed at the vector. */
         uint32_t v3 = ((uint32_t)g_chip[0x6c] << 24) | ((uint32_t)g_chip[0x6d] << 16)
                     | ((uint32_t)g_chip[0x6e] << 8)  |  (uint32_t)g_chip[0x6f];
         /* Level-3 (vblank) fires once per displayed frame here. Level-6 (the CIA-B
@@ -568,7 +602,7 @@ static void coro_deliver_timer_irq(void)
     }
 }
 
-static int s_coro_quit = 0;
+/* s_coro_quit lives on g_state (see game_state.h). */
 
 static void coro_present(void)
 {
@@ -592,12 +626,11 @@ static void coro_yield(void)
  * the title; pc_step_coro restarts the coroutine into the gameplay entry. We
  * can't enter gameplay from the loader itself (it runs on the IRQ-delivery call
  * stack, not the game coroutine). */
-int g_enter_gameplay = 0;
-uint32_t g_gameplay_entry = 0x00003330u;   /* set by the $150 loader override */
+/* g_enter_gameplay / g_gameplay_entry live on g_state (see game_state.h).
+ * Default gameplay_entry = $00003330 — set by pc_state_reset_defaults(). */
 
 static void gameplay_coro_entry(void)
 {
-    extern int g_gameplay_active;
     g_gameplay_active = 1;                 /* dispatch now uses the gameplay bank */
     s_game_ctx.A[5] = 0x0057EE12u;        /* gameplay a5 code/data base */
     s_game_ctx.A[6] = 0x00DFF000u;        /* custom-chip base for $x(a6) accesses */
@@ -630,8 +663,12 @@ static void game_coro_entry(void)
     for (;;) swapcontext(&s_game_uc, &s_main_uc);   /* park if it ever returns */
 }
 
-int pc_init_from_disk(const char **disks, int n_disks)
+/* Common bring-up shared between the full-boot path and the direct-to-gameplay
+ * shortcut: hardware + runtime + disks + boot loader + override registration.
+ * Returns 0 on success, -1 on failure. */
+static int pc_common_bringup(const char **disks, int n_disks)
 {
+    pc_state_reset_defaults();   /* zero g_state + non-zero defaults */
     if (hw_init("Benefactor (disk boot)", NULL, 0) < 0) return -1;
     if (rt_init(NULL, 0, 0x080000) < 0) return -1;     /* allocate g_mem, no chip dump */
     g_chip = g_mem;
@@ -649,6 +686,18 @@ int pc_init_from_disk(const char **disks, int n_disks)
         return -1;
     }
     pc_register_overrides();
+    g_hw_vblank_yield  = coro_yield;
+    g_hw_pc_owns_present = 1;
+    s_game_done        = 0;
+    s_coro_quit        = 0;
+    { extern int g_native_render_delay; const char *e = getenv("PC_RENDER_DELAY");
+      g_native_render_delay = e ? atoi(e) : 1; }  /* blitter-latency model (frames) */
+    return 0;
+}
+
+int pc_init_from_disk(const char **disks, int n_disks)
+{
+    if (pc_common_bringup(disks, n_disks) < 0) return -1;
 
     /* Run the recompiled cold-start ($3000) on a coroutine. It drives the whole
      * game exactly as the original: clear RAM, install vectors, then the state-
@@ -662,14 +711,74 @@ int pc_init_from_disk(const char **disks, int n_disks)
     s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
     s_game_uc.uc_link          = &s_main_uc;
     makecontext(&s_game_uc, game_coro_entry, 0);
-    g_hw_vblank_yield  = coro_yield;
-    g_hw_pc_owns_present = 1;   /* coro presents via coro_yield; suppress VPOSR auto-present
-                                * (also matters in the harness REPL, which doesn't call pc_run) */
-    s_game_done        = 0;
-    s_coro_quit        = 0;
-    { extern int g_native_render_delay; const char *e = getenv("PC_RENDER_DELAY");
-      g_native_render_delay = e ? atoi(e) : 1; }  /* blitter-latency model (frames) */
     fprintf(stderr, "[pc] disk boot: running game flow on coroutine\n");
+    return 0;
+}
+
+/* Direct-to-gameplay entry. Skips intro/title/menu entirely: the gameplay
+ * overlay is loaded, $20.w is written, and the coroutine is set to enter
+ * $577000 directly with the loader-handoff register state ($150 would set).
+ *
+ * This documents the contract the recompiled gameplay engine expects at its
+ * entry point — anything in this function is what we have to keep providing
+ * as we native-port more of the engine. Currently the engine itself still
+ * runs (we don't own $577000+ yet); this just removes the title machinery so
+ * we can drive any level immediately and compare to PUAE cleanly. */
+int pc_init_to_gameplay(const char **disks, int n_disks, int level)
+{
+    extern uint8_t *g_mem;
+    extern void native_overlay_load_d0(void);
+
+    if (pc_common_bringup(disks, n_disks) < 0) return -1;
+
+    /* Gameplay-engine entry contract — observed from the natural title→$150
+     * path and the recompiled $577000 prologue (see gameplay_coro_entry):
+     *   - g_mem must hold the loaded+decrunched gameplay overlay
+     *     (base code at $3330, level engine at $577000, reloc table at $6E000).
+     *   - $20.w  = level number (1..60) — read by $5779AA's level dispatcher.
+     *   - $3e/$184 = $A68 (display pointers initialised by the real $150 body
+     *     — without this, card glyph renderer overwrites $100 and hangs).
+     *   - Disk-chunk dest-pointer table at $100/$104/$108 — built by
+     *     native_overlay_load_d0().
+     *   - All 60 level-name tables preloaded (pc_preload_all_level_names) so
+     *     the title-card renderer can look them up without disk I/O reentry.
+     *   - Coroutine register state at $577000: a5=$57EE12 (set by $577000
+     *     itself), a6=$DFF000, a7=$80000 (reset on entry), d5=$1000, d6=$FFFF
+     *     — see gameplay_coro_entry().
+     */
+    native_overlay_load_d0();
+
+    /* $3e and $184 — both point at a sentinel ($A68) the card-renderer chases.
+     * The real $150 body sets these as immediates; missing this causes the
+     * card glyph blit to overwrite chunk pointers at $100 and the gameplay
+     * dispatch later walks a null chain (see project_card_freeze_chain). */
+    for (uint32_t a = 0x3eu; ; a = 0x184u) {
+        g_mem[a] = 0x00; g_mem[a+1] = 0x00; g_mem[a+2] = 0x0A; g_mem[a+3] = 0x68;
+        if (a == 0x184u) break;
+    }
+
+    extern void pc_preload_all_level_names(void);
+    pc_preload_all_level_names();
+
+    /* Pin the requested level. $20.w is the engine's level number; $5779AA
+     * indexes (level-1)*4 into the 60-entry table at $57782E to pick a
+     * (world, level_in_world) pair. */
+    if (level < 1)  level = 1;
+    if (level > 60) level = 60;
+    g_mem[0x20] = 0; g_mem[0x21] = (uint8_t)level;
+
+    /* Coroutine enters at $577000 directly. gameplay_coro_entry sets the
+     * register handoff state ($577000 still does its own a5/a7/a6 init but
+     * the d5/d6 loader-handoff values must come from us). */
+    g_gameplay_entry = 0x00577000u;
+    memset(&s_game_ctx, 0, sizeof s_game_ctx);
+    getcontext(&s_game_uc);
+    s_game_uc.uc_stack.ss_sp   = s_game_stack;
+    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
+    s_game_uc.uc_link          = &s_main_uc;
+    makecontext(&s_game_uc, gameplay_coro_entry, 0);
+
+    fprintf(stderr, "[pc] direct-to-gameplay: entering $577000 at level %d\n", level);
     return 0;
 }
 
@@ -703,6 +812,123 @@ int pc_step_coro(void)
         return 0;
     }
     return s_coro_quit ? 1 : s_game_done;
+}
+
+/* Savestate: snapshot the game coroutine + M68K memory to a file so a long-
+ * run gameplay state can be reloaded without replaying from boot. Must be
+ * called between pc_step()s — the game coro is then paused at coro_yield, the
+ * cleanest boundary. Does NOT save hw.c statics; the game rewrites the bulk
+ * of them (DMACON/INTENA/copper/BPL/audio shadows) on the next frame anyway. */
+/* Linux-only: re-exec self with ASLR disabled, before any other startup. The
+ * game coroutine's saved ucontext_t + s_game_stack capture libc-side return
+ * addresses (from inside swapcontext) and addresses of our BSS statics;
+ * under ASLR those move per process, so a savestate loaded in a fresh
+ * process crashes inside swapcontext. Pinning the layout makes savestates
+ * portable across process restarts of the SAME binary. */
+#if defined(__linux__)
+#include <sys/personality.h>
+#include <unistd.h>
+void pc_pin_address_space(int argc, char **argv) {
+    int p = personality(0xffffffff);
+    if (p == -1 || (p & ADDR_NO_RANDOMIZE)) return;       /* already pinned */
+    if (personality(p | ADDR_NO_RANDOMIZE) == -1) return; /* best-effort */
+    (void)argc;
+    execvp("/proc/self/exe", argv);
+    /* Fall through if execvp failed — caller continues; savestate cross-
+     * process may not work, but normal operation does. */
+}
+#else
+void pc_pin_address_space(int argc, char **argv) { (void)argc; (void)argv; }
+#endif
+
+#define PC_SAVESTATE_MAGIC 0x42454E53u   /* 'BENS' */
+#define PC_SAVESTATE_VER   4u
+
+/* Savestate format (v4): one g_state blob + 8 MB g_mem.
+ *   uint32_t magic, ver
+ *   uint32_t sizeof(g_state)
+ *   uint32_t RT_MEM_SIZE
+ *   uint64_t identity (linker addr of g_state — differs per build/binary)
+ *   GameState g_state
+ *   uint8_t   g_mem[RT_MEM_SIZE]
+ * The identity word lets us reject loads from a different executable up front
+ * (saved ucontext / s_game_stack / .text addresses won't match → crash).  */
+
+int pc_savestate(const char *path)
+{
+    extern uint8_t *g_mem;
+    if (!g_mem || !path) return -1;
+    FILE *f = fopen(path, "wb");
+    if (!f) { fprintf(stderr, "[pc] savestate: open %s failed\n", path); return -1; }
+    uint32_t hdr[4] = { PC_SAVESTATE_MAGIC, PC_SAVESTATE_VER,
+                        (uint32_t)sizeof g_state, (uint32_t)RT_MEM_SIZE };
+    uint64_t ident = (uint64_t)(uintptr_t)&g_state;
+    int ok = 1;
+    ok &= fwrite(hdr,    sizeof hdr,     1, f) == 1;
+    ok &= fwrite(&ident, sizeof ident,   1, f) == 1;
+    ok &= fwrite(&g_state, sizeof g_state, 1, f) == 1;
+    ok &= fwrite(g_mem,  RT_MEM_SIZE,    1, f) == 1;
+    fclose(f);
+    if (!ok) { fprintf(stderr, "[pc] savestate: short write\n"); return -1; }
+    fprintf(stderr, "[pc] savestate -> %s (gameplay_active=%d overlay=%d)\n",
+            path, g_gameplay_active, g_overlay_active);
+    return 0;
+}
+
+int pc_loadstate(const char *path)
+{
+    extern uint8_t *g_mem;
+    if (!g_mem || !path) return -1;
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "[pc] loadstate: open %s failed\n", path); return -1; }
+    uint32_t hdr[4];
+    if (fread(hdr, sizeof hdr, 1, f) != 1 ||
+        hdr[0] != PC_SAVESTATE_MAGIC || hdr[1] != PC_SAVESTATE_VER ||
+        hdr[2] != (uint32_t)sizeof g_state ||
+        hdr[3] != (uint32_t)RT_MEM_SIZE) {
+        fprintf(stderr, "[pc] loadstate: bad/incompatible header in %s\n", path);
+        fclose(f); return -1;
+    }
+    uint64_t saved_ident = 0;
+    if (fread(&saved_ident, sizeof saved_ident, 1, f) != 1) {
+        fprintf(stderr, "[pc] loadstate: short read (ident)\n");
+        fclose(f); return -1;
+    }
+    if (saved_ident != (uint64_t)(uintptr_t)&g_state) {
+        extern int g_pc_force_load_identity_mismatch;
+        if (!g_pc_force_load_identity_mismatch) {
+            fprintf(stderr,
+                "[pc] loadstate: savestate %s was written by a DIFFERENT binary\n"
+                "      (saved ident=$%016lx, this binary=$%016lx). Save and load\n"
+                "      must use the SAME executable (don't mix benefactor-pc and\n"
+                "      benefactor-harness, and re-save after a rebuild).\n"
+                "      Pass --force-load to bypass for diagnostics (game state will\n"
+                "      load but coroutine resume is likely to crash since the saved\n"
+                "      RIP/RSP and stack return addresses point at OLD .text).\n",
+                path, (unsigned long)saved_ident,
+                (unsigned long)(uintptr_t)&g_state);
+            fclose(f); return -1;
+        }
+        fprintf(stderr, "[pc] loadstate: identity mismatch IGNORED (--force-load);"
+                " expect coroutine instability.\n");
+    }
+    int ok = 1;
+    ok &= fread(&g_state, sizeof g_state, 1, f) == 1;
+    ok &= fread(g_mem,    RT_MEM_SIZE,    1, f) == 1;
+    fclose(f);
+    if (!ok) { fprintf(stderr, "[pc] loadstate: short read\n"); return -1; }
+    /* uc_stack pointer is into our static g_state.game_stack — same address
+     * across runs of the same binary. The makecontext-installed instruction
+     * pointer lives inside s_game_uc; on the next pc_step the swapcontext
+     * into s_game_uc resumes at the saved yield point. uc_link is repointed
+     * defensively in case a future change moves these fields. */
+    s_game_uc.uc_stack.ss_sp   = s_game_stack;
+    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
+    s_game_uc.uc_link          = &s_main_uc;
+    fprintf(stderr, "[pc] loadstate <- %s (gameplay_active=%d overlay=%d enter=%d entry=$%06X)\n",
+            path, g_gameplay_active, g_overlay_active,
+            g_enter_gameplay, g_gameplay_entry);
+    return 0;
 }
 
 void pc_fini(void)

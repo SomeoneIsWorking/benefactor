@@ -159,11 +159,10 @@ static SDL_Window   *s_window   = NULL;
 static SDL_Renderer *s_renderer = NULL;
 static SDL_Texture  *s_texture  = NULL;
 
-/* OCS shadow registers (enough to drive the renderer) */
-uint16_t s_regs[512];         /* indexed by (offset>>1) */
-static uint16_t s_dmacon = 0;
-static uint16_t s_intena = 0;
-static uint16_t s_intreq = 0;
+/* OCS shadow registers (s_regs/s_dmacon/s_intena/s_intreq/s_bplcon0/s_bplptr/
+ * s_sprpt/s_palette/s_diwstrt/s_diwstop) all live on g_state via game_state.h
+ * — see the legacy-name macros there. Their non-zero defaults are initialised
+ * by pc_state_reset_defaults() in pc.c. */
 
 /* Current interrupt-enable shadow (INTENA, $DFF09A). The IRQ-delivery code in
  * pc.c uses this to fire a level's handler ONLY when the game has that level
@@ -171,12 +170,6 @@ static uint16_t s_intreq = 0;
  * vector left over from the previous screen (e.g. during a level load, when the
  * game has masked the interrupt) never runs. */
 uint16_t hw_get_intena(void) { return s_intena; }
-uint16_t s_bplcon0 = 0;
-uint32_t s_bplptr[6];
-uint32_t s_sprpt[8];          /* sprite pointers */
-uint32_t s_palette[32];       /* ARGB8888 */
-uint16_t s_diwstrt = 0x2C81;
-uint16_t s_diwstop = 0x2CC1;
 
 /* Disk images */
 static char  *s_disk_paths[4];
@@ -233,11 +226,7 @@ void hw_cycle_speed(void)
 void hw_set_external_input(int on) { s_ext_input = on; }
 
 /* CIA-B timer */
-static uint16_t s_ciab_ta_latch = 0;
-static uint16_t s_ciab_ta_cnt   = 0;
-static uint8_t  s_ciab_cra      = 0;
-static uint8_t  s_ciab_icr_data = 0;
-static uint8_t  s_ciab_icr_mask = 0;
+/* CIA-B timer state (s_ciab_*) lives on g_state via game_state.h. */
 
 /* Input */
 static uint8_t  s_joy_buttons = 0;   /* bit 0 = fire (Z/LCTRL) */
@@ -304,15 +293,23 @@ void hw_handle_key(int sym, int down)
                     pc_set_start_level(pc_get_start_level() - 1);
                     g_level_select_visible = 1; }
         break;
+    case SDLK_s: /* save: defer to main-stack boundary (we're inside the
+                  * coroutine here when invoked from hw_present_frame, so
+                  * s_game_uc is stale and direct save would crash on load). */
+        if (down) { extern int g_pc_pending_save, g_pc_pending_load;
+                    g_pc_pending_save = 1; (void)g_pc_pending_load; }
+        break;
+    case SDLK_d: /* load: same deferral as save */
+        if (down) { extern int g_pc_pending_save, g_pc_pending_load;
+                    g_pc_pending_load = 1; (void)g_pc_pending_save; }
+        break;
     default: break;
     }
 }
 static uint8_t  s_key_byte = 0xFF;
-int      s_blt_bzero = 0;   /* blitter BZERO flag */
+/* s_blt_bzero, s_vposr_counter, s_audio[] live on g_state via game_state.h. */
 int      s_copper_writing = 0; /* set during copper MOVE execution */
-static int      s_vposr_counter = 0; /* VPOSR read counter */
 
-AudioChannel s_audio[4];
 SDL_AudioDeviceID s_audio_dev = 0;
 SDL_AudioSpec s_audio_spec;
 
@@ -1090,7 +1087,7 @@ uint16_t hw_read16(uint32_t addr)
             if (s_fire_pressed)  val &= ~0x40;
             if (s_fire_pressed || s_mouse_lmb) val &= ~0x80;
             { static int t=-1; if(t<0) t=getenv("BFE_TRACE")?1:0;
-              if(t){ extern uint32_t rt_get_last_insn(void); extern int g_gameplay_active;
+              if(t){ extern uint32_t rt_get_last_insn(void); 
                      static uint32_t seen[64]; static int n=0; uint32_t pc=rt_get_last_insn();
                      int k=0; for(;k<n;k++) if(seen[k]==pc) break;
                      if(k==n && n<64 && g_gameplay_active){ seen[n++]=pc;
@@ -1160,7 +1157,7 @@ uint16_t hw_read16(uint32_t addr)
                  * pc_step_coro deliver the gameplay IRQs). Incrementing BEFORE the
                  * return means a repeated wait for the same line must traverse a
                  * full frame (exactly one yield) rather than matching instantly. */
-                extern int g_gameplay_active;
+                
                 if (g_gameplay_active && g_hw_vblank_yield) {
                     /* Model an advancing beam: each read steps one scanline. A
                      * beam-wait loop (cmpi.b #line,$6(a6); bne) exits when the
@@ -1298,7 +1295,7 @@ void hw_write16(uint32_t addr, uint16_t v)
          * $7e(a6)): the display copper pointer is now committed — present here. */
         if (reg == COP1LCL && g_hw_cop1lc_present)
             g_hw_cop1lc_present();
-        { extern int g_gameplay_active;
+        { 
           if ((reg == COP1LCL || reg == COP1LCH) && g_gameplay_active && getenv("GP_COP_TRACE")) {
               uint32_t c = ((uint32_t)s_regs[COP1LCH>>1]<<16)|s_regs[COP1LCL>>1];
               static FILE *cf = NULL; static int tried = 0;

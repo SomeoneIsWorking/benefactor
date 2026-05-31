@@ -54,6 +54,7 @@ The direction is always toward correct engineering. Never evolve toward shortcut
 | `instructions/recompiler.md` | Recompiler usage and improvement targets |
 | `instructions/create-override.md` | Native override patterns and existing overrides table |
 | `instructions/rom-analysis.md` | M68K disassembly and address tracing |
+| `instructions/gameplay-engine-map.md` | Working RE map of the `$577000+` engine: per-frame loop subsystems, level setup, object/animation system, a5-relative state vars. **Update as you native-port pieces.** |
 
 ## Key Files
 

@@ -11,6 +11,7 @@
 
 #include "rt.h"
 #include "hw.h"
+#include "../game_state.h"   /* g_overlay_active, g_gameplay_active */
 
 #ifdef HARNESS_BUILD
 #include "harness/trace.h"
@@ -65,6 +66,70 @@ static int _rt_is_state_watch_addr(uint32_t addr)
            (addr >= 0x0069DCu && addr < 0x0069E0u) ||
            (addr >= 0x0069F0u && addr < 0x006AEAu) ||
            (addr >= 0x07FFA2u && addr < 0x080000u);
+}
+
+/* REPL-driven chip-RAM read/write watch. The harness's `pcwatch <hex>[-<hex>]`
+ * adds a WRITE-watch range; `pcread <hex>[-<hex>]` adds a READ-watch range.
+ * Matching accesses log M68K PC + addr + value. Use these to answer "does our
+ * recompiled code ever touch $X, and what code does?" — much more reliable
+ * than the address-via-static-scan approach since it catches register-
+ * indirect addressing too. Read-tracing is the only reliable way to map data
+ * accesses in a block of chip RAM whose entries don't show up as literal-abs
+ * in the binary (e.g. the $150..$2A57 block-copy region). */
+#define RT_CHIP_WATCH_MAX 16
+static struct { uint32_t lo, hi; } s_chip_watch[RT_CHIP_WATCH_MAX];
+static int s_chip_watch_n = 0;
+static struct { uint32_t lo, hi; } s_chip_rwatch[RT_CHIP_WATCH_MAX];
+static int s_chip_rwatch_n = 0;
+void rt_chip_watch_add(uint32_t lo, uint32_t hi)
+{
+    if (s_chip_watch_n >= RT_CHIP_WATCH_MAX) {
+        fprintf(stderr, "[pcwatch] list full (%d entries) — clear first\n",
+                RT_CHIP_WATCH_MAX);
+        return;
+    }
+    if (hi < lo) hi = lo;
+    s_chip_watch[s_chip_watch_n].lo = lo;
+    s_chip_watch[s_chip_watch_n].hi = hi;
+    s_chip_watch_n++;
+    fprintf(stderr, "[pcwatch] watching $%06X..$%06X (%d total)\n",
+            lo, hi, s_chip_watch_n);
+}
+void rt_chip_watch_clear(void)
+{
+    s_chip_watch_n = 0;
+    fprintf(stderr, "[pcwatch] cleared\n");
+}
+static inline int rt_chip_watch_hit(uint32_t a)
+{
+    for (int i = 0; i < s_chip_watch_n; i++)
+        if (a >= s_chip_watch[i].lo && a <= s_chip_watch[i].hi) return 1;
+    return 0;
+}
+void rt_chip_rwatch_add(uint32_t lo, uint32_t hi)
+{
+    if (s_chip_rwatch_n >= RT_CHIP_WATCH_MAX) {
+        fprintf(stderr, "[pcread] list full (%d entries) — clear first\n",
+                RT_CHIP_WATCH_MAX);
+        return;
+    }
+    if (hi < lo) hi = lo;
+    s_chip_rwatch[s_chip_rwatch_n].lo = lo;
+    s_chip_rwatch[s_chip_rwatch_n].hi = hi;
+    s_chip_rwatch_n++;
+    fprintf(stderr, "[pcread] reading $%06X..$%06X (%d total)\n",
+            lo, hi, s_chip_rwatch_n);
+}
+void rt_chip_rwatch_clear(void)
+{
+    s_chip_rwatch_n = 0;
+    fprintf(stderr, "[pcread] cleared\n");
+}
+static inline int rt_chip_rwatch_hit(uint32_t a)
+{
+    for (int i = 0; i < s_chip_rwatch_n; i++)
+        if (a >= s_chip_rwatch[i].lo && a <= s_chip_rwatch[i].hi) return 1;
+    return 0;
 }
 
 /* ── Global memory ─────────────────────────────────────────────────────────── */
@@ -157,6 +222,11 @@ uint8_t rt_read8(M68KCtx *ctx, uint32_t addr)
           static int n = 0; if (n++ < 16)
               printf("[menutext-read8] $%06X pc=$%06X last_call=$%06X\n",
                      addr, _rt_current_pc(), (unsigned)g_rt_last_call); } }
+    if (s_chip_rwatch_n && rt_chip_rwatch_hit(addr)) {
+        uint8_t v = (addr < RT_MEM_SIZE && !is_hw(addr)) ? g_mem[addr] : 0;
+        fprintf(stderr, "[pcread] $%06X.b = $%02X  M68K_pc=$%06X fn=$%06X\n",
+                addr, v, _rt_current_pc(), (unsigned)g_rt_last_call);
+    }
     if (addr < RT_MEM_SIZE && !is_hw(addr))
         return g_mem[addr];
     return hw_read8(addr);
@@ -167,6 +237,12 @@ uint16_t rt_read16(M68KCtx *ctx, uint32_t addr)
     (void)ctx;
     addr &= 0xFFFFFF;
     _rt_spin_check(ctx, addr);
+    if (s_chip_rwatch_n && (rt_chip_rwatch_hit(addr) || rt_chip_rwatch_hit(addr+1))) {
+        uint16_t v = (addr + 1 < RT_MEM_SIZE && !is_hw(addr))
+                     ? (uint16_t)((g_mem[addr] << 8) | g_mem[addr+1]) : 0;
+        fprintf(stderr, "[pcread] $%06X.w = $%04X  M68K_pc=$%06X fn=$%06X\n",
+                addr, v, _rt_current_pc(), (unsigned)g_rt_last_call);
+    }
     if (addr + 1 < RT_MEM_SIZE && !is_hw(addr))
         return (uint16_t)((g_mem[addr] << 8) | g_mem[addr+1]);
     return hw_read16(addr);
@@ -176,6 +252,18 @@ uint32_t rt_read32(M68KCtx *ctx, uint32_t addr)
 {
     (void)ctx;
     addr &= 0xFFFFFF;
+    if (s_chip_rwatch_n) {
+        int hit = 0;
+        for (int i = 0; i < 4; i++) if (rt_chip_rwatch_hit(addr + i)) { hit = 1; break; }
+        if (hit) {
+            uint32_t v = (addr + 3 < RT_MEM_SIZE && !is_hw(addr))
+                ? (((uint32_t)g_mem[addr] << 24) | ((uint32_t)g_mem[addr+1] << 16) |
+                   ((uint32_t)g_mem[addr+2] << 8)  | (uint32_t)g_mem[addr+3])
+                : 0;
+            fprintf(stderr, "[pcread] $%06X.l = $%08X  M68K_pc=$%06X fn=$%06X\n",
+                    addr, v, _rt_current_pc(), (unsigned)g_rt_last_call);
+        }
+    }
     if (addr + 3 < RT_MEM_SIZE && !is_hw(addr))
         return ((uint32_t)g_mem[addr  ] << 24) | ((uint32_t)g_mem[addr+1] << 16) |
                ((uint32_t)g_mem[addr+2] <<  8) |  (uint32_t)g_mem[addr+3];
@@ -188,6 +276,9 @@ void rt_write8(M68KCtx *ctx, uint32_t addr, uint8_t v)
 {
     (void)ctx;
     addr &= 0xFFFFFF;
+    if (s_chip_watch_n && rt_chip_watch_hit(addr))
+        fprintf(stderr, "[pcwatch] $%06X.b = $%02X  M68K_pc=$%06X fn=$%06X\n",
+                addr, v, _rt_current_pc(), (unsigned)g_rt_last_call);
     _gp4d(addr, v, 1);
     { static int w = -1; if (w < 0) w = getenv("GP_RDY_WATCH") ? 1 : 0;
       if (w && (addr == 0x57FEBEu || addr == 0x57FEBFu)) {
@@ -248,6 +339,9 @@ static void _gp4d(uint32_t addr, uint32_t v, int sz)
 void rt_write16(M68KCtx *ctx, uint32_t addr, uint16_t v)
 {
     addr &= 0xFFFFFF;
+    if (s_chip_watch_n && (rt_chip_watch_hit(addr) || rt_chip_watch_hit(addr+1)))
+        fprintf(stderr, "[pcwatch] $%06X.w = $%04X  M68K_pc=$%06X fn=$%06X\n",
+                addr, v, _rt_current_pc(), (unsigned)g_rt_last_call);
     _gp4d(addr, v, 2);
     { static int watch = -1; if (watch < 0) watch = getenv("GP_PAL_WATCH") ? 1 : 0;
       if (watch && ((addr >= 0x34F4u && addr < 0x3700u) || (addr >= 0x57F100u && addr < 0x57F300u))) {
@@ -279,6 +373,13 @@ void rt_write16(M68KCtx *ctx, uint32_t addr, uint16_t v)
 void rt_write32(M68KCtx *ctx, uint32_t addr, uint32_t v)
 {
     addr &= 0xFFFFFF;
+    if (s_chip_watch_n) {
+        int hit = 0;
+        for (int i = 0; i < 4; i++) if (rt_chip_watch_hit(addr + i)) { hit = 1; break; }
+        if (hit)
+            fprintf(stderr, "[pcwatch] $%06X.l = $%08X  M68K_pc=$%06X fn=$%06X\n",
+                    addr, v, _rt_current_pc(), (unsigned)g_rt_last_call);
+    }
     _gp4d(addr, v, 4);
     { static int w = -1; if (w < 0) w = getenv("LNAME_WATCH") ? 1 : 0;
       if (w && ((addr >= 0x5786ACu && addr < 0x5786ACu + 440u) || (addr >= 0x114u && addr < 0x118u))) {
@@ -333,8 +434,7 @@ static void rt_register_override_x(uint32_t addr, NativeFn fn, int gp)
 void rt_register_override(uint32_t addr, NativeFn fn)    { rt_register_override_x(addr, fn, 0); }
 void rt_register_override_gp(uint32_t addr, NativeFn fn) { rt_register_override_x(addr, fn, 1); }
 
-extern int g_overlay_active;
-extern int g_gameplay_active;
+
 
 static NativeFn override_lookup(uint32_t addr)
 {
@@ -355,9 +455,22 @@ static NativeFn override_lookup(uint32_t addr)
                          addr == 0x000039D0u || addr == 0x000049B6u);
     if (!want_gp && g_overlay_active && addr >= 0x3294u && !allow_in_menu)
         return NULL;
+    /* First pass: prefer an exact bank match (gp=1 in gameplay, gp=0 outside).
+     * Second pass: for RESIDENT-REGION addresses (<$3294), the same bytes are
+     * present in both banks — the original code at e.g. $150 is identical
+     * whether called from title or from gameplay. Fall back to the other
+     * bank's override so we don't crash when gameplay code calls the loader
+     * (which we override under gp=0). Without this fallback the win-sequence
+     * `$5773A2: jmp $150` rt-misses because $150 isn't recompiled as a gpl
+     * function. */
     for (int i = 0; i < g_override_count; i++) {
         if (g_overrides[i].addr == addr && g_overrides[i].gp == want_gp)
             return g_overrides[i].fn;
+    }
+    if (addr < 0x3294u) {
+        for (int i = 0; i < g_override_count; i++) {
+            if (g_overrides[i].addr == addr) return g_overrides[i].fn;
+        }
     }
     return NULL;
 }
@@ -379,8 +492,13 @@ extern const int         g_fn_gp_count   __attribute__((weak));
  * bank since it overlays the same low addresses with different code. */
 extern const GameFnEntry g_fn_table_gpl[] __attribute__((weak));
 extern const int         g_fn_gpl_count   __attribute__((weak));
-int g_overlay_active = 0;
-int g_gameplay_active = 0;
+/* Credits / end-game bank: the engine the $150 d0=3 path brings in (Disk.3 →
+ * $3330, length $1888C). Different bytes than the gameplay bank at the same
+ * addresses, so we need a separate dispatch table. Selected by
+ * g_credits_active. */
+extern const GameFnEntry g_fn_table_credits[] __attribute__((weak));
+extern const int         g_fn_credits_count   __attribute__((weak));
+/* g_overlay_active, g_gameplay_active, g_credits_active live on g_state. */
 
 /* Resident region $3000-$3293 is byte-identical in both banks; everything at
  * or above this is overlaid with different gameplay code. */
@@ -416,6 +534,15 @@ int rt_gpl_has_fn(uint32_t addr)
 
 static GameFn dispatch_lookup(uint32_t addr)
 {
+    /* Credits/end-game bank takes top priority when active. Its bytes overlay
+     * the same $3330+ addresses as the gameplay bank but with completely
+     * different code, so we must NOT fall through to gameplay/gp/intro within
+     * the overlaid range. */
+    if (g_credits_active && &g_fn_credits_count) {
+        GameFn fn = table_search(g_fn_table_credits, g_fn_credits_count, addr);
+        if (fn) return fn;
+        if (addr >= OVERLAY_RESIDENT_END) return NULL;
+    }
     if (g_gameplay_active && &g_fn_gpl_count) {
         GameFn fn = table_search(g_fn_table_gpl, g_fn_gpl_count, addr);
         if (fn) return fn;
@@ -436,8 +563,27 @@ static GameFn dispatch_lookup(uint32_t addr)
  * the gameplay-overlay bank intentionally returns NULL for not-yet-discovered
  * handlers to drive runtime discovery; enable it to hard-stop at the first miss
  * (with the caller address) when hunting missing functions. */
+/* Trampoline source (defined below near rt_jump); forward-declared for
+ * rt_miss_caller. */
+static uint32_t s_rt_jump_source;
+
+/* Best-effort "where did this call come from?" for diagnostics. Prefer the
+ * trampoline-recorded source (set by rt_jump when an override or recompiled fn
+ * hands off via tail rt_jump) — native overrides don't update
+ * rt_last_insn_addr, so without this, trampoline hops reported "from $000000".
+ * Fall back to the most recent recompiled-instruction PC, then to the prior
+ * call-stack entry, then 0. */
+static uint32_t rt_miss_caller(void)
+{
+    if (s_rt_jump_source) return s_rt_jump_source;
+    if (rt_last_insn_addr) return rt_last_insn_addr;
+    if (rt_callstack_sp >= 2) return rt_callstack[rt_callstack_sp - 2];
+    return 0;
+}
+
 static void rt_miss(uint32_t addr, M68KCtx *ctx)
 {
+    uint32_t from = rt_miss_caller();
     /* Targeted miss trace: log full call stack for specific addrs. */
     if (addr == 0x003C5Au) {
         fprintf(stderr, "[miss-trace] $%06X miss; call stack (sp=%d):\n", addr, rt_callstack_sp);
@@ -450,14 +596,26 @@ static void rt_miss(uint32_t addr, M68KCtx *ctx)
     }
     /* Collect every DISTINCT missing call target to stderr (one run → full list
      * of functions to seed). A skipped call drops the function's work entirely,
-     * corrupting state — so for the gameplay bank these must all be resolved. */
+     * corrupting state — so for the gameplay bank these must all be resolved.
+     * The "from" includes BOTH the trampoline source (the fn that did
+     * rt_jump → us) and a chain of recent fns, since the immediate caller is
+     * often itself a tail-jump trampoline and only the fuller chain pinpoints
+     * the originating dispatch site. */
     {
         static uint32_t seen[512]; static int nseen = 0;
         int known = 0;
         for (int i = 0; i < nseen; i++) if (seen[i] == addr) { known = 1; break; }
         if (!known && nseen < 512) {
             seen[nseen++] = addr;
-            fprintf(stderr, "[rt-miss] $%06X (from $%06X)\n", addr, rt_last_insn_addr);
+            fprintf(stderr, "[rt-miss] $%06X (from $%06X)  chain:",
+                    addr, from);
+            /* Last few entries of the call stack — newest-first. Skip the
+             * topmost which is `addr` itself (already printed). */
+            int hi = rt_callstack_sp - 2;
+            int lo = hi - 7; if (lo < 0) lo = 0;
+            for (int i = hi; i >= lo; i--)
+                fprintf(stderr, " $%06X", rt_callstack[i]);
+            fprintf(stderr, "\n");
             fflush(stderr);
         }
     }
@@ -468,14 +626,14 @@ static void rt_miss(uint32_t addr, M68KCtx *ctx)
      * downgrades to log+skip ONLY for discovery runs (tools_seed_converge.sh,
      * which collects every miss in one pass). RT_FAIL_ON_MISS=1 forces abort
      * even outside gameplay. */
-    extern int g_gameplay_active;
+
     static int allow = -1;
     if (allow < 0) allow = getenv("RT_ALLOW_MISS") ? 1 : 0;
     static int fail = -1;
     if (fail < 0) fail = getenv("RT_FAIL_ON_MISS") ? 1 : 0;
     if ((g_gameplay_active && !allow) || fail) {
         fprintf(stderr, "\n*** rt_call: NO FUNCTION at $%06X (from $%06X)"
-                " — gameplay/RT_FAIL_ON_MISS, aborting ***\n", addr, rt_last_insn_addr);
+                " — gameplay/RT_FAIL_ON_MISS, aborting ***\n", addr, from);
         fprintf(stderr, "    D0=%08X D1=%08X D2=%08X A0=%08X A1=%08X A2=%08X\n",
                 ctx->D[0], ctx->D[1], ctx->D[2], ctx->A[0], ctx->A[1], ctx->A[2]);
         /* Dump g_mem so post-mortem tools can walk the live object/dispatch
@@ -504,13 +662,25 @@ static void rt_miss(uint32_t addr, M68KCtx *ctx)
  * like $59E198 ↔ $59E28C ↔ $59E1FA ↔ $59E1C6 grows the C stack until SIGSEGV.
  * Instead, rt_jump records the target and returns; the enclosing rt_call_impl
  * loops, picking up the new target. The Amiga RA slot is reserved once for
- * the outermost call and released once on exit. */
+ * the outermost call and released once on exit.
+ *
+ * s_rt_jump_source captures the address of the fn that issued the rt_jump —
+ * native overrides don't update rt_last_insn_addr, so without this an rt-miss
+ * triggered through a trampoline hop reports "from $000000". With it the
+ * caller chain is preserved across trampoline hops. */
 static int      s_rt_jump_pending = 0;
 static uint32_t s_rt_jump_target  = 0;
+/* s_rt_jump_source declared near rt_miss_caller above. */
 
 static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
 {
-    extern int g_gameplay_active;
+    /* Save the parent invocation's trampoline source so a recursive rt_call
+     * (e.g. from a native override) doesn't smear our source onto the parent's
+     * downstream rt_miss. Restored before return. */
+    uint32_t saved_source = s_rt_jump_source;
+    s_rt_jump_source = 0;
+    s_rt_jump_pending = 0;
+
     int ra_set = 0;
 
     for (;;) {
@@ -571,6 +741,7 @@ static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
         break;
     }
     if (ra_set) ctx->A[7] += 4u;
+    s_rt_jump_source = saved_source;
 }
 
 void rt_call(M68KCtx *ctx, uint32_t addr) { rt_call_impl(ctx, addr, 1); }
@@ -578,9 +749,16 @@ void rt_call(M68KCtx *ctx, uint32_t addr) { rt_call_impl(ctx, addr, 1); }
 void rt_jump(M68KCtx *ctx, uint32_t addr)
 {
     /* Generated callers do `rt_jump(ctx, X); return;` — defer dispatch to the
-     * enclosing rt_call_impl loop so a state-machine cycle doesn't recurse. */
+     * enclosing rt_call_impl loop so a state-machine cycle doesn't recurse.
+     * Record the SOURCE so a downstream rt-miss reports a useful caller (the
+     * fn that handed control to the missing target), not "from $000000". The
+     * source is the most recent valid entry on the call-stack — that's the
+     * fn currently executing when rt_jump fires. */
     s_rt_jump_pending = 1;
     s_rt_jump_target  = addr;
+    s_rt_jump_source  = (rt_callstack_sp > 0)
+                            ? rt_callstack[rt_callstack_sp - 1]
+                            : 0;
     (void)ctx;
 }
 

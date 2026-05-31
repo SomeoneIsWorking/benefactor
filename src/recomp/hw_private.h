@@ -9,41 +9,18 @@
 #include <SDL2/SDL.h>
 #include "hw.h"
 #include "rt.h"
-
-/* ── Register shadow array ─────────────────────────────────────────────────── */
-/* Indexed by (DFF offset >> 1). 512 entries covers $DFF000–$DFFFFF. */
-extern uint16_t s_regs[512];
-
-/* ── Key display shadow registers ─────────────────────────────────────────── */
-extern uint16_t s_bplcon0;
-extern uint32_t s_bplptr[6];
-extern uint32_t s_sprpt[8];
-extern uint32_t s_palette[32];     /* ARGB8888 */
-extern uint16_t s_diwstrt;
-extern uint16_t s_diwstop;
+/* All hw register shadows (s_regs, s_dmacon/intena/intreq, s_bplcon0, s_bplptr,
+ * s_sprpt, s_palette, s_diwstrt/stop, s_blt_bzero, the s_ciab_* timer state,
+ * s_audio[]) and the AudioChannel typedef now live on g_state — see
+ * game_state.h. */
+#include "../game_state.h"
 
 /* ── Framebuffer ───────────────────────────────────────────────────────────── */
 extern uint32_t s_fb[HW_DISPLAY_W * HW_DISPLAY_H];
 
-/* ── Blitter state ─────────────────────────────────────────────────────────── */
-extern int s_blt_bzero;
-
 /* ── Copper write tag (set during copper MOVE execution) ────────────────────── */
 extern int s_copper_writing;
 
-/* ── Audio state ───────────────────────────────────────────────────────────── */
-typedef struct {
-    uint32_t ptr;      /* current play position (chip RAM address) */
-    uint32_t start;    /* start of audio data (from LCH/LCL) */
-    uint16_t len;      /* length in words */
-    uint16_t period;   /* period value (~pitch) */
-    uint8_t  vol;      /* volume 0-64 */
-    uint8_t  active;   /* 1 = playing */
-    int      pos;      /* current byte index (samples are 8-bit; total bytes = len*2) */
-    int64_t  tick;     /* sub-sample accumulator (Paula clock ticks, exact) */
-} AudioChannel;
-
-extern AudioChannel s_audio[4];
 extern SDL_AudioDeviceID s_audio_dev;
 extern SDL_AudioSpec     s_audio_spec;
 

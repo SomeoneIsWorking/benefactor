@@ -78,6 +78,7 @@ file(GLOB GAME_SRCS    CONFIGURE_DEPENDS
 file(GLOB GP_GAME_SRCS CONFIGURE_DEPENDS
     "${GEN_DIR}/game_gp_*.c"
     "${GEN_DIR}/game_gpl_*.c"
+    "${GEN_DIR}/game_credits_*.c"
 )
 
 file(MAKE_DIRECTORY "${GEN_DIR}")
