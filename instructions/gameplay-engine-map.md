@@ -49,6 +49,35 @@ skipdata results are data artifacts — don't seed). Verify with the level-entry
 levels must enter and survive with no `rt_call: NO FUNCTION ...`. Also
 `grep UNK src/generated/game_gpl_*.c`.
 
+## `$57D3EC` object dispatcher — decoded (2026-05-31)
+
+The per-frame object loop dispatches each object's handler through a list of
+handler-struct pointers. Reverse-engineered from `$57D3A4`:
+
+```
+57D3B0  lea $10e6(a5), a2     ; a2 = $57FEF8 — handler-struct pointer list
+57D3DA  movea.l (a2)+, a1     ; P = next struct pointer
+57D3DC  move.w  (a1)+, d0     ; d0 = selector = *(P)  (a1 now = P+2)
+57D3F0  jmp     (a1, d0.w)    ; handler = P + 2 + s16(selector)
+```
+
+So **dispatch target = `P + 2 + s16(*P)`**. The list is built at level setup
+(`$57CC1A`) from the per-level object table at `$4d064` (disk-loaded), as
+`list[i] = $58692A + offset_i`. There are three sub-lists for three dispatchers:
+`$57FEF8` (=`$10E6(a5)`, `$57D3EC`), `$57FF74` (=`$1162(a5)`), `$5800A4`
+(=`$1292(a5)`); terminator `$58692C` = separator, `0` = end.
+
+**Completeness:** the list holds the level's FULL object set (not just on-screen
+objects), so loading each of the 60 levels (`--level N`) and reading these lists
+harvests every dispatch target deterministically — **240 distinct targets** across
+all 60 levels. Of those, **227 are already auto-discovered** by
+`discover_object_handlers` (they begin with the canonical `movem (a0)` prologue);
+only ~13 are non-`movem` and need a seed (e.g. `$586B04` from struct `$586AF0`,
+`$58865C`, `$586E40`). So object dispatch is essentially handled by the
+prologue-scan + a few seeds; the bulk of the remaining hand-seeds are NON-dispatch
+engine/player code (and some bogus historical odd-address seeds). A standalone
+harvester proving this lives in the session notes; it isn't a build dependency.
+
 ## Cardinal facts
 
 - **`a5 = $57EE12`** in the gameplay bank — set by `$5770B0: lea $57ee12(pc), a5`.
