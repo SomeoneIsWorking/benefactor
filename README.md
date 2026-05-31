@@ -67,10 +67,42 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 | Arrows | Move |
 | Z / Ctrl / Space / Return | Fire / Action |
 | TAB | Cycle real-time speed (1× / 2× / 4×) |
+| F1 | Toggle level-select overlay |
+| F2 / F3 | Cycle the selected start level (1..60) |
+| S / D | Save / load a savestate (`logs/savestate.bin`) |
 | L | Debug: trigger LEVEL COMPLETE (the win banner) |
 | O | Debug: trigger GAME OVER |
 | F11 | Toggle fullscreen |
-| Esc | Quit |
+| Esc | Pause menu (in-game) — Resume / Retry / Exit to main menu / Quit |
+
+### Extras
+
+- **Level select** — F1 opens an on-screen panel listing every world/level. F2 / F3 cycle the chosen level. When you fire on the title menu the game jumps straight to that level instead of starting at world 1 level 1. The `--level N` command-line flag does the same thing without the UI.
+
+  ```bash
+  ./build/benefactor-pc --level 60 Disk.1 Disk.2 Disk.3   # straight into W6L2
+  ```
+
+- **Savestates** — press **S** at any in-game moment to write the full game state (M68K register file, coroutine + 4 MB stack, custom-chip shadows, audio channels, bank-routing flags) plus 8 MB of M68K memory to `logs/savestate.bin`. Press **D** to reload it. The file is bound to the exact binary that wrote it: ASLR is pinned on startup and an identity word in the header rejects loads from a different build with a clear error rather than crashing.
+
+  You can also resume directly into a save from the command line:
+
+  ```bash
+  ./build/benefactor-pc --load logs/savestate.bin Disk.1 Disk.2 Disk.3
+  ```
+
+- **In-game pause menu (ESC)** — opens an overlay with four options navigated by ↑ / ↓ and selected with Fire (Z / Ctrl / Space / Return):
+
+  | Option | Effect |
+  |--------|--------|
+  | **Resume** | Close the menu, continue play. |
+  | **Retry** | Restart the current level — back to its title card, fresh state. |
+  | **Exit to main menu** | Drop straight into the cover-art / poster screen, same code path the engine reaches naturally after the intro. |
+  | **Quit to desktop** | `exit(0)`. |
+
+  ESC outside gameplay keeps its old "quit immediately" behaviour.
+
+- **Win cutscene / end-game credits** — the original credits engine is recompiled as its own bank (loaded by Disk.3 on the win sequence). Beating world 6 level 2 plays the proper teleport-out + cutscene path, not a placeholder.
 
 ## Layout
 
