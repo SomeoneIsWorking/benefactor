@@ -1,0 +1,4 @@
+# Player movement / animation state handlers
+# Format: ADDR [name]  [# comment].  See ../seeds_loader.py.
+
+57E38A  player_input_handler  # player movement/input handler (dispatched when a direction is held)

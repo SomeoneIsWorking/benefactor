@@ -58,7 +58,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 DEFAULT_GMEM = REPO / "logs" / "gmem_after_load.bin"
 DEFAULT_FREEZE = REPO / "logs" / "pc_freeze.bin"
-DEFAULT_SEEDS = REPO / "tools" / "recomp" / "gpl_seeds.txt"
+# Structured seed tree (replaces the old flat gpl_seeds.txt). read_seeds reads
+# the whole tree; --append writes into the discovered bucket.
+DEFAULT_SEEDS = REPO / "tools" / "recomp" / "seeds"
+DISCOVERED_BUCKET = DEFAULT_SEEDS / "zz-discovered.txt"
 
 CODE_LO = 0x577000
 CODE_HI = 0x5A0000
@@ -829,15 +832,19 @@ def discover_cross_fn_targets(seeds: set[int], gmem_path: Path) -> set[int]:
 # ────────────────────────────────────────────────────────────────────────────
 
 def read_seeds(seeds_path: Path) -> set[int]:
+    # The seed tree is a directory of category files; load it via the shared
+    # loader so multi-address and named lines are parsed correctly.
+    if seeds_path.is_dir():
+        from seeds_loader import load_seed_tree
+        addrs, _names = load_seed_tree(str(seeds_path))
+        return set(addrs)
     out: set[int] = set()
     for line in seeds_path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        try:
-            out.add(int(line, 16))
-        except ValueError:
-            pass
+        for tok in line.split("#", 1)[0].split():
+            try:
+                out.add(int(tok, 16))
+            except ValueError:
+                pass
     return out
 
 
@@ -951,11 +958,11 @@ def main() -> int:
     print(f"diagnostic NEW (B+C — DO NOT auto-seed): {len(diag_new)}")
 
     if args.append and safe_new:
-        with open(args.seeds, "a") as f:
-            f.write("# discover_benefactor_targets.py: object struct chain bodies (Pattern A)\n")
+        with open(DISCOVERED_BUCKET, "a") as f:
+            f.write("\n# discover_benefactor_targets.py: object struct chain bodies (Pattern A)\n")
             for x in safe_new:
                 f.write(f"{x:06X}\n")
-        print(f"appended {len(safe_new)} (Pattern A only) to {args.seeds}")
+        print(f"appended {len(safe_new)} (Pattern A only) to {DISCOVERED_BUCKET}")
     elif args.append:
         print("nothing to append (Pattern B/C results are diagnostic-only)")
 

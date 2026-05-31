@@ -1,0 +1,11 @@
+# Non-movem dispatch + mis-aligned literal targets (game-specific)
+# Format: ADDR [name]  [# comment].  See ../seeds_loader.py.
+
+5772A8  main_loop_beam_branch
+577680
+586940  handler_from_592da0  # jsr target from $592DA0               — level 48
+586E40  obj_handler_tst  # $57D3EC dispatch target (tst start)  — level 56
+58865C  obj_handler_btst  # $57D3EC dispatch target (btst start) — levels 44/45/46
+58C5DA  obj_handler_58c5da  # $58C64E dispatch target               — level 19
+59E910
+59EE14

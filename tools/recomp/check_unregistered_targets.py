@@ -12,7 +12,7 @@ play-testing.
 Each hit is classified so you know whether to seed it (clean-code) or ignore it
 (an artifact whose rt_jump sits in a never-executed misdecoded data region and
 which would not even compile as a function):
-  clean-code        -> add ADDR to gpl_seeds.txt, regen, re-run (iterate to 0)
+  clean-code        -> add ADDR to a seeds/ tree file, regen, re-run (iterate to 0)
   PC-rel-index      -> artifact: emits ctx->PC (no such field); do NOT seed
   data(skipdata)    -> artifact: contains raw data bytes; do NOT seed
 
@@ -74,7 +74,7 @@ def main():
             seedable.append(t)
         print(f"  ${t:06X}  {c}")
     if seedable:
-        print("\nclean-code -> seed in gpl_seeds.txt, regen, re-run:")
+        print("\nclean-code -> seed in a seeds/ tree file, regen, re-run:")
         print("  " + " ".join(f"{t:06X}" for t in seedable))
     return 1
 

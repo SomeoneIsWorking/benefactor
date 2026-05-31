@@ -1,0 +1,4 @@
+# Newly-discovered seeds (append target for the discovery tools).
+# discover_benefactor_targets.py --append and any ad-hoc additions land here;
+# move them into the right category file once their subsystem is understood.
+# Format: ADDR [name]  [# comment].  See ../seeds_loader.py.

@@ -1,0 +1,7 @@
+# Disk overlay load / ATN! decrunch / level data
+# Format: ADDR [name]  [# comment].  See ../seeds_loader.py.
+
+57731C  gameplay_setup  # gameplay setup block
+59B80A  atn_descriptor_parser  # ATN! descriptor parser (source ptr at $59cf1e -> records at $59d382)
+59BA7A
+59DC02  level_engine_entry  # level engine entry

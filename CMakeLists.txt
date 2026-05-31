@@ -60,21 +60,25 @@ file(GLOB GAME_SRCS    CONFIGURE_DEPENDS
 # artifact is checked in). rt.c selects this bank when g_overlay_active.
 #
 # The gameplay-engine bank (game_gpl_*) is generated MANUALLY (no auto-regen).
-# The seed list is tracked + annotated in tools/recomp/gpl_seeds.txt (the
-# indirect-dispatch targets static descent can't reach). Regenerate with:
+# Coverage is mostly AUTO-DERIVED now; the structured seed tree under
+# tools/recomp/seeds/ only carries what the passes can't reach. Regenerate with:
 #   python3 tools/recomp/recomp.py logs/gmem_after_load.bin \
 #     --chip-dump --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-#     --out-dir src/generated \
-#     --seed "$(cat tools/recomp/gpl_seeds.txt)"
+#     --out-dir src/generated --seed-dir tools/recomp/seeds
+# recomp.py auto-derives entries three ways (so the tree stays small):
+#   - extract_jumptables.discover_jumptable_targets: pc-rel jump tables,
+#     installed handler-pointer immediates, dc.l function-pointer tables
+#   - scanner.discover_object_handlers: `movem (a0),...` handler prologues
+#   - scanner gap-fill: every validated/terminated/emittable block in the region
+# A seed may carry a name (`577000 game_overlay_entry`) -> gfn_gpl_577000_<name>
+# (with a bare-address alias in the header) to document the engine map.
 # (RECOMP_FOLD_LOOPS unset = goto-based DBcc, always compiles.)
 # A skipped call = dropped work = corrupt state, so rt.c HARD-ERRORS on a
-# gameplay-bank miss. Discover new seeds by running gameplay and watching for
-# "[rt-miss] $X" — add X to gpl_seeds.txt and regenerate (the card->cavern work
-# on 2026-05-29 added ~22 this way). scanner.py does iterative constant-target
-# descent; emitter.py converts cross-function branches/DBcc to known entries
-# into tail rt_jump so overlapping seeds (e.g. 57B0EE/57BA74) compile.
-# Gameplay runs 1500 frames clean (no misses, no hang) + renders the level-intro
-# card. Card->cavern advance ($3914->$3484) is the next gate (not input-driven).
+# gameplay-bank miss. After regen, run tools/recomp/check_unregistered_targets.py
+# to catch any literal rt_jump/rt_call target that isn't a function (seed the
+# clean-code ones). scanner.py does iterative constant-target descent; emitter.py
+# converts cross-function branches/DBcc to known entries into tail rt_jump.
+# All 60 levels enter gameplay and survive fire+movement with no dispatch miss.
 file(GLOB GP_GAME_SRCS CONFIGURE_DEPENDS
     "${GEN_DIR}/game_gp_*.c"
     "${GEN_DIR}/game_gpl_*.c"

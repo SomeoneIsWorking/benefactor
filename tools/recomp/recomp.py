@@ -29,11 +29,15 @@ try:
     from .entries  import get_entry_addrs, get_fn_name, get_fn_group, GROUPS
     from .scanner  import collect_functions, discover_object_handlers
     from .emitter  import Translator, emit_func
+    from .seeds_loader import load_seed_tree
+    from .extract_jumptables import discover_jumptable_targets
 except ImportError:
     import importlib, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     from recomp.entries  import get_entry_addrs, get_fn_name, get_fn_group, GROUPS  # type: ignore
     from recomp.scanner  import collect_functions, discover_object_handlers          # type: ignore
+    from recomp.seeds_loader import load_seed_tree                                    # type: ignore
+    from recomp.extract_jumptables import discover_jumptable_targets                  # type: ignore
     from recomp.emitter  import Translator, emit_func                                # type: ignore
 
 __all__ = ['Translator', 'emit_func', 'collect_functions']
@@ -63,6 +67,9 @@ def main():
     parser.add_argument('--code-size', default=None, help='code size (hex), default 0x2442E')
     parser.add_argument('--seed', default=None,
                         help='comma-separated hex entry addrs; overrides entries.py')
+    parser.add_argument('--seed-dir', default=None,
+                        help='directory of structured seed files (tools/recomp/seeds); '
+                             'each entry may carry an optional name -> gfn_<bank>_<addr>_<name>')
     parser.add_argument('--bank', default=None,
                         help='bank name (e.g. gp); emits gfn_<bank>_<addr>, '
                              'g_fn_table_<bank>, game_<bank>_*.c, hex-only names')
@@ -80,9 +87,13 @@ def main():
     base      = int(args.base, 16)      if args.base      else 0x3000
     code_size = int(args.code_size, 16) if args.code_size else 0x2442E
     bank      = args.bank
-    if args.seed:
+    seed_names = {}            # addr -> human name (gpl seed tree)
+    if args.seed_dir:
+        entries, seed_names = load_seed_tree(args.seed_dir)
+        print(f'Loaded {len(entries)} seeds ({len(seed_names)} named) from {args.seed_dir}')
+    elif args.seed:
         # Allow annotated seed files: strip '#' comments per line, then split on
-        # commas/whitespace. Lets gpl_seeds.txt document each indirect-dispatch
+        # commas/whitespace. Lets a seed list document each indirect-dispatch
         # target while still feeding clean hex addresses to the recompiler.
         _txt = '\n'.join(ln.split('#', 1)[0] for ln in args.seed.splitlines())
         entries = [int(s, 16) for s in _txt.replace(',', ' ').split()]
@@ -90,9 +101,14 @@ def main():
         entries = get_entry_addrs()
 
     # Name resolver: default bank uses curated names; a secondary bank uses
-    # prefixed hex-only names so symbols never collide with the intro bank.
+    # prefixed hex-only names so symbols never collide with the intro bank. When
+    # a seed carries a name, append it (gfn_<bank>_<addr>_<name>) so the symbol
+    # documents what the routine does — the header also emits a bare-address
+    # alias so existing references (e.g. pc_overrides_gameplay.c) keep compiling.
     if bank:
-        cname = lambda a: f'{bank}_{a:06X}'
+        def cname(a):
+            base_name = f'{bank}_{a:06X}'
+            return f'{base_name}_{seed_names[a]}' if a in seed_names else base_name
     else:
         cname = get_fn_name
 
@@ -128,11 +144,15 @@ def main():
     SCAN_LO, SCAN_HI = 0x577000, 0x59F000
     gapfill = None
     if bank == 'gpl':
-        extras = discover_object_handlers(data, base, md, SCAN_LO, SCAN_HI)
         before = len(entries)
-        entries = sorted(set(entries) | extras)
-        print(f'Pinned {len(extras)} object-handler prologues '
-              f'(`movem (a0),...`); {len(entries) - before} new vs. seeds')
+        # Auto-derive entries so the seed tree only has to carry what these
+        # passes can't: (a) jump-table / handler-pointer / dc.l targets, and
+        # (b) movem-prologue handler entries pinned at their exact start.
+        jt = discover_jumptable_targets(raw, md)
+        extras = discover_object_handlers(data, base, md, SCAN_LO, SCAN_HI)
+        entries = sorted(set(entries) | jt | extras)
+        print(f'Auto-derived {len(jt)} jump-table + {len(extras)} prologue entries; '
+              f'{len(entries) - before} new vs. seeds')
         gapfill = (SCAN_LO, SCAN_HI)
 
     funcs = collect_functions(data, base, entries, md, areg_bases=areg_bases,
@@ -159,6 +179,13 @@ def main():
             h.write('#pragma once\n#include "recomp/rt.h"\n#include "recomp/hw.h"\n\n')
             for a in sorted_addrs:
                 h.write(f'void gfn_{cname(a)}(M68KCtx *ctx); /* ${a:06X} */\n')
+            # Bare-address aliases for named functions, so hand-written code can
+            # keep referring to gfn_<bank>_<ADDR> regardless of the seed name.
+            aliases = [a for a in sorted_addrs if a in seed_names]
+            if aliases:
+                h.write('\n/* bare-address aliases (seed-named functions) */\n')
+                for a in aliases:
+                    h.write(f'#define gfn_{bank}_{a:06X} gfn_{cname(a)}\n')
             h.write(f'\n#define {count_macro} {len(funcs)}\n')
             h.write(f'extern const GameFnEntry {table_name}[{count_macro}];\n')
 
