@@ -148,7 +148,8 @@ Macros in `pc_internal.h`: `r8/r16/r32(addr)`, `w8/w16/w32(addr,v)`, `hw_write16
 ## Recompiler Workflow
 
 - Fix `recomp.py`, never `generated/game.c`.
-- Run `test_recomp.py` before and after changes (17/17 tests must pass).
+- Run `test_recomp.py` before and after changes (unit + artifact scopes must
+  pass; `RECOMP_SLOW=1` adds the regen determinism / reproduces-committed tests).
 - Regenerate, rebuild harness, verify with `run_harness_headless.sh`.
 
 ## Debugging Loop (Never Fix a "Likely" Cause)
