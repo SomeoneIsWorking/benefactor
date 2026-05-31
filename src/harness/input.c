@@ -16,8 +16,9 @@ void input_poll(void)
         if (ev.type == SDL_QUIT) exit(0);
         if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
             int d = (ev.type == SDL_KEYDOWN);
-            if (ev.key.keysym.sym == SDLK_ESCAPE) { if (d) exit(0); continue; }
-            hw_handle_key(ev.key.keysym.sym, d);   /* the one input path */
+            /* ESC is handled inside hw_handle_key — it toggles the pause
+             * menu in gameplay and falls back to exit(0) elsewhere. */
+            hw_handle_key(ev.key.keysym.sym, d);
         }
     }
 }
