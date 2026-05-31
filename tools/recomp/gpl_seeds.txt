@@ -708,7 +708,6 @@
 595542
 595A46
 # discover_benefactor_targets.py: object struct chain bodies (Pattern A)
-578A4A
 59AA92
 59AB24
 59ABB8
@@ -717,68 +716,13 @@
 59E65A
 59AC5E
 57EAD2
-58081A
-# discover_benefactor_targets.py: object struct chain bodies (Pattern A)
-577200
-578000
-578018
-578080
-57D3A2
-57F52A
-57FF00
-57FF10
-57FFAE
-580000
-580002
-58000C
-580016
-580018
-58001C
-580024
-580030
-580038
-58003E
-580050
-580054
-580058
-580060
-580070
-580080
-5800B0
-5800B4
-5800B8
-5800BC
-5800E0
-5800F0
-5800F8
-580150
-580168
-58018C
-580240
-5802B8
-580734
-581078
-581CAA
-583F18
-583FE8
-58E504
-58E554
-590000
-590004
-590006
-590018
-5900A0
-590184
-5902B0
-59103C
-59143C
-59161C
-591A3C
-591E1C
-59201C
-598000
+# 6ea2337's Pattern A+I bulk seeds were reverted: most pointed at
+# zero-filled regions ($577xxx/$580xxx/$590xxx) which the recompiler then
+# generated as ori.b-on-zeros NOP slides. When the gameplay state machine
+# happened to jmp to one (notably $58081A), control ran through the bogus
+# function and corrupted state — most visibly a hang in $57DA40's BBUSY
+# wait with a6 not pointing at $DFF000. Use rt-miss + native overrides
+# to drive new entries instead of static scans of data regions.
 59AC64
-59C006
-59C01A
 59E646
-58081A
+58E504
