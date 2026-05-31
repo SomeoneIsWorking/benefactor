@@ -415,6 +415,11 @@ int main(int argc, char **argv)
             pc_debug_game_over();
             printf("[crepl] forced PC game-over flag\n");
         }
+        else if (!strcmp(cmd, "pause")) {  /* toggle in-game pause-menu overlay */
+            extern void pc_pause_toggle(void);
+            pc_pause_toggle();
+            printf("[crepl] toggled pause-menu overlay\n");
+        }
         else if (!strcmp(cmd, "joy")) {   /* joy <up> <down> <left> <right> (held until changed) */
             ju = jd = jl = jr = 0;
             sscanf(line, "%*s %d %d %d %d", &ju, &jd, &jl, &jr);

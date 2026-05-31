@@ -4,9 +4,25 @@ A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosi
 
 <p align="center">
   <img src="screenshots/cavern.png" alt="Level 1: the player, a boulder and a rescued merry man" width="320" />
+  <img src="screenshots/gameplay-egypt.png" alt="Tombs of Egypt gameplay" width="320" />
+  <img src="screenshots/gameplay-treetop.png" alt="Treetop Rescue gameplay" width="320" />
+  <img src="screenshots/gameplay-stones-and-bones.png" alt="Stones and Bones gameplay" width="320" />
+  <img src="screenshots/gameplay-techno.png" alt="Techno Treat gameplay" width="320" />
   <img src="screenshots/level-complete.png" alt="Level Complete banner with the level password" width="320" />
-  <img src="screenshots/level-2.png" alt="Level 2: different cavern layout after the win transition" width="320" />
-  <img src="screenshots/game-over.png" alt="Continue / Game Over menu" width="320" />
+</p>
+
+<p align="center">
+  <img src="screenshots/title-card-egypt.png" alt="Tombs of Egypt title card" width="240" />
+  <img src="screenshots/title-card-treetop.png" alt="Treetop Rescue title card" width="240" />
+  <img src="screenshots/title-card-stones-and-bones.png" alt="Stones and Bones title card" width="240" />
+  <img src="screenshots/title-card-winterland.png" alt="Merry Winterland title card" width="240" />
+  <img src="screenshots/title-card-techno.png" alt="Techno Treat title card" width="240" />
+  <img src="screenshots/game-over.png" alt="Continue / Game Over menu" width="240" />
+</p>
+
+<p align="center">
+  <img src="screenshots/level-select.png" alt="Main-menu LEVEL SELECT panel" width="320" />
+  <img src="screenshots/pause-menu.png" alt="In-game ESC pause menu" width="320" />
 </p>
 
 The repository does **not** include the original game disks, the Kickstart ROM, or the WHDLoad install file — they're copyrighted. You must supply your own copies.
@@ -148,9 +164,12 @@ These wrap the binary, not the game logic:
 - **Headless mode** — `--headless` runs the standalone with no SDL window (used by automation).
 - **Comparison harness** — `run_harness_interactive.sh` boots both PUAE and the PC port side-by-side with a REPL for stepping, dumping framebuffers, watching chip-RAM reads/writes, finding writers/readers of any address.
 
-## Considered (not implemented)
+## TODO
 
-- **Save slots with screenshots.** A proper Save Game / Load Game UI built on top of the existing savestate format — multiple named slots, each with a thumbnail of the framebuffer captured at save time, dates. Replaces the all-purpose `logs/savestate.bin` with a real UX.
+- **Controller support.** Gamepad input (SDL2 `GameController`) — currently keyboard-only.
+- **Progress-aware LEVEL SELECT.** Track which levels the player has completed; undiscovered levels appear as `??????` and undiscovered worlds can't be navigated to.
+- **Save slots with screenshots** *(maybe)*. A proper Save / Load UI on top of the existing savestate format — multiple named slots, each with a framebuffer thumbnail and timestamp. Replaces the all-purpose `logs/savestate.bin` with a real UX.
+- **Rewind** *(cheat)*. Ring-buffer of recent savestates with a hold-to-rewind hotkey.
 
 ## Layout
 
@@ -166,3 +185,18 @@ These wrap the binary, not the game logic:
 | `instructions/gameplay-engine-map.md` | Working RE map of the gameplay engine |
 
 See `CLAUDE.md` and `AGENTS.md` for the development workflow.
+
+## Credits
+
+The original game, *Benefactor* (1994), was developed by **Digital Illusions** and published by **Psygnosis Ltd.** This project is an unofficial reverse-engineering / native port. No original game assets are distributed here — you must supply your own disk images.
+
+Third-party code used by this port and its development harness:
+
+| Project | Used as | License | Upstream |
+|---------|---------|---------|----------|
+| **libretro-uae / PUAE** | Reference Amiga emulator linked into the comparison harness (development only — the runtime PC port does not use it) | GPLv2 | <https://github.com/libretro/libretro-uae> |
+| **SDL2** | Window, input, audio output | zlib | <https://www.libsdl.org/> |
+| **Capstone** (Python bindings) | M68K disassembly inside the recompiler (`tools/recomp/`) | BSD-3-Clause | <https://www.capstone-engine.org/> |
+| **WHDLoad / `Benefactor.slave`** | Loads the original binary inside PUAE for the comparison harness (development only) | WHDLoad license | <https://www.whdload.de/> |
+
+Thanks to the authors of each of the above — and to the broader Amiga / libretro communities for keeping the platform's tooling alive thirty years on.
