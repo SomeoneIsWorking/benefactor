@@ -295,8 +295,23 @@ void hw_handle_key(int sym, int down)
     switch (sym) {
     case SDLK_UP:    s_joy_up    = down; break;
     case SDLK_DOWN:  s_joy_down  = down; break;
-    case SDLK_LEFT:  s_joy_left  = down; break;
-    case SDLK_RIGHT: s_joy_right = down; break;
+    case SDLK_LEFT:
+    case SDLK_RIGHT: {
+        /* When the title menu's LEVEL SELECT panel is open, ←/→ cycle the
+         * chosen start level. Don't deliver them as joystick — the title
+         * menu reads vertical-only and gameplay isn't running at this point.
+         * Outside the panel, fall through to normal joystick behaviour. */
+        extern int g_level_select_visible;
+        if (down && g_level_select_visible) {
+            extern void pc_set_start_level(int);
+            extern int  pc_get_start_level(void);
+            pc_set_start_level(pc_get_start_level() + (sym == SDLK_RIGHT ? +1 : -1));
+            break;
+        }
+        if (sym == SDLK_LEFT)  s_joy_left  = down;
+        else                   s_joy_right = down;
+        break;
+    }
     case SDLK_z:
     case SDLK_LCTRL:
     case SDLK_SPACE:
@@ -311,21 +326,6 @@ void hw_handle_key(int sym, int down)
         break;
     case SDLK_TAB: /* cycle real-time speed 1x -> 2x -> 4x */
         if (down) hw_cycle_speed();
-        break;
-    case SDLK_F1: /* toggle level-select overlay */
-        if (down) { extern int g_level_select_visible; g_level_select_visible = !g_level_select_visible; }
-        break;
-    case SDLK_F2: /* level-select: next start level (write $20.w) */
-        if (down) { extern void pc_set_start_level(int); extern int pc_get_start_level(void);
-                    extern int g_level_select_visible;
-                    pc_set_start_level(pc_get_start_level() + 1);
-                    g_level_select_visible = 1; }
-        break;
-    case SDLK_F3: /* level-select: previous start level */
-        if (down) { extern void pc_set_start_level(int); extern int pc_get_start_level(void);
-                    extern int g_level_select_visible;
-                    pc_set_start_level(pc_get_start_level() - 1);
-                    g_level_select_visible = 1; }
         break;
     case SDLK_s: /* save: defer to main-stack boundary (we're inside the
                   * coroutine here when invoked from hw_present_frame, so
