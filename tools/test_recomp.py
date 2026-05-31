@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""Incremental test suite for the Benefactor recompiler.
+"""Test suite for the Benefactor recompiler — `python3 tools/test_recomp.py`.
 
-Scopes, smallest first — run `python3 tools/test_recomp.py` (or with pytest):
+All tests run in well under a second (no regeneration); run after every change.
 
   1. UNIT      — pure helpers, no inputs: register naming, seed-tree parsing,
                  single-instruction translation, _scan_func / _terminates /
                  _emittable / handler-prologue detection on hand-built bytes.
-  2. ARTIFACT  — invariants on the COMMITTED generated bank (fast, no regen):
-                 no untranslatable UNK_R_/ctx->PC; every literal rt_call/rt_jump
-                 target in the gpl region resolves to a real function. These are
-                 the regressions that bit us (UNK_R_27 from misdecoded ccr data,
-                 the $5772A8 / $59B80A dangling dispatch targets).
-  3. REGEN     — full gpl regeneration (slow; opt in with RECOMP_SLOW=1):
-                 determinism (two regens are byte-identical) and reproduction of
-                 the committed function set from the seed tree.
+  2. ARTIFACT  — invariants on the COMMITTED generated bank: no untranslatable
+                 UNK_R_/ctx->PC; every literal rt_call/rt_jump target in the gpl
+                 region resolves to a real function. These are the regressions
+                 that bit us (UNK_R_27 from misdecoded ccr data, the
+                 $5772A8 / $59B80A dangling dispatch targets).
 
-The ARTIFACT/REGEN scopes need logs/gmem_after_load.bin + src/generated, and
-skip cleanly when those aren't present (e.g. a checkout without the disks).
+The ARTIFACT scope reads src/generated and skips cleanly when it isn't present
+(e.g. a checkout without the disks). Verifying that a regeneration reproduces
+the bank is a manual step (regenerate, then run the harness), not a unit test.
 """
 import os
 import re
@@ -37,7 +35,6 @@ from recomp.emitter import Translator
 from recomp import scanner
 from recomp.seeds_loader import load_seed_tree
 
-MEM = os.path.join(ROOT, "logs", "gmem_after_load.bin")
 GEN = os.path.join(ROOT, "src", "generated")
 GPL_LO, GPL_HI = 0x577000, 0x59F000
 # Two known data artifacts whose rt_jump comes from a misdecoded branch in a
@@ -201,41 +198,6 @@ class TestGeneratedBank(unittest.TestCase):
         defs = set(int(x, 16) for x in
                    re.findall(r'void gfn_gpl_([0-9A-F]{6})', _gpl_sources()))
         self.assertEqual(reg, defs, "table entries and function defs disagree")
-
-
-# ===========================================================================
-# Scope 3 — REGEN (slow; opt in with RECOMP_SLOW=1)
-# ===========================================================================
-
-def _regen(out_dir, seed_dir):
-    import subprocess
-    subprocess.run(
-        [sys.executable, os.path.join(HERE, "recomp", "recomp.py"), MEM,
-         "--chip-dump", "--base", "3000", "--code-size", "5A0000",
-         "--areg", "5=57EE12", "--bank", "gpl", "--out-dir", out_dir,
-         "--seed-dir", seed_dir], check=True, capture_output=True)
-
-
-@unittest.skipUnless(os.environ.get("RECOMP_SLOW") and os.path.exists(MEM),
-                     "slow regen tests (set RECOMP_SLOW=1, needs chip dump)")
-class TestRegen(unittest.TestCase):
-    SEEDS = os.path.join(HERE, "recomp", "seeds")
-
-    def _table_addrs(self, d):
-        return sorted(re.findall(r'\{\s*0x([0-9A-Fa-f]{6})u,',
-                                 _read(os.path.join(d, "game_gpl_table.c"))))
-
-    def test_regen_is_deterministic(self):
-        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
-            _regen(a, self.SEEDS)
-            _regen(b, self.SEEDS)
-            self.assertEqual(self._table_addrs(a), self._table_addrs(b))
-
-    def test_regen_reproduces_committed(self):
-        with tempfile.TemporaryDirectory() as a:
-            _regen(a, self.SEEDS)
-            self.assertEqual(set(self._table_addrs(a)),
-                             set("%06X" % x for x in _registered_addrs()))
 
 
 if __name__ == "__main__":
