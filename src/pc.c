@@ -499,6 +499,8 @@ int pc_step(void)
         return 0;
     }
 
+    extern void pc_intro_skip_tick_internal(void);
+    pc_intro_skip_tick_internal();     /* hold fire to skip intro after cold-restart */
     hw_watchdog_arm("PC", 2);          /* catch an infinite loop in one frame */
     int r = pc_step_coro();            /* disk-boot: run the game's own flow */
     hw_watchdog_disarm();
@@ -732,12 +734,21 @@ int pc_init_from_disk(const char **disks, int n_disks)
     return 0;
 }
 
+/* Intro-skip state — set by pc_request_cold_restart, ticked by pc_step.
+ * While active, programmatically holds fire so the engine auto-advances
+ * crawl → logos → car → poster → main-menu. Released the moment cop1lc
+ * lands on the main-menu copper list ($008302). MAX_FRAMES is a safety
+ * cap (the natural intro takes ~3000 frames; under fire-hold-skip it's
+ * usually a few hundred). */
+static int s_intro_skip_frames_left = 0;
+#define INTRO_SKIP_MAX_FRAMES 6000
+
 /* "Exit to main menu" from the pause menu — soft-reset the coroutine back to
  * cold boot. Clears all g_state (bank flags, register file, ucontext, shadow
  * regs, audio channels), re-decrunches the boot loader at $3000 in case an
  * overlay-load (d0=0/2/3) overwrote it, and re-installs game_coro_entry on
- * the coroutine. The next swapcontext from pc_step_coro runs the whole intro/
- * title/menu chain again, landing at the poster/main-menu screen. */
+ * the coroutine. After the reset, hold fire so the engine skips through
+ * intro/logos/car/poster and lands at the main menu, then release fire. */
 void pc_request_cold_restart(void)
 {
     extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
@@ -751,7 +762,36 @@ void pc_request_cold_restart(void)
     s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
     s_game_uc.uc_link          = &s_main_uc;
     makecontext(&s_game_uc, game_coro_entry, 0);
-    fprintf(stderr, "[pc] cold-restart: coroutine reset to $3000\n");
+    s_intro_skip_frames_left = INTRO_SKIP_MAX_FRAMES;
+    fprintf(stderr, "[pc] cold-restart: coroutine reset to $3000;"
+            " holding fire to skip intro to main menu\n");
+}
+
+/* Called from pc_step before swapping into the coroutine. While the skip is
+ * pending, force fire ON so the engine zooms through intro screens, then
+ * release fire as soon as we reach the main menu (cop1lc=$008302). */
+void pc_intro_skip_tick_internal(void)
+{
+    if (s_intro_skip_frames_left <= 0) return;
+    uint32_t cop = hw_get_cop1lc();
+    if (cop == 0x008302u) {
+        /* Reached the main menu — release fire and stop skipping. */
+        hw_set_fire(0);
+        hw_set_mouse_lmb(0);
+        s_intro_skip_frames_left = 0;
+        fprintf(stderr, "[pc] intro-skip complete: main menu (cop1lc=$008302)\n");
+        return;
+    }
+    hw_set_fire(1);
+    hw_set_mouse_lmb(1);
+    if (--s_intro_skip_frames_left == 0) {
+        /* Timed out — give up holding fire and let whatever screen we're
+         * on stay; user can navigate from there. */
+        hw_set_fire(0);
+        hw_set_mouse_lmb(0);
+        fprintf(stderr, "[pc] intro-skip timed out at cop1lc=$%06X — releasing fire\n",
+                (unsigned)cop);
+    }
 }
 
 /* Direct-to-gameplay entry. Skips intro/title/menu entirely: the gameplay
