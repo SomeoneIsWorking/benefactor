@@ -269,6 +269,14 @@ void hw_handle_key(int sym, int down)
         extern void pc_pause_input_select(void);
         if (sym == SDLK_ESCAPE) {
             if (down) {
+                /* Title-menu level-select panel: ESC dismisses it without
+                 * starting a level. Takes priority over the pause + quit
+                 * paths because we're on the title screen, not in-game. */
+                extern int g_level_select_visible;
+                if (g_level_select_visible) {
+                    g_level_select_visible = 0;
+                    return;
+                }
                 if (pc_pause_active() || g_gameplay_active) {
                     pc_pause_toggle();
                     return;
@@ -293,23 +301,37 @@ void hw_handle_key(int sym, int down)
     }
 
     switch (sym) {
-    case SDLK_UP:    s_joy_up    = down; break;
-    case SDLK_DOWN:  s_joy_down  = down; break;
+    case SDLK_UP:
+    case SDLK_DOWN:
     case SDLK_LEFT:
     case SDLK_RIGHT: {
-        /* When the title menu's LEVEL SELECT panel is open, ←/→ cycle the
-         * chosen start level. Don't deliver them as joystick — the title
-         * menu reads vertical-only and gameplay isn't running at this point.
-         * Outside the panel, fall through to normal joystick behaviour. */
+        /* When the title menu's LEVEL SELECT panel is open, the arrows
+         * navigate the panel (↑/↓ = ±1 level, ←/→ = jump by world).
+         * Otherwise they fall through to normal joystick / menu nav. */
         extern int g_level_select_visible;
         if (down && g_level_select_visible) {
             extern void pc_set_start_level(int);
             extern int  pc_get_start_level(void);
-            pc_set_start_level(pc_get_start_level() + (sym == SDLK_RIGHT ? +1 : -1));
+            extern void pc_level_split(int level, int *world, int *liw);
+            int cur = pc_get_start_level();
+            if (cur < 1) cur = 1;
+            static const int wstart[7] = { 0, 9, 18, 28, 38, 48, 58 };
+            int w, liw; pc_level_split(cur, &w, &liw);
+            if (w < 0 || w > 6) w = 0;
+            switch (sym) {
+                case SDLK_UP:    pc_set_start_level(cur - 1); break;
+                case SDLK_DOWN:  pc_set_start_level(cur + 1); break;
+                case SDLK_LEFT:  pc_set_start_level(w > 0 ? wstart[w - 1] + 1 : 1); break;
+                case SDLK_RIGHT: pc_set_start_level(w < 6 ? wstart[w + 1] + 1 : 59); break;
+            }
             break;
         }
-        if (sym == SDLK_LEFT)  s_joy_left  = down;
-        else                   s_joy_right = down;
+        switch (sym) {
+            case SDLK_UP:    s_joy_up    = down; break;
+            case SDLK_DOWN:  s_joy_down  = down; break;
+            case SDLK_LEFT:  s_joy_left  = down; break;
+            case SDLK_RIGHT: s_joy_right = down; break;
+        }
         break;
     }
     case SDLK_z:

@@ -113,6 +113,14 @@ These banks are mechanical translations of the original code. They run unchanged
 
 See `instructions/gameplay-engine-map.md` for the working RE map of the gameplay engine — subsystem labels are best-guesses from first-instruction patterns, refined as native ports replace them.
 
+## Modifications to the original game
+
+These change *how* the game runs, but the player still does the same things — they're not new features.
+
+- **Instant disk load.** The original game's disk reader emulates raw MFM track decoding through Paula DMA — on Amiga hardware that takes real time, on PUAE it's still ~5 s of "ACCESSING!" between screens because the emulator faithfully reproduces the timing. Here `disk_boot_load` reads straight from the `.adf` image and `atn_decrunch` runs in C, so the access screen flashes by in a frame.
+- **Instant boot.** Same idea applied to launch — the recompiled cold-start does the disk decrunch synchronously from `.adf`, then drops the coroutine into the engine. No floppy-seek latency, no boot ROM, no Workbench. From shell to title screen is one frame.
+- **Synchronous blitter.** `hw_blitter.c` completes each blit fully on `BLTSIZE` write rather than scheduling it across cycles. Effectively zero wait at `btst #6, $DFF002` (`BBUSY`). The game's wait-for-blitter loops still spin once (we report BBUSY=0 immediately), so semantics are unchanged.
+
 ## Additions to the game itself
 
 These change what the player can do — features that didn't exist in the 1994 release.
