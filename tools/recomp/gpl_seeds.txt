@@ -726,3 +726,32 @@
 59AC64
 59E646
 58E504
+
+# ── Non-movem object-handler dispatch targets (game-specific) ────────────────
+# These are reached via the $57D3EC/$58C64E `jmp (a1,d0.w)` object dispatchers
+# (and one direct `jsr $586940` from $592DA0). They don't begin with the
+# canonical `movem (a0),...` prologue, so discover_object_handlers misses them,
+# and each is absorbed into a neighbouring function's body so gap-fill won't
+# split it either. Pinning them as entries registers them at their exact start
+# (table_search needs an exact match). Found via the level-entry sweep:
+58865C   # $57D3EC dispatch target (btst start) — levels 44/45/46
+586E40   # $57D3EC dispatch target (tst start)  — level 56
+586940   # jsr target from $592DA0               — level 48
+58C5DA   # $58C64E dispatch target               — level 19
+
+# ── Literal jump/call targets the linear decode mis-aligns (game-specific) ────
+# These appear as `rt_jump/rt_call(ctx, 0xADDR)` in the generated bank but ADDR
+# isn't a registered function: the original code branches here, but ADDR falls
+# mid-instruction in the linear decode of its containing function (embedded
+# jump-offset/data tables shift alignment), so it's neither a clean terminator
+# block (discover/gap-fill skip it) nor an aligned label (emitter emits a
+# cross-fn rt_jump). Pinning forces a correctly-aligned decode at ADDR.
+# Enumerate candidates with: python3 tools/recomp/check_unregistered_targets.py
+# Seed ONLY those that decode to clean emittable code — exclude artifacts whose
+# rt_jump comes from a misdecoded branch in a never-executed data region (they
+# reference PC-rel-with-index or contain raw data bytes and won't compile):
+#   $57746C  btst.l d4,$..(pc,a6*8)        — PC-rel-index artifact
+#   $59E9B6  movem with embedded data bytes — skipdata artifact
+# $5772A8 is a confirmed runtime miss (beam-compare reached from the $5771FE
+# main loop via the vblank/IRQ path); the rest are clean-code, dead-if-unreached.
+5772A8 577680 59E910 59EE14

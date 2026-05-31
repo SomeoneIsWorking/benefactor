@@ -147,13 +147,23 @@ def _scan_func(data, base, start, md, known_entries=None):
 # Public API
 # ---------------------------------------------------------------------------
 
-def collect_functions(data, base, entries, md, areg_bases=None, bank=None):
+def collect_functions(data, base, entries, md, areg_bases=None, bank=None,
+                      gapfill=None):
     """Collect all reachable functions starting from the given entry points.
 
     `areg_bases` optionally maps a capstone address-register id (e.g.
     M68K_REG_A5 == 14) to a known constant base value.  The gameplay overlay
     calls functions as `jsr $d(a5)` with a5 a fixed code-base pointer; resolving
     those against the known base lets the scanner discover the whole call graph.
+
+    `gapfill`, if given as an (lo, hi) absolute-address range, runs a final
+    pass that recovers EVERY validated-code block in [lo, hi) not already
+    covered by a discovered function. The gameplay engine reaches per-object
+    handlers through runtime-built pointer chains ($57D3EC: jmp (a1,d0.w)) that
+    static descent cannot follow, so those handlers sit in the gaps between
+    reachable functions. Emitting all gap code (a superset — unreachable data
+    won't validate) makes the dispatcher complete regardless of which gameplay
+    path eventually jumps there, so coverage no longer depends on play-testing.
 
     Returns a dict mapping start_addr → list[insn].
     """
@@ -279,4 +289,130 @@ def collect_functions(data, base, entries, md, areg_bases=None, bank=None):
             funcs[t] = sub_insns
             changed = True
 
+    # Phase 3 (GAP-FILL): recover every validated-code block in `gapfill` that
+    # no discovered function covers. See the docstring — this is what makes the
+    # object-handler dispatch ($57D3EC) complete without play-testing.
+    if gapfill:
+        lo, hi = gapfill
+        covered = sorted((s, e) for s, e in ranges)
+
+        def next_covered_start(a):
+            """Lowest range start strictly greater than a, or hi."""
+            best = hi
+            for s, e in covered:
+                if s > a and s < best:
+                    best = s
+            return best
+
+        def covers(a):
+            return any(s <= a < e for s, e in covered)
+
+        a = lo
+        # Word-aligned walk; greedily emit code, skip data (won't validate).
+        while a < hi:
+            if covers(a):
+                a = max((e for s, e in covered if s <= a < e), default=a + 2)
+                continue
+            # `a` is in a gap. Try to decode a function here.
+            sub_insns, sub_end = _scan_func(data, base, a, md,
+                                            known_entries=user_entries)
+            # Accept only if it disassembled into a real, rts/jmp-terminated
+            # block that stays inside the gap (doesn't run into known code or
+            # past hi). A bogus (data) start yields a tiny or invalid block.
+            gap_end = next_covered_start(a)
+            valid = (sub_insns and sub_end <= gap_end and sub_end <= hi
+                     and _terminates(sub_insns) and _emittable(sub_insns))
+            if valid:
+                ranges.append((a, sub_end))
+                covered.append((a, sub_end))
+                funcs[a] = sub_insns
+                a = sub_end
+            else:
+                a += 2
+
     return funcs
+
+
+def _terminates(insns):
+    """True if the block ends in a real control-flow terminator (rts/rte/rtr or
+    an unconditional non-register jmp/bra). Guards gap-fill against accepting a
+    run of data bytes that merely happened to disassemble without faulting."""
+    if not insns:
+        return False
+    last = insns[-1]
+    m = last.mnemonic.lower().split('.')[0]
+    if m in ('rts', 'rte', 'rtr'):
+        return True
+    if m in ('jmp', 'bra'):
+        try:
+            return not any(o.type == M68K_OP_REG for o in last.operands)
+        except Exception:
+            return False
+    return False
+
+
+# Registers the emitter can name (see helpers.reg_name): the integer file plus
+# PC/SR. Anything else — CCR, FP0-7, USP, SFC/DFC and the other control
+# registers — only appears when gap-fill misdecodes a data table (e.g. the
+# $003C `ori.b #x,ccr` alignment/padding word) as code, and would emit an
+# undefined `ctx->UNK_R_*` field that won't compile. Real integer handler code
+# in this bank never references them, so such a block is data, not a handler.
+_EMITTABLE_REGS = frozenset(
+    [M68K_REG_PC, M68K_REG_SR]
+    + [globals()[f'M68K_REG_D{i}'] for i in range(8)]
+    + [globals()[f'M68K_REG_A{i}'] for i in range(8)]
+)
+
+
+def _emittable(insns):
+    """True if every register operand in the block maps to a real emitter
+    field. Guards gap-fill against accepting misdecoded data that happens to
+    terminate cleanly but references a register the translator can't name."""
+    for insn in insns:
+        try:
+            ops = insn.operands
+        except Exception:
+            continue
+        for op in ops:
+            if op.type == M68K_OP_REG:
+                if op.reg not in _EMITTABLE_REGS:
+                    return False
+            elif op.type == M68K_OP_MEM:
+                for r in (mem_base(op), mem_index(op)):
+                    if r not in (None, M68K_REG_INVALID) and r not in _EMITTABLE_REGS:
+                        return False
+    return True
+
+
+# Object-handler prologue opcodes: mem-to-reg `movem.w/.l (a0)|(a0)+|d(a0),
+# <regs>`. A0 is the per-object state pointer, so this is the canonical first
+# instruction of a $57D3EC dispatch handler.
+_HANDLER_PROLOGUES = frozenset((0x4C90, 0x4C98, 0x4CA8,    # .w (a0)/(a0)+/d(a0)
+                                0x4CD0, 0x4CD8, 0x4CE8))   # .l (a0)/(a0)+/d(a0)
+
+
+def discover_object_handlers(data, base, md, scan_lo, scan_hi):
+    """Return absolute addresses in [scan_lo, scan_hi) that begin a per-object
+    handler. The $57D3EC dispatcher computes handler addresses from runtime
+    object data (`jmp (a1,d0.w)`), so static descent never reaches them — and
+    `table_search` resolves a runtime jump by EXACT address, so each handler
+    must be registered at its true start. Gap-fill alone can merge a handler
+    into a preceding fall-through block (then its exact address isn't a table
+    entry and the dispatch misses); pinning the prologue addresses as their own
+    entries guarantees the boundary. Almost every handler opens with
+    `movem (a0)..., <regs>`; keep candidates that disassemble to a clean,
+    rts-terminated, emittable block."""
+    found = set()
+    a = scan_lo
+    while a < scan_hi:
+        off = a - base
+        if off < 0 or off + 2 > len(data):
+            break
+        word = (data[off] << 8) | data[off + 1]
+        if word in _HANDLER_PROLOGUES:
+            insns, _end = _scan_func(data, base, a, md, known_entries=set())
+            if (insns and insns[0].mnemonic.lower().startswith('movem')
+                    and _terminates(insns) and _emittable(insns)):
+                found.add(a)
+        a += 2
+    return found
