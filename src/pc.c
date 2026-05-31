@@ -768,18 +768,22 @@ void pc_request_cold_restart(void)
 }
 
 /* Called from pc_step before swapping into the coroutine. While the skip is
- * pending, force fire ON so the engine zooms through intro screens, then
- * release fire as soon as we reach the main menu (cop1lc=$008302). */
+ * pending, force fire ON so the engine zooms through intro screens (crawl
+ * → logos → car), then release fire as soon as cop1lc reaches the poster
+ * ($0081D2). The poster is attract-mode and only advances on a fire EDGE,
+ * so as long as we release fire on the frame we detect $0081D2 the engine
+ * stays on the poster — the player presses fire themselves to enter the
+ * main menu, exactly as in a fresh boot. */
 void pc_intro_skip_tick_internal(void)
 {
     if (s_intro_skip_frames_left <= 0) return;
     uint32_t cop = hw_get_cop1lc();
-    if (cop == 0x008302u) {
-        /* Reached the main menu — release fire and stop skipping. */
+    if (cop == 0x0081D2u) {
+        /* Reached the poster — release fire and stop skipping. */
         hw_set_fire(0);
         hw_set_mouse_lmb(0);
         s_intro_skip_frames_left = 0;
-        fprintf(stderr, "[pc] intro-skip complete: main menu (cop1lc=$008302)\n");
+        fprintf(stderr, "[pc] intro-skip complete: poster (cop1lc=$0081D2)\n");
         return;
     }
     hw_set_fire(1);
