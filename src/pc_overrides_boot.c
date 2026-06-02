@@ -59,22 +59,38 @@ static void anim_step_colors(uint32_t src, uint32_t dst, int16_t stride, int16_t
  * Colors accumulate in the copper list across passes — do NOT restore them in
  * native_rebuild_copper_static().
  * ───────────────────────────────────────────────────────────────────────────── */
+/* CPS-resumable: the per-pass vblank wait yields one frame via the continuation
+ * stack (this override pushes ITSELF and returns; rt_cont_run re-invokes it next
+ * frame, resuming from the static loop state). A native loop on hw_vblank_wait()
+ * can't yield under the coroutine-free model — it would skip the fade. */
+static int      s_ba_active = 0;
+static uint16_t s_ba_outer, s_ba_delay, s_ba_pass, s_ba_wait;
+static uint32_t s_ba_a4;                 /* table+2 (delay word); first entry at +2 */
+
 void native_boot_anim_iterator(M68KCtx *ctx)
 {
-    uint32_t a4 = ctx->A[4];
+    if (!s_ba_active) {
+        uint32_t a4 = ctx->A[4];
+        s_ba_outer = r16(a4); a4 += 2;   /* a4 -> delay word */
+        if (s_ba_outer > 256) s_ba_outer = 256;
+        w16(ctx->A[5] + 0x2216u, s_ba_outer);
+        s_ba_delay = r16(a4);            /* per-pass vblank delay (constant) */
+        s_ba_a4    = a4;
+        s_ba_pass = s_ba_wait = 0;
+        s_ba_active = 1;
+    }
 
-    uint16_t outer = r16(a4); a4 += 2;   /* a4 -> delay word */
-    if (outer > 256) outer = 256;        /* guard against bad table data */
-    w16(ctx->A[5] + 0x2216u, outer);
-
-    uint16_t delay = r16(a4);            /* per-pass vblank delay (constant) */
-
-    for (uint16_t pass = 0; pass < outer; pass++) {
+    while (s_ba_pass < s_ba_outer) {
         /* $74B2-$74C2: wait (delay+1) vblank frames before stepping the palette. */
-        for (uint16_t w = 0; w <= delay; w++)
-            hw_vblank_wait();
+        if (s_ba_wait <= s_ba_delay) {
+            s_ba_wait++;
+            rt_cont_push(native_boot_anim_iterator, 0);  /* resume here next frame */
+            g_rt.yield = 1;
+            return;
+        }
+        s_ba_wait = 0;
 
-        uint32_t a3 = a4 + 2;            /* skip delay word -> first entry */
+        uint32_t a3 = s_ba_a4 + 2;        /* skip delay word -> first entry */
         for (int guard = 0; guard < 500; guard++) {
             uint32_t src    = r32(a3); a3 += 4;
             uint32_t dst    = r32(a3); a3 += 4;
@@ -83,9 +99,11 @@ void native_boot_anim_iterator(M68KCtx *ctx)
             anim_step_colors(src, dst, stride, count);
             if (r32(a3) == 0) break;     /* longword 0 = end of entry list */
         }
+        s_ba_pass++;
     }
 
-    ctx->A[4] = a4;                      /* matches $74AA: a4 past outer_count */
+    ctx->A[4]   = s_ba_a4;               /* matches $74AA: a4 past outer_count */
+    s_ba_active = 0;
 }
 
 /* Native replacement for $6D714 — the runtime disk-overlay loader.

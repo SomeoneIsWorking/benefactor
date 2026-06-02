@@ -1021,7 +1021,7 @@ def emit_func(c, addr, insns, translator, cname=None):
     """
     name = cname(addr) if cname else get_fn_name(addr)
 
-    # CPS (coroutine-free) transform: when RECOMP_CPS is set, a frame wait and
+    # CPS (coroutine-free) transform — the ONLY codegen path: a frame wait and
     # every rt_call become yield/resume points. A wait pushes a continuation
     # (this fn + a resume label) and returns; after every rt_call we check
     # g_rt.yield (a callee may have suspended) and, if set, push our own resume
@@ -1029,7 +1029,6 @@ def emit_func(c, addr, insns, translator, cname=None):
     # re-entry the entry switch jumps straight to the resume label (the M68K
     # state lives in ctx/g_mem, so the skipped 'before' code must not re-run;
     # no C temporary is live across a wait/call boundary, so the goto is sound).
-    cps = bool(os.environ.get('RECOMP_CPS'))
 
     # Collect branch targets within this function.
     branch_targets = set()
@@ -1075,7 +1074,7 @@ def emit_func(c, addr, insns, translator, cname=None):
         if a in override:
             ob = override[a]
             if ob is not None:
-                if cps and ob == 'hw_vblank_wait();':
+                if ob == 'hw_vblank_wait();':
                     rn[0] += 1; k = rn[0]
                     w(f'  rt_cont_push(gfn_{name}, {k}); g_rt.yield = 1; return;\n')
                     w(f'L_resume_{k}: ;\n')
@@ -1098,7 +1097,7 @@ def emit_func(c, addr, insns, translator, cname=None):
             for line in text.split('\n'):
                 if not line.strip():
                     continue
-                if cps and line.strip().startswith('rt_call(ctx,'):
+                if line.strip().startswith('rt_call(ctx,'):
                     w(f'  {line}\n')
                     rn[0] += 1; k = rn[0]
                     w(f'  if (g_rt.yield) {{ rt_cont_push(gfn_{name}, {k}); return; }}\n')
@@ -1122,7 +1121,7 @@ def emit_func(c, addr, insns, translator, cname=None):
     c.write(f'void gfn_{name}(M68KCtx *ctx) {{\n')
     if not uses_ctx:
         c.write('  (void)ctx;\n')   # stub fn that never touches the M68K context
-    if cps and rn[0] > 0:
+    if rn[0] > 0:
         c.write('  int _resume = g_rt.resume; g_rt.resume = 0;\n')
         c.write('  switch (_resume) {\n')
         for k in range(1, rn[0] + 1):

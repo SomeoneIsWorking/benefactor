@@ -686,15 +686,29 @@ void rt_cont_push(GameFn fn, int resume)
 
 void rt_cont_reset(void) { g_rt.cont_sp = 0; g_rt.yield = 0; g_rt.resume = 0; }
 
+static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call);
+
 int rt_cont_run(M68KCtx *ctx)
 {
     while (g_rt.cont_sp > 0) {
         RtCont c = g_rt.cont[--g_rt.cont_sp];   /* pop the deepest suspended frame */
         g_rt.yield  = 0;
         g_rt.resume = c.resume;
+        s_rt_jump_pending = 0;
         c.fn(ctx);                              /* resume it (reads g_rt.resume at entry) */
         if (g_rt.yield) return 0;               /* it yielded again (pushed a new frame) */
-        /* returned normally → loop resumes its caller (now deepest) post-call */
+        if (s_rt_jump_pending) {
+            /* The resumed frame finished with a tail rt_jump. The M68K state
+             * machine transitions between screens by JMP ($3092 dispatch /
+             * $30C2 re-entry), which rt_call_impl trampolines — but resume
+             * bypassed it, so continue the trampoline here: run the jump target
+             * (and its chain) to its next wait. */
+            uint32_t tgt = s_rt_jump_target;
+            s_rt_jump_pending = 0;
+            rt_call_impl(ctx, tgt, 0);
+            if (g_rt.yield) return 0;
+        }
+        /* else a true rts → loop resumes its caller (now deepest) post-call */
     }
     return 1;                                   /* stack empty: suspended flow finished */
 }

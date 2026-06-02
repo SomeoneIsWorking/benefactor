@@ -69,7 +69,12 @@ static void call_fn(M68KCtx *ctx, uint32_t addr)
     uint8_t n=ctx->N,z=ctx->Z,v=ctx->V,c=ctx->C,x=ctx->X;
     for (int i=0;i<8;i++) sa[i]=ctx->A[i];
     for (int i=0;i<8;i++) sd[i]=ctx->D[i];
+    /* Isolate the game's CPS continuation: an IRQ handler runs synchronously and
+     * must not push a continuation / yield into the suspended game flow. */
+    int s_sp = g_rt.cont_sp, s_y = g_rt.yield, s_r = g_rt.resume;
+    g_rt.yield = 0;
     rt_call(ctx, addr);
+    g_rt.cont_sp = s_sp; g_rt.yield = s_y; g_rt.resume = s_r;
     for (int i=0;i<8;i++) ctx->A[i]=sa[i];
     for (int i=0;i<8;i++) ctx->D[i]=sd[i];
     ctx->N=n;ctx->Z=z;ctx->V=v;ctx->C=c;ctx->X=x;
@@ -93,7 +98,7 @@ int pc_run(void)
 }
 
 
-int pc_step_coro(void);
+int pc_step_cps(void);
 void pc_music_tick(void);
 
 /* The single per-frame advance. Runs the game's own flow for one displayed frame
@@ -499,13 +504,10 @@ int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
 int g_pc_pending_save = 0;
 int g_pc_pending_load = 0;
 
-/* ── Host-driven menu (coroutine removal, screen 1) ──────────────────────────
- * The title menu runs off the coroutine: pc_menu_host_takeover() escapes the
- * coroutine after the menu setup, and pc_step drives the menu loop directly
- * (pc_menu_loop_body, no hw_vblank_wait). On exit it rebuilds a fresh coroutine
- * for gameplay (PLAY) or attract (timeout). */
-static int s_menu_host_active = 0;    /* 1 while the menu runs host-driven */
-static int pc_menu_host_step(void);
+/* Continuation-stack flow: the entry to (re)start at, and whether it has run. */
+static uint32_t s_cps_entry   = 0x003000u;
+static int      s_cps_started = 0;
+int pc_step_cps(void);
 
 int pc_step(void)
 {
@@ -531,11 +533,8 @@ int pc_step(void)
         return 0;
     }
 
-    extern void pc_intro_skip_tick_internal(void);
-    pc_intro_skip_tick_internal();     /* hold fire to skip intro after cold-restart */
     hw_watchdog_arm("PC", 2);          /* catch an infinite loop in one frame */
-    int r = s_menu_host_active ? pc_menu_host_step()  /* menu off the coroutine */
-                               : pc_step_coro();      /* disk-boot coroutine flow */
+    int r = pc_step_cps();             /* coroutine-free: drive the continuation stack */
     hw_watchdog_disarm();
     if (g_pc_pending_save) {
         g_pc_pending_save = 0;
@@ -564,17 +563,13 @@ int pc_step(void)
     return r;
 }
 
-/* ── Native disk boot (coroutine flow) ──────────────────────────────────────
- * Boot the game from the original disk images, no snapshot: decrunch Disk.1's
- * crunched main game (ATN!) into $3000, then run the game's OWN code (the
- * recompiled / native-C-translated cold-start at $3000) on a coroutine. The
- * game drives its real flow (intro → logos → title → menu → game); each
- * hw_vblank_wait() yields back to pc_step, which renders + lets input through,
- * then resumes the game. This follows the game's intended control flow exactly.
- */
-#include <ucontext.h>
-/* s_game_uc / s_main_uc / s_game_stack / s_game_ctx / s_game_done all live on
- * g_state via game_state.h. */
+/* ── Native disk boot (coroutine-free, continuation-stack flow) ──────────────
+ * Boot from the original disk images, no snapshot: decrunch Disk.1's crunched
+ * main game (ATN!) into $3000, then run the recompiled cold-start ($3000), which
+ * is CPS-transformed — each frame wait yields via the continuation stack (g_rt)
+ * and pc_step_cps resumes it. The game drives its real flow (intro → logos →
+ * title → menu → gameplay) with no ucontext coroutine. */
+/* s_game_ctx is the M68K register file (on g_state via game_state.h). */
 
 /* Deliver the game's level-6 CIA-B timer interrupt service routines. On real
  * hardware the timer IRQ alternates two handlers on the $78 vector:
@@ -654,80 +649,6 @@ static void coro_deliver_timer_irq(void)
     }
 }
 
-/* s_coro_quit lives on g_state (see game_state.h). */
-
-static void coro_present(void)
-{
-    if (g_harness_prerender_hook) g_harness_prerender_hook();
-    if (hw_present_frame() != 0) s_coro_quit = 1;
-    if (g_harness_frame_hook) g_harness_frame_hook();
-}
-
-/* Per-frame yield (the game's vblank wait). Present HERE — before the game
- * writes this iteration's COP1LC and runs its blits — so the displayed frame
- * uses the copper list + buffer content as of the PREVIOUS iteration, exactly
- * what the Amiga copper latches at this vblank. (The PC blitter is synchronous,
- * so presenting later would show this frame's blits a frame early → judder.) */
-static void coro_yield(void)
-{
-    coro_present();
-    swapcontext(&s_game_uc, &s_main_uc);
-}
-
-/* Host-driven menu takeover. Returns 0 to run the in-coroutine menu loop; when
- * g_menu_host is on, runs the menu setup, marks the menu host-driven, and
- * escapes the coroutine (parking it — pc_step then drives via pc_menu_host_step,
- * and a fresh coroutine is built for whatever comes next). Returns 1 if it ever
- * resumes (it won't — the parked stack is abandoned and replaced by makecontext). */
-int pc_menu_host_takeover(M68KCtx *ctx)
-{
-    pc_menu_setup(ctx);                    /* $003872 display setup, once */
-    s_menu_host_active = 1;
-    swapcontext(&s_game_uc, &s_main_uc);   /* escape to host; coroutine parked */
-    return 1;
-}
-
-/* Set by the $150 overlay-loader override when the player starts the game from
- * the title; pc_step_coro restarts the coroutine into the gameplay entry. We
- * can't enter gameplay from the loader itself (it runs on the IRQ-delivery call
- * stack, not the game coroutine). */
-/* g_enter_gameplay / g_gameplay_entry live on g_state (see game_state.h).
- * Default gameplay_entry = $00003330 — set by pc_state_reset_defaults(). */
-
-static void gameplay_coro_entry(void)
-{
-    g_gameplay_active = 1;                 /* dispatch now uses the gameplay bank */
-    s_game_ctx.A[5] = 0x0057EE12u;        /* gameplay a5 code/data base */
-    s_game_ctx.A[6] = 0x00DFF000u;        /* custom-chip base for $x(a6) accesses */
-    s_game_ctx.A[7] = 0x00080000u;        /* loader resets SP to $80000 */
-    /* Loader-handoff data registers the gameplay engine inherits and never
-     * re-initialises: at $577000 entry PUAE has d5=$1000, d6=$FFFF (set by the
-     * real $150-loader path). Without these, garbage d5/d6 cascade into the
-     * $59E30E table-walk and hang. (Verified vs PUAE instruction trace.) */
-    s_game_ctx.D[5] = 0x00001000u;
-    s_game_ctx.D[6] = 0x0000FFFFu;
-    rt_call(&s_game_ctx, g_gameplay_entry);
-    { extern uint32_t rt_get_last_insn(void);
-      fprintf(stderr, "[coro] GAMEPLAY FLOW RETURNED from $3330 (last insn $%06X)\n",
-              rt_get_last_insn()); }
-    s_game_done = 1;
-    for (;;) swapcontext(&s_game_uc, &s_main_uc);
-}
-
-static void game_coro_entry(void)
-{
-    rt_call(&s_game_ctx, 0x003000u);    /* gfn_program_start — the whole game */
-    { extern uint32_t rt_get_last_insn(void);
-      fprintf(stderr, "[coro] GAME FLOW RETURNED from $3000 (last insn $%06X) — coroutine ending\n",
-              rt_get_last_insn());
-      FILE *cf = fopen("logs/coro_end.txt", "w");
-      if (cf) { extern void rt_dump_recent(FILE *);
-                fprintf(cf, "coro ended: last insn $%06X\n", rt_get_last_insn());
-                rt_dump_recent(cf); fclose(cf); } }
-    s_game_done = 1;
-    for (;;) swapcontext(&s_game_uc, &s_main_uc);   /* park if it ever returns */
-}
-
 /* Common bring-up shared between the full-boot path and the direct-to-gameplay
  * shortcut: hardware + runtime + disks + boot loader + override registration.
  * Returns 0 on success, -1 on failure. */
@@ -751,123 +672,51 @@ static int pc_common_bringup(const char **disks, int n_disks)
         return -1;
     }
     pc_register_overrides();
-    g_hw_vblank_yield  = coro_yield;
     g_hw_pc_owns_present = 1;
-    s_game_done        = 0;
-    s_coro_quit        = 0;
     { extern int g_native_render_delay; const char *e = getenv("PC_RENDER_DELAY");
       g_native_render_delay = e ? atoi(e) : 1; }  /* blitter-latency model (frames) */
     return 0;
 }
 
+/* Reset the continuation-stack flow to a fresh cold start ($3000). pc_step_cps
+ * runs $3000 on the first frame, building g_rt.cont up to the first wait. */
+static void pc_cps_reset(void)
+{
+    memset(&s_game_ctx, 0, sizeof s_game_ctx);
+    rt_cont_reset();
+    s_cps_started = 0;
+    s_cps_entry   = 0x003000u;
+}
+
+/* (Re)start the flow at an explicit entry with a given register/bank setup —
+ * used by exit-to-menu (title $3330) and direct-to-gameplay ($577000). The next
+ * pc_step_cps runs `entry` (building the continuation stack to the first wait). */
+static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay,
+                            uint32_t d5, uint32_t d6)
+{
+    memset(&s_game_ctx, 0, sizeof s_game_ctx);
+    rt_cont_reset();
+    s_cps_started = 0;
+    s_cps_entry   = entry;
+    g_overlay_active  = !gameplay;
+    g_gameplay_active = gameplay;
+    g_credits_active  = 0;
+    s_game_ctx.A[5] = a5;
+    s_game_ctx.A[6] = 0x00DFF000u;
+    s_game_ctx.A[7] = 0x00080000u;
+    s_game_ctx.D[5] = d5;
+    s_game_ctx.D[6] = d6;
+}
+
 int pc_init_from_disk(const char **disks, int n_disks)
 {
     if (pc_common_bringup(disks, n_disks) < 0) return -1;
-
-    /* Run the recompiled cold-start ($3000) on a coroutine. It drives the whole
-     * game exactly as the original: clear RAM, install vectors, then the state-
-     * machine dispatch loop ($3092) walking intro → logos → title → menu →
-     * gameplay. Each hw_vblank_wait() yields one frame back to pc_step_coro,
-     * which delivers the timer interrupt, presents, and lets input through.
-     * No state shortcuts — the game decides its own flow. */
-    memset(&s_game_ctx, 0, sizeof s_game_ctx);
-    getcontext(&s_game_uc);
-    s_game_uc.uc_stack.ss_sp   = s_game_stack;
-    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
-    s_game_uc.uc_link          = &s_main_uc;
-    makecontext(&s_game_uc, game_coro_entry, 0);
-    fprintf(stderr, "[pc] disk boot: running game flow on coroutine\n");
+    /* The CPS-transformed cold-start ($3000) drives the whole flow (intro →
+     * logos → title → menu → gameplay) via the continuation stack; each frame
+     * wait yields and pc_step_cps resumes it. No coroutine. */
+    pc_cps_reset();
+    fprintf(stderr, "[pc] disk boot: coroutine-free (continuation-stack) flow\n");
     return 0;
-}
-
-/* Coroutine entry that drops directly into the gp/title bank's attract-mode
- * entry at $003330. The gp $3330 self-initialises a5=$511E, a6=$DFF000,
- * a7=$80000, sets up the title copper ($86CC + cover-art), then calls
- * $0033E2 which is the poster/leaderboard attract loop. Same code the
- * engine reaches naturally after the intro — but we skip the intro by
- * jumping past it. */
-static void title_coro_entry(void)
-{
-    g_overlay_active  = 1;       /* gp bank holds the title-state code at $3330+ */
-    g_gameplay_active = 0;
-    g_credits_active  = 0;
-    s_game_ctx.A[5] = 0x0000511Eu;       /* gp bank a5 base */
-    s_game_ctx.A[6] = 0x00DFF000u;
-    s_game_ctx.A[7] = 0x00080000u;
-    rt_call(&s_game_ctx, 0x00003330u);
-    s_game_done = 1;
-    for (;;) swapcontext(&s_game_uc, &s_main_uc);
-}
-
-/* Build a fresh coroutine pointing at the given entry, abandoning whatever stack
- * was parked (e.g. the host-driven menu's). Shared by the gameplay/attract exits. */
-static void rebuild_coro(void (*entry)(void))
-{
-    s_game_done = 0;
-    getcontext(&s_game_uc);
-    s_game_uc.uc_stack.ss_sp   = s_game_stack;
-    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
-    s_game_uc.uc_link          = &s_main_uc;
-    makecontext(&s_game_uc, entry, 0);
-}
-
-/* Coroutine entry that runs the menu fire dispatch. The dispatch's actions call
- * blocking sub-routines (the $0045FC password->level decode, the 151-frame
- * password-incomplete flash), which need hw_vblank_wait to work — so they run
- * here on a real coroutine, NOT inline in the host step. Resolves to gameplay
- * ($150 sets g_enter_gameplay) or a menu reload ($003872, whose override re-takes
- * the menu host-driven). */
-static void menu_fire_coro_entry(void)
-{
-    switch (pc_menu_dispatch_decide(&s_game_ctx)) {
-    case PC_DISP_PLAY:
-        rt_call(&s_game_ctx, 0x150u);                  /* start the selected level */
-        break;
-    case PC_DISP_FLASH:
-        for (int i = 0; i < 0x97; i++) hw_vblank_wait();
-        pc_menu_flash_finish(&s_game_ctx);
-        rt_call(&s_game_ctx, 0x003872u);               /* reload -> re-takeover */
-        break;
-    case PC_DISP_RELOAD:
-    case PC_DISP_LOOP:
-    default:
-        rt_call(&s_game_ctx, 0x003872u);               /* reload -> re-takeover */
-        break;
-    }
-    s_game_done = 1;
-    for (;;) swapcontext(&s_game_uc, &s_main_uc);
-}
-
-/* One host-driven menu frame: present the previous frame, deliver the vblank IRQ
- * (keeps the beach-scene colour-cycle + music alive), then run one loop-body
- * iteration and act on its result. Mirrors the coroutine's per-frame order
- * (present -> IRQ -> body), but pc_step is the frame boundary, so there is NO
- * hw_vblank_wait — the IDLE menu no longer touches the coroutine. On fire it
- * hands the (blocking) dispatch back to a coroutine; on a music-countdown
- * timeout it rebuilds into the attract/poster. */
-static int pc_menu_host_step(void)
-{
-    coro_present();
-    coro_deliver_timer_irq();
-
-    int act = pc_menu_loop_body(&s_game_ctx);
-    if (act == PC_MENU_FIRE) {
-        /* Only cursor 0 (PLAY) runs the blocking $0045FC decode → hand to a
-         * coroutine. cursor 1 (ENTER PASSWORD, stay in loop) and 2 (LOAD EXTRA,
-         * reload) don't block → handle inline, preserving the cursor. */
-        uint16_t cursor = (uint16_t)rt_read16(&s_game_ctx, s_game_ctx.A[5] - 0x18beu);
-        if (cursor == 0) {
-            s_menu_host_active = 0;
-            rebuild_coro(menu_fire_coro_entry);
-        } else if (pc_menu_dispatch_decide(&s_game_ctx) == PC_DISP_RELOAD) {
-            pc_menu_setup(&s_game_ctx);     /* LOAD EXTRA → reload menu, host-driven */
-        }
-    } else if (act == PC_MENU_TIMEOUT) {
-        pc_menu_attract_preroll(&s_game_ctx);
-        s_menu_host_active = 0;
-        rebuild_coro(title_coro_entry);     /* back to attract/poster */
-    }
-    return s_coro_quit ? 1 : 0;
 }
 
 /* "Exit to main menu" from the pause menu — drop into the gp/title bank's
@@ -882,25 +731,16 @@ static int pc_menu_host_step(void)
  *      Required because if we're coming from gameplay/credits, the bytes
  *      at $3330+ have been overwritten with gameplay/credits code. Also
  *      replays the $6D714 block-copy so low-RAM engine state is fresh.
- *   3. Re-install the coroutine pointing at title_coro_entry which calls
- *      $003330. Next pc_step swap enters the poster directly. */
+ *   3. Restart the continuation-stack flow at the title attract entry $003330
+ *      (gp bank a5=$511E). Next pc_step_cps enters the poster directly. */
 void pc_request_cold_restart(void)
 {
     extern void native_overlay_load(void);
     pc_state_reset_defaults();           /* zeros g_state, resets non-zero defaults */
     native_overlay_load();               /* reload title/intro overlay + block-copy */
-    memset(&s_game_ctx, 0, sizeof s_game_ctx);
-    getcontext(&s_game_uc);
-    s_game_uc.uc_stack.ss_sp   = s_game_stack;
-    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
-    s_game_uc.uc_link          = &s_main_uc;
-    makecontext(&s_game_uc, title_coro_entry, 0);
-    fprintf(stderr, "[pc] exit-to-menu: coroutine reset to $003330 (poster)\n");
+    pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
+    fprintf(stderr, "[pc] exit-to-menu: flow restart at $003330 (poster)\n");
 }
-
-/* Stub kept so pc_step's call into pc_intro_skip_tick_internal still
- * resolves; no-op now that we enter the poster directly. */
-void pc_intro_skip_tick_internal(void) { }
 
 /* Direct-to-gameplay entry. Skips intro/title/menu entirely: the gameplay
  * overlay is loaded, $20.w is written, and the coroutine is set to enter
@@ -954,16 +794,10 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level)
     if (level > 60) level = 60;
     g_mem[0x20] = 0; g_mem[0x21] = (uint8_t)level;
 
-    /* Coroutine enters at $577000 directly. gameplay_coro_entry sets the
-     * register handoff state ($577000 still does its own a5/a7/a6 init but
-     * the d5/d6 loader-handoff values must come from us). */
+    /* Enter the gameplay engine at $577000 directly. $577000 does its own
+     * a5/a7/a6 init; the d5=$1000/d6=$FFFF loader-handoff values come from us. */
     g_gameplay_entry = 0x00577000u;
-    memset(&s_game_ctx, 0, sizeof s_game_ctx);
-    getcontext(&s_game_uc);
-    s_game_uc.uc_stack.ss_sp   = s_game_stack;
-    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
-    s_game_uc.uc_link          = &s_main_uc;
-    makecontext(&s_game_uc, gameplay_coro_entry, 0);
+    pc_cps_start_at(0x00577000u, 0x0057EE12u, /*gameplay=*/1, /*d5=*/0x1000u, /*d6=*/0xFFFFu);
 
     fprintf(stderr, "[pc] direct-to-gameplay: entering $577000 at level %d\n", level);
     return 0;
@@ -971,34 +805,28 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level)
 
 /* Advance the coroutine one frame (resume game until its next vblank yield),
  * then render. Returns 1 when the game's cold-start has returned (shouldn't). */
-int pc_step_coro(void)
+/* Coroutine-free per-frame driver. The recompiled cold-start ($3000) runs once
+ * (building the continuation stack to the first frame wait, via the CPS yield);
+ * each subsequent frame rt_cont_run() resumes the suspended flow to its next
+ * wait. The game draws, then yields at its vblank wait — present the drawn frame
+ * and deliver the vblank IRQ (same order as the old coroutine: present, IRQ,
+ * then next frame resumes). No ucontext. */
+int pc_step_cps(void)
 {
-    if (s_game_done && !g_enter_gameplay) return 1;
-    /* Run the game until its next vblank wait; the frame is presented there
-     * (coro_yield), before this iteration's blits. */
-    swapcontext(&s_main_uc, &s_game_uc);
-
-    /* The menu just escaped to the host (pc_menu_host_takeover) — its setup ran
-     * on the coroutine; the host now drives the frame, including the IRQ, so
-     * return without delivering it here (avoids a double IRQ on the entry frame). */
-    if (s_menu_host_active) return 0;
-
-    /* The title started the game: the $150 loader override loaded the gameplay
-     * overlay and set g_enter_gameplay (it may be reached from either the title
-     * main loop or its IRQ). Restart the coroutine at the gameplay entry — on
-     * the coroutine stack, so its vblank yields work. Checked BEFORE s_game_done
-     * because the loader call from the main loop unwinds the title coroutine. */
-    if (!g_enter_gameplay) {
-        if (s_game_done) return 1;
-        coro_deliver_timer_irq();   /* level-6 CIA timer ISR: music + frame counters */
+    if (!s_cps_started) {
+        s_cps_started = 1;
+        rt_call(&s_game_ctx, s_cps_entry);  /* cold start: run to the first frame wait */
+    } else {
+        rt_cont_run(&s_game_ctx);          /* resume to the next frame wait */
     }
-    if (g_enter_gameplay) {
-        g_enter_gameplay = 0;
-        rebuild_coro(gameplay_coro_entry);
-        printf("[coro] restarting coroutine into gameplay $%06X\n", g_gameplay_entry);
-        return 0;
-    }
-    return s_coro_quit ? 1 : s_game_done;
+
+    if (g_harness_prerender_hook) g_harness_prerender_hook();
+    if (hw_present_frame() != 0) return 1;
+    if (g_harness_frame_hook) g_harness_frame_hook();
+    coro_deliver_timer_irq();
+
+    /* Empty continuation stack after a resume = the flow returned from $3000. */
+    return (g_rt.cont_sp == 0) ? 1 : 0;
 }
 
 /* Savestate: snapshot the game coroutine + M68K memory to a file so a long-

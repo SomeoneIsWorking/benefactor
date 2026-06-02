@@ -44,11 +44,9 @@ void pc_register_overrides(void)
      * is supported. The fire detection itself stays in the engine — this
      * fn is only entered when the engine already decided fire was pressed
      * (see comments in pc_overrides_boot.c). */
-    /* Title main menu ($003872) runs host-driven off the coroutine (pc_menu.c).
-     * Its fire dispatch ($0039D0) is handled host-side via pc_menu_dispatch_decide,
-     * so $0039D0 needs no override (the recompiled menu loop never runs). */
-    { extern void pc_native_main_menu(M68KCtx *ctx);
-      rt_register_override(0x00003872u, pc_native_main_menu); }
+    /* The title menu runs as the CPS-transformed recompiled gfn_gp_003872 via the
+     * continuation stack — no native menu override. Its leaf helpers (glyph blit
+     * $0049B6, cursor $3C5A/$3C88) are still overridden above. */
 
     /* $003C5A / $003C6E / $003C88 / $003C9A — four arrow-direction handlers
      * in the title menu. Each is a short rts-terminated mini-routine
