@@ -499,6 +499,16 @@ int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
 int g_pc_pending_save = 0;
 int g_pc_pending_load = 0;
 
+/* ── Host-driven menu (coroutine removal, screen 1) ──────────────────────────
+ * When g_menu_host is on, the title menu runs off the coroutine: pc_menu_host_
+ * takeover() escapes the coroutine after the menu setup, and pc_step drives the
+ * menu loop directly (pc_menu_loop_body, no hw_vblank_wait). On exit it rebuilds
+ * a fresh coroutine for gameplay (PLAY) or attract (timeout). Toggle (default
+ * off) so the proven in-coroutine path stays the safe default until verified. */
+static int g_menu_host = 0;           /* PC_MENU_HOST env, default 0 */
+static int s_menu_host_active = 0;    /* 1 while the menu runs host-driven */
+static int pc_menu_host_step(void);
+
 int pc_step(void)
 {
     /* Service any deferred pause-menu action (Resume/Retry/ExitToMenu/Quit)
@@ -526,7 +536,8 @@ int pc_step(void)
     extern void pc_intro_skip_tick_internal(void);
     pc_intro_skip_tick_internal();     /* hold fire to skip intro after cold-restart */
     hw_watchdog_arm("PC", 2);          /* catch an infinite loop in one frame */
-    int r = pc_step_coro();            /* disk-boot: run the game's own flow */
+    int r = s_menu_host_active ? pc_menu_host_step()  /* menu off the coroutine */
+                               : pc_step_coro();      /* disk-boot coroutine flow */
     hw_watchdog_disarm();
     if (g_pc_pending_save) {
         g_pc_pending_save = 0;
@@ -665,15 +676,18 @@ static void coro_yield(void)
     swapcontext(&s_game_uc, &s_main_uc);
 }
 
-/* Host-driven menu takeover. Stub for now (returns 0) — keeps pc_native_main_menu
- * on the coroutine loop. The host driver (pc_step running pc_menu_setup/
- * pc_menu_loop_body with no hw_vblank_wait, escaping the coroutine here and
- * rebuilding it for gameplay/attract on exit) lands next; this declaration keeps
- * the refactor compiling and the coroutine path byte-identical meanwhile. */
+/* Host-driven menu takeover. Returns 0 to run the in-coroutine menu loop; when
+ * g_menu_host is on, runs the menu setup, marks the menu host-driven, and
+ * escapes the coroutine (parking it — pc_step then drives via pc_menu_host_step,
+ * and a fresh coroutine is built for whatever comes next). Returns 1 if it ever
+ * resumes (it won't — the parked stack is abandoned and replaced by makecontext). */
 int pc_menu_host_takeover(M68KCtx *ctx)
 {
-    (void)ctx;
-    return 0;
+    if (!g_menu_host) return 0;
+    pc_menu_setup(ctx);                    /* $003872 display setup, once */
+    s_menu_host_active = 1;
+    swapcontext(&s_game_uc, &s_main_uc);   /* escape to host; coroutine parked */
+    return 1;
 }
 
 /* Set by the $150 overlay-loader override when the player starts the game from
@@ -740,6 +754,7 @@ static int pc_common_bringup(const char **disks, int n_disks)
         return -1;
     }
     pc_register_overrides();
+    { const char *e = getenv("PC_MENU_HOST"); if (e) g_menu_host = atoi(e); }
     g_hw_vblank_yield  = coro_yield;
     g_hw_pc_owns_present = 1;
     s_game_done        = 0;
@@ -786,6 +801,69 @@ static void title_coro_entry(void)
     rt_call(&s_game_ctx, 0x00003330u);
     s_game_done = 1;
     for (;;) swapcontext(&s_game_uc, &s_main_uc);
+}
+
+/* Build a fresh coroutine pointing at the given entry, abandoning whatever stack
+ * was parked (e.g. the host-driven menu's). Shared by the gameplay/attract exits. */
+static void rebuild_coro(void (*entry)(void))
+{
+    s_game_done = 0;
+    getcontext(&s_game_uc);
+    s_game_uc.uc_stack.ss_sp   = s_game_stack;
+    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
+    s_game_uc.uc_link          = &s_main_uc;
+    makecontext(&s_game_uc, entry, 0);
+}
+
+/* Coroutine entry that runs the menu fire dispatch. The dispatch's actions call
+ * blocking sub-routines (the $0045FC password->level decode, the 151-frame
+ * password-incomplete flash), which need hw_vblank_wait to work — so they run
+ * here on a real coroutine, NOT inline in the host step. Resolves to gameplay
+ * ($150 sets g_enter_gameplay) or a menu reload ($003872, whose override re-takes
+ * the menu host-driven). */
+static void menu_fire_coro_entry(void)
+{
+    switch (pc_menu_dispatch_decide(&s_game_ctx)) {
+    case PC_DISP_PLAY:
+        rt_call(&s_game_ctx, 0x150u);                  /* start the selected level */
+        break;
+    case PC_DISP_FLASH:
+        for (int i = 0; i < 0x97; i++) hw_vblank_wait();
+        pc_menu_flash_finish(&s_game_ctx);
+        rt_call(&s_game_ctx, 0x003872u);               /* reload -> re-takeover */
+        break;
+    case PC_DISP_RELOAD:
+    case PC_DISP_LOOP:
+    default:
+        rt_call(&s_game_ctx, 0x003872u);               /* reload -> re-takeover */
+        break;
+    }
+    s_game_done = 1;
+    for (;;) swapcontext(&s_game_uc, &s_main_uc);
+}
+
+/* One host-driven menu frame: present the previous frame, deliver the vblank IRQ
+ * (keeps the beach-scene colour-cycle + music alive), then run one loop-body
+ * iteration and act on its result. Mirrors the coroutine's per-frame order
+ * (present -> IRQ -> body), but pc_step is the frame boundary, so there is NO
+ * hw_vblank_wait — the IDLE menu no longer touches the coroutine. On fire it
+ * hands the (blocking) dispatch back to a coroutine; on a music-countdown
+ * timeout it rebuilds into the attract/poster. */
+static int pc_menu_host_step(void)
+{
+    coro_present();
+    coro_deliver_timer_irq();
+
+    int act = pc_menu_loop_body(&s_game_ctx);
+    if (act == PC_MENU_FIRE) {
+        s_menu_host_active = 0;
+        rebuild_coro(menu_fire_coro_entry);
+    } else if (act == PC_MENU_TIMEOUT) {
+        pc_menu_attract_preroll(&s_game_ctx);
+        s_menu_host_active = 0;
+        rebuild_coro(title_coro_entry);     /* back to attract/poster */
+    }
+    return s_coro_quit ? 1 : 0;
 }
 
 /* "Exit to main menu" from the pause menu — drop into the gp/title bank's
@@ -896,6 +974,11 @@ int pc_step_coro(void)
      * (coro_yield), before this iteration's blits. */
     swapcontext(&s_main_uc, &s_game_uc);
 
+    /* The menu just escaped to the host (pc_menu_host_takeover) — its setup ran
+     * on the coroutine; the host now drives the frame, including the IRQ, so
+     * return without delivering it here (avoids a double IRQ on the entry frame). */
+    if (s_menu_host_active) return 0;
+
     /* The title started the game: the $150 loader override loaded the gameplay
      * overlay and set g_enter_gameplay (it may be reached from either the title
      * main loop or its IRQ). Restart the coroutine at the gameplay entry — on
@@ -907,12 +990,7 @@ int pc_step_coro(void)
     }
     if (g_enter_gameplay) {
         g_enter_gameplay = 0;
-        s_game_done = 0;
-        getcontext(&s_game_uc);
-        s_game_uc.uc_stack.ss_sp   = s_game_stack;
-        s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
-        s_game_uc.uc_link          = &s_main_uc;
-        makecontext(&s_game_uc, gameplay_coro_entry, 0);
+        rebuild_coro(gameplay_coro_entry);
         printf("[coro] restarting coroutine into gameplay $%06X\n", g_gameplay_entry);
         return 0;
     }
