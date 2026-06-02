@@ -39,6 +39,19 @@ extern uint8_t *g_chip;
 /* ── Override registration ─────────────────────────────────────────────────────── */
 void pc_register_overrides(void);
 
+/* ── Native title menu (pc_menu.c) ─────────────────────────────────────────────── */
+/* pc_menu_loop_body() return codes. */
+enum { PC_MENU_STAY = 0, PC_MENU_FIRE = 1, PC_MENU_TIMEOUT = 2 };
+void pc_menu_setup(M68KCtx *ctx);          /* $003872 display setup */
+int  pc_menu_loop_body(M68KCtx *ctx);      /* one loop iteration -> PC_MENU_* */
+void pc_menu_attract_preroll(M68KCtx *ctx);/* redraw before the attract jump */
+void pc_native_main_menu(M68KCtx *ctx);    /* override $003872 (coroutine form) */
+void pc_native_menu_dispatch(M68KCtx *ctx);/* override $0039D0 */
+/* Host-driven takeover hook (implemented in pc.c, where the coroutine lives).
+ * Returns 1 if it took the menu off the coroutine (caller must return), else 0
+ * to run the in-coroutine loop. Stub (returns 0) until the host driver lands. */
+int  pc_menu_host_takeover(M68KCtx *ctx);
+
 /* ── Native override function declarations (implementations in pc_overrides_*.c) ── */
 /* pc_overrides_hw.c */
 void native_hw_wait(M68KCtx *ctx);
