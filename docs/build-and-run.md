@@ -6,6 +6,27 @@
 - SDL2 system library (`libsdl2-dev`)
 - Python 3.14 + capstone: `pip install capstone`
 
+## macOS (Apple Silicon / Intel)
+
+The **game** (`benefactor-pc`) is portable: it links only SDL2 + pthread, runs
+the game on a worker thread, and keeps all SDL on the main thread (Cocoa's
+requirement). The generated `src/generated/game_*.c` are committed, so no
+recompiler/chip-dump step is needed to build it.
+
+```bash
+brew install sdl2 cmake          # arm64 Homebrew installs to /opt/homebrew
+cmake -S . -B build              # CMakeLists auto-adds `brew --prefix` to the search path
+cmake --build build --target benefactor-pc -j$(sysctl -n hw.ncpu)
+./build/benefactor-pc Disk.1 Disk.2 Disk.3      # opens a window; arrows=move, Z/Ctrl/Space=fire
+#   --level N   start directly at level 1..60 (skips intro/title/menu)
+```
+
+Native disk boot needs only the `Disk.*` images — no kickstart ROM.
+
+The **harness** (`benefactor-harness`) compiles the whole PUAE/libretro-uae tree
+and is a dev-only comparison tool; it is not needed to play and may need extra
+porting on macOS. Build just the `benefactor-pc` target as above.
+
 ## Step 1 — Extract PUAE chip RAM dump from ROMs/disks
 
 ```bash
