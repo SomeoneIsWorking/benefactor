@@ -22,16 +22,15 @@ Replace recompiled M68K stubs with hand-written C that:
 
 ## Self-Evolution (mandatory)
 
-Before ending any session where you learned something new or found something painful:
+The general self-evolving workflow is global (`~/.claude/CLAUDE.md`). Project-specific
+destinations and lessons:
 
-- **Painful manual task?** → Build a tool for it. Update the relevant skill. A tool without a skill update is incomplete.
-- **Debugging tooling fell short?** → EXPAND it, don't work around it manually. If GDB hit a wall (e.g. only ~1 hardware watchpoint inserts in the threaded harness), if you're eyeballing diffs by hand, or if you can't see a comparison you need — add the capability to the harness/tools. The per-frame `CHIPDIFF_TRACE` mode was built exactly this way. Reach for new tooling before resigning to "I can't see it."
-- **Instruction proved wrong?** → Correct it. Mark the old assumption as falsified.
-- **New confirmed fact?** → Add it to `instructions/harness.md`. Store it with `store_memory`.
-- **New override added?** → Update `instructions/current-state.md`.
-- **`AGENTS.md` or `CLAUDE.md` itself is stale?** → Update it in the same commit.
-
-The direction is always toward correct engineering. Never evolve toward shortcuts that need undoing later.
+- **Debugging tooling fell short?** → EXPAND the harness/tools, don't work around by hand.
+  GDB hits a wall here (only ~1 hardware watchpoint inserts in the threaded harness) — the
+  per-frame `CHIPDIFF_TRACE` mode was built exactly because of that. Reach for new tooling
+  before resigning to "I can't see it."
+- **New confirmed fact** → `instructions/harness.md` (+ `store_memory`). **New override** →
+  `instructions/current-state.md`. Update `AGENTS.md`/`CLAUDE.md` in the same commit when stale.
 
 ## Skills (load when needed)
 
@@ -95,6 +94,7 @@ The direction is always toward correct engineering. Never evolve toward shortcut
    - `COLOR21-31`: PUAE holds sprite colors set by game code directly; PC fallback uses grey ramp (no COLOR21-31 entries in gameplay copper list). Native renderer reads colors from copper list directly so rendering unaffected.
    - `audio[1/2/3].vol`: Paula audio shadow registers not initialized from chip dump.
 3. **Recompiler output** — split into per-subsystem files (done). bset/bclr/bchg/btst on data registers now 32-bit (mod 32). `RT_SET_NZ_*` macros fixed to evaluate side-effecting `(an)+`/`-(an)` operands once (was double-eval → `tst.w (a0)+` ran twice; resolved the title object-animation divergence). Indirect-dispatch handlers auto-discovered via `tools/recomp/discover_indirect.py` → `discovered.py`. Further: emit cleaner loops, remove dead patterns.
+   - **gpl discovery is now ONE unified scan (2026-06-02).** `scanner.scan_program` is a single recursive worklist: one block scanner (`_scan_func`) + one edge rule (`_edge_targets`) + region superset, draining to a fixpoint. The edge rule **mirrors the emitter exactly** (a target registers iff the emitter renders it `rt_jump`/`rt_call`: calls always; `jmp` always incl. abs-long `$X.l`; `bra`/`Bcc` only when escaping the source function) so scanner∩emitter can't disagree. Targets register at their EXACT start even if interior (double-emit = bloat, not bug). `recomp.py` has a **build-time completeness gate** that ABORTS the regen on any unregistered in-region literal target — a leak fails the build, not the player's weekly quota. Replaced seed-by-miss + the old prologue/gap-fill/Phase-1/Phase-2 pass stack. Don't reintroduce per-miss seeding of discoverable targets; seeds are for genuine choke points only. **Build needs `TMPDIR` off `/tmp`** (tmpfs quota) → `scratch/tmp`.
 4. **Native renderer pixel diff** — 9.8% pixel mismatch vs PUAE. Investigate after hardware snapshot issues are resolved.
 5. **Harness is now DETERMINISTIC (both sides).** PUAE's live boot drifted ~1 frame run-to-run (host-timed disk load); FIXED by freezing/restoring a full save-state (`logs/puae_sync.state`; `BENEFACTOR_REFREEZE=1` to refresh). PUAE is now bit-exact. Compare `logs/chip_pc.bin` vs `logs/chip_puae.bin` directly after `FBDUMP_FRAME=N`.
 7. **Blitter A-shift carry — FIXED (2026-05-25).** The recompiled blitter (`hw_blitter.c`) PERSISTED the A-shift register (`s_shift_carry`) across blits on the assumption "real OCS carries the A register across blits." That assumption is FALSE per PUAE's source: `blitter_start_init()` (`blitter.c:2003`) does `blt_info.bltaold = 0` at **every** blit start — the A register is reset per blit. The persisted carry corrupted the title-text shear compositing (the visible doubled/garbled glyphs), compounding through the double-buffer ping-pong. FIX: reset the carry to 0 per blit (now the default; `BLIT_CARRY=1` re-enables the old behaviour for testing). Result: chip RAM now matches PUAE for **251+ frames** (was 31) and the title text renders cleanly. Residual fb diff is the renderer's starfield/sprite/palette handling (separate, see #4), NOT the text.

@@ -58,6 +58,18 @@ class Translator:
                 return f'(uint32_t)({base} + {dabs}u{idx})'
             if mode in (16, 17):
                 return hex(op.imm)
+            # A PC base is PC-relative BY DEFINITION (a compile-time constant),
+            # whatever address_mode capstone tags it with — e.g. it reports
+            # `$X(pc,An.l*scale)` via the generic-base path rather than mode
+            # 11/12. Resolve it like the pc-relative case so we never emit the
+            # non-existent `ctx->PC` field (which fails to compile). Scale on the
+            # index is dropped, matching the existing mode-11/12 handling.
+            if b == M68K_REG_PC:
+                base = hex(pc) if pc else '0'
+                dabs = abs(disp)
+                if disp < 0:
+                    return f'(uint32_t)({base} - {dabs}u{idx})'
+                return f'(uint32_t)({base} + {dabs}u{idx})'
             # d16(An) / d8(An,Xn) — An is uint32_t, no cast needed
             if b is not None and b != M68K_REG_INVALID:
                 base = f'ctx->{reg_name(b)}'
