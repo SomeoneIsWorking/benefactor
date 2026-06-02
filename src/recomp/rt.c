@@ -673,6 +673,32 @@ static int      s_rt_jump_pending = 0;
 static uint32_t s_rt_jump_target  = 0;
 /* s_rt_jump_source declared near rt_miss_caller above. */
 
+/* ── Coroutine-free yield/resume (continuation stack) ───────────────────────── */
+RtYieldState g_rt;
+
+void rt_cont_push(GameFn fn, int resume)
+{
+    if (g_rt.cont_sp >= RT_CONT_MAX) { RT_LOG("rt_cont overflow\n"); return; }
+    g_rt.cont[g_rt.cont_sp].fn     = fn;
+    g_rt.cont[g_rt.cont_sp].resume = resume;
+    g_rt.cont_sp++;
+}
+
+void rt_cont_reset(void) { g_rt.cont_sp = 0; g_rt.yield = 0; g_rt.resume = 0; }
+
+int rt_cont_run(M68KCtx *ctx)
+{
+    while (g_rt.cont_sp > 0) {
+        RtCont c = g_rt.cont[--g_rt.cont_sp];   /* pop the deepest suspended frame */
+        g_rt.yield  = 0;
+        g_rt.resume = c.resume;
+        c.fn(ctx);                              /* resume it (reads g_rt.resume at entry) */
+        if (g_rt.yield) return 0;               /* it yielded again (pushed a new frame) */
+        /* returned normally → loop resumes its caller (now deepest) post-call */
+    }
+    return 1;                                   /* stack empty: suspended flow finished */
+}
+
 static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
 {
     /* Save the parent invocation's trampoline source so a recursive rt_call
@@ -713,6 +739,7 @@ static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
             s_rt_jump_pending = 0;
             native(ctx);
             rt_pop_call();
+            if (g_rt.yield) break;   /* a wait suspended the flow — unwind to host */
             /* Some overrides (e.g. native_overlay_loader at $6D714) end with
              * rt_jump(X) to hand off to recompiled code — same trampoline
              * semantics as generated fns. */
@@ -727,6 +754,7 @@ static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
             s_rt_jump_pending = 0;
             fn(ctx);
             rt_pop_call();
+            if (g_rt.yield) break;   /* a wait suspended the flow — unwind to host */
             if (!s_rt_jump_pending) break;
             addr = s_rt_jump_target;
             is_call = 0;
@@ -741,7 +769,9 @@ static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
         rt_pop_call();
         break;
     }
-    if (ra_set) ctx->A[7] += 4u;
+    /* On a yield the M68K subroutine is SUSPENDED (not returned), so leave its
+     * return address on the stack — the resumed flow's rts pops it later. */
+    if (ra_set && !g_rt.yield) ctx->A[7] += 4u;
     s_rt_jump_source = saved_source;
 }
 

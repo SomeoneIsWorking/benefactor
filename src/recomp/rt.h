@@ -147,6 +147,34 @@ typedef void (*NativeFn)(M68KCtx *ctx);
 void rt_register_override(uint32_t addr, NativeFn fn);
 void rt_register_override_gp(uint32_t addr, NativeFn fn);  /* fires only during gameplay */
 
+/* ── Coroutine-free yield/resume (continuation stack) ──────────────────────────
+ * A recompiled function that would block on a frame wait (hw_vblank_wait) instead
+ * pushes a continuation (itself + a resume label) and sets g_rt_yield; the call
+ * chain unwinds to the host (every rt_call propagates the yield), which presents
+ * the frame and next frame resumes the continuation stack from the deepest frame.
+ * No ucontext. Signatures stay `void gfn(ctx)`: the resume label is delivered via
+ * g_rt_resume (read+cleared at fn entry), the yield signalled via g_rt_yield
+ * (checked after every rt_call — so indirect dispatch propagates for free). */
+typedef struct { GameFn fn; int resume; } RtCont;
+#define RT_CONT_MAX 256
+
+/* All continuation/yield runtime state in one struct (project convention: group
+ * globals, don't scatter them). */
+typedef struct {
+    int    yield;                 /* set by a wait; checked after each rt_call */
+    int    resume;                /* resume label for the fn about to be (re)entered; 0 = fresh */
+    int    cont_sp;
+    RtCont cont[RT_CONT_MAX];     /* suspended-frame stack (deepest = last) */
+} RtYieldState;
+extern RtYieldState g_rt;
+
+void rt_cont_push(GameFn fn, int resume);   /* record a continuation (a wait point) */
+void rt_cont_reset(void);                   /* clear the stack (e.g. screen handoff) */
+/* Resume the continuation stack for one frame: run the deepest frame, then any
+ * callers that complete post-call, until something yields again or it empties.
+ * Returns 1 if the stack is now empty (the suspended flow finished), else 0. */
+int  rt_cont_run(M68KCtx *ctx);
+
 /* These are implemented in rt.c using the dispatch table from game.h */
 void rt_call(M68KCtx *ctx, uint32_t addr);
 void rt_jump(M68KCtx *ctx, uint32_t addr);
