@@ -1,5 +1,6 @@
 /* pc_overrides_boot.c — Boot-time animation overrides (native PC C, no M68K emulation) */
 #include "pc_internal.h"
+#include "recomp/overlay_load.h"   /* shared pure overlay loaders */
 
 /* Step a single 12-bit Amiga color one nibble-step toward its target.
  * Each of the R/G/B 4-bit channels moves ±1 per call. */
@@ -116,29 +117,10 @@ void native_boot_anim_iterator(M68KCtx *ctx)
  * + atn_decrunch above populates them. */
 void native_overlay_load(void)
 {
-    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
-    extern uint32_t atn_decrunch(uint32_t);
-    extern uint8_t *g_mem;
-
-    /* The $6D714 block copy comes FIRST — before any subsequent load that
-     * could overwrite $6D734..$6F134. The boot decrunch already populated
-     * those bytes in chip RAM, so they're valid at entry. The copy moves
-     * 1504 words ($2A08 bytes = 10760) to $150..$2A57. This is what
-     * initialises $1890.w (= $0200 at level 60) and many other low-RAM
-     * engine state words. Without it, $59AC38's level-identity cmp routes
-     * to the unsafe branch and crashes on jmp(a0) into data. */
-    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
-
-    /* E1: raw data -> $50000 (Disk.1 off $F3780, len $1880) */
-    disk_boot_load(1, 0x0F3780u, 0x00050000u, 0x1880u);
-    /* E2: ATN!-crunched gameplay code -> $3330 (Disk.1 off $026270), decrunch */
-    disk_boot_load(1, 0x026270u, 0x00003330u, 0x2E2E4u);
-    atn_decrunch(0x00003330u);
-
-    /* Dest-pointer stack the original loader builds at $100/$104 (big-endian). */
-    g_mem[0x100] = 0x00; g_mem[0x101] = 0x05; g_mem[0x102] = 0x00; g_mem[0x103] = 0x00;
-    g_mem[0x104] = 0x00; g_mem[0x105] = 0x00; g_mem[0x106] = 0x33; g_mem[0x107] = 0x30;
-
+    /* Pure load lives in overlay_load.c (shared with the standalone bank dumper).
+     * The block copy ($6D734 -> $150) needs the boot decrunch to have populated
+     * $6D734 — true at every call site (boot, or exit-to-menu after a reload). */
+    overlay_load_title();
     g_overlay_active = 1;
 }
 
@@ -163,65 +145,12 @@ void native_overlay_loader(M68KCtx *ctx)
  * set up DMACON/INTENA/vectors), so load+decrunch+relocation are correct. */
 void native_overlay_load_d0(void)
 {
-    extern uint8_t *g_mem;
-    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
-    extern uint32_t atn_decrunch(uint32_t);
-    static const struct { uint32_t off, dst, len; } ch[3] = {
-        { 0x0548A0u, 0x06E000u, 0x001D1Au },
-        { 0x0565BAu, 0x003330u, 0x012404u },
-        { 0x0689BEu, 0x577000u, 0x012A1Cu },
-    };
-    /* $6D714 block copy — MUST run BEFORE the chunk loads above, except in
-     * this $150 path the chunks have ALREADY loaded by the time we get here
-     * via the title-fire flow. The actual right place for the copy is at the
-     * BOOT phase (gfn_00311A → jmp $6D714, which our native_overlay_loader
-     * handles). The copy moves $6D734..$2A57 to $150..$2A57; $1890's value
-     * (which $59AC38's level-identity cmp reads) comes from $6EE74 which is
-     * already-overwritten here.
-     *
-     * Order in the original game:
-     *   boot → gfn_00311A → $6D714 (BLOCK COPY happens here, source $6EE74
-     *     still has the original loader-tail data $0200A004)
-     *   → relocated $150 with d0=1 → title runs
-     *   → user fires → title jumps to $150 with d0=0 → native_overlay_load_d0
-     *     (which is THIS function) → loads chunks. By this point $1890 is
-     *     already $0200, copied at the EARLIER $6D714 step.
-     *
-     * In our cold-boot path that we just added (pc_init_to_gameplay) we
-     * SKIP the boot phase entirely, so we have to do the copy ourselves AND
-     * we must do it BEFORE we overwrite $6E000..$6FD1A with chunk 0. The
-     * boot decrunch (called by pc_common_bringup) puts the source data at
-     * $6D734..$6F134 — the source bytes are present at this point. */
-    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
-
-    for (int i = 0; i < 3; i++) { disk_boot_load(1, ch[i].off, ch[i].dst, ch[i].len);
-                                  atn_decrunch(ch[i].dst); }
-    g_mem[0x100]=0x00; g_mem[0x101]=0x06; g_mem[0x102]=0xE0; g_mem[0x103]=0x00;
-    g_mem[0x104]=0x00; g_mem[0x105]=0x00; g_mem[0x106]=0x33; g_mem[0x107]=0x30;
-    g_mem[0x108]=0x00; g_mem[0x109]=0x57; g_mem[0x10A]=0x70; g_mem[0x10B]=0x00;
+    /* Pure load (3 ATN! chunks + 2-pass relocation) lives in overlay_load.c,
+     * shared with the standalone bank dumper. The $6D714 block copy inside it
+     * needs the boot-decrunch source at $6D734 (present after pc_common_bringup);
+     * it runs before chunk 0 overwrites $6E000.. so the source is still valid. */
+    overlay_load_gameplay();
     g_overlay_active = 1;
-    #define RD32(a) (((uint32_t)g_mem[(a)]<<24)|((uint32_t)g_mem[(a)+1]<<16)\
-                    |((uint32_t)g_mem[(a)+2]<<8)|g_mem[(a)+3])
-    #define WR32(a,v) do{uint32_t _v=(v),_a=(a); g_mem[_a]=_v>>24; g_mem[_a+1]=_v>>16;\
-                        g_mem[_a+2]=_v>>8; g_mem[_a+3]=_v;}while(0)
-    /* TWO relocation passes (loader $204-$23C), reading one continuous table at
-     * a0=$6E000, all writing into the code base a4=$577000:
-     *   pass 1 base = dest[2] = $577000 (relocate $577000-region pointers)
-     *   pass 2 base = dest[1] = $3330   (relocate pointers into the $3330 code,
-     *                                    e.g. the level copper $3484 = $154+$3330)
-     * Each pass = 2 blocks of [count, base-adjust, offsets...]; d1 = base + running
-     * adjust; *(a4+off) += d1. (Earlier the missing pass 2 left COP1LC=$154 not $3484.) */
-    { uint32_t a0 = 0x06E000u, a4 = 0x577000u;
-      uint32_t base[2] = { a4, 0x00003330u };
-      for (int pass = 0; pass < 2; pass++) {
-          uint32_t d1 = base[pass];
-          for (int blk = 0; blk < 2; blk++) {
-              uint32_t d7 = RD32(a0); a0 += 4;
-              d1 += RD32(a0); a0 += 4;
-              for (uint32_t k = 0; k <= d7; k++) { uint32_t off = RD32(a0); a0 += 4;
-                                                   WR32(a4 + off, RD32(a4 + off) + d1); } } } }
-    #undef RD32
-    #undef WR32
 }
 
 /* Override for $000150 — the loader body the game relocated to low memory and
@@ -505,10 +434,7 @@ void native_overlay_loader_reloc(M68KCtx *ctx)
          * decrunch to $3330 — followed by a callback `$00000100` meaning
          * "after load, jmp via mem[$100]" (which is the dest just pushed:
          * $3330). So effectively: load disk3 → decrunch at $3330 → jmp $3330. */
-        disk_boot_load(3, 0x000C7100u, 0x00003330u, 0x0001888Cu);
-        atn_decrunch(0x00003330u);
-        g_mem[0x100] = 0x00; g_mem[0x101] = 0x00;
-        g_mem[0x102] = 0x33; g_mem[0x103] = 0x30;
+        overlay_load_credits();   /* shared pure loader (see overlay_load.c) */
         if (getenv("DUMP_GMEM_AFTER_CREDITS")) {
             FILE *df = fopen("logs/gmem_after_credits.bin", "wb");
             if (df) { fwrite(g_mem, 1, 0x600000, df); fclose(df); }
