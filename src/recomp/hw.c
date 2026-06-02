@@ -1379,6 +1379,20 @@ void hw_write16(uint32_t addr, uint16_t v)
                 fprintf(stderr, "[dma] f=%d DMACON %s aud=$%X (s_dmacon aud=$%X)\n",
                         hw_get_frame_num(), (v & 0x8000) ? "SET" : "CLR",
                         v & 0xF, s_dmacon & 0xF);
+            /* SFX_TRACE: on audio-channel DMA ENABLE, log which sample (AUDxLC),
+             * length, period — one line per "note/SFX on" so we can diff PC vs
+             * PUAE jump sounds. */
+            if ((v & 0x8000) && (v & 0x000F) && getenv("SFX_TRACE")) {
+                static FILE *sf = NULL; if (!sf) sf = fopen("logs/sfx_pc.txt", "w");
+                if (sf) for (int ch = 0; ch < 4; ch++) if (v & (1u << ch)) {
+                    int b = (AUD0LCH + ch * 0x10) >> 1;
+                    uint32_t lc = ((uint32_t)s_regs[b] << 16) | s_regs[b + 1];
+                    fprintf(sf, "f=%d ch%d LC=%06X LEN=%04X PER=%04X VOL=%02X\n",
+                            hw_get_frame_num(), ch, lc & 0xFFFFFF, s_regs[b + 2],
+                            s_regs[b + 3], s_regs[b + 4] & 0x7F);
+                    fflush(sf);
+                }
+            }
             break;
         /* Interrupt */
         case INTENA:
