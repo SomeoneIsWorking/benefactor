@@ -500,12 +500,10 @@ int g_pc_pending_save = 0;
 int g_pc_pending_load = 0;
 
 /* ── Host-driven menu (coroutine removal, screen 1) ──────────────────────────
- * When g_menu_host is on, the title menu runs off the coroutine: pc_menu_host_
- * takeover() escapes the coroutine after the menu setup, and pc_step drives the
- * menu loop directly (pc_menu_loop_body, no hw_vblank_wait). On exit it rebuilds
- * a fresh coroutine for gameplay (PLAY) or attract (timeout). Toggle (default
- * off) so the proven in-coroutine path stays the safe default until verified. */
-static int g_menu_host = 1;           /* title menu runs off the coroutine; PC_MENU_HOST=0 forces the old in-coroutine path */
+ * The title menu runs off the coroutine: pc_menu_host_takeover() escapes the
+ * coroutine after the menu setup, and pc_step drives the menu loop directly
+ * (pc_menu_loop_body, no hw_vblank_wait). On exit it rebuilds a fresh coroutine
+ * for gameplay (PLAY) or attract (timeout). */
 static int s_menu_host_active = 0;    /* 1 while the menu runs host-driven */
 static int pc_menu_host_step(void);
 
@@ -683,7 +681,6 @@ static void coro_yield(void)
  * resumes (it won't — the parked stack is abandoned and replaced by makecontext). */
 int pc_menu_host_takeover(M68KCtx *ctx)
 {
-    if (!g_menu_host) return 0;
     pc_menu_setup(ctx);                    /* $003872 display setup, once */
     s_menu_host_active = 1;
     swapcontext(&s_game_uc, &s_main_uc);   /* escape to host; coroutine parked */
@@ -754,7 +751,6 @@ static int pc_common_bringup(const char **disks, int n_disks)
         return -1;
     }
     pc_register_overrides();
-    { const char *e = getenv("PC_MENU_HOST"); if (e) g_menu_host = atoi(e); }
     g_hw_vblank_yield  = coro_yield;
     g_hw_pc_owns_present = 1;
     s_game_done        = 0;
