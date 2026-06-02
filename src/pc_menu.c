@@ -27,7 +27,9 @@
  * recompiled framebuffer / chip-RAM and confirm they match before trusting it.
  */
 #include "pc_internal.h"
-#include "generated/game.h"
+/* Per the pc_internal.h convention we don't call gfn_* by name; the A/B super-
+ * call uses rt_call_generated(ctx, addr) to run the original recompiled body
+ * without re-entering this override. */
 
 extern void hw_blitter_sync(void);
 extern void hw_vblank_wait(void);
@@ -175,7 +177,7 @@ void pc_menu_attract_preroll(M68KCtx *ctx)
  * body directly instead, so the menu runs with no hw_vblank_wait. */
 void pc_native_main_menu(M68KCtx *ctx)
 {
-    if (!g_native_menu_enable) { gfn_gp_003872(ctx); return; }
+    if (!g_native_menu_enable) { rt_call_generated(ctx, 0x003872u); return; }
 
     /* Host-driven menu owns the frame loop in pc_step — escape the coroutine
      * after setup and let it drive (no hw_vblank_wait here). */
@@ -270,7 +272,7 @@ void pc_menu_flash_finish(M68KCtx *ctx) { menu_build_list(ctx, k_lst_flash); }
  * the terminal transition (loop $0039BE / reload $003872 / play $150 / flash). */
 void pc_native_menu_dispatch(M68KCtx *ctx)
 {
-    if (!g_native_menu_enable) { gfn_gp_0039D0(ctx); return; }
+    if (!g_native_menu_enable) { rt_call_generated(ctx, 0x0039D0u); return; }
 
     switch (pc_menu_dispatch_decide(ctx)) {
     case PC_DISP_LOOP:   rt_jump(ctx, 0x0039BEu); return;
