@@ -11,7 +11,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <ucontext.h>
 #include "recomp/rt.h"   /* M68KCtx */
 
 /* Audio channel state — mirrored from the live Paula register shadows. Lives
@@ -28,15 +27,11 @@ typedef struct AudioChannel {
 } AudioChannel;
 
 typedef struct GameState {
-    /* ── M68K register file (the game coroutine's CPU state) ─────────────── */
+    /* ── M68K register file (the game thread's CPU state) ────────────────── */
     M68KCtx    game_ctx;
 
-    /* ── Coroutine plumbing (ucontext + its 4 MB stack) ──────────────────── */
-    ucontext_t game_uc;
-    ucontext_t main_uc;
-    char       game_stack[4u * 1024u * 1024u];
-    int        game_done;
-    int        coro_quit;
+    int        game_done;        /* set when the game flow returns from rt_call */
+    int        coro_quit;        /* (legacy) host-requested quit */
 
     /* ── Amiga custom-chip register shadows ──────────────────────────────── */
     uint16_t regs[512];           /* indexed by (DFF offset >> 1) */
@@ -109,11 +104,7 @@ extern GameState g_state;
 #define g_gameplay_entry          (g_state.gameplay_entry)
 #define g_pc_start_level          (g_state.pc_start_level)
 
-/* Coroutine plumbing (only referenced inside pc.c) — provide the same legacy
- * names for minimal-diff editing there. */
+/* Game-thread state (only referenced inside pc.c) — legacy short names. */
 #define s_game_ctx                (g_state.game_ctx)
-#define s_game_uc                 (g_state.game_uc)
-#define s_main_uc                 (g_state.main_uc)
-#define s_game_stack              (g_state.game_stack)
 #define s_game_done               (g_state.game_done)
 #define s_coro_quit               (g_state.coro_quit)
