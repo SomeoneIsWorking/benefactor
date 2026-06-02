@@ -438,6 +438,28 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
     gfn_gp_0039D0(ctx);
 }
 
+/* ── $003872 — title main-menu setup+loop. We OWN the option setup ───────────────
+ * The menu draws three option records (PLAY GAME / ENTER PASSWORD / LOAD EXTRA
+ * LEVELS) from the gp image at a5-relative addresses, via the glyph blitter
+ * $0049B6. Rather than hooking the per-glyph drawer (a presentation hack), we
+ * construct the option list ourselves: rewrite item 1's string ("ENTER PASSWORD"
+ * at a5-$696) to "LEVEL SELECT" BEFORE the engine builds/draws the menu, so the
+ * engine's own renderer draws our option. Selecting it (cursor 1) is handled by
+ * native_main_menu_fire_dispatch ($0039D0) -> native level picker -> $150.
+ *
+ * The string lives in the loaded gp image; re-applying on every menu entry keeps
+ * it correct across reloads (attract loop, LOAD-EXTRA return, exit-to-menu). */
+void native_menu_setup(M68KCtx *ctx)
+{
+    static const char kItem1[] = "LEVEL SELECT";   /* <= "ENTER PASSWORD" (14 chars) */
+    uint32_t dst = ctx->A[5] - 0x696u;             /* item-1 option string */
+    for (uint32_t i = 0; i < sizeof kItem1; i++)   /* includes the NUL terminator */
+        MW8(dst + i, (uint8_t)kItem1[i]);
+
+    extern void gfn_gp_003872(M68KCtx *ctx);
+    gfn_gp_003872(ctx);                            /* engine builds/draws/loops the menu */
+}
+
 void native_menu_cursor_down(M68KCtx *ctx)
 {
     /* $003C5A — direct port:

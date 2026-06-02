@@ -36,17 +36,16 @@ void pc_register_overrides(void)
     { extern void native_menu_glyph_blit(M68KCtx *ctx);
       rt_register_override(0x000049B6u, native_menu_glyph_blit); }
 
-    /* Main-menu fire-dispatch at $0039D0 — intercepts the cursor-based
-     * dispatch (PLAY GAME / ENTER PASSWORD / LOAD EXTRA LEVELS) so cursor=1
-     * routes to LEVEL SELECT (gameplay overlay with the F2/F3-picked $20.w)
-     * instead of the password screen. cursor=0 still delegates to the
-     * original (PLAY GAME). cursor=2 returns to the menu top until Disk.4
-     * is supported. The fire detection itself stays in the engine — this
-     * fn is only entered when the engine already decided fire was pressed
-     * (see comments in pc_overrides_boot.c). */
-    /* The title menu runs as the CPS-transformed recompiled gfn_gp_003872 via the
-     * continuation stack — no native menu override. Its leaf helpers (glyph blit
-     * $0049B6, cursor $3C5A/$3C88) are still overridden above. */
+    /* We OWN the title menu's option setup: native_menu_setup ($003872) rewrites
+     * item 1 to "LEVEL SELECT" before the engine builds/draws the menu, and the
+     * fire-dispatch ($0039D0) routes cursor 1 to the native level picker (then
+     * $150) instead of the password screen. cursor 0 (PLAY GAME) and the per-
+     * frame drawing/animation still run through the engine's gfn_gp_003872. The
+     * leaf helpers (glyph blit $0049B6, cursor $3C5A/$3C88) stay overridden above. */
+    { extern void native_menu_setup(M68KCtx *ctx);
+      extern void native_main_menu_fire_dispatch(M68KCtx *ctx);
+      rt_register_override(0x00003872u, native_menu_setup);
+      rt_register_override(0x000039D0u, native_main_menu_fire_dispatch); }
 
     /* $003C5A / $003C6E / $003C88 / $003C9A — four arrow-direction handlers
      * in the title menu. Each is a short rts-terminated mini-routine
