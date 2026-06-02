@@ -228,15 +228,35 @@ diverge even with no SFX. PC DOES play the grunt samples on jump (ch3 idle=$07AE
 artifact. The game also has several grunt VARIANTS (len $004C samples), so a
 different variant ≠ a bug.
 
-PLAN (per user): reverse-engineer the music player vs the SFX-trigger code, then add
-a MUSIC KILL-SWITCH to isolate SFX for a clean PC-vs-PUAE comparison. Known: music =
-`$53A2` (LVL6 CIA-B timer ISR, delivered via `pc_music_tick`/`coro_deliver_timer_irq`
-in pc.c), instrument table `$C16A`, note/effect jump table `$571C`, voice-vol→AUDxVOL
-at `$5450`. TODO: locate the SFX-play routine (what the jump/grunt `jsr`s — a
-sound-id → Paula-channel setup function, separate from $53A2). This RE also lays
-groundwork for a FEATURE: independent music/SFX volume sliders. Then isolate SFX
-(mute music) and diff the grunt-selection/trigger PC vs PUAE (instruction trace if
-needed, same technique as the RT_SET_NZ bug).
+GAMEPLAY AUDIO ARCHITECTURE (RE'd 2026-06-02, verified via SFX_TRACE+fn column):
+The gameplay (gpl bank) audio is a COMBINED music+SFX player whose hardware output
+is a single CIA-B timer ISR, delivered via `pc_music_tick` (the `$78`/LVL6 vector):
+  - `$59BF3E` — DMA-RETRIGGER stage. Reads an enable-mask (`$59d240`) + per-channel
+    "new sample ready" flags (`$59cf1c` ch0, `$59cf1d` ch1, bit1 of `$57fea5`), then
+    does the classic disable-then-enable DMACON write (`$dff096`) to retrigger the
+    ready channels. EVERY DMACON audio-enable (music note-on AND SFX) goes through
+    here — confirmed: 100% of SFX_TRACE `fn=` are `$59BF3E`.
+  - `$59BFA6` — HARDWARE-COPY stage. Copies precomputed AUDxLC/AUDxLEN from a buffer
+    at `$59d14e` into Paula `$a0/$b0/$c0/$d0(a5)` for the ready channels.
+CONSEQUENCE (corrects the old plan): there is NO separate "SFX writes Paula
+directly" path. SFX is injected into the SAME player's voice table; an ISR-level
+kill-switch (BENEFACTOR_MUTE_MUSIC / REPL `mute`, gating `pc_music_tick`) mutes BOTH
+music AND SFX — VERIFIED: 0 DMACON enables after the mute frame, jumps included.
+The grunt is the len-`$004C` sample at `$07AE94` (idle); on jumps it appears on ch1.
+
+TOOLS: `mute [0|1]` REPL + `BENEFACTOR_MUTE_MUSIC` env (pc.c `g_mute_music`, gates
+`pc_music_tick`); SFX_TRACE now logs `fn=` (g_rt_last_call) per DMACON-enable.
+
+NEXT (to actually isolate SFX): intercept UPSTREAM, not at the ISR. Find (a) the
+music-DECODE routine that fills the voice table / sets `$59d240` + ready-flags for
+the music channels, and (b) the SFX-TRIGGER the jump code calls to inject the grunt
+into a voice. Then suppress only one side's per-channel writes. Lead: pcwatch
+`$59d240` (enable mask) and the per-channel sample slots during a single jump to see
+which fn (non-ISR) writes the grunt vs the music. Old (title-bank) refs, may differ
+in gpl: instrument table `$C16A`, note/effect jump table `$571C`, voice-vol→AUDxVOL
+`$5450`, title player `$53A2`. This RE also lays groundwork for the FEATURE:
+independent music/SFX volume. Then instruction-trace the trigger PC vs PUAE for
+grunt-selection (same technique as the RT_SET_NZ bug).
 
 ## OPEN: gameover-screen cursor missing = native hardware-SPRITE rendering unimplemented
 

@@ -1384,12 +1384,14 @@ void hw_write16(uint32_t addr, uint16_t v)
              * PUAE jump sounds. */
             if ((v & 0x8000) && (v & 0x000F) && getenv("SFX_TRACE")) {
                 static FILE *sf = NULL; if (!sf) sf = fopen("logs/sfx_pc.txt", "w");
+                extern volatile uint32_t g_rt_last_call;
                 if (sf) for (int ch = 0; ch < 4; ch++) if (v & (1u << ch)) {
                     int b = (AUD0LCH + ch * 0x10) >> 1;
                     uint32_t lc = ((uint32_t)s_regs[b] << 16) | s_regs[b + 1];
-                    fprintf(sf, "f=%d ch%d LC=%06X LEN=%04X PER=%04X VOL=%02X\n",
+                    fprintf(sf, "f=%d ch%d LC=%06X LEN=%04X PER=%04X VOL=%02X fn=%06X\n",
                             hw_get_frame_num(), ch, lc & 0xFFFFFF, s_regs[b + 2],
-                            s_regs[b + 3], s_regs[b + 4] & 0x7F);
+                            s_regs[b + 3], s_regs[b + 4] & 0x7F,
+                            (unsigned)g_rt_last_call);
                     fflush(sf);
                 }
             }

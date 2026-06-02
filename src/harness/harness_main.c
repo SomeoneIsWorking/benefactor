@@ -633,6 +633,13 @@ int main(int argc, char **argv)
                        ps.audio[ch].len, ps.audio[ch].vol);
             printf("\n");
         }
+        else if (!strcmp(cmd, "mute")) {  /* mute [0|1] — toggle/set the music kill-switch (SFX isolation) */
+            extern int g_mute_music;
+            int v = -1;
+            if (sscanf(line, "%*s %d", &v) == 1) g_mute_music = v; else g_mute_music = !g_mute_music;
+            printf("[mute] music %s (hw frame=%d)\n", g_mute_music ? "OFF (muted)" : "ON",
+                   hw_get_frame_num());
+        }
         else if (!strcmp(cmd, "state")) {
             FrameState p, c; puae_snap_state(&p); hw_get_snap(&c);
             extern volatile uint32_t g_rt_last_call, g_hw_last_read;
