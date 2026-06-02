@@ -35,18 +35,14 @@ extern void hw_vblank_wait(void);
 /* Keep the recomp body diffable / A/B-toggleable (recomp-overrides rule). */
 int g_native_menu_enable = 1;
 
-/* Faithful native port of gfn_gp_003872 ($003872): menu display setup + the
- * per-frame input loop. On fire it exits via $0039D0 (the dispatch — still the
- * existing handler for now); on the music countdown reaching 0 it returns to
- * the attract/poster at $0033E2, exactly like the original. */
-void pc_native_main_menu(M68KCtx *ctx)
+/* Menu display setup ($003872–$00395C). Factored out of pc_native_main_menu so
+ * the host-driven path (pc.c) can run it once on menu entry and re-run it on a
+ * menu reload, without the coroutine. */
+void pc_menu_setup(M68KCtx *ctx)
 {
-    if (!g_native_menu_enable) { gfn_gp_003872(ctx); return; }
-
     const uint32_t a5 = ctx->A[5];
     const uint32_t a6 = ctx->A[6];
 
-    /* ── Display setup ($003872–$00395C) ─────────────────────────────────── */
     MW16(a5 + 0x2be2u, 0x384);              /* menu-music countdown */
     ctx->A[0] = 0x1339au;
     ctx->A[1] = 0x49000u;
@@ -109,55 +105,92 @@ void pc_native_main_menu(M68KCtx *ctx)
     MW16(a6 + 0x94u, 0x83f0u);              /* INTENA */
     ctx->A[4] = a5 + 0x2cb4u;
     rt_call(ctx, a5 + 0x2b04u);            /* $007C22 initial draw */
+}
 
-    /* ── Per-frame input loop ($003960–$0039CC) ──────────────────────────── */
+/* One iteration of the menu input loop body ($003968–$0039CC), i.e. everything
+ * AFTER the per-frame vblank wait. Returns:
+ *   PC_MENU_STAY (0) — keep looping
+ *   PC_MENU_FIRE (1) — fire pressed -> run the dispatch ($0039D0)
+ *   PC_MENU_TIMEOUT(2)— menu music finished -> return to attract ($0033E2)
+ * Factored out so the host-driven path can call it once per frame (the frame
+ * boundary then being pc_step instead of hw_vblank_wait). */
+int pc_menu_loop_body(M68KCtx *ctx)
+{
+    const uint32_t a5 = ctx->A[5];
+
+    /* $003968: option colour array — defaults $0041, selected row $0fff. */
+    {
+        uint32_t a3 = a5 + 0x2be8u;
+        MW32(a3, 0x410041u);
+        MW16(a3 + 4u, 0x41);
+        uint32_t d0 = (uint32_t)MR16(a5 - 0x18beu);   /* cursor */
+        d0 = (uint16_t)(d0 + d0);                      /* *2 (word index) */
+        MW16(a3 + d0, 0xfff);
+    }
+
+    /* $00398C: cursor-highlight draw via $007CA8 (params from $2d3c table). */
+    {
+        uint32_t a3 = a5 + 0x2d3cu;
+        ctx->A[0] = MR32(a3);     a3 += 4u;
+        ctx->A[1] = MR32(a3);     a3 += 4u;
+        ctx->D[6] = RT_SX16(MR16(a3));
+        ctx->D[7] = RT_SX16(MR16(a3 + 2u));
+        rt_call(ctx, a5 + 0x2b8au);     /* $007CA8 */
+    }
+
+    /* $00399C: per-frame animated draw ($004A00), frame-indexed buffer. */
+    {
+        uint32_t a2 = a5 - 0x18c0u;
+        uint32_t d0 = (uint32_t)(7u & MR16(0x1eu)) << 2;
+        ctx->A[2] = MR32(a2 + d0);
+        rt_call(ctx, a5 - 0x71eu);      /* $004A00 */
+    }
+
+    /* $0039B0: read input -> d0, stash it, test fire (bit 5). */
+    rt_call(ctx, a5 - 0x1574u);         /* $003BAA */
+    uint32_t in = ctx->D[0];
+    MW16(a5 - 0x18c0u, in);
+    if (in & 0x20u) return PC_MENU_FIRE;            /* btst #5 -> fire */
+
+    /* $0039BE: while the menu music is still running, keep looping; once it
+     * finishes, the caller returns to the attract/poster ($0033E2). */
+    if (MR16(a5 + 0x2be2u) != 0) return PC_MENU_STAY;
+    return PC_MENU_TIMEOUT;
+}
+
+/* The attract pre-roll the original runs just before jumping to $0033E2 on a
+ * menu timeout ($0039C4: redraw via $007C22). Split out so both the coroutine
+ * and host-driven paths run it before the attract transition. */
+void pc_menu_attract_preroll(M68KCtx *ctx)
+{
+    const uint32_t a5 = ctx->A[5];
+    ctx->A[4] = a5 + 0x2c18u;
+    rt_call(ctx, a5 + 0x2b04u);         /* $007C22 */
+}
+
+/* Faithful native port of gfn_gp_003872 ($003872), coroutine form: setup then
+ * the per-frame loop (hw_vblank_wait per iteration). On fire it exits via the
+ * dispatch $0039D0; on a music-countdown timeout it returns to attract $0033E2.
+ * The host-driven path (pc.c, when enabled) calls pc_menu_setup / pc_menu_loop_
+ * body directly instead, so the menu runs with no hw_vblank_wait. */
+void pc_native_main_menu(M68KCtx *ctx)
+{
+    if (!g_native_menu_enable) { gfn_gp_003872(ctx); return; }
+
+    /* Host-driven menu owns the frame loop in pc_step — escape the coroutine
+     * after setup and let it drive (no hw_vblank_wait here). */
+    if (pc_menu_host_takeover(ctx)) return;
+
+    pc_menu_setup(ctx);
     for (;;) {
-        hw_vblank_wait();                   /* $003960 */
-
-        /* $003968: option colour array — defaults $0041, selected row $0fff. */
-        {
-            uint32_t a3 = a5 + 0x2be8u;
-            MW32(a3, 0x410041u);
-            MW16(a3 + 4u, 0x41);
-            uint32_t d0 = (uint32_t)MR16(a5 - 0x18beu);   /* cursor */
-            d0 = (uint16_t)(d0 + d0);                      /* *2 (word index) */
-            MW16(a3 + d0, 0xfff);
-        }
-
-        /* $00398C: cursor-highlight draw via $007CA8 (params from $2d3c table). */
-        {
-            uint32_t a3 = a5 + 0x2d3cu;
-            ctx->A[0] = MR32(a3);     a3 += 4u;
-            ctx->A[1] = MR32(a3);     a3 += 4u;
-            ctx->D[6] = RT_SX16(MR16(a3));
-            ctx->D[7] = RT_SX16(MR16(a3 + 2u));
-            rt_call(ctx, a5 + 0x2b8au);     /* $007CA8 */
-        }
-
-        /* $00399C: per-frame animated draw ($004A00), frame-indexed buffer. */
-        {
-            uint32_t a2 = a5 - 0x18c0u;
-            uint32_t d0 = (uint32_t)(7u & MR16(0x1eu)) << 2;
-            ctx->A[2] = MR32(a2 + d0);
-            rt_call(ctx, a5 - 0x71eu);      /* $004A00 */
-        }
-
-        /* $0039B0: read input -> d0, stash it, test fire (bit 5). */
-        rt_call(ctx, a5 - 0x1574u);         /* $003BAA */
-        uint32_t in = ctx->D[0];
-        MW16(a5 - 0x18c0u, in);
-        if (in & 0x20u) {                   /* btst #5 -> fire */
-            rt_jump(ctx, 0x0039D0u);        /* dispatch (PLAY/PASSWORD/EXTRA) */
+        hw_vblank_wait();                       /* $003960 frame boundary */
+        int act = pc_menu_loop_body(ctx);
+        if (act == PC_MENU_FIRE) { rt_jump(ctx, 0x0039D0u); return; }
+        if (act == PC_MENU_TIMEOUT) {
+            pc_menu_attract_preroll(ctx);
+            rt_jump(ctx, ctx->A[5] - 0x1d3cu);  /* $0033E2 attract */
             return;
         }
-
-        /* $0039BE: while the menu music is still running, keep looping;
-         * once it finishes, return to the attract/poster at $0033E2. */
-        if (MR16(a5 + 0x2be2u) != 0) continue;
-        ctx->A[4] = a5 + 0x2c18u;
-        rt_call(ctx, a5 + 0x2b04u);         /* $007C22 */
-        rt_jump(ctx, a5 - 0x1d3cu);         /* $0033E2 attract */
-        return;
     }
 }
 

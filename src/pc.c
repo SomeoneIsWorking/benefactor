@@ -665,6 +665,17 @@ static void coro_yield(void)
     swapcontext(&s_game_uc, &s_main_uc);
 }
 
+/* Host-driven menu takeover. Stub for now (returns 0) — keeps pc_native_main_menu
+ * on the coroutine loop. The host driver (pc_step running pc_menu_setup/
+ * pc_menu_loop_body with no hw_vblank_wait, escaping the coroutine here and
+ * rebuilding it for gameplay/attract on exit) lands next; this declaration keeps
+ * the refactor compiling and the coroutine path byte-identical meanwhile. */
+int pc_menu_host_takeover(M68KCtx *ctx)
+{
+    (void)ctx;
+    return 0;
+}
+
 /* Set by the $150 overlay-loader override when the player starts the game from
  * the title; pc_step_coro restarts the coroutine into the gameplay entry. We
  * can't enter gameplay from the loader itself (it runs on the IRQ-delivery call
