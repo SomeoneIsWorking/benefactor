@@ -293,6 +293,10 @@ void native_menu_glyph_blit(M68KCtx *ctx)
     }
     const char *render = buf;
 
+    if (getenv("GLYPH_LOG"))
+        fprintf(stderr, "[glyph] a2=$%06X a1=$%06X d6=%d str=\"%s\"\n",
+                orig_a2, ctx->A[1], (int)(int16_t)(uint16_t)ctx->D[6], buf);
+
     const uint32_t font_base = 0x1BB30u;
     uint32_t a1 = ctx->A[1];
     int16_t   d6 = (int16_t)(uint16_t)ctx->D[6];
