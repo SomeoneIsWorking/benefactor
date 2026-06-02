@@ -226,15 +226,27 @@ int main(int argc, char **argv)
             extern void pc_set_start_level(int);
             pc_set_start_level(n);
         }
-        else if (!strcmp(cmd, "runtomenu")) {  /* runtomenu [maxframes] — step PC until native title menu fires */
-
-            unsigned maxf = 30000; sscanf(line, "%*s %u", &maxf);
-            unsigned i = 0;
-            for (; i < maxf; i++) { STEP_PC(); if (g_pc_in_native_title_menu) break; }
-            FrameState c; hw_get_snap(&c);
+        else if (!strcmp(cmd, "runtomenu")) {  /* runtomenu [maxframes] — drive to the main menu */
+            /* The main menu is the screen at cop1lc=$008302. The cover-art /
+             * attract at $0086CC is a hard wait-for-fire gate, so HOLD fire to
+             * advance intro -> menu. Because fire is held the whole way, the
+             * first frame we see $008302 is the menu: the idle poster (which
+             * may share this cop1lc) is only rested-on when NOT advancing, and
+             * held fire never rests there. Stop per-frame the instant the menu
+             * appears, then RELEASE fire (held fire would auto-select PLAY GAME)
+             * and let the fade-in settle so the menu is fully drawn. */
+            #define MENU_COP1LC 0x008302u
+            unsigned maxf = 3000; sscanf(line, "%*s %u", &maxf);
+            int saved_fire = fire;
+            fire = 1;
+            unsigned i = 0; int reached = 0;
+            for (; i < maxf; i++) { STEP_PC(); if (hw_get_cop1lc() == MENU_COP1LC) { reached = 1; break; } }
+            fire = 0;
+            if (reached) for (int s = 0; s < 12 && hw_get_cop1lc() == MENU_COP1LC; s++) STEP_PC();
+            fire = saved_fire;
             printf("[crepl] runtomenu: %s after %u frames (cop1lc=$%06X)\n",
-                   g_pc_in_native_title_menu ? "REACHED" : "gave up",
-                   i + (i < maxf), c.cop1lc);
+                   reached ? "REACHED" : "gave up", i + reached, hw_get_cop1lc());
+            #undef MENU_COP1LC
         }
         else if (!strcmp(cmd, "runtocard")) {  /* runtocard [maxframes] — step PC until TITLE CARD shows */
             extern int pc_is_title_card_displayed(void);
