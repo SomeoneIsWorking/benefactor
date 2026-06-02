@@ -42,3 +42,26 @@ void pc_set_harness_mode(int on);
  * $586928 win flag the object loop tests); game_over = death (bit15 of $10AC). */
 void pc_debug_complete_level(void);
 void pc_debug_game_over(void);
+
+/* ── Level / world layout & names — SINGLE SOURCE OF TRUTH ───────────────────
+ * 60 levels across 7 worlds; worlds 0-1 have 9 levels, 2-5 have 10, 6 has 2
+ * (mirrors the engine's level table at $57782E). Anything needing world/level
+ * geometry or names MUST go through these — do NOT re-hardcode the
+ * {9,9,10,10,10,10,2} split or re-extract names anywhere else. Names are
+ * decoded once from the disk overlays (pc_preload_all_level_names), applying
+ * the per-level name-slot permutation read from the engine's $32 table. */
+#define PC_NUM_WORLDS 7
+#define PC_NUM_LEVELS 60
+
+int  pc_levels_in_world(int world);    /* # levels in world (0 if out of range) */
+int  pc_world_first_level(int world);  /* 1-based global level # of world's first level (0 if OOR) */
+void pc_level_split(int level, int *world_out, int *level_in_world_out);
+
+void        pc_preload_all_level_names(void);
+const char *pc_world_name(int world);
+const char *pc_static_level_name(int level);  /* name of global level 1..60 */
+const char *pc_current_level_name(void);      /* name of the level in $20.w */
+
+/* Pending level-select choice, applied at the $150 hand-off. */
+void pc_set_start_level(int n);
+int  pc_get_start_level(void);

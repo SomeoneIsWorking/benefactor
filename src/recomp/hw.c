@@ -7,6 +7,7 @@
 
 #include "hw_private.h"
 #include "native_renderer.h"
+#include "../pc.h"   /* level/world layout accessors (single source of truth) */
 #include <signal.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -310,19 +311,15 @@ void hw_handle_key(int sym, int down)
          * Otherwise they fall through to normal joystick / menu nav. */
         extern int g_level_select_visible;
         if (down && g_level_select_visible) {
-            extern void pc_set_start_level(int);
-            extern int  pc_get_start_level(void);
-            extern void pc_level_split(int level, int *world, int *liw);
             int cur = pc_get_start_level();
             if (cur < 1) cur = 1;
-            static const int wstart[7] = { 0, 9, 18, 28, 38, 48, 58 };
             int w, liw; pc_level_split(cur, &w, &liw);
-            if (w < 0 || w > 6) w = 0;
+            if (w < 0 || w >= PC_NUM_WORLDS) w = 0;
             switch (sym) {
                 case SDLK_UP:    pc_set_start_level(cur - 1); break;
                 case SDLK_DOWN:  pc_set_start_level(cur + 1); break;
-                case SDLK_LEFT:  pc_set_start_level(w > 0 ? wstart[w - 1] + 1 : 1); break;
-                case SDLK_RIGHT: pc_set_start_level(w < 6 ? wstart[w + 1] + 1 : 59); break;
+                case SDLK_LEFT:  pc_set_start_level(pc_world_first_level(w > 0 ? w - 1 : 0)); break;
+                case SDLK_RIGHT: pc_set_start_level(pc_world_first_level(w < PC_NUM_WORLDS - 1 ? w + 1 : w)); break;
             }
             break;
         }

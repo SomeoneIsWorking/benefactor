@@ -376,24 +376,16 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
         extern int  hw_joy_right(void);
         extern int  hw_get_fire(void);
         extern int  g_level_select_visible;
-        extern void pc_set_start_level(int);
-        extern int  pc_get_start_level(void);
-        extern void pc_level_split(int, int *, int *);
+        /* pc_set_start_level / pc_get_start_level / pc_level_split come from
+         * pc.h (via pc_internal.h) — the single declaration point. */
 
         g_level_select_visible = 1;
 
         /* Wait for the entry fire press to release. */
         while (hw_get_fire()) hw_vblank_wait();
 
-        /* Helpers: count levels in world; convert (world, liw) -> global.
-         * Fall back to the hardcoded world layout when the engine's table
-         * at $57782E reads garbage (which it does at this point in some
-         * boot states — pc_level_split returns world > 6). */
-        static const int s_wstart[7] = { 0, 9, 18, 28, 38, 48, 58 };
-        static const int s_wcount[7] = { 9, 9, 10, 10, 10, 10, 2 };
-        #define WCOUNT(_w_) ((_w_) >= 0 && (_w_) < 7 ? s_wcount[_w_] : 0)
-        #define GLOBAL(_w_, _l_) ((_w_) >= 0 && (_w_) < 7 ? s_wstart[_w_] + (_l_) + 1 : 1)
-
+        /* World/level geometry comes from the SSoT accessors in pc.h
+         * (pc_levels_in_world / pc_world_first_level) — never re-hardcode. */
         int prev_u = 0, prev_d = 0, prev_l = 0, prev_r = 0;
         for (;;) {
             hw_vblank_wait();
@@ -403,35 +395,27 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
             int level = pc_get_start_level();
             int world = 0, liw = 0;
             pc_level_split(level, &world, &liw);
-            /* Same defensive clamp as the renderer — pc_level_split can
-             * return garbage if the engine's table isn't valid yet. */
-            if (world < 0 || world > 6) world = 0;
-            if (liw   < 0 || liw   > 9) liw   = 0;
-            int liw_max = WCOUNT(world) - 1;
+            if (world < 0 || world >= PC_NUM_WORLDS) world = 0;
+            int liw_max = pc_levels_in_world(world) - 1;
+            if (liw < 0)        liw = 0;
+            if (liw > liw_max)  liw = liw_max;
 
             /* UP/DOWN navigate level within current world (clamped, no wrap). */
             if (u && !prev_u && liw > 0)
-                pc_set_start_level(GLOBAL(world, liw - 1));
+                pc_set_start_level(pc_world_first_level(world) + (liw - 1));
             if (d && !prev_d && liw < liw_max)
-                pc_set_start_level(GLOBAL(world, liw + 1));
+                pc_set_start_level(pc_world_first_level(world) + (liw + 1));
 
-            /* LEFT/RIGHT cycle worlds 0..6 with wrap; reset to liw 0 of new world. */
-            if (lt && !prev_l) {
-                int nw = (world + 7 - 1) % 7;
-                pc_set_start_level(GLOBAL(nw, 0));
-            }
-            if (rt && !prev_r) {
-                int nw = (world + 1) % 7;
-                pc_set_start_level(GLOBAL(nw, 0));
-            }
+            /* LEFT/RIGHT cycle worlds with wrap; reset to liw 0 of new world. */
+            if (lt && !prev_l)
+                pc_set_start_level(pc_world_first_level((world + PC_NUM_WORLDS - 1) % PC_NUM_WORLDS));
+            if (rt && !prev_r)
+                pc_set_start_level(pc_world_first_level((world + 1) % PC_NUM_WORLDS));
 
             prev_u = u; prev_d = d; prev_l = lt; prev_r = rt;
             if (f) break;
         }
         g_level_select_visible = 0;
-
-        #undef WCOUNT
-        #undef GLOBAL
 
         /* Same exit setup as the engine's PLAY GAME path
          * ($003AF4..$003B08). The INTREQ clear matters: stale title-bank

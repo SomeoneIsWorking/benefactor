@@ -78,6 +78,32 @@ prologue-scan + a few seeds; the bulk of the remaining hand-seeds are NON-dispat
 engine/player code (and some bogus historical odd-address seeds). A standalone
 harvester proving this lives in the session notes; it isn't a build dependency.
 
+## Level names: per-level name POINTER, not sequential (2026-06-02)
+
+The 10-entry per-world name array (`"NAME"` strings, 44 bytes apart, first quote
+at chunk offset `$60` → loads so slot 0's quote sits at **`$5786A8`**) is stored in
+an arbitrary **slot order that is NOT play order**. The level→name mapping is an
+explicit pointer:
+
+- Each per-world chunk also embeds the engine's **`$32` level table**: one 12-byte
+  entry per level `[data_off, name_off, 0]`. On disk `name_off = slot*44`; the
+  relocation loop at `$57CC0E` adds base `$5786A8` to it (and `a0`-base to `data_off`).
+- The dispatcher at `$5779C2` loads, for the selected level (`liw` from the contiguous
+  `$57782E` table), `data_ptr → $10E0(a5)` and **`name_ptr → -$67CA(a5)`**. The card
+  renders the name via that pointer.
+- So play-order level `liw` → stored slot = `name_off/44`, a non-trivial permutation.
+  World 0 is `[0,1,2,7,4,5,8,3,6]` (e.g. L4="SILENTS?" not "FOLLOW THE SIGNS",
+  L7↔L9). Worlds 0,2,3,4,5 are permuted; worlds 1,6 are identity.
+
+Reading the name array sequentially (`$5786AC + liw*44`) mislabels those levels —
+this was the level-select bug. `pc_preload_all_level_names()` (pc.c) now locates the
+table offline (its signature: N 12-byte entries whose 3rd long is 0 and whose
+`name_off/44` values are a permutation of `0..N-1`) and applies the permutation.
+**SSoT:** all world/level geometry + names go through `pc.h`
+(`pc_levels_in_world` / `pc_world_first_level` / `pc_level_split` /
+`pc_static_level_name`) — do not re-hardcode the `{9,9,10,10,10,10,2}` split or
+re-extract names. See [[reference_compare_tool]] (`lnames`/`levelinfo` REPL).
+
 ## Cardinal facts
 
 - **`a5 = $57EE12`** in the gameplay bank — set by `$5770B0: lea $57ee12(pc), a5`.

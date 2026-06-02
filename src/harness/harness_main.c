@@ -246,35 +246,28 @@ int main(int argc, char **argv)
                    pc_is_title_card_displayed() ? "REACHED" : "gave up", i + (i < maxf), c.cop1lc);
         }
         else if (!strcmp(cmd, "lnames")) {
-            /* Print all 10 names from the currently-loaded world's table. */
+            /* Print the current world's level names in PLAY order, via the
+             * single source of truth (pc_static_level_name — already applies
+             * the storage->play-order name permutation). */
             extern uint8_t *g_mem;
-            if (g_mem) {
-                for (int liw = 0; liw < 10; liw++) {
-                    uint32_t e = 0x5786ACu + (uint32_t)liw * 44u;
-                    int qa = -1;
-                    for (int i = 0; i < 36; i++) if (g_mem[e + i] == '"') { qa = i; break; }
-                    if (qa < 0) { printf("  liw %d: (no name)\n", liw); continue; }
-                    char name[64] = {0}; int j = 0;
-                    for (int i = qa + 1; i < 44 && g_mem[e + i] != '"' && j < 63; i++)
-                        name[j++] = (char)g_mem[e + i];
-                    printf("  liw %d: \"%s\"\n", liw, name);
-                }
+            int level = g_mem ? (((int)g_mem[0x20] << 8) | g_mem[0x21]) : 1;
+            if (level < 1 || level > PC_NUM_LEVELS) level = 1;
+            int world = 0, liw = 0;
+            pc_level_split(level, &world, &liw);
+            printf("  world %d: \"%s\"\n", world, pc_world_name(world));
+            for (int i = 0; i < pc_levels_in_world(world); i++) {
+                int gl = pc_world_first_level(world) + i;
+                printf("  L%-2d (liw %d): \"%s\"\n", gl, i, pc_static_level_name(gl));
             }
         }
         else if (!strcmp(cmd, "levelinfo")) {
             extern uint8_t *g_mem;
-            extern void pc_level_split(int, int*, int*);
-            extern const char *pc_world_name(int);
-            extern const char *pc_current_level_name(void);
             extern int pc_is_level_card_displayed(void);
             int level = g_mem ? ((int)g_mem[0x20] << 8) | g_mem[0x21] : 0;
             int world = 0, liw = 0;
             pc_level_split(level, &world, &liw);
-            char name[64] = {0}; const char *p = pc_current_level_name();
-            int j = 0;
-            for (int k = 0; k < 63 && p[k] && p[k] != '"'; k++) name[j++] = p[k];
             printf("[crepl] $20.w = %d  -> world %d (%s) / level_in_world %d  name=\"%s\"  card_displayed=%d\n",
-                   level, world, pc_world_name(world), liw, name,
+                   level, world, pc_world_name(world), liw, pc_static_level_name(level),
                    pc_is_level_card_displayed());
         }
         else if (!strcmp(cmd, "dumpall")) {  /* dumpall <file> — dump first 6MB of g_mem */
