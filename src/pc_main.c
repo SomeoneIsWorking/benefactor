@@ -17,6 +17,7 @@ int main(int argc, char **argv)
     int nd = 0;
     int direct_level = 0;
     const char *load_path = NULL;
+    const char *dump_banks_dir = NULL;
     int headless = 0;
 
     /* Accept "--disk Disk.1 [Disk.2] [Disk.3]" or just "Disk.1 [..]".
@@ -35,6 +36,10 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[i], "--headless")) {
             headless = 1;
+            continue;
+        }
+        if (!strcmp(argv[i], "--dump-banks") && i + 1 < argc) {
+            dump_banks_dir = argv[++i];
             continue;
         }
         if (!strcmp(argv[i], "--force-load")) {
@@ -58,6 +63,12 @@ int main(int argc, char **argv)
     signal(SIGINT, handler);
     signal(SIGTERM, handler);
     (void)s_running;
+
+    if (dump_banks_dir) {
+        extern int pc_dump_banks_from_disk(const char **, int, const char *);
+        int rc = pc_dump_banks_from_disk(disks, nd, dump_banks_dir);
+        return rc < 0 ? 1 : 0;
+    }
 
     if (headless) {
         extern void hw_request_headless(void);
