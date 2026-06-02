@@ -641,12 +641,14 @@ int pc_step(void)
     }
 
     short ab[PC_AUD_SPF * 2];
-    if (g_overlay_active) {
-        /* The overlay music player (menu, level card, gameplay — all the same
-         * CIA-timer-driven $53A2 player) advances ~3x per displayed frame; one
-         * tick/frame plays it too slow. The intro crawl uses a different player
-         * ($55A0) that advances once/frame (handled in the else branch). Render
-         * audio between ticks so each sub-frame note is actually heard. */
+    if (g_overlay_active || g_gameplay_active || g_credits_active) {
+        /* The overlay music player (menu, level card, gameplay, credits — all the
+         * same CIA-timer-driven $53A2 player) advances ~3x per displayed frame;
+         * one tick/frame plays it too slow. The intro crawl uses a different
+         * player ($55A0) that advances once/frame (handled in the else branch).
+         * Render audio between ticks so each sub-frame note is actually heard.
+         * NOTE: gameplay is g_gameplay_active (overlay=0) — it MUST be included
+         * here or it gets zero music ticks (no sound past the menu). */
         int ticks = GP_MUSIC_TICKS;
         int done = 0;
         for (int k = 0; k < ticks; k++) {
@@ -695,7 +697,7 @@ static int irq_level_enabled(uint16_t levelbits)
  * vector from a previous screen doesn't run during a masked load. */
 void pc_music_tick(void)
 {
-    if (!g_overlay_active && !g_credits_active) return;
+    if (!g_overlay_active && !g_gameplay_active && !g_credits_active) return;
     if (!irq_level_enabled(INTENA_LVL6)) return;
     uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16)
                 | ((uint32_t)g_chip[0x7a] << 8)  |  (uint32_t)g_chip[0x7b];
