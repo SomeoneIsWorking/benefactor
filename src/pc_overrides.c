@@ -47,6 +47,15 @@ void pc_register_overrides(void)
     { extern void native_main_menu_fire_dispatch(M68KCtx *ctx);
       rt_register_override(0x000039D0u, native_main_menu_fire_dispatch); }
 
+    /* Faithful native port of the title main-menu loop ($003872). The
+     * recompiled gfn_gp_003872 stays diffable via g_native_menu_enable
+     * (PC_NATIVE_MENU env; default on) for A/B verification. See pc_menu.c. */
+    { extern void pc_native_main_menu(M68KCtx *ctx);
+      extern int  g_native_menu_enable;
+      const char *e = getenv("PC_NATIVE_MENU");
+      if (e) g_native_menu_enable = atoi(e);
+      rt_register_override(0x00003872u, pc_native_main_menu); }
+
     /* $003C5A / $003C6E / $003C88 / $003C9A — four arrow-direction handlers
      * in the title menu. Each is a short rts-terminated mini-routine
      * starting with `move.w #$384,$2BE2(a5)` (audio re-trig?) and updating
