@@ -70,7 +70,6 @@ typedef struct GameState {
     int      enter_gameplay;
     uint32_t gameplay_entry;
     int      pc_start_level;
-    int      pc_in_native_title_menu;
 } GameState;
 
 extern GameState g_state;
@@ -109,7 +108,6 @@ extern GameState g_state;
 #define g_enter_gameplay          (g_state.enter_gameplay)
 #define g_gameplay_entry          (g_state.gameplay_entry)
 #define g_pc_start_level          (g_state.pc_start_level)
-#define g_pc_in_native_title_menu (g_state.pc_in_native_title_menu)
 
 /* Coroutine plumbing (only referenced inside pc.c) — provide the same legacy
  * names for minimal-diff editing there. */
