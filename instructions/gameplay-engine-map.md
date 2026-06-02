@@ -486,3 +486,28 @@ Harness REPL: `goto 1` → dismiss card (fire cycles) → `pc 300` (physics live
 differential dumps (`dumpall`) of "no input" vs "hold up" / "hold right", diff the
 `$57E000..$580800` window. Up-press sets `$f70(a5)=$579D84`. `pcwatch <abs>` gives the
 writer fn (g_rt_last_call) + M68K pc per write.
+
+## SFX engine (RE'd 2026-06-02) — isolated from music!
+
+Gameplay SFX has its own state, SEPARATE from the music decode (resolves the
+wrong-SFX "can't separate from music" dead end in current-state.md):
+- `$57fe4e.b` = SFX pending flag (`$FF` = a sound is active, `$00` = idle).
+- `$57fe50` = active SFX **descriptor** (~20 bytes copied from the request): +0 sample
+  ptr, +4 period/word, +len/priority fields. `$57fe5c.w` = remaining segment count.
+- **`$58656E`** (`$775c(a5)`) = **SFX TRIGGER / request**. Caller sets `a3` = pointer to
+  a sound descriptor; it priority-arbitrates against the active sound (`$57fe50`, via
+  fields `$6`/`$10`), and if it wins copies the descriptor, sets `$57fe4e=$FF`, writes
+  DMACON `$dff096`. 67 call sites game-wide (mostly `lea <desc>,a3; jsr $775c(a5)`).
+- **`$586612`** (`$7800(a5)`) = per-frame SFX **streamer**: advances the active sample
+  ptr through its segments (`$57fe50 += $6C`/frame) decrementing `$57fe5c` 5→0, then
+  clears `$57fe4e`. (A multi-chunk sample played as a stream.)
+- **`$586790`** = per-frame SFX housekeeping (clears `$57fe4f`).
+
+JUMP grunt: captured sample base `$5B0BE4` (descriptor period `$0280`, len `$0032`).
+The jump landing in `$579D84` (`jsr $775c(a5)` at `d5==$18`, `a3` from `-$273c(a5)`)
+is one SFX call; the takeoff grunt fires from the grounded/long-jump path similarly.
+
+**This enables clean PC-vs-PUAE SFX comparison** with NO music confound: diff `$57fe50`
+(active descriptor) on the SAME jump on both cores. Dynamic capture: `pcwatch
+57FE4E-57FE63` then inject a jump; the writer fn = `$58656E` (trigger) / `$586612`
+(streamer). The sample ptr in `$57fe50` is the exact grunt being played.
