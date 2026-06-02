@@ -410,6 +410,49 @@ int main(int argc, char **argv)
             sscanf(line, "%*s %255s", path);
             extern int pc_loadstate(const char *); pc_loadstate(path);
         }
+        else if (!strcmp(cmd, "loadmem")) {  /* loadmem [path] — load ONLY g_mem (chip/RAM) from a savestate,
+                                                keeping the live game thread's own coroutine context. Lets the
+                                                running engine continue into the saved scene's memory (camera,
+                                                objects, tilemap) and re-render it — works across binaries since
+                                                the Amiga memory map is binary-independent. Diagnostic only. */
+            char path[256] = "logs/savestate.bin";
+            sscanf(line, "%*s %255s", path);
+            extern uint8_t *g_mem;
+            FILE *f = fopen(path, "rb");
+            if (!f) { printf("[crepl] loadmem: open %s failed\n", path); }
+            else {
+                fseek(f, 0, SEEK_END); long fsz = ftell(f);
+                long mem_off = fsz - (long)RT_MEM_SIZE;
+                long gs_off  = mem_off - (long)sizeof(GameState);
+                if (gs_off < 0) { printf("[crepl] loadmem: %s too small (%ld)\n", path, fsz); }
+                else {
+                    /* Load the hardware-shadow + register state (g_state) AND chip/RAM
+                     * (g_mem). We do NOT resume the parked game thread (its C-stack is
+                     * stale), so this is render-only: after `render` the framebuffer
+                     * shows the saved scene exactly. Skipping g_state was wrong — the
+                     * renderer reads cop1lc/BPL pointers from g_state.regs[]. */
+                    fseek(f, gs_off, SEEK_SET);
+                    size_t gs = fread(&g_state, 1, sizeof(GameState), f);
+                    size_t mm = fread(g_mem, 1, RT_MEM_SIZE, f);
+                    printf("[crepl] loadmem: loaded g_state(%zu) + g_mem(%zu) from %s "
+                           "(thread NOT resumed; use `render` then inspect)\n", gs, mm, path);
+                }
+                fclose(f);
+            }
+        }
+        else if (!strcmp(cmd, "render")) {  /* render — re-render s_fb straight from the current g_mem
+                                               (copper + bitplanes) WITHOUT stepping the game thread. Use
+                                               after `loadmem` to view a saved scene exactly as stored. */
+            extern void hw_execute_copper(void);
+            extern void native_render_frame(void);
+            extern int g_native_render_delay;
+            int saved_delay = g_native_render_delay;
+            g_native_render_delay = 0;   /* read live g_mem, not the stale snapshot ring */
+            hw_execute_copper();
+            native_render_frame();
+            g_native_render_delay = saved_delay;
+            printf("[crepl] rendered current g_mem to framebuffer (delay bypassed)\n");
+        }
         else if (!strcmp(cmd, "done")) {  /* debug: force PC level-complete (win) */
             extern void pc_debug_complete_level(void);
             pc_debug_complete_level();

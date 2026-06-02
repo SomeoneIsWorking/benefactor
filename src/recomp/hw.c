@@ -528,7 +528,7 @@ int hw_present_frame(void)
             const char *env = getenv("BENEFACTOR_DUMP_FRAME");
             dump_frame = env ? atoi(env) : -1;
         }
-        if (dump_frame >= 0 && s_frame_num == (uint32_t)dump_frame) {
+        if (dump_frame >= 0 && (uint32_t)s_frame_num == (uint32_t)dump_frame) {
             native_render_frame();  /* re-render to ensure fb is populated in headless */
             /* Write BMP */
             const char *path = "frame_dump.bmp";
@@ -594,18 +594,18 @@ int hw_present_frame(void)
             if (frame_limit > 0) hw_set_frame_limit(frame_limit);
         }
 
-        if (press_frame >= 0 && s_frame_num == (uint32_t)press_frame) {
+        if (press_frame >= 0 && (uint32_t)s_frame_num == (uint32_t)press_frame) {
             hw_set_fire(1);
             hw_set_mouse_lmb(1);
             GLOBAL_LOG( "[test] fire pressed at frame %d\n", s_frame_num);
         }
-        if (release_frame >= 0 && s_frame_num == (uint32_t)release_frame) {
+        if (release_frame >= 0 && (uint32_t)s_frame_num == (uint32_t)release_frame) {
             hw_set_fire(0);
             hw_set_mouse_lmb(0);
             GLOBAL_LOG( "[test] fire released at frame %d\n", s_frame_num);
         }
 
-        if (test_frames > 0 && s_frame_num >= (uint32_t)test_frames && !test_done) {
+        if (test_frames > 0 && (uint32_t)s_frame_num >= (uint32_t)test_frames && !test_done) {
             test_done = 1;
             /* Dump memory regions from BENEFACTOR_DUMP */
             const char *dump_env = getenv("BENEFACTOR_DUMP");
@@ -1197,7 +1197,7 @@ uint16_t hw_read16(uint32_t addr)
                 }
             }
             uint16_t lof = 1;
-            uint16_t val = (uint16_t)((lof << 15) | s_frame_num & 1);
+            uint16_t val = (uint16_t)((lof << 15) | (s_frame_num & 1));
             return val;
         }
         case VHPOSR:

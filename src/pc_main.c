@@ -86,6 +86,7 @@ int main(int argc, char **argv)
         }
         fprintf(stderr, "[pc] resuming from savestate %s\n", load_path);
     }
+    pc_http_debug_start();   /* no-op unless BENEFACTOR_HTTP=<port> is set */
     pc_run();
     fprintf(stderr, "[pc] done\n");
     pc_fini();
