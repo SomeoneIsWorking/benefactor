@@ -117,6 +117,14 @@ void hw_audio_render(short *buf, int nsamples)
 {
     memset(buf, 0, (size_t)nsamples * 2 * sizeof(short));
     hw_audio_mix(buf, nsamples);
+
+    /* Diagnostic tap (env AUDIO_DUMP=path): append the rendered PCM so a headless
+     * run can be checked for non-silence (the SDL queue is dead in headless). */
+    const char *dp = getenv("AUDIO_DUMP");
+    if (dp) {
+        FILE *f = fopen(dp, "ab");
+        if (f) { fwrite(buf, sizeof(short), (size_t)nsamples * 2, f); fclose(f); }
+    }
 }
 
 /* Start (or restart) a channel from its current registers. */
