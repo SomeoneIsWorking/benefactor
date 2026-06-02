@@ -53,7 +53,8 @@ destinations and lessons:
 | `instructions/recompiler.md` | Recompiler usage and improvement targets |
 | `instructions/create-override.md` | Native override patterns and existing overrides table |
 | `instructions/rom-analysis.md` | M68K disassembly and address tracing |
-| `instructions/gameplay-engine-map.md` | Working RE map of the `$577000+` engine: per-frame loop subsystems, level setup, object/animation system, a5-relative state vars. **Update as you native-port pieces.** |
+| `instructions/gameplay-engine-map.md` | Working RE map of the `$577000+` engine: per-frame loop subsystems, level setup, object/animation system, a5-relative state vars (incl. player movement/JUMP state machine + SFX engine). **Update as you native-port pieces.** |
+| `instructions/audio-engine.md` | Full RE map of the gameplay AUDIO engine (replayer + SFX): vblank tick `$59BA7A`, SFX `$586xxx` (trigger `$58656E`, streamers `$586612`/`$58684C`), CIA output ISR `$59BF3E`/`$59BFA6`, shared state, + staged native-port plan. |
 | `instructions/widescreen-plan.md` | Plan for widescreen gameplay (wider view than the 320px Amiga playfield); feasible because game logic is camera-independent. |
 
 ## Key Files
