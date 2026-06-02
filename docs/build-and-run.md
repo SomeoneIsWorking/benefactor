@@ -2,30 +2,46 @@
 
 ## Prerequisites
 
-- GCC 15.2, CMake 3.31
+- A C compiler + CMake 3.20+
 - SDL2 system library (`libsdl2-dev`)
-- Python 3.14 + capstone: `pip install capstone`
+- Python 3 + capstone: `pip install capstone`
+- Your own **Disk.1 / Disk.2 / Disk.3** Benefactor images in the repo root.
 
-## macOS (Apple Silicon / Intel)
+## The recompiled code is generated from your disks (not shipped)
 
-The **game** (`benefactor-pc`) is portable: it links only SDL2 + pthread, runs
-the game on a worker thread, and keeps all SDL on the main thread (Cocoa's
-requirement). The generated `src/generated/game_*.c` are committed, so no
-recompiler/chip-dump step is needed to build it.
+`src/generated/` is a recompilation of the copyrighted game and is **not in the
+repo** (gitignored). CMake regenerates it automatically from your `Disk.*` images
+at configure time via `tools/regen.sh` — which builds a small bootstrap dumper,
+extracts the four bank images from the disks (pure disk read + ATN! decrunch, no
+PUAE/Kickstart/WHDLoad/slave), and runs the recompiler. It is hash-gated, so it
+only re-runs when the recompiler/loaders/seeds change or the code is missing.
+
+So the whole build is just:
 
 ```bash
-brew install sdl2 cmake          # arm64 Homebrew installs to /opt/homebrew
-cmake -S . -B build              # CMakeLists auto-adds `brew --prefix` to the search path
-cmake --build build --target benefactor-pc -j$(sysctl -n hw.ncpu)
-./build/benefactor-pc Disk.1 Disk.2 Disk.3      # opens a window; arrows=move, Z/Ctrl/Space=fire
+# Disk.1 Disk.2 Disk.3 in the repo root
+cmake -S . -B build              # auto-regenerates src/generated/ from the disks
+cmake --build build --target benefactor-pc -j"$(nproc)"
+./build/benefactor-pc Disk.1 Disk.2 Disk.3      # window: arrows=move, Z/Ctrl/Space=fire
 #   --level N   start directly at level 1..60 (skips intro/title/menu)
 ```
 
-Native disk boot needs only the `Disk.*` images — no kickstart ROM.
+Native disk boot needs only the `Disk.*` images — no kickstart ROM. To force a
+regen, delete `src/generated/.regen-hash` (or the whole dir) and reconfigure.
 
-The **harness** (`benefactor-harness`) compiles the whole PUAE/libretro-uae tree
-and is a dev-only comparison tool; it is not needed to play and may need extra
-porting on macOS. Build just the `benefactor-pc` target as above.
+## macOS (Apple Silicon / Intel)
+
+The game is portable: SDL2 + pthread, game on a worker thread, all SDL on the
+main thread (Cocoa's requirement). `brew install sdl2 cmake` — CMake auto-adds
+`brew --prefix` to the search path. Then the same two commands as above. The
+**harness** (`benefactor-harness`) compiles the whole PUAE/libretro-uae tree
+and is a dev-only comparison tool (not needed to play; may need macOS porting) —
+build just the `benefactor-pc` target.
+
+## Legacy: PUAE chip dump (superseded by tools/regen.sh)
+
+The sections below describe the old PUAE-based input extraction. The disk-based
+`tools/regen.sh` flow above supersedes it; these are kept for reference only.
 
 ## Step 1 — Extract PUAE chip RAM dump from ROMs/disks
 

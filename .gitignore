@@ -16,6 +16,11 @@ assets.bin
 game_binary.bin
 game_data.bin
 
+# Recompiled 68k->C code: a derivative of the copyrighted game, generated from
+# the user's own Disk.* images at build time (tools/regen.sh, auto-run by CMake).
+# NOT shipped — see docs/build-and-run.md.
+/src/generated/
+
 # Runtime logs / framebuffer dumps / traces
 /logs/
 frame_dump.bmp
