@@ -213,6 +213,21 @@ because I tested at level *start* where the chain is off-screen; the oracle at t
 actual chamber settled it. Candidate next: the **gameover-screen cursor** image is
 missing — possibly another mode/feature our blitter or sprite path lacks.
 
+## OPEN: gameover-screen cursor missing = native hardware-SPRITE rendering unimplemented
+
+The CONTINUE/GAME OVER menu (cop1lc=$003914 after death; reach it in PUAE via
+`pugoto 3` → walk right into the water of "Keep Your Feet Dry", or `pc`-side
+`gameover`) shows a white selector dot left of CONTINUE in PUAE but NOT in PC.
+Root cause: the gameover copper activates **hardware sprite 0** (SPR0PT=$0000EE2E,
+sprite palette COLOR16-31 at copper $1A0-$1BE), but `native_render_frame`
+(`native_renderer.c`) has **ZERO** sprite code — it never composites hardware
+sprites. So the cursor (and any other hardware-sprite graphic) is missing. NOT a
+blitter issue (the chains were; this is separate). FIX (not yet done, user
+checkpointed): implement hardware-sprite compositing in the native renderer —
+read SPRxPT from the copper (anchor them like BPL pointers), decode SPRxPOS/CTL
+for X/Y + attach, read the 2 sprite bitplanes → COLOR16-31, composite at the
+playfield priority. Verify against the PUAE oracle; guard the deterministic intro.
+
 ## Debugging tool: interactive REPL
 
 `PC_REPL=1 ./build/benefactor-harness <kick> <whdload> <disk1..3>` boots the native disk coroutine and drops to a stdin REPL — step the flow and inspect chip RAM live without recompiling per probe. Commands: `s [n]` step, `g <frame>` run-to-frame, `u <addr> <val> [w|l]` step-until-memory-equals, `f <0|1>` hold fire/start, `p <addr> [n]` peek bytes, `w <addr>` peek word, `c` frame+cop1lc, `fb <path>` dump framebuffer, `q` quit. This replaced the env-var recompile cycle for the car-demo root-cause.
