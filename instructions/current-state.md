@@ -227,6 +227,30 @@ SFX: diff `$57fe50` PC-vs-PUAE on the same jump, NO music confound. Full SFX-eng
 map in `instructions/gameplay-engine-map.md` ("SFX engine"). Jump grunt sample =
 `$5B0BE4`. NEXT: drive PUAE (pugoto) + PC (goto) to a jump, compare `$57fe50`.
 
+CONTROLLED COMPARISON RESULT (2026-06-02): the grunt SELECTION appears CORRECT.
+- SFX bank is BYTE-IDENTICAL PC vs PUAE (verified at `$5AF0A0`/`$5B0BE4`/`$5AF000`),
+  so descriptor pointers are directly comparable.
+- Naive PC-vs-PUAE capture showed DIFFERENT grunts (PC `$5B0BE4`/`$5B41B6` vs PUAE
+  `$5AF0A0`/`$5AFD60`/`$5B423E`) — but that was NOT state-matched (different player
+  position/facing/jump-type → legitimately different grunt variants). NOT a valid
+  comparison.
+- STATE-MATCHED test (save PC pre-jump → `puloadmem` teleport PUAE to it → same
+  long-jump on both): BOTH pick base `$5B0BE4`. MATCH. So given identical state the
+  selection is identical. The game DOES intentionally vary grunts (≥2 variants,
+  alternated + jump-type dependent), so hearing different grunts on repeated jumps is
+  BY DESIGN, not a bug.
+- Hop matched test was inconclusive (`puloadmem` pokes PUAE memory but doesn't
+  restore CPU regs, so PUAE doesn't cleanly CONTINUE gameplay after teleport — render
+  comparisons OK, behavioral continuation flaky).
+
+STILL OPEN: the user reports a genuinely wrong sound SOMETIMES (orig repro: hold
+fire+LEFT, repeated jumps). Not reproduced under matched state. Candidates left: (a)
+the selection STATE (alternation counter / jump-type detect) DIVERGES PC-vs-PUAE
+over time during free play (needs frame-locked lockstep to catch — PC can't resume
+after loadmem, so this needs a new tool), or (b) it is the intentional variation.
+NEXT: get the user to pin the exact action + what the wrong sound is (a grunt
+variant vs a totally unrelated sound), then match that state.
+
 OLD DEAD END (channel-snapshot path, do not repeat): per-channel AUDxLC snapshot
 diffing can NOT separate SFX from music (music retriggers every frame + PC/PUAE
 phase skew). `$07AE94` etc. were MUSIC samples, not the grunt (there is no idle
