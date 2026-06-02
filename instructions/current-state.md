@@ -243,13 +243,21 @@ CONTROLLED COMPARISON RESULT (2026-06-02): the grunt SELECTION appears CORRECT.
   restore CPU regs, so PUAE doesn't cleanly CONTINUE gameplay after teleport — render
   comparisons OK, behavioral continuation flaky).
 
-STILL OPEN: the user reports a genuinely wrong sound SOMETIMES (orig repro: hold
-fire+LEFT, repeated jumps). Not reproduced under matched state. Candidates left: (a)
-the selection STATE (alternation counter / jump-type detect) DIVERGES PC-vs-PUAE
-over time during free play (needs frame-locked lockstep to catch — PC can't resume
-after loadmem, so this needs a new tool), or (b) it is the intentional variation.
-NEXT: get the user to pin the exact action + what the wrong sound is (a grunt
-variant vs a totally unrelated sound), then match that state.
+LOCKSTEP RESULT (2026-06-02, `sfxcmp` REPL cmd): sync both cores (save PC →
+`puloadmem` PUAE) then hold fire+LEFT (user's exact repro) and step BOTH frame-locked
+for 300 frames, logging every SFX trigger on each side. PC and PUAE trigger grunts on
+the EXACT SAME frames (15,42,57,84,…) with matching samples — variant-B `$5B423E`
+always identical; variant-A occasionally off by `$10` (`$5B0C50` vs `$5B0C60`),
+alternating which core leads. So SELECTION + timing are essentially correct; the `$10`
+is a 1-frame ordering phase between the player's SFX-trigger and the SFX streamer tick.
+The SFX streamer `$586612` ← `$59BA7A` ← LVL3 vblank ISR `$578272` (once/frame, same
+rate both cores). => Could NOT reproduce a wrong/garbled grunt via the descriptor.
+
+CONCLUSION: the audible "something playing wrong" is most likely in the PCM RENDERING
+(actual Paula sample playback / mixing — known imperfect, ~0.77 corr, see
+[[project_audio_state]]), NOT the SFX selection logic. NEXT to confirm: dump PC vs
+PUAE audio PCM during a grunt (per-channel) and compare waveforms; OR investigate the
+`$10` phase jitter (ISR-delivery ordering) if it proves audible. Tool: `sfxcmp [n]`.
 
 OLD DEAD END (channel-snapshot path, do not repeat): per-channel AUDxLC snapshot
 diffing can NOT separate SFX from music (music retriggers every frame + PC/PUAE

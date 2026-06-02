@@ -633,6 +633,30 @@ int main(int argc, char **argv)
                        ps.audio[ch].len, ps.audio[ch].vol);
             printf("\n");
         }
+        else if (!strcmp(cmd, "sfxcmp")) {  /* sfxcmp [n] — step BOTH cores n frames with current
+                                               fire/joy held; log every SFX trigger ($57fe4e 0->FF) on
+                                               each side with its sample ptr ($57fe50). Diff the two
+                                               grunt sequences to find where PC diverges from PUAE. */
+            unsigned n = 200; sscanf(line, "%*s %u", &n); if (!n) n = 200;
+            extern uint8_t *g_mem;
+            extern int puae_dump_mem(uint32_t, void*, int);
+            uint8_t pcb[6], pub[6];
+            for (int k=0;k<6;k++) pcb[k]=g_mem[0x57FE4Eu + k];
+            puae_dump_mem(0x57FE4E, pub, 6);
+            uint8_t pc_prev = pcb[0], pu_prev = pub[0];
+            int pc_n=0, pu_n=0;
+            for (unsigned i=0;i<n;i++) {
+                STEP_PC(); STEP_PU();
+                for (int k=0;k<6;k++) pcb[k]=g_mem[0x57FE4Eu + k];
+                puae_dump_mem(0x57FE4E, pub, 6);
+                uint32_t pcs=((uint32_t)pcb[3]<<16)|((uint32_t)pcb[4]<<8)|pcb[5]; /* $57fe51..53 = low 24b of ptr */
+                uint32_t pus=((uint32_t)pub[3]<<16)|((uint32_t)pub[4]<<8)|pub[5];
+                if (pcb[0]==0xFF && pc_prev!=0xFF) { printf("[sfxcmp] f+%-3u PC trig %06X\n", i, pcs); pc_n++; }
+                if (pub[0]==0xFF && pu_prev!=0xFF) { printf("[sfxcmp] f+%-3u PU trig %06X\n", i, pus); pu_n++; }
+                pc_prev=pcb[0]; pu_prev=pub[0];
+            }
+            printf("[sfxcmp] done %u frames: PC triggers=%d PU triggers=%d\n", n, pc_n, pu_n);
+        }
         else if (!strcmp(cmd, "mute")) {  /* mute [0|1] — toggle/set the music kill-switch (SFX isolation) */
             extern int g_mute_music;
             int v = -1;
