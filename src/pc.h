@@ -35,6 +35,10 @@ void pc_fini(void);
  * Returns 0 on success, -1 on failure. */
 int pc_savestate(const char *path);
 int pc_loadstate(const char *path);
+
+/* Opt-in HTTP debug server (no-op unless BENEFACTOR_HTTP=<port> is set). */
+void pc_http_debug_start(void);
+
 /* When set, pc_run skips host-rate pacing (harness drives stepping itself). */
 void pc_set_harness_mode(int on);
 

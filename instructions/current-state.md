@@ -164,6 +164,46 @@ Empirical (harness REPL): idling the menu with NO fire stays rendered indefinite
 
 - **Blitter does NOT implement descending mode** (`hw_blitter.c`): `desc = (bltcon1>>1)&1` is read but unused — the blit always processes ascending (apt/dpt += per row). Latent bug for any DDOWN blit; the car bob is ascending so unaffected here, but worth fixing.
 
+## Debugging tools: live HTTP server + savestate render
+
+- **HTTP debug server** (`src/pc_http_debug.c`, opt-in via `BENEFACTOR_HTTP=<port>`):
+  runs a localhost-only thread in `benefactor-pc` so you can inspect the game WHILE
+  someone plays. Use it with `BENEFACTOR_HTTP=8080 ./run_pc_game.sh` (env passes
+  through). Endpoints (GET): `/state` (level, cop1lc, bank flags, `$57FEB8` player
+  block), `/mem?addr=HEX&len=N`, `/poke?addr=HEX&val=HEX`, `/fb.ppm`, `/fb.bin`
+  (raw ARGB8888 352×282 → `tools/fb_view.py png`). Zero overhead when the env var
+  is unset.
+- **harness REPL `loadmem <file>` + `render`:** `loadmem` loads g_state+g_mem from a
+  savestate WITHOUT resuming the parked game thread (works across binaries — the
+  Amiga memory map is binary-independent); `render` re-renders s_fb straight from
+  g_mem with the snapshot delay bypassed. Together they reproduce ANY saved scene
+  exactly for inspection. NOTE: `render` MUST force `g_native_render_delay=0` — the
+  default render path reads a 1-frame snapshot ring (`s_snap_ring`), which after a
+  bare `loadmem` (no stepping) still holds the pre-load frames → shows the OLD scene.
+
+## Known bug: savestate LOAD crashes (mid-gameplay)
+
+Loading a mid-gameplay savestate from a fresh boot crashes (user-reported). Root
+cause is the STOPGAP documented on `pc_savestate` (pc.c): the save captures
+`g_state` (incl. the M68K `game_ctx`) + `g_mem` but NOT the game THREAD's C call
+stack, so the resume can't continue the thread at its suspended point. The thread
+model can't serialise the C stack. Proper fix direction: on load, RESPAWN the game
+thread at a clean per-frame re-entry (e.g. main-loop top `$577114`) with the loaded
+`g_state`/`g_mem`, the same way `goto`/direct-gameplay respawn via `pc_cps_start_at`
+— the engine re-reads all live state (player/objects/camera) from `g_mem` (a5-rel +
+chip RAM) each frame, so it should continue the saved scene. NOT yet implemented.
+
+## Chains-not-drawn (level 35 chamber) — investigation so far
+
+- Rendered the user's chamber savestate via `loadmem`+`render` (two big skulls,
+  candelabra, floor spikes, small hanging chandeliers near the ceiling). The chains
+  from the hanging chandeliers up to the ceiling anchor don't draw.
+- RULED OUT: blitter line-mode (game issues 0 LINE blits in gameplay; our blitter
+  has no line mode but it's never used here). RULED OUT: object-dispatch miss (0
+  rt-misses across level 35 gameplay — the chain-drawing code runs). So it's a
+  drawing-detail bug (a normal area blit / renderer interpretation), not a missing
+  handler. Needs a live PC-vs-reference comparison of the chain blit in that scene.
+
 ## Debugging tool: interactive REPL
 
 `PC_REPL=1 ./build/benefactor-harness <kick> <whdload> <disk1..3>` boots the native disk coroutine and drops to a stdin REPL — step the flow and inspect chip RAM live without recompiling per probe. Commands: `s [n]` step, `g <frame>` run-to-frame, `u <addr> <val> [w|l]` step-until-memory-equals, `f <0|1>` hold fire/start, `p <addr> [n]` peek bytes, `w <addr>` peek word, `c` frame+cop1lc, `fb <path>` dump framebuffer, `q` quit. This replaced the env-var recompile cycle for the car-demo root-cause.

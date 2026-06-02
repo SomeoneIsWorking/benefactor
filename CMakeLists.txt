@@ -157,6 +157,7 @@ add_executable(benefactor-pc
     src/pc_overrides_gameplay.c
     src/pc_level_select_ui.c
     src/pc_pause_menu.c
+    src/pc_http_debug.c
     src/pc.h
     src/pc_internal.h
     src/recomp/rt.c
