@@ -80,6 +80,133 @@ static inline uint16_t _mem16(uint32_t a)
     return 0;
 }
 
+/* Data registers + BLTCON1 mode bits (line + fill), mirroring PUAE. */
+#define _BLTCDAT  0x070
+#define _BLTBDAT  0x072
+#define _BLTADAT  0x074
+#define BLT1_LINE 0x0001   /* line mode */
+#define BLT1_SING 0x0002   /* single dot per line */
+#define BLT1_AUL  0x0004
+#define BLT1_SUL  0x0008
+#define BLT1_SUD  0x0010
+#define BLT1_FCI  0x0004   /* area mode: fill carry-in (same bit as AUL in line mode) */
+#define BLT1_IFE  0x0008   /* area mode: inclusive fill enable */
+#define BLT1_EFE  0x0010   /* area mode: exclusive fill enable */
+#define BLT1_SIGN 0x0040
+#define BLT1_DESC 0x0002   /* area mode: descending */
+
+static inline void _mem16_w(uint32_t a, uint16_t v)
+{
+    if (a + 1 < RT_MEM_SIZE) { g_mem[a] = (uint8_t)(v >> 8); g_mem[a + 1] = (uint8_t)v; }
+}
+
+/* Evaluate the 8-bit minterm logic function LF on per-bit (A,B,C). */
+static inline uint16_t _minterm(uint16_t a, uint16_t b, uint16_t c, uint8_t lf)
+{
+    uint16_t d = 0;
+    for (int bit = 0; bit < 16; bit++) {
+        int idx = ((a >> (15 - bit)) & 1) << 2 |
+                  ((b >> (15 - bit)) & 1) << 1 |
+                  ((c >> (15 - bit)) & 1);
+        if ((lf >> idx) & 1) d |= (uint16_t)(1 << (15 - bit));
+    }
+    return d;
+}
+
+/* Area-fill lookup: blit_filltable[byte][mode][0]=filled byte, [1]=carry-out.
+ * mode bit0 = carry-in, mode bit1 = inclusive(1)/exclusive(0). Built once,
+ * identical to PUAE's build_blitfilltable. */
+static uint8_t s_filltable[256][4][2];
+static int s_filltable_ready = 0;
+static void _build_filltable(void)
+{
+    if (s_filltable_ready) return;
+    s_filltable_ready = 1;
+    for (unsigned d = 0; d < 256; d++)
+        for (int i = 0; i < 4; i++) {
+            int fc = i & 1;
+            unsigned data = d;
+            for (unsigned m = 1; m != 0x100; m <<= 1) {
+                unsigned tmp = data;
+                if (fc) { if (i & 2) data |= m; else data ^= m; }
+                if (tmp & m) fc = !fc;
+            }
+            s_filltable[d][i][0] = (uint8_t)data;
+            s_filltable[d][i][1] = (uint8_t)fc;
+        }
+}
+
+/* Amiga OCS blitter LINE mode (Bresenham), ported from PUAE blitter.c
+ * (actually_do_blit line path). Draws a 1px line; the game uses it for the
+ * chandelier chains and similar. C is the read/write channel (D has no effect
+ * on line draw), BLTAPT is the error accumulator (not a pointer), BLTADAT is
+ * the single pen bit ($8000). */
+static void hw_do_line(uint16_t bltcon0, uint16_t bltcon1, uint16_t bltsize)
+{
+    int length = (bltsize >> 6) ? (bltsize >> 6) : 1024;
+    uint32_t cpt   = _bplptr_from(_BLTCPTH, _BLTCPTL) & ~1u;
+    int16_t  cmod  = (int16_t)s_regs[_BLTCMOD >> 1];
+    int16_t  amod  = (int16_t)s_regs[_BLTAMOD >> 1];
+    int16_t  bmod  = (int16_t)s_regs[_BLTBMOD >> 1];
+    int32_t  apt   = (int16_t)s_regs[_BLTAPTL >> 1];   /* accumulator (low word, signed) */
+    uint16_t adat  = s_regs[_BLTADAT >> 1];
+    uint16_t bdat  = s_regs[_BLTBDAT >> 1];
+    uint16_t afwm  = s_regs[_BLTAFWM >> 1];
+    uint8_t  lf    = (uint8_t)(bltcon0 & 0xFF);
+    int      usec  = (bltcon0 >> 9) & 1;
+    int      sing  = (bltcon1 & BLT1_SING) != 0;
+    int      sign  = (bltcon1 & BLT1_SIGN) != 0;
+    int      ashift = (bltcon0 >> 12) & 0xF;
+    int      bshift = (bltcon1 >> 12) & 0xF;
+    uint16_t blineb = (uint16_t)((bdat >> bshift) | (bdat << (16 - bshift)));
+    int      onedot = 0;
+
+    for (int i = 0; i < length; i++) {
+        apt += sign ? (int16_t)bmod : (int16_t)amod;
+
+        int draw = !sing || !onedot;
+        onedot = 1;
+        if (draw && usec) {
+            uint16_t c     = _mem16(cpt);
+            uint16_t ahold = (uint16_t)((adat & afwm) >> ashift);
+            uint16_t bbit  = (blineb & 1) ? 0xFFFF : 0;
+            _mem16_w(cpt, _minterm(ahold, bbit, c, lf));
+        }
+
+        /* X movement (octant) — mirrors PUAE proc_cpt_x. incx/decx wrap ASH and
+         * step the word pointer when it crosses a word boundary. */
+        if ((!sign && !(bltcon1 & BLT1_SUD)) || (bltcon1 & BLT1_SUD)) {
+            int dec = (!sign && !(bltcon1 & BLT1_SUD)) ? (bltcon1 & BLT1_SUL)
+                                                       : (bltcon1 & BLT1_AUL);
+            if (dec) { if (ashift == 0)  cpt -= 2; ashift = (ashift - 1) & 15; }
+            else     { if (ashift == 15) cpt += 2; ashift = (ashift + 1) & 15; }
+        }
+        /* Y movement (octant) — mirrors PUAE proc_cpt_y. */
+        if ((!sign && (bltcon1 & BLT1_SUD)) || !(bltcon1 & BLT1_SUD)) {
+            int dec = (!sign && (bltcon1 & BLT1_SUD)) ? (bltcon1 & BLT1_SUL)
+                                                      : (bltcon1 & BLT1_AUL);
+            cpt = (uint32_t)((int32_t)cpt + (dec ? -cmod : cmod));
+            onedot = 0;
+        }
+
+        sign = ((int16_t)apt) < 0;
+        bshift = (bshift - 1) & 15;
+        blineb = (uint16_t)((bdat >> bshift) | (bdat << (16 - bshift)));
+    }
+
+    /* Auto-advance C/D pointers to where the line ended (channel chaining). */
+    s_regs[_BLTCPTH >> 1] = (uint16_t)((cpt >> 16) & 0xFFFF);
+    s_regs[_BLTCPTL >> 1] = (uint16_t)(cpt & 0xFFFF);
+    s_regs[_BLTDPTH >> 1] = (uint16_t)((cpt >> 16) & 0xFFFF);
+    s_regs[_BLTDPTL >> 1] = (uint16_t)(cpt & 0xFFFF);
+    /* Carry ASH/BSH/SIGN back so chained line segments continue cleanly. */
+    s_regs[_BLTCON0 >> 1] = (uint16_t)((bltcon0 & 0x0FFF) | (ashift << 12));
+    uint16_t nc1 = (uint16_t)((bltcon1 & 0x0FFF) | (bshift << 12));
+    if (sign) nc1 |= BLT1_SIGN; else nc1 &= (uint16_t)~BLT1_SIGN;
+    s_regs[_BLTCON1 >> 1] = nc1;
+    s_blt_bzero = 1;
+}
+
 /* ── Main blit engine ───────────────────────────────────────────────────── */
 
 void hw_do_blit(void)
@@ -89,6 +216,16 @@ void hw_do_blit(void)
     uint16_t bltcon0 = s_regs[_BLTCON0 >> 1];
     uint16_t bltcon1 = s_regs[_BLTCON1 >> 1];
     uint16_t bltsize = s_regs[_BLTSIZE >> 1];
+
+    /* LINE mode (BLTCON1 bit0) is a completely different engine (Bresenham). */
+    if (bltcon1 & BLT1_LINE) { hw_do_line(bltcon0, bltcon1, bltsize); return; }
+
+    /* Area FILL mode (BLTCON1 bit3=inclusive / bit4=exclusive). Carry-in = bit2. */
+    int fill_inclusive = (bltcon1 & BLT1_IFE) != 0;
+    int fill_exclusive = (bltcon1 & BLT1_EFE) != 0;
+    int fill_on        = fill_inclusive || fill_exclusive;
+    int fill_fci       = (bltcon1 & BLT1_FCI) != 0;
+    if (fill_on) _build_filltable();
     uint16_t afwm    = s_regs[_BLTAFWM >> 1];
     uint16_t alwm    = s_regs[_BLTALWM >> 1];
 
@@ -185,6 +322,7 @@ void hw_do_blit(void)
     for (int y = 0; y < height; y++) {
         uint16_t prev_a = (y == 0) ? blit_init_prev_a : last_a_raw;
         uint16_t prev_b = (y == 0) ? 0 : last_b;
+        int fc = fill_fci;   /* area-fill carry resets at the start of every row */
 
         for (int x = 0; x < width_words; x++) {
             uint16_t a_raw = 0, b_raw = 0, c = 0, d = 0;
@@ -225,6 +363,19 @@ void hw_do_blit(void)
                 if ((lf >> idx) & 1)
                     d |= (uint16_t)(1 << (15-bit));
             }
+
+            /* Area FILL: propagate a carry through each word (low byte then high,
+             * LSB→MSB), resetting per row. Software always fills in descending
+             * mode, so x ascending here walks the row right→left as required. */
+            if (fill_on) {
+                int incl = fill_inclusive ? 2 : 0;
+                int il = (fc ? 1 : 0) | incl;
+                uint8_t flo = s_filltable[d & 0xFF][il][0]; fc = s_filltable[d & 0xFF][il][1];
+                int ih = (fc ? 1 : 0) | incl;
+                uint8_t fhi = s_filltable[(d >> 8) & 0xFF][ih][0]; fc = s_filltable[(d >> 8) & 0xFF][ih][1];
+                d = (uint16_t)((fhi << 8) | flo);
+            }
+
             if (s_bta_en) blit_cksum = blit_cksum * 31u + d;
 
             if (use_d && (int32_t)dpt + wo >= 0 && (uint32_t)((int32_t)dpt+wo)+1 < RT_MEM_SIZE) {

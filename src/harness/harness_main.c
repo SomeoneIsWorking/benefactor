@@ -496,6 +496,42 @@ int main(int argc, char **argv)
                 fclose(f);
             }
         }
+        else if (!strcmp(cmd, "puloadmem")) {  /* puloadmem [path] — TELEPORT PUAE to a PC savestate's scene
+                                                  by poking the game-state memory regions (chip $0..$80000 +
+                                                  the a5 engine-state band) from the savestate's g_mem into
+                                                  PUAE. PUAE is already in gameplay (a5=$57EE12), so its
+                                                  per-frame loop re-reads this state and re-renders the scene
+                                                  — giving the ORACLE's drawing of it. Run `pu N` after. */
+            char path[256] = "logs/savestate.bin";
+            sscanf(line, "%*s %255s", path);
+            extern void puae_poke_mem(uint32_t,const void*,int);
+            FILE *f = fopen(path, "rb");
+            if (!f) { printf("[crepl] puloadmem: open %s failed\n", path); }
+            else {
+                fseek(f, 0, SEEK_END); long fsz = ftell(f);
+                long mem_off = fsz - (long)RT_MEM_SIZE;
+                if (mem_off < 0) { printf("[crepl] puloadmem: %s too small\n", path); }
+                else {
+                    /* Two regions that hold the chamber's live state. */
+                    struct { uint32_t lo, hi; } regs[] = {
+                        { 0x000000u, 0x080000u },  /* chip: low RAM, copper, bitplane bufs, object tables */
+                        { 0x57D000u, 0x582000u },  /* a5-relative engine state band ($57EE12 +/-) */
+                    };
+                    static uint8_t buf[0x80000];
+                    long total = 0;
+                    for (unsigned r = 0; r < sizeof(regs)/sizeof(regs[0]); r++) {
+                        uint32_t lo = regs[r].lo, hi = regs[r].hi, len = hi - lo;
+                        fseek(f, mem_off + lo, SEEK_SET);
+                        size_t got = fread(buf, 1, len, f);
+                        puae_poke_mem(lo, buf, (int)got);
+                        total += (long)got;
+                    }
+                    printf("[crepl] puloadmem: poked %ld bytes from %s into PUAE "
+                           "(chip $0-$80000 + a5 band). Run `pu 2` then `fb`.\n", total, path);
+                }
+                fclose(f);
+            }
+        }
         else if (!strcmp(cmd, "render")) {  /* render — re-render s_fb straight from the current g_mem
                                                (copper + bitplanes) WITHOUT stepping the game thread. Use
                                                after `loadmem` to view a saved scene exactly as stored. */
