@@ -617,6 +617,22 @@ int main(int argc, char **argv)
                 printf("\n");
             }
         }
+        else if (!strcmp(cmd, "audlc")) {  /* audlc — print PC + PUAE per-channel audio sample ptr (AUDxLC),
+                                              len, vol, active. Diff a single jump to find the grunt channel. */
+            printf("[audlc] PC ");
+            for (int ch = 0; ch < 4; ch++) {
+                int b = (0x0A0 + ch * 0x10) >> 1;
+                uint32_t lc = ((uint32_t)s_regs[b] << 16) | s_regs[b + 1];
+                printf("c%d=%06X/L%04X/V%02X%s ", ch, lc & 0xFFFFFF, s_regs[b + 2],
+                       s_regs[b + 4] & 0x7F, s_audio[ch].active ? "*" : "");
+            }
+            FrameState ps; puae_snap_state(&ps);
+            printf("| PU ");
+            for (int ch = 0; ch < 4; ch++)
+                printf("c%d=%06X/L%04X/V%02X ", ch, ps.audio[ch].lc & 0xFFFFFF,
+                       ps.audio[ch].len, ps.audio[ch].vol);
+            printf("\n");
+        }
         else if (!strcmp(cmd, "state")) {
             FrameState p, c; puae_snap_state(&p); hw_get_snap(&c);
             extern volatile uint32_t g_rt_last_call, g_hw_last_read;
