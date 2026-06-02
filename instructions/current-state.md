@@ -522,3 +522,25 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 - **`w32` across copper instruction boundary corrupts adjacent reg-word** — always use `w16` for copper val-words.
 - **`native_rebuild_copper_static` hardcodes values** — any value it writes must match PUAE's chip RAM exactly. Mismatches are immediate coplist DIFFs.
 - **`fprintf(stderr,...)` is suppressed inside PUAE vendor code** — use `write(2, buf, n)` for debug prints in PUAE context.
+
+### SFX set cross-comparison (2026-06-02, per user) — selection CLEAN
+Per user: don't state-sync (risks teleporting a corrupt state into PUAE); drive both
+to gameplay NORMALLY and cross-compare the SETS of sounds over many jumps. Done via
+`sfxcmp` capturing the descriptor's ORIGINAL sample ptr `$57fe78` (stable base, not
+stream-advanced) on each trigger. Over 43 jumps (sustained fire+left):
+- PC bases: `{$5B0BE4 ×22, $5B41B6 ×21}` — only ever these two.
+- PUAE bases: `{$5B0BE4 ×21, $5B41B6 ×20, $5AEF08 ×1}` (the extra is a PUAE-position
+  context sound).
+PC's set is a strict SUBSET of PUAE's — PC NEVER plays a unique/garbage sample. So
+grunt SELECTION is definitively correct. => the audible "bad sound" is in PCM
+RENDERING (`hw_audio.c`), not selection.
+
+Rendering notes (`hw_audio.c` / `hw.c` DMACON): PC models continuous DMA streaming —
+reloads sample ptr from live regs at the LOOP BOUNDARY; DMACON-disable stops a channel
+(`hw.c:1376`), DMACON-enable only sets the shadow bit (no restart); restart happens
+via the AUDxLC/LEN-write path (`hw_audio_dma_kick`, early-returns if active). The
+grunt is a 6-segment stream (`$586612` +$6C/frame) re-triggered each CIA tick by
+`$59BF3E`. NEXT (to fix the audible bug): dump PC vs PUAE PCM (AUDIO_DUMP env +
+`hw_audio_render`; PUAE has audio too) during a sustained-jump grunt, compare
+waveforms, then correct the streaming/re-trigger timing. RISK: the music path is tuned
+to the boundary-reload model — verify music doesn't regress.
