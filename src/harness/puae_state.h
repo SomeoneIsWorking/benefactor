@@ -110,6 +110,7 @@ void puae_snap_state(FrameState *s);          /* implemented via custom.c includ
 uint32_t puae_get_cop1lc(void);               /* lightweight boot-detection accessor */
 int  puae_dump_chipram(void *buf, int maxbytes); /* copy chip RAM out of PUAE */
 int  puae_dump_mem(uint32_t addr, void *buf, int len); /* copy any Amiga addr range (chip+fast) */
+void puae_poke_mem(uint32_t addr, const void *buf, int len); /* write any Amiga addr range */
 void puae_dump_audio_regs(const char *path);  /* save audio sync state to file */
 
 #endif /* PUAE_STATE_H */
