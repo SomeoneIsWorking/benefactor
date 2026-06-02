@@ -4,8 +4,10 @@ from capstone.m68k import *
 
 try:
     from .helpers import mem_base, mem_index
+    from .extract_jumptables import discover_jumptable_targets
 except ImportError:
     from helpers import mem_base, mem_index  # type: ignore
+    from extract_jumptables import discover_jumptable_targets  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Data-region detection  (Benefactor-specific heuristics)
@@ -137,8 +139,25 @@ def _scan_func(data, base, start, md, known_entries=None):
         if insn.size < 2:
             can_stop = True
 
-        if can_stop and not any(t >= addr for t in branch_targets):
-            break
+        # A control-flow terminator was reached (rts / bra / tail-call jmp —
+        # incl. this engine's `jmp d(a5)` dispatcher returns, which are MEM, not
+        # REG, operands). If a forward label still pends, the bytes between here
+        # and the NEAREST one are unreachable: Benefactor's object handlers embed
+        # a pc-relative jump table right after their tail-call, with execution
+        # resuming at the next case label that branched OVER the data (e.g.
+        # $599BB2: data $599C0C..$599CBE, code at $599CBE). Skip the inline data
+        # to that label and resume — unless something branches INTO the gap, in
+        # which case it's real code and we keep decoding as before. A label
+        # exactly AT addr means code continues here, so don't stop.
+        if can_stop and not any(t == addr for t in branch_targets):
+            fwd = [t for t in branch_targets if t > addr]
+            if not fwd:
+                break
+            nxt = min(fwd)
+            if not any(addr < bt < nxt for bt in branch_targets):
+                addr = nxt
+                continue
+            # gap contains a branch target -> keep scanning (fall through)
 
     return insns, addr
 
@@ -147,190 +166,176 @@ def _scan_func(data, base, start, md, known_entries=None):
 # Public API
 # ---------------------------------------------------------------------------
 
-def collect_functions(data, base, entries, md, areg_bases=None, bank=None,
-                      gapfill=None):
-    """Collect all reachable functions starting from the given entry points.
-
-    `areg_bases` optionally maps a capstone address-register id (e.g.
-    M68K_REG_A5 == 14) to a known constant base value.  The gameplay overlay
-    calls functions as `jsr $d(a5)` with a5 a fixed code-base pointer; resolving
-    those against the known base lets the scanner discover the whole call graph.
-
-    `gapfill`, if given as an (lo, hi) absolute-address range, runs a final
-    pass that recovers EVERY validated-code block in [lo, hi) not already
-    covered by a discovered function. The gameplay engine reaches per-object
-    handlers through runtime-built pointer chains ($57D3EC: jmp (a1,d0.w)) that
-    static descent cannot follow, so those handlers sit in the gaps between
-    reachable functions. Emitting all gap code (a superset — unreachable data
-    won't validate) makes the dispatcher complete regardless of which gameplay
-    path eventually jumps there, so coverage no longer depends on play-testing.
-
-    Returns a dict mapping start_addr → list[insn].
-    """
-    areg_bases = areg_bases or {}
-    funcs = {}
-    user_entries = set(entries)
-    queue = sorted(set(entries))
-    visited = set()
-    ranges = []  # list of (start, end)
-
-    def in_any_range(addr):
-        return any(s <= addr < e for s, e in ranges)
-
-    # Phase 1: collect functions reachable from entry points
-    while queue:
-        entry = queue.pop(0)
-        if entry in visited:
-            continue
-        if in_any_range(entry) and entry not in user_entries:
-            continue
-        visited.add(entry)
-
-        insns, end_addr = _scan_func(data, base, entry, md, known_entries=user_entries)
-        ranges.append((entry, end_addr))
-        funcs[entry] = insns
-
-        for insn in insns:
-            m = insn.mnemonic.lower().split('.')[0]
-            try:
-                ops = insn.operands
-            except Exception:
-                continue
-            # In bank mode (areg_bases set) the targets we queue come from
-            # explicit jsr/jmp/bsr/a5-relative call instructions, which prove
-            # the target is code — so we trust them rather than re-deriving
-            # code-vs-data with the intro-tuned `is_data_region` heuristics
-            # (which over-reject legitimate gameplay code such as btst spins).
-            trust = bool(areg_bases)
-            def _queue(t):
-                if base <= t <= base + len(data) - 4 and t not in visited:
-                    if trust or not is_data_region(data, base, t, md):
-                        queue.append(t)
-            for op in ops:
-                if op.type == M68K_OP_BR_DISP:
-                    _queue(insn.address + 2 + op.br_disp.disp)
-                elif op.type == M68K_OP_IMM and m in ('jsr', 'jmp'):
-                    _queue(op.value.imm)
-                elif (op.type == M68K_OP_MEM and m in ('jsr', 'jmp')
-                      and areg_bases and op.mem.index_reg == 0
-                      and op.mem.base_reg in areg_bases):
-                    # `jsr/jmp $d(a5)` with a5 a known constant code-base: the
-                    # control-flow target is base+disp (an address, not a deref).
-                    _queue(areg_bases[op.mem.base_reg] + op.mem.disp)
-
-    # Phase 2 (ITERATIVE): a bsr/jsr/jmp can target an address the descent
-    # absorbed into another function's body (so it was never emitted as its own
-    # callable entry) — calling it at runtime then misses. Repeatedly scan ALL
-    # discovered functions (including ones split out in earlier iterations) for
-    # constant call targets and split/add any that aren't yet a function, until
-    # no new ones appear. This makes the call graph transitively complete in one
-    # pass instead of via runtime whack-a-mole re-seeding.
-    def _call_targets(insns):
-        out = set()
-        for insn in insns:
-            m = insn.mnemonic.lower().split('.')[0]
-            try:
-                ops = insn.operands
-            except Exception:
-                continue
-            for op in ops:
-                t = None
-                if op.type == M68K_OP_BR_DISP and m == 'bsr':
-                    t = insn.address + 2 + op.br_disp.disp
-                # gpl-bank-specific: FORWARD `bra` targets in the
-                # $577xxx/$58xxxx gameplay code are runtime-callable entries
-                # — the dispatcher jumps over inline jump-offset data tables
-                # to alternate landings. Both long form (`bra.w X` 4 bytes,
-                # e.g. $589792 -> $5897D0 over the offset table at $589796)
-                # and short form (`bra.b X` 2 bytes, e.g. $57DE02 -> $57DE0C
-                # over a small data table) appear. Phase 2's overlap check
-                # still rejects promotions that would corrupt other
-                # functions' ranges. Backward bra is left alone here — it's
-                # typically intra-function loop control; backward
-                # cross-function tail-jumps (e.g. dispatcher loop tops like
-                # $57DD3E -> $57DCC4) are caught by Pattern E in
-                # discover_benefactor_targets.py instead.
-                elif (op.type == M68K_OP_BR_DISP and m == 'bra'
-                      and bank == 'gpl' and insn.size >= 4
-                      and op.br_disp.disp > 0):
-                    t = insn.address + 2 + op.br_disp.disp
-                elif op.type == M68K_OP_IMM and m in ('jsr', 'jmp'):
-                    t = op.value.imm
-                elif (op.type == M68K_OP_MEM and m in ('jsr', 'jmp')
-                      and areg_bases and op.mem.index_reg == 0
-                      and op.mem.base_reg in areg_bases):
+def _edge_targets(insn, source_addrs, lo, hi, areg_bases, bank):
+    """Yield each control-flow target of `insn` that ESCAPES the source
+    function's own instruction set (`source_addrs`) — i.e. EXACTLY the targets
+    the emitter renders as a cross-function `rt_jump`/`rt_call`. (The emitter
+    emits a local `goto` only when the target is one of the function's own
+    instruction addresses; otherwise `rt_jump(target)`.) Every escaping target
+    must therefore be a registered function at its EXACT start, or the runtime
+    aborts "NO FUNCTION at $X". One rule covers Bcc, bra, bsr and jmp/jsr (imm /
+    abs-long `$X.l` / a5-relative) uniformly — the split-by-mnemonic logic that
+    preceded this absorbed Bcc and cross-function `bra` targets ($577384) and
+    never followed abs-long `jmp $X.l` (capstone `M68K_OP_MEM`, addr_mode 16/17,
+    target in `op.imm`), which the emitter DID follow. Scanner and emitter now
+    derive targets from the same place, so they cannot disagree."""
+    m = insn.mnemonic.lower().split('.')[0]
+    try:
+        ops = insn.operands
+    except Exception:
+        return
+    for op in ops:
+        t = None
+        # `always` = the emitter renders this as rt_call/rt_jump unconditionally,
+        # so the target must register even if it falls inside the source
+        # function. `bra`/`Bcc` instead become a LOCAL goto when the target is
+        # one of this function's own instructions (emit_branch) — only the
+        # escaping ones need registering. (Getting this wrong both ways bit us:
+        # a `bsr` target that happened to land inside the source range — $57C79E
+        # — was wrongly filtered out and left dangling.)
+        always = False
+        if op.type == M68K_OP_BR_DISP:            # Bcc / bra / bsr
+            t = insn.address + 2 + op.br_disp.disp
+            always = (m == 'bsr')                 # bsr is a real call (rt_call)
+        elif m in ('jsr', 'jmp'):                 # jsr->rt_call, jmp->rt_jump
+            always = True                         # never a local goto
+            if op.type == M68K_OP_IMM:
+                t = op.imm
+            elif op.type == M68K_OP_MEM:
+                amode = getattr(op, 'address_mode', 0)
+                if amode in (16, 17):             # abs.short / abs.long $X.l
+                    t = op.imm
+                elif op.mem.index_reg == 0 and op.mem.base_reg in areg_bases:
+                    # `jsr/jmp $d(a5)` with a5 a known constant code base.
                     t = areg_bases[op.mem.base_reg] + op.mem.disp
-                if t is not None and base <= t <= base + len(data) - 4:
-                    out.add(t)
-        return out
+                else:
+                    t = None                      # computed jmp (a1,d0) — runtime
+        if t is not None and lo <= t <= hi and (always or t not in source_addrs):
+            yield t
 
-    changed = True
-    while changed:
-        changed = False
-        targets = set()
-        for _entry, insns in funcs.items():
-            targets |= _call_targets(insns)
-        for t in sorted(targets):
-            if t in funcs:
-                continue
-            sub_insns, sub_end = _scan_func(data, base, t, md, known_entries=user_entries)
-            if not sub_insns:
-                continue
-            # Don't create a function that overlaps a DIFFERENT existing range
-            # (other than the one it splits out of); that would double-emit code.
-            containing = next(((s, e) for s, e in ranges if s <= t < e), None)
-            overlap = any(
-                (not containing or s != containing[0]) and not (sub_end <= s or t >= e)
-                for s, e in ranges
-            )
-            if overlap:
-                continue
-            ranges.append((t, sub_end))
-            funcs[t] = sub_insns
-            changed = True
 
-    # Phase 3 (GAP-FILL): recover every validated-code block in `gapfill` that
-    # no discovered function covers. See the docstring — this is what makes the
-    # object-handler dispatch ($57D3EC) complete without play-testing.
-    if gapfill:
-        lo, hi = gapfill
-        covered = sorted((s, e) for s, e in ranges)
+def scan_program(data, base, md, entries, areg_bases=None, bank=None,
+                 region=None, raw=None):
+    """THE scan: one recursive worklist that discovers every function in the
+    bank. Replaces the old multi-pass pipeline (separate jump-table + object-
+    handler sweeps, then collect's Phase 1 descent + Phase 2 iterative split +
+    a blunt gap-fill) — every seam between those passes leaked a target. There
+    is ONE block scanner (`_scan_func`), ONE edge rule (`_edge_targets`, which
+    mirrors the emitter exactly), and ONE worklist drained to a fixpoint. The
+    game-specific entry rules feed that same worklist instead of running their
+    own scans:
 
-        def next_covered_start(a):
-            """Lowest range start strictly greater than a, or hi."""
+      * object-handler prologues       -> discover_object_handlers(region)
+      * function-pointer / jump tables -> discover_jumptable_targets(raw)
+      * region superset                -> every validated code block in `region`
+        not reached above. The engine reaches per-object handlers through
+        runtime-built pointer chains ($57D3EC) that NO static edge follows, and
+        which handlers a level uses is per-level disk data — so this superset is
+        the only way to be complete without play-testing. It is registered AFTER
+        the exact entries, so a swept block can never absorb a real dispatch
+        target (those are already their own functions); that pairing is what
+        makes it safe — the blunt sweep ALONE mis-segments (the documented
+        54->35 level regression).
+
+    `entries` are the seeds. Returns {start_addr: list[insn]}.
+    """
+    from collections import deque
+    areg_bases = areg_bases or {}
+    lo_a, hi_a = base, base + len(data) - 4
+    trust = bool(areg_bases)
+
+    seed_entries = set(entries)
+    if region is not None:
+        seed_entries |= discover_object_handlers(data, base, md,
+                                                 region[0], region[1])
+    if raw is not None:
+        seed_entries |= discover_jumptable_targets(raw, md)
+
+    funcs = {}
+    ranges = []                       # (start, end) of every emitted function
+    seen = set()                      # addrs already attempted
+    work = deque(sorted(seed_entries))
+
+    def add_func(addr, insns, end):
+        ranges.append((addr, end))
+        funcs[addr] = insns
+        src = {i.address for i in insns}
+        for insn in insns:
+            for t in _edge_targets(insn, src, lo_a, hi_a, areg_bases, bank):
+                if t not in funcs:
+                    work.append(t)
+
+    def drain():
+        while work:
+            addr = work.popleft()
+            if addr in funcs or addr in seen:
+                continue
+            seen.add(addr)
+            # Intro bank (no trusted a-reg base): re-derive code-vs-data so a
+            # branch into a data table isn't decoded as a bogus function. The
+            # gpl bank trusts its edges (every one is a real branch/call/jump).
+            if not trust and is_data_region(data, base, addr, md):
+                continue
+            insns, end = _scan_func(data, base, addr, md,
+                                    known_entries=seed_entries)
+            if not insns:
+                continue
+            # Register at the EXACT start, even if it lands interior to an
+            # already-emitted function (overlap = double-emit, which is just
+            # bloat, NOT incorrectness: table_search dispatches to this entry;
+            # falling through from the parent runs the same code in-line). This
+            # is mandatory for correctness — every escaping target the emitter
+            # renders as `rt_jump`/`rt_call` MUST resolve to a function at its
+            # exact address. The old overlap guard suppressed these (e.g. the
+            # mutually-fall-through dispatch stubs $59DDxx-$59E0xx), which then
+            # had to be hand-seeded; registering them closes that by construction.
+            add_func(addr, insns, end)
+
+    # 1) Exact entries (seeds + prologue handlers + jump tables) and everything
+    #    transitively reachable from them by escaping edges.
+    drain()
+
+    # 2) Region superset: computed-dispatch-only engine code. Walk the region;
+    #    register each validated, terminated, emittable block no exact function
+    #    already covers, then drain its edges through the SAME worklist.
+    if region is not None:
+        lo, hi = region
+
+        def next_start_after(a):
             best = hi
-            for s, e in covered:
-                if s > a and s < best:
+            for s, _e in ranges:
+                if a < s < best:
                     best = s
             return best
 
-        def covers(a):
-            return any(s <= a < e for s, e in covered)
-
         a = lo
-        # Word-aligned walk; greedily emit code, skip data (won't validate).
         while a < hi:
-            if covers(a):
-                a = max((e for s, e in covered if s <= a < e), default=a + 2)
+            cov = [e for s, e in ranges if s <= a < e]
+            if cov:
+                a = max(cov)
                 continue
-            # `a` is in a gap. Try to decode a function here.
-            sub_insns, sub_end = _scan_func(data, base, a, md,
-                                            known_entries=user_entries)
-            # Accept only if it disassembled into a real, rts/jmp-terminated
-            # block that stays inside the gap (doesn't run into known code or
-            # past hi). A bogus (data) start yields a tiny or invalid block.
-            gap_end = next_covered_start(a)
-            valid = (sub_insns and sub_end <= gap_end and sub_end <= hi
-                     and _terminates(sub_insns) and _emittable(sub_insns))
-            if valid:
-                ranges.append((a, sub_end))
-                covered.append((a, sub_end))
-                funcs[a] = sub_insns
-                a = sub_end
+            insns, end = _scan_func(data, base, a, md, known_entries=seed_entries)
+            gap_end = next_start_after(a)
+            if (insns and end <= gap_end and end <= hi
+                    and _terminates(insns) and _emittable(insns)):
+                add_func(a, insns, end)
+                drain()                       # follow the block's own edges
+                a = end
             else:
                 a += 2
 
     return funcs
+
+
+def collect_functions(data, base, entries, md, areg_bases=None, bank=None,
+                      gapfill=None):
+    """Backward-compatible shim around `scan_program`. The blunt `gapfill`
+    ("emit every validated block in [lo,hi)") sweep is retired — it absorbed
+    exact dispatch targets into neighbouring blocks (the documented 54->35
+    regression). Its real yield, object handlers, now comes from the prologue
+    rule feeding the one scan via `region`."""
+    return scan_program(data, base, md, entries, areg_bases=areg_bases,
+                        bank=bank, region=(gapfill or None))
 
 
 def _terminates(insns):

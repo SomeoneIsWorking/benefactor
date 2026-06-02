@@ -27,17 +27,15 @@ from capstone.m68k import *
 
 try:
     from .entries  import get_entry_addrs, get_fn_name, get_fn_group, GROUPS
-    from .scanner  import collect_functions, discover_object_handlers
+    from .scanner  import scan_program, collect_functions
     from .emitter  import Translator, emit_func
     from .seeds_loader import load_seed_tree
-    from .extract_jumptables import discover_jumptable_targets
 except ImportError:
     import importlib, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     from recomp.entries  import get_entry_addrs, get_fn_name, get_fn_group, GROUPS  # type: ignore
-    from recomp.scanner  import collect_functions, discover_object_handlers          # type: ignore
+    from recomp.scanner  import scan_program, collect_functions          # type: ignore
     from recomp.seeds_loader import load_seed_tree                                    # type: ignore
-    from recomp.extract_jumptables import discover_jumptable_targets                  # type: ignore
     from recomp.emitter  import Translator, emit_func                                # type: ignore
 
 __all__ = ['Translator', 'emit_func', 'collect_functions']
@@ -127,36 +125,23 @@ def main():
     md = Cs(CS_ARCH_M68K, CS_MODE_M68K_000 | CS_MODE_BIG_ENDIAN)
     md.detail = True
 
-    # The gameplay engine dispatches per-object handlers via pointer tables in
-    # RAM that static descent can't follow ($57D3EC: jmp (a1,d0.w), where a1
-    # walks (a2)+ object data and d0 is from the object's first u16). Those
-    # handlers are never reached from the seed entries, and which ones a level
-    # needs depends on its objects — so seed-by-playtest is whack-a-mole. We get
-    # COMPLETE coverage with two static passes, independent of play:
-    #   1. Pin handler ENTRIES by their canonical `movem (a0),<regs>` prologue.
-    #      table_search resolves a runtime jump by EXACT address, so each handler
-    #      must register at its true start — this guarantees that boundary.
-    #   2. Gap-fill the rest of the code region: every validated, rts-terminated,
-    #      emittable block not already covered becomes a function. Catches
-    #      handlers whose prologue isn't a movem (e.g. tst/btst starts) and any
-    #      other runtime-reached code. Data won't disassemble to a clean rts, so
-    #      this is a safe superset.
+    # The gameplay engine dispatches per-object handlers through runtime-built
+    # pointer chains ($57D3EC: jmp (a1,d0.w)) that static descent can't follow,
+    # so those handlers can't be reached by call edges alone. `scan_program` is
+    # the SINGLE recursive worklist that discovers every function: one block
+    # scanner + one edge function, with the game-specific entry rules
+    # (movem-(a0) handler prologues over `region`; function-pointer / jump
+    # tables over `raw`) feeding that same worklist. No separate phases.
     SCAN_LO, SCAN_HI = 0x577000, 0x59F000
-    gapfill = None
     if bank == 'gpl':
         before = len(entries)
-        # Auto-derive entries so the seed tree only has to carry what these
-        # passes can't: (a) jump-table / handler-pointer / dc.l targets, and
-        # (b) movem-prologue handler entries pinned at their exact start.
-        jt = discover_jumptable_targets(raw, md)
-        extras = discover_object_handlers(data, base, md, SCAN_LO, SCAN_HI)
-        entries = sorted(set(entries) | jt | extras)
-        print(f'Auto-derived {len(jt)} jump-table + {len(extras)} prologue entries; '
-              f'{len(entries) - before} new vs. seeds')
-        gapfill = (SCAN_LO, SCAN_HI)
-
-    funcs = collect_functions(data, base, entries, md, areg_bases=areg_bases,
-                              bank=bank, gapfill=gapfill)
+        funcs = scan_program(data, base, md, entries, areg_bases=areg_bases,
+                             bank=bank, region=(SCAN_LO, SCAN_HI), raw=raw)
+        print(f'Unified scan: {len(funcs)} functions '
+              f'(seeds={before} + prologue handlers + jump tables, one worklist)')
+    else:
+        funcs = scan_program(data, base, md, entries, areg_bases=areg_bases,
+                            bank=bank)
     print(f'Collected {len(funcs)} functions')
 
     translator = Translator(set(funcs.keys()))
@@ -222,6 +207,36 @@ def main():
         written_files.append(tfname)
         print(f'Wrote {h_path}')
         print(f'Wrote {len(written_files)} source file(s)')
+
+        # ── Build-time completeness gate ─────────────────────────────────────
+        # Every literal rt_jump/rt_call target the emitter produced in the bank's
+        # code region MUST resolve to a registered function, or the runtime hits
+        # "NO FUNCTION at $X" and aborts. The unified scan derives targets from
+        # the same edge rule the emitter uses, so this should hold by
+        # construction — assert it here so any future regression fails the REGEN
+        # loudly, instead of surfacing as a runtime miss days later.
+        if bank == 'gpl':
+            import re as _re
+            reg = set(funcs.keys())
+            # Two genuine data-region pseudo-targets (mis-decoded never-run
+            # blocks); see tools/recomp/check_unregistered_targets.py.
+            known_artifacts = {0x57746C, 0x59E9B6}
+            src = ''.join(open(os.path.join(out_dir, f)).read()
+                          for f in written_files if f.endswith('.c'))
+            targets = set(int(x, 16) for x in _re.findall(
+                r'rt_(?:jump|call)\(ctx, 0x([0-9A-Fa-f]+)u\)', src))
+            dangling = sorted(t for t in targets
+                              if SCAN_LO <= t < SCAN_HI and t not in reg
+                              and t not in known_artifacts)
+            if dangling:
+                raise SystemExit(
+                    'COMPLETENESS GATE FAILED — these literal dispatch targets '
+                    'are emitted but not registered (would "NO FUNCTION" at '
+                    'runtime):\n  ' + ', '.join('$%06X' % t for t in dangling)
+                    + '\nInvestigate WHY each leaked (a scan logic gap), or add '
+                      'a choke-point seed under tools/recomp/seeds/.')
+            print(f'Completeness gate OK: all {len(targets)} literal dispatch '
+                  f'targets registered.')
         return
 
     # ── Header ──────────────────────────────────────────────────────────────
