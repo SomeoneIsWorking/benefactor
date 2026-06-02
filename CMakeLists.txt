@@ -14,6 +14,19 @@ endif()
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
+# Homebrew (esp. Apple Silicon at /opt/homebrew) is not on CMake's default search
+# path, so find_package(SDL2) misses a `brew install sdl2`. Add the brew prefix.
+if(APPLE)
+    execute_process(COMMAND brew --prefix
+                    OUTPUT_VARIABLE HOMEBREW_PREFIX
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET)
+    if(HOMEBREW_PREFIX)
+        list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
+        message(STATUS "Homebrew prefix: ${HOMEBREW_PREFIX}")
+    endif()
+endif()
+
 # SDL2
 find_package(SDL2 REQUIRED)
 
