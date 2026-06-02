@@ -235,6 +235,16 @@ static void walk_copper(void)
 
 /* Decode one N-plane (non-DPF) pixel at bit index `bi` (may be negative for
  * BPLCON1 scroll wrap into the previously-fetched word). Returns ARGB8888. */
+/* Debug: when BENEFACTOR_RAW_PLANES is set, paint ANY set bitplane bit white,
+ * everything else background — bypasses palette/playfield decode so we can see
+ * exactly what pixel data is present in the bitplanes regardless of colour. */
+static int s_raw_planes = -1;
+static inline int raw_planes_on(void)
+{
+    if (s_raw_planes < 0) s_raw_planes = getenv("BENEFACTOR_RAW_PLANES") ? 1 : 0;
+    return s_raw_planes;
+}
+
 static inline uint32_t decode_planes(int bi, const uint32_t bplpt[MAX_PLANES],
                                      int nplanes, const uint32_t pal[32])
 {
@@ -246,6 +256,8 @@ static inline uint32_t decode_planes(int bi, const uint32_t bplpt[MAX_PLANES],
         if ((s_render_src[addr] >> bit) & 1u)
             cidx |= (uint8_t)(1u << p);
     }
+    if (raw_planes_on())
+        return cidx ? 0xFFFFFFFFu : pal[0];
     if (nplanes <= 5)
         return pal[cidx & 0x1Fu];          /* up to 5 planes / 32 colours */
     /* 6 planes, non-HAM/non-DPF = Extra-Half-Brite (the gameplay menu/title):
@@ -278,6 +290,8 @@ static inline uint32_t decode_dpf(int x, const uint32_t bplpt[4],
         if ((s_render_src[a] >> bit) & 1u) pf2 = 1u;
     }
 
+    if (raw_planes_on())
+        return (pf1 || pf2) ? 0xFFFFFFFFu : pal[0];
     if (pf2) return pal[8u + pf2];   /* COLOR09 */
     if (pf1) return pal[pf1];         /* COLOR01-03 */
     return pal[0];                     /* COLOR00 */

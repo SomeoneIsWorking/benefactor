@@ -62,6 +62,21 @@ int puae_run_to_loop_top(int skip)
     return g_benefactor_sync_hit;
 }
 
+/* Run PUAE until its CPU is about to execute `pc` (after `skip` prior hits), or
+ * until `max_frames` retro_run()s elapse. Returns 1 if the PC was reached.
+ * Generalises puae_run_to_loop_top to any address — used to stop at the gameplay
+ * engine entry ($577000) so the level word can be poked before level setup. */
+int puae_run_to_pc(uint32_t pc, int skip, int max_frames)
+{
+    g_benefactor_sync_pc   = pc;
+    g_benefactor_sync_skip = skip;
+    g_benefactor_sync_hit  = 0;
+    for (int i = 0; i < max_frames && !g_benefactor_sync_hit; i++)
+        retro_run();
+    g_benefactor_sync_pc = 0;   /* disarm */
+    return g_benefactor_sync_hit;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* PUAE boot and capture */
 

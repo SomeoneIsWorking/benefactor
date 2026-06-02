@@ -316,6 +316,53 @@ int main(int argc, char **argv)
                 printf("[crepl] goto level %d — coroutine will restart at $577000 on next step\n", n);
             }
         }
+        else if (!strcmp(cmd, "mpu")) {   /* mpu <hexaddr> <hexval> [w] — poke a PUAE byte/word */
+            char av[32]={0}, vv[32]={0}, wf[8]={0};
+            if (sscanf(line, "%*s %31s %31s %7s", av, vv, wf) >= 2) {
+                unsigned a=(unsigned)strtoul(av,0,16), v=(unsigned)strtoul(vv,0,16);
+                extern void puae_poke_mem(uint32_t,const void*,int);
+                if (wf[0]=='w') { uint8_t b[2]={(uint8_t)(v>>8),(uint8_t)v}; puae_poke_mem(a,b,2); }
+                else            { uint8_t b=(uint8_t)v; puae_poke_mem(a,&b,1); }
+                printf("[crepl] poked PUAE $%06X = $%X\n", a, v);
+            } else printf("[crepl] usage: mpu <hexaddr> <hexval> [w]\n");
+        }
+        else if (!strcmp(cmd, "pugoto")) {  /* pugoto <N> — drive PUAE through the intro/menu to gameplay
+                                               at level N (1..60), poking $20.w at the engine entry $577000
+                                               so we don't need a keyboard-typed password. The oracle. */
+            int lvl = 1; sscanf(line, "%*s %d", &lvl);
+            if (lvl < 1 || lvl > 60) { printf("[crepl] usage: pugoto <1..60>\n"); }
+            else {
+                extern int puae_run_to_pc(uint32_t,int,int);
+                extern void puae_poke_mem(uint32_t,const void*,int);
+                extern uint32_t puae_get_cop1lc(void);
+                /* 1) fire-pulse through the intro/attract until the MENU ($008302). */
+                int at_menu = 0;
+                for (int pulse = 0; pulse < 40 && !at_menu; pulse++) {
+                    fire = 1; for (int i=0;i<6;i++) STEP_PU();
+                    fire = 0;
+                    for (int i=0;i<110;i++) { STEP_PU();
+                        if (puae_get_cop1lc() == 0x008302u) { at_menu = 1; break; } }
+                }
+                if (!at_menu) { printf("[crepl] pugoto: never reached menu ($008302)\n"); }
+                else {
+                    /* 2) PLAY GAME (default selection), then 3) stop at engine entry. */
+                    fire = 1; for (int i=0;i<6;i++) STEP_PU();
+                    fire = 0;
+                    int hit = puae_run_to_pc(0x577000u, 0, 2000);
+                    if (!hit) { printf("[crepl] pugoto: never reached engine entry $577000\n"); }
+                    else {
+                        /* 4) poke level word $20.w before level setup ($5782B4) reads it. */
+                        uint8_t lw[2] = { (uint8_t)((lvl>>8)&0xFF), (uint8_t)(lvl&0xFF) };
+                        puae_poke_mem(0x20u, lw, 2);
+                        /* 5) run on until gameplay copper ($003484). */
+                        for (int i=0;i<600;i++) { STEP_PU(); if (puae_get_cop1lc()==0x003484u) break; }
+                        uint8_t chk[2]; puae_dump_mem(0x20u, chk, 2);
+                        printf("[crepl] pugoto %d: cop1lc=$%06X  $20.w=%u\n",
+                               lvl, puae_get_cop1lc(), (chk[0]<<8)|chk[1]);
+                    }
+                }
+            }
+        }
         else if (!strcmp(cmd, "pufind")) {  /* pufind <hex> [max_frames] — step PUAE 1 frame at a time, watching when mem[hex..+3] first changes; reports the frame */
             extern int puae_dump_mem(uint32_t addr, void *buf, int len);
             unsigned a = 0, maxf = 5000;

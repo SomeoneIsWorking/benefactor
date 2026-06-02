@@ -286,6 +286,16 @@ int puae_dump_mem(uint32_t addr, void *buf, int len)
     return len;
 }
 
+/* Poke PUAE memory through the CPU map (covers chip + fast). Used to steer the
+ * reference, e.g. write the level word $20.w at the gameplay engine entry so
+ * PUAE loads an arbitrary level without a keyboard-driven password. */
+void puae_poke_mem(uint32_t addr, const void *buf, int len)
+{
+    const uint8_t *b = (const uint8_t *)buf;
+    for (int i = 0; i < len; i++)
+        put_byte(addr + (uint32_t)i, b[i]);
+}
+
 /* Save PUAE audio channel state (raw register values) to a file.
  * Called once at the sync point so the PC port can pre-initialize its
  * audio register shadows and produce matching audio snapshots. */
