@@ -147,6 +147,7 @@ add_executable(benefactor-pc
     src/recomp/hw_copper.c
     src/recomp/native_renderer.c
     src/recomp/disk_boot.c
+    src/recomp/overlay_load.c
     ${GAME_SRCS}
     ${GP_GAME_SRCS}
 )
@@ -160,6 +161,20 @@ target_include_directories(benefactor-pc PRIVATE
 
 target_link_libraries(benefactor-pc PRIVATE ${SDL2_LIBRARIES} m pthread)
 target_compile_options(benefactor-pc PRIVATE -Wall -Wextra -g)
+
+# ── Bank-input dumper (bootstrap-clean: no generated code, no PUAE) ────────────
+# Produces the three recompiler bank inputs from the Disk.* images alone, using
+# only the pure overlay loaders + disk boot. It links WITHOUT src/generated/, so
+# a fresh checkout can run it to regenerate the recompiled code from the user's
+# own disks (defines its own g_mem; no rt.c, no SDL link — only SDL2 headers for
+# disk_boot.c's include).
+add_executable(benefactor-dumpbanks
+    tools/dump_banks.c
+    src/recomp/overlay_load.c
+    src/recomp/disk_boot.c
+)
+target_include_directories(benefactor-dumpbanks PRIVATE src ${SDL2_INCLUDE_DIRS})
+target_compile_options(benefactor-dumpbanks PRIVATE -Wall -Wextra -g)
 
 # ── Comparison harness (PUAE reference + PC-port recompiler) ─────────────────
 #
@@ -413,6 +428,7 @@ set(HARNESS_SOURCES
     src/recomp/hw_copper.c
     src/recomp/native_renderer.c
     src/recomp/disk_boot.c
+    src/recomp/overlay_load.c
     src/pc.c
     src/pc_overrides.c
     src/pc_overrides_hw.c

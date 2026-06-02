@@ -7,6 +7,7 @@
  * Do NOT call any gfn_* functions directly from this file. */
 #include "generated/game.h"
 #include "recomp/disk_boot.h"
+#include "recomp/overlay_load.h"
 #include <setjmp.h>
 #include <pthread.h>
 
@@ -763,15 +764,9 @@ static int pc_common_bringup(const char **disks, int n_disks)
         fprintf(stderr, "[pc] could not open disk images\n");
         return -1;
     }
-    /* Boot loader step: Load(Disk.1 @$1880, $2442E → $3000) + Decrunch($3000). */
-    if (disk_boot_load(1, 0x1880, 0x3000, 0x2442E) <= 0) {
-        fprintf(stderr, "[pc] Disk.1 read failed\n");
-        return -1;
-    }
-    if (atn_decrunch(0x3000) == 0) {
-        fprintf(stderr, "[pc] decrunch failed (bad ATN! magic)\n");
-        return -1;
-    }
+    /* Boot loader step: Load(Disk.1 @$1880, $2442E → $3000) + Decrunch($3000).
+     * Shared with the bank dumper via overlay_load_main(). */
+    overlay_load_main();
     pc_register_overrides();
     g_hw_vblank_yield   = game_thread_yield;  /* hw_vblank_wait parks the game thread */
     g_hw_pc_owns_present = 1;
@@ -801,30 +796,28 @@ static int dump_region(const char *path, uint32_t off, uint32_t len)
 
 int pc_dump_banks_from_disk(const char **disks, int n_disks, const char *out_dir)
 {
-    extern void     native_overlay_load(void);     /* title overlay  (gp bank)  */
-    extern void     native_overlay_load_d0(void);  /* gameplay overlay (gpl bank) */
-    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
-    extern uint32_t atn_decrunch(uint32_t);
-
     hw_request_headless();                          /* no SDL window/audio */
-    if (pc_common_bringup(disks, n_disks) < 0) return -1;  /* main decrunch + setup */
+    if (pc_common_bringup(disks, n_disks) < 0) return -1;  /* overlay_load_main + setup */
 
     char p[1024];
-    /* main / intro bank: the boot-decrunched $3000 image (pc_common_bringup just
-     * did the decrunch). Recompiler reads --chip-dump $3000 slice. */
+    /* main / intro bank: the boot-decrunched $3000 image. Recompiler reads the
+     * --chip-dump $3000 slice. */
     snprintf(p, sizeof p, "%s/chip_ram_dump.bin", out_dir);
     if (dump_region(p, 0, 0x80000u) < 0) return -1;
 
     /* gp / title bank: fresh decrunch, then the title overlay load. */
-    disk_boot_load(1, 0x1880, 0x3000, 0x2442E); atn_decrunch(0x3000);
-    native_overlay_load();
+    overlay_load_main();  overlay_load_title();
     snprintf(p, sizeof p, "%s/chip_flow_gp.bin", out_dir);
     if (dump_region(p, 0, 0x80000u) < 0) return -1;
 
     /* gpl / gameplay bank: fresh decrunch, then the gameplay overlay load. */
-    disk_boot_load(1, 0x1880, 0x3000, 0x2442E); atn_decrunch(0x3000);
-    native_overlay_load_d0();
+    overlay_load_main();  overlay_load_gameplay();
     snprintf(p, sizeof p, "%s/gmem_after_load.bin", out_dir);
+    if (dump_region(p, 0, 0x600000u) < 0) return -1;
+
+    /* credits / end-game bank: fresh decrunch, then the credits overlay load. */
+    overlay_load_main();  overlay_load_credits();
+    snprintf(p, sizeof p, "%s/gmem_after_credits.bin", out_dir);
     if (dump_region(p, 0, 0x600000u) < 0) return -1;
 
     fprintf(stderr, "[dumpbanks] done -> %s\n", out_dir);
