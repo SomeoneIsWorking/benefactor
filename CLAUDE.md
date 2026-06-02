@@ -54,6 +54,7 @@ destinations and lessons:
 | `instructions/create-override.md` | Native override patterns and existing overrides table |
 | `instructions/rom-analysis.md` | M68K disassembly and address tracing |
 | `instructions/gameplay-engine-map.md` | Working RE map of the `$577000+` engine: per-frame loop subsystems, level setup, object/animation system, a5-relative state vars. **Update as you native-port pieces.** |
+| `instructions/widescreen-plan.md` | Plan for widescreen gameplay (wider view than the 320px Amiga playfield); feasible because game logic is camera-independent. |
 
 ## Key Files
 
@@ -81,6 +82,9 @@ destinations and lessons:
 **Harness output is now clean** — boot preamble + one line per frame. No per-word blitter spam.
 
 ## Known Issues / Next Steps
+
+- **TODO: Widescreen** — render gameplay wider than the 320px Amiga playfield (16:9). Feasible because the game simulates objects camera-independently (verify: no screen-bound culling/spawn). Core obstacle: the engine blits only the visible ~320px of the tilemap, so off-screen world isn't in chip RAM at render time → needs a native wide tile renderer (+ native object draw in the margins). Full plan + phases in `instructions/widescreen-plan.md`.
+- **TODO (cosmetic): suppress the vestigial password field** ("3MQLGPQLGP") beside the LEVEL SELECT menu item. Its renderer (`$003DAA`, found via pcwatch on the `$3D9F` buffer) is double-emitted (standalone fn + inline in `gfn_gp_003872`); the menu reaches it via the inline fall-through, so an entry-override doesn't catch it. Needs the bitmap-draw routine or a recompiler-level fix.
 
 0. **Level-intro card hang + gameplay entry — FIXED (2026-05-29).** Native disk-boot flow (menu → level card → cavern) is now playable & stable (4500+ frames). Three things, all done the no-band-aid way:
    - **VPOSR vblank-wait hang:** the game's "wait one frame" idiom is a `btst #0,d(a6)` VPOSR frame-parity pair the recompiler folds into `hw_vblank_wait()`, but `is_vposr_btst` only matched `$3(a6)` (intro/title). The **gpl bank uses `$5(a6)`** (44×) → raw busy-spins → level-setup (`$5782B4`) spun VPOSR without yielding → hang at `$5784A0`. FIX: `disp in (3,5)` in `emitter.py` + gpl regen. Do NOT make the hw layer time-guess VPOSR reads (a runtime yield-per-read hack was tried, broke the fire path — can't tell a parity-wait from a delay loop).
