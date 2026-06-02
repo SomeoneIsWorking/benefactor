@@ -44,8 +44,12 @@ void pc_register_overrides(void)
      * is supported. The fire detection itself stays in the engine — this
      * fn is only entered when the engine already decided fire was pressed
      * (see comments in pc_overrides_boot.c). */
-    { extern void native_main_menu_fire_dispatch(M68KCtx *ctx);
-      rt_register_override(0x000039D0u, native_main_menu_fire_dispatch); }
+    /* $0039D0 — menu fire dispatch. Faithful native port (pc_native_menu_dispatch)
+     * REPLACES the old native_main_menu_fire_dispatch hack (cursor-1->level-select
+     * hijack); LEVEL SELECT is re-added properly on the faithful base. Same
+     * A/B toggle (g_native_menu_enable) as the menu loop. */
+    { extern void pc_native_menu_dispatch(M68KCtx *ctx);
+      rt_register_override(0x000039D0u, pc_native_menu_dispatch); }
 
     /* Faithful native port of the title main-menu loop ($003872). The
      * recompiled gfn_gp_003872 stays diffable via g_native_menu_enable
