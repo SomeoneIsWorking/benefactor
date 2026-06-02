@@ -194,26 +194,39 @@ void pc_native_main_menu(M68KCtx *ctx)
     }
 }
 
-/* Faithful native port of gfn_gp_0039D0 ($0039D0): the menu fire dispatch.
- * cursor 0 = PLAY GAME (decode entered password -> level, start game at $150);
- * cursor 1 = ENTER PASSWORD (return to the loop so keys are read);
- * cursor 2 = LOAD EXTRA LEVELS (rebuild the menu list, reload). Returns to the
- * loop via $0039BE and reloads the menu via $003872, exactly like the original.
- * This REPLACES the old native_main_menu_fire_dispatch (the cursor-1->level-
- * select hijack); LEVEL SELECT is re-added as a proper change on this faithful
- * base afterward. */
-void pc_native_menu_dispatch(M68KCtx *ctx)
+/* Write the 10-entry sprite/copper list at -$13b0(a5) and point -$13b4 at it. */
+static void menu_build_list(M68KCtx *ctx, const uint32_t lst[10])
 {
-    if (!g_native_menu_enable) { gfn_gp_0039D0(ctx); return; }
+    uint32_t a0 = ctx->A[5] - 0x13b0u;
+    MW32(ctx->A[5] - 0x13b4u, a0);
+    for (int i = 0; i < 10; i++) { MW32(a0, lst[i]); a0 += 4u; }
+}
+static const uint32_t k_lst_flash[10] = { 0x3d64u,0x3d56u,0x3d59u,0x3d55u,0x3d51u,
+                                          0x3d58u,0x3d59u,0x3d55u,0x3d51u,0x3d58u };
+static const uint32_t k_lst_load[10]  = { 0x3d56u,0x3d57u,0x3d59u,0x3d57u,0x3d64u,
+                                          0x3d65u,0x3d5eu,0x3d5cu,0x3d65u,0x3d66u };
 
+/* Decision + non-blocking state writes for the menu fire dispatch (gfn_gp_0039D0
+ * body). Returns the outcome; the caller performs the terminal transition (and,
+ * for PC_DISP_FLASH, the 151-frame wait then pc_menu_flash_finish). Shared by
+ * the coroutine dispatch and the host driver so both stay identical. */
+int pc_menu_dispatch_decide(M68KCtx *ctx)
+{
     const uint32_t a5 = ctx->A[5];
     const uint32_t a6 = ctx->A[6];
 
     uint16_t cursor = (uint16_t)MR16(a5 - 0x18beu);
-    if (cursor == 2) goto load_extra;                       /* $0039D6 */
-    if (cursor == 1) MW16(a5 - 0x15b6u, 0);                 /* $0039E2 */
-    if (MR16(a5 - 0x15b6u) != 0) { rt_jump(ctx, 0x0039BEu); return; }  /* $0039EA */
-    if (MR16(a5 - 0x18beu) != 0) { rt_jump(ctx, 0x0039BEu); return; }  /* $0039F0 */
+    if (cursor == 2) {                                  /* $0039D6 LOAD EXTRA */
+        ctx->A[4] = a5 + 0x2c18u;
+        rt_call(ctx, a5 + 0x2b04u);                     /* $007C22 */
+        MW32(a6 + 0x7eu, 0x8182u);
+        MW8(0x38u, 0xff);
+        menu_build_list(ctx, k_lst_load);
+        return PC_DISP_RELOAD;
+    }
+    if (cursor == 1) MW16(a5 - 0x15b6u, 0);             /* $0039E2 */
+    if (MR16(a5 - 0x15b6u) != 0) return PC_DISP_LOOP;   /* $0039EA */
+    if (MR16(a5 - 0x18beu) != 0) return PC_DISP_LOOP;   /* $0039F0 */
 
     /* $0039F2 — PLAY GAME: redraw, run the password->level decoder, clamp. */
     ctx->A[4] = a5 + 0x2c18u;
@@ -237,38 +250,36 @@ chk_5a:                                      /* $003A5A */
     if (MR16(0x20u) > 0x5au) { MW8(a5 - 0x96fu, 0); MW16(0x20u, 1); }
 after_clamp:                                 /* $003A6C */
     MW16(0x2cu, MR16(0x1cu));
-    if (MR8(a5 - 0x96fu) != 0) goto start_game;     /* $003A76 */
-
-    /* $003A78 — password incomplete: flash the entry, wait, rebuild list, reload. */
+    if (MR8(a5 - 0x96fu) != 0) {            /* $003A76 -> START GAME ($003AF4) */
+        MW16(a6 + 0x94u, 0x7fff);
+        MW16(a6 + 0x98u, 0x7fff);
+        ctx->A[7] = 0x80000u;
+        ctx->D[0] = 0;
+        return PC_DISP_PLAY;
+    }
+    /* $003A78 — password incomplete: pre-wait writes; caller does the flash. */
     MW32(a6 + 0x7eu, 0x95c2u);
     { uint32_t d0 = 0x2e23eu; MW16(0x9638u, (uint16_t)(d0 & 0xffffu)); MW16(0x9634u, (uint16_t)((d0 >> 16) & 0xffffu)); }
-    for (int i = 0; i < 0x97; i++) hw_vblank_wait();        /* $003A98 d7=$96 */
-    { uint32_t a0 = a5 - 0x13b0u;
-      MW32(a5 - 0x13b4u, a0);
-      static const uint32_t lst[10] = { 0x3d64u,0x3d56u,0x3d59u,0x3d55u,0x3d51u,
-                                        0x3d58u,0x3d59u,0x3d55u,0x3d51u,0x3d58u };
-      for (int i = 0; i < 10; i++) { MW32(a0, lst[i]); a0 += 4u; } }
-    rt_jump(ctx, 0x003872u);                /* reload menu */
-    return;
+    return PC_DISP_FLASH;
+}
 
-start_game:                                  /* $003AF4 */
-    MW16(a6 + 0x94u, 0x7fff);
-    MW16(a6 + 0x98u, 0x7fff);
-    ctx->A[7] = 0x80000u;
-    ctx->D[0] = 0;
-    rt_jump(ctx, 0x150u);                    /* start the selected level */
-    return;
+/* Flash-path tail (after the 151-frame wait): rebuild the list, then reload. */
+void pc_menu_flash_finish(M68KCtx *ctx) { menu_build_list(ctx, k_lst_flash); }
 
-load_extra:                                  /* $003B0C */
-    ctx->A[4] = a5 + 0x2c18u;
-    rt_call(ctx, a5 + 0x2b04u);             /* $007C22 */
-    MW32(a6 + 0x7eu, 0x8182u);
-    MW8(0x38u, 0xff);
-    { uint32_t a0 = a5 - 0x13b0u;
-      MW32(a5 - 0x13b4u, a0);
-      static const uint32_t lst[10] = { 0x3d56u,0x3d57u,0x3d59u,0x3d57u,0x3d64u,
-                                        0x3d65u,0x3d5eu,0x3d5cu,0x3d65u,0x3d66u };
-      for (int i = 0; i < 10; i++) { MW32(a0, lst[i]); a0 += 4u; } }
-    rt_jump(ctx, 0x003872u);                /* reload menu */
-    return;
+/* Faithful native port of gfn_gp_0039D0 ($0039D0), coroutine form: decide, then
+ * the terminal transition (loop $0039BE / reload $003872 / play $150 / flash). */
+void pc_native_menu_dispatch(M68KCtx *ctx)
+{
+    if (!g_native_menu_enable) { gfn_gp_0039D0(ctx); return; }
+
+    switch (pc_menu_dispatch_decide(ctx)) {
+    case PC_DISP_LOOP:   rt_jump(ctx, 0x0039BEu); return;
+    case PC_DISP_RELOAD: rt_jump(ctx, 0x003872u); return;
+    case PC_DISP_PLAY:   rt_jump(ctx, 0x150u);    return;
+    case PC_DISP_FLASH:
+        for (int i = 0; i < 0x97; i++) hw_vblank_wait();    /* $003A98 d7=$96 */
+        pc_menu_flash_finish(ctx);
+        rt_jump(ctx, 0x003872u);
+        return;
+    }
 }
