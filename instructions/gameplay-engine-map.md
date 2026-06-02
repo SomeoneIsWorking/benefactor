@@ -430,3 +430,59 @@ That's it. Everything else in `$577000+` is recompiled.
 
 (1) gives the biggest ownership win because it eliminates the "what does the engine think
 the level is?" black box. (3) is the safest first step because it's bounded and one-shot.
+
+## Player movement & JUMP state machine (RE'd 2026-06-02)
+
+a5 (gameplay) = **`$57EE12`** (`$5770B0: lea $57ee12(pc),a5`). All offsets below are
+a5-relative; absolute = `$57EE12 + off`.
+
+### Input sampling — `$57DEAC`
+Reads JOY1DAT (`$c(a6)`) + fire (`$bfe001`), decodes to a bitmask, **doubles it**, and
+stores: `$f7e(a5)` = previous frame's input, `$f80(a5)` = current. Bit values (post-double):
+`$02`=down, `$04`=right, `$08`=up, `$10`=left, `$20`=fire (so long-jump = fire+dir =
+`$24` right / `$30` left; hop = up = `$08`). Gated by `$1093(a5)` bit0 (input-disable).
+When `$1e.w==8` it instead plays/records a DEMO stream (RLE at `$22.w`/count `$26.w`).
+(`$57DEAC` is invoked from the once-per-frame `$57DEB4`-owning path; the `$578E62`
+joystick-decode in `$578C3E`/`$578D0E` is a *different*, cutscene "press fire to skip".)
+
+### Player object state (a5-relative)
+- `$f70(a5)` (a5+3952) = **current action-handler pointer** (the state-machine state).
+- `$f82(a5)` = a sub-state/anim index (compared to `$14`, `$8` …).
+- `$fa2(a5)` = free-running frame counter (`& $f` → 16-phase animation).
+- `$10ac(a5)` = player flags word; `d4` mirror, bits: 0, 1, 6, `$e` (tested in `$579D84`).
+- Position lives in a per-object struct (X increases moving right). `$57A666` (map row
+  17a) reads an object struct at `$10a6(a5)` and computes screen pos `$f94/$f96(a5)`
+  (adds scroll `$f98(a5)`); but `$10a6(a5)` is NOT uniquely the player (it's the
+  generic draw slot) — do not treat it as the player coord.
+
+### State machine (values written to `$f70(a5)`)
+Per frame the engine calls the handler at `$f70(a5)`. Known states:
+`$579D84` hop/jump-arc · `$579DDC` (sibling arc, likely long-jump) · `$579F0E` ·
+`$579F3A` fall/land · `$579F86` · `$57A018` · `$57A2A2` · `$57A2D6` · `$57A30C` ·
+`$57E43C`/`$57E4E6`/`$57E4EE` grounded (input dispatch).
+
+### Hop arc — `$579D84`
+Plays a precomputed jump trajectory from tables indexed by phase counter `d5`
+(`d5+=2`/frame): vertical deltas `$309c(a5)`, horizontal deltas `$2ce6(a5)`, plus
+`$5d02(a5)` (gated by `d4` bit `$e`). At `d5==$18` (24): `jsr $775c(a5)` (=`$58656E`,
+landing/snap helper), `bset #6,d4`, `$f6e(a5)=$e`. When the vertical delta hits 0 it
+sets `(a0)=$579f3a` (transition to fall/land).
+
+### Jump TRIGGER — `$57E43C` (writes `$f70(a5)=$579D84` at `$57E526`)
+Dispatched when up/jump input selects this grounded handler. It does a TILE/terrain
+check (indexes tile tables `$46cc(a5)`, tests tile flag bit4, and `$f82(a5)!=$14`)
+before committing the hop — i.e. "can I jump here?". The three writers of `$579D84`
+into `$f70(a5)` are `$57E43C`(`$57E526`), `$57E4E6`, `$57E4EE`.
+
+### Jump SFX (grunt) — STILL TO PIN
+The grunt is attached to the jump (per user: up=hop, fire+dir=long jump, both grunt).
+Audio output is the combined player via CIA-B ISR `$59BF3E` (see current-state.md); the
+trigger writes a voice + ready-flag upstream. NOT yet located in the jump path; pin by
+pcwatching the audio voice/ready-flags (`$59cf1c/1d`, mask `$59d240`) on a single hop
+frame and noting the non-ISR writer fn.
+
+### How this was found (repro for next session)
+Harness REPL: `goto 1` → dismiss card (fire cycles) → `pc 300` (physics live) →
+differential dumps (`dumpall`) of "no input" vs "hold up" / "hold right", diff the
+`$57E000..$580800` window. Up-press sets `$f70(a5)=$579D84`. `pcwatch <abs>` gives the
+writer fn (g_rt_last_call) + M68K pc per write.
