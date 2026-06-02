@@ -505,7 +505,7 @@ int g_pc_pending_load = 0;
  * menu loop directly (pc_menu_loop_body, no hw_vblank_wait). On exit it rebuilds
  * a fresh coroutine for gameplay (PLAY) or attract (timeout). Toggle (default
  * off) so the proven in-coroutine path stays the safe default until verified. */
-static int g_menu_host = 0;           /* PC_MENU_HOST env, default 0 */
+static int g_menu_host = 1;           /* title menu runs off the coroutine; PC_MENU_HOST=0 forces the old in-coroutine path */
 static int s_menu_host_active = 0;    /* 1 while the menu runs host-driven */
 static int pc_menu_host_step(void);
 
@@ -856,8 +856,16 @@ static int pc_menu_host_step(void)
 
     int act = pc_menu_loop_body(&s_game_ctx);
     if (act == PC_MENU_FIRE) {
-        s_menu_host_active = 0;
-        rebuild_coro(menu_fire_coro_entry);
+        /* Only cursor 0 (PLAY) runs the blocking $0045FC decode → hand to a
+         * coroutine. cursor 1 (ENTER PASSWORD, stay in loop) and 2 (LOAD EXTRA,
+         * reload) don't block → handle inline, preserving the cursor. */
+        uint16_t cursor = (uint16_t)rt_read16(&s_game_ctx, s_game_ctx.A[5] - 0x18beu);
+        if (cursor == 0) {
+            s_menu_host_active = 0;
+            rebuild_coro(menu_fire_coro_entry);
+        } else if (pc_menu_dispatch_decide(&s_game_ctx) == PC_DISP_RELOAD) {
+            pc_menu_setup(&s_game_ctx);     /* LOAD EXTRA → reload menu, host-driven */
+        }
     } else if (act == PC_MENU_TIMEOUT) {
         pc_menu_attract_preroll(&s_game_ctx);
         s_menu_host_active = 0;
