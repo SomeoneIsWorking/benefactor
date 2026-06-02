@@ -354,11 +354,20 @@ int main(int argc, char **argv)
                         /* 4) poke level word $20.w before level setup ($5782B4) reads it. */
                         uint8_t lw[2] = { (uint8_t)((lvl>>8)&0xFF), (uint8_t)(lvl&0xFF) };
                         puae_poke_mem(0x20u, lw, 2);
-                        /* 5) run on until gameplay copper ($003484). */
-                        for (int i=0;i<600;i++) { STEP_PU(); if (puae_get_cop1lc()==0x003484u) break; }
+                        /* 5) run to the level CARD ($003914), then pulse fire until
+                         *    gameplay ($003484) is STABLE (card dismissed). */
+                        for (int i=0;i<600;i++) { STEP_PU(); if (puae_get_cop1lc()==0x003914u) break; }
+                        int stable = 0;
+                        for (int pulse=0; pulse<20 && stable<60; pulse++) {
+                            if (puae_get_cop1lc()==0x003914u) {
+                                fire=1; for(int i=0;i<8;i++) STEP_PU(); fire=0;
+                            }
+                            for (int i=0;i<30;i++) { STEP_PU();
+                                if (puae_get_cop1lc()==0x003484u) stable++; else { stable=0; break; } }
+                        }
                         uint8_t chk[2]; puae_dump_mem(0x20u, chk, 2);
-                        printf("[crepl] pugoto %d: cop1lc=$%06X  $20.w=%u\n",
-                               lvl, puae_get_cop1lc(), (chk[0]<<8)|chk[1]);
+                        printf("[crepl] pugoto %d: cop1lc=$%06X  $20.w=%u  (gameplay stable=%d)\n",
+                               lvl, puae_get_cop1lc(), (chk[0]<<8)|chk[1], stable);
                     }
                 }
             }
