@@ -696,8 +696,16 @@ static int irq_level_enabled(uint16_t levelbits)
 /* Deliver the level-6 (CIA-B timer) music ISR once. Called pc_step's per-screen
  * number of times per frame. Gated on the interrupt being enabled so a stale
  * vector from a previous screen doesn't run during a masked load. */
+/* Music kill-switch for the wrong-SFX investigation. When set, the LVL6 music
+ * ISR is NOT delivered, so whatever music player is installed at $78 stops
+ * advancing. SFX that is triggered independently of the music ISR keeps
+ * playing; SFX pumped *by* the ISR goes silent — this disambiguates the two.
+ * Set from BENEFACTOR_MUTE_MUSIC at bring-up; toggleable at the REPL ("mute"). */
+int g_mute_music = 0;
+
 void pc_music_tick(void)
 {
+    if (g_mute_music) return;
     if (!g_overlay_active && !g_gameplay_active && !g_credits_active) return;
     if (!irq_level_enabled(INTENA_LVL6)) return;
     uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16)
@@ -772,6 +780,8 @@ static int pc_common_bringup(const char **disks, int n_disks)
     g_hw_pc_owns_present = 1;
     { extern int g_native_render_delay; const char *e = getenv("PC_RENDER_DELAY");
       g_native_render_delay = e ? atoi(e) : 1; }  /* blitter-latency model (frames) */
+    { extern int g_mute_music; const char *e = getenv("BENEFACTOR_MUTE_MUSIC");
+      g_mute_music = e ? atoi(e) : 0; }  /* SFX-isolation kill-switch */
     return 0;
 }
 
