@@ -213,6 +213,31 @@ because I tested at level *start* where the chain is off-screen; the oracle at t
 actual chamber settled it. Candidate next: the **gameover-screen cursor** image is
 missing — possibly another mode/feature our blitter or sprite path lacks.
 
+## OPEN: wrong SFX plays sometimes (jump grunt) — needs music/SFX code RE
+
+Repro: compare harness, level 1, past GET READY, hold fire+left → repeated jumps
++ grunt SFX; PC sometimes plays a wrong/different sound. Tools added: `SFX_TRACE=1`
+(logs/sfx_pc.txt: ch/AUDxLC/len/per/vol on each audio-DMA enable) + REPL `audlc`
+(PC vs PUAE per-channel sample ptr).
+
+DEAD END (do not repeat): per-channel snapshot diffing can NOT separate SFX from
+music. The music player retriggers AUDxLC every frame on several channels, and
+PC's music runs at a different PHASE than PUAE (tempo skew), so channel snapshots
+diverge even with no SFX. PC DOES play the grunt samples on jump (ch3 idle=$07AE94
+→ jump=$07CF7C→$079C6C), so "PC plays a wrong sample" was a snapshot-timing
+artifact. The game also has several grunt VARIANTS (len $004C samples), so a
+different variant ≠ a bug.
+
+PLAN (per user): reverse-engineer the music player vs the SFX-trigger code, then add
+a MUSIC KILL-SWITCH to isolate SFX for a clean PC-vs-PUAE comparison. Known: music =
+`$53A2` (LVL6 CIA-B timer ISR, delivered via `pc_music_tick`/`coro_deliver_timer_irq`
+in pc.c), instrument table `$C16A`, note/effect jump table `$571C`, voice-vol→AUDxVOL
+at `$5450`. TODO: locate the SFX-play routine (what the jump/grunt `jsr`s — a
+sound-id → Paula-channel setup function, separate from $53A2). This RE also lays
+groundwork for a FEATURE: independent music/SFX volume sliders. Then isolate SFX
+(mute music) and diff the grunt-selection/trigger PC vs PUAE (instruction trace if
+needed, same technique as the RT_SET_NZ bug).
+
 ## OPEN: gameover-screen cursor missing = native hardware-SPRITE rendering unimplemented
 
 The CONTINUE/GAME OVER menu (cop1lc=$003914 after death; reach it in PUAE via
