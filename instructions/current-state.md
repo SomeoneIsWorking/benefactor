@@ -220,13 +220,17 @@ Repro: compare harness, level 1, past GET READY, hold fire+left → repeated jum
 (logs/sfx_pc.txt: ch/AUDxLC/len/per/vol on each audio-DMA enable) + REPL `audlc`
 (PC vs PUAE per-channel sample ptr).
 
-DEAD END (do not repeat): per-channel snapshot diffing can NOT separate SFX from
-music. The music player retriggers AUDxLC every frame on several channels, and
-PC's music runs at a different PHASE than PUAE (tempo skew), so channel snapshots
-diverge even with no SFX. PC DOES play the grunt samples on jump (ch3 idle=$07AE94
-→ jump=$07CF7C→$079C6C), so "PC plays a wrong sample" was a snapshot-timing
-artifact. The game also has several grunt VARIANTS (len $004C samples), so a
-different variant ≠ a bug.
+RESOLVED separation (2026-06-02): SFX has its OWN state, separate from music —
+`$57fe4e.b` pending flag + `$57fe50` active descriptor (sample ptr+params),
+triggered by `$58656E` (`$775c(a5)`) and streamed by `$586612`. So you CAN isolate
+SFX: diff `$57fe50` PC-vs-PUAE on the same jump, NO music confound. Full SFX-engine
+map in `instructions/gameplay-engine-map.md` ("SFX engine"). Jump grunt sample =
+`$5B0BE4`. NEXT: drive PUAE (pugoto) + PC (goto) to a jump, compare `$57fe50`.
+
+OLD DEAD END (channel-snapshot path, do not repeat): per-channel AUDxLC snapshot
+diffing can NOT separate SFX from music (music retriggers every frame + PC/PUAE
+phase skew). `$07AE94` etc. were MUSIC samples, not the grunt (there is no idle
+grunt). Use the `$57fe50` SFX-descriptor path above instead.
 
 GAMEPLAY AUDIO ARCHITECTURE (RE'd 2026-06-02, verified via SFX_TRACE+fn column):
 The gameplay (gpl bank) audio is a COMBINED music+SFX player whose hardware output
@@ -242,7 +246,10 @@ CONSEQUENCE (corrects the old plan): there is NO separate "SFX writes Paula
 directly" path. SFX is injected into the SAME player's voice table; an ISR-level
 kill-switch (BENEFACTOR_MUTE_MUSIC / REPL `mute`, gating `pc_music_tick`) mutes BOTH
 music AND SFX — VERIFIED: 0 DMACON enables after the mute frame, jumps included.
-The grunt is the len-`$004C` sample at `$07AE94` (idle); on jumps it appears on ch1.
+NOTE: `$07AE94` (len `$004C`) is NOT an "idle grunt" (per user: there is no idle
+grunt) — it's present at baseline = a MUSIC sample. The grunt sample is still
+UNIDENTIFIED; derive it empirically by fire-correlation (sample that recurs right
+after each fire press across many jumps), NOT by trusting the old "idle" label.
 
 TOOLS: `mute [0|1]` REPL + `BENEFACTOR_MUTE_MUSIC` env (pc.c `g_mute_music`, gates
 `pc_music_tick`); SFX_TRACE now logs `fn=` (g_rt_last_call) per DMACON-enable.
