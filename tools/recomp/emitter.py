@@ -1021,6 +1021,16 @@ def emit_func(c, addr, insns, translator, cname=None):
     """
     name = cname(addr) if cname else get_fn_name(addr)
 
+    # CPS (coroutine-free) transform: when RECOMP_CPS is set, a frame wait and
+    # every rt_call become yield/resume points. A wait pushes a continuation
+    # (this fn + a resume label) and returns; after every rt_call we check
+    # g_rt.yield (a callee may have suspended) and, if set, push our own resume
+    # and return — unwinding to the host (rt_cont_run) with no ucontext. On
+    # re-entry the entry switch jumps straight to the resume label (the M68K
+    # state lives in ctx/g_mem, so the skipped 'before' code must not re-run;
+    # no C temporary is live across a wait/call boundary, so the goto is sound).
+    cps = bool(os.environ.get('RECOMP_CPS'))
+
     # Collect branch targets within this function.
     branch_targets = set()
     for insn in insns:
@@ -1036,8 +1046,11 @@ def emit_func(c, addr, insns, translator, cname=None):
 
     skip_insns, pre_label, override = _find_patterns(insns)
 
-    c.write(f'/* ${addr:06X} */\n')
-    c.write(f'void gfn_{name}(M68KCtx *ctx) {{\n')
+    body = []            # buffered body lines (CPS needs the resume count first)
+    rn = [0]             # resume-label counter
+
+    def w(s):
+        body.append(s)   # always buffer: needed for the resume count + label pruning
 
     for insn in insns:
         a = insn.address
@@ -1048,37 +1061,77 @@ def emit_func(c, addr, insns, translator, cname=None):
             # Emit its label before skipping so the goto resolves; control then
             # falls into the folded construct, which re-runs the inner loop.
             if a in branch_targets:
-                c.write(f'\nL_{a:06X}: ;\n')
+                w(f'\nL_{a:06X}: ;\n')
             continue
 
         # Emit for-loop opener / other pre-label text before the label line.
         if a in pre_label:
-            c.write(f'  {pre_label[a]}\n')
+            w(f'  {pre_label[a]}\n')
 
         if a in branch_targets:
-            c.write(f'\nL_{a:06X}:\n')
+            w(f'\nL_{a:06X}:\n')
 
         # Override: emit replacement body (or nothing if None) and move on.
         if a in override:
-            body = override[a]
-            if body is not None:
-                c.write(f'  {body}\n')
+            ob = override[a]
+            if ob is not None:
+                if cps and ob == 'hw_vblank_wait();':
+                    rn[0] += 1; k = rn[0]
+                    w(f'  rt_cont_push(gfn_{name}, {k}); g_rt.yield = 1; return;\n')
+                    w(f'L_resume_{k}: ;\n')
+                else:
+                    w(f'  {ob}\n')
             continue
 
         try:
             ops = insn.operands  # noqa: F841
         except Exception:
-            c.write(f'  /* {a:06X}: data */\n')
+            w(f'  /* {a:06X}: data */\n')
             continue
 
         mnem = insn.mnemonic.replace('\\"', '"').replace('\\n', ' ')
-        c.write(f'  /* {a:06X}: {mnem} {insn.op_str} */\n')
-        c.write(f'  RT_TRACE_INSN(0x{a:06X}u, "{mnem}");\n')
+        w(f'  /* {a:06X}: {mnem} {insn.op_str} */\n')
+        w(f'  RT_TRACE_INSN(0x{a:06X}u, "{mnem}");\n')
 
         text = translator.translate(insn)
         if text:
             for line in text.split('\n'):
-                if line.strip():
-                    c.write(f'  {line}\n')
+                if not line.strip():
+                    continue
+                if cps and line.strip().startswith('rt_call(ctx,'):
+                    w(f'  {line}\n')
+                    rn[0] += 1; k = rn[0]
+                    w(f'  if (g_rt.yield) {{ rt_cont_push(gfn_{name}, {k}); return; }}\n')
+                    w(f'L_resume_{k}: ;\n')
+                else:
+                    w(f'  {line}\n')
 
+    # Drop label definitions nothing jumps to (no unused-label warnings). The
+    # only references are `goto L_x` (branches/dbra) and the CPS resume switch.
+    referenced = set()
+    for s in body:
+        for m in re.finditer(r'goto (L_\w+)', s):
+            referenced.add(m.group(1))
+    for k in range(1, rn[0] + 1):
+        referenced.add(f'L_resume_{k}')
+
+    label_def = re.compile(r'^\s*(L_\w+):')
+    uses_ctx = any('ctx' in s for s in body)
+
+    c.write(f'/* ${addr:06X} */\n')
+    c.write(f'void gfn_{name}(M68KCtx *ctx) {{\n')
+    if not uses_ctx:
+        c.write('  (void)ctx;\n')   # stub fn that never touches the M68K context
+    if cps and rn[0] > 0:
+        c.write('  int _resume = g_rt.resume; g_rt.resume = 0;\n')
+        c.write('  switch (_resume) {\n')
+        for k in range(1, rn[0] + 1):
+            c.write(f'  case {k}: goto L_resume_{k};\n')
+        c.write('  default: break;\n')
+        c.write('  }\n')
+    for s in body:
+        m = label_def.match(s)
+        if m and m.group(1) not in referenced:
+            continue   # unreferenced label — drop it
+        c.write(s)
     c.write('}\n\n')
