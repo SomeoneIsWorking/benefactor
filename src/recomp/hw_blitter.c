@@ -44,26 +44,11 @@ static inline uint32_t _bplptr_from(int hi_reg, int lo_reg)
 #define _BLTAFWM  0x044
 #define _BLTALWM  0x046
 
-/* ── Shift-register carry ───────────────────────────────────────────────── */
-
-/* Last raw A word from the previous hw_do_blit() call.
- * On real OCS the A shift register is NOT cleared between blits.
- * Disabled by BLIT_NO_CARRY=1 env var (for comparison testing). */
-static uint16_t s_shift_carry = 0;
-static int      s_carry_enabled = -1;   /* -1 = not yet initialised */
-
-static int _carry_enabled(void)
-{
-    /* PUAE resets the A-shift register to 0 at every blit start
-     * (blitter.c:2003, blitter_start_init: blt_info.bltaold = 0) — it does NOT
-     * persist the A shift register across blits. The old "OCS carries across
-     * blits" assumption was WRONG and corrupted the title text compositing
-     * (it dropped $077E60 buffer divergence from 502 bytes to 10). Default to
-     * reset-per-blit to match PUAE; BLIT_CARRY=1 re-enables the old behaviour. */
-    if (s_carry_enabled < 0)
-        s_carry_enabled = (getenv("BLIT_CARRY") != NULL) ? 1 : 0;
-    return s_carry_enabled;
-}
+/* PUAE resets the A-shift register to 0 at every blit start (blitter.c:2003,
+ * blitter_start_init: blt_info.bltaold = 0) — it does NOT persist the A shift
+ * register across blits. The old "OCS carries across blits" assumption was
+ * WRONG and corrupted the title-text compositing, so the A register starts at
+ * 0 every blit (no carry, matching PUAE). */
 
 /* ── Trace facility ─────────────────────────────────────────────────────── */
 
@@ -176,8 +161,8 @@ void hw_do_blit(void)
             watch_before = _mem16(s_watch_addr);
     }
 
-    /* Initial prev_a: carry from previous blit (OCS behavior) or 0 */
-    uint16_t blit_init_prev_a = _carry_enabled() ? s_shift_carry : 0;
+    /* A shift register starts at 0 every blit (PUAE resets bltaold per blit). */
+    uint16_t blit_init_prev_a = 0;
     uint16_t last_a_raw = blit_init_prev_a; /* updated throughout blit */
     uint16_t last_b = 0;
 
@@ -268,10 +253,6 @@ void hw_do_blit(void)
         if (use_c) cpt = (uint32_t)((int32_t)cpt + dir*(cmod + width_words*2));
         if (use_d) dpt = (uint32_t)((int32_t)dpt + dir*(dmod + width_words*2));
     }
-
-    /* Update carry register for next blit.
-     * OCS: shift register persists when use_a=0 (e.g. zero-fill blits). */
-    if (use_a) s_shift_carry = last_a_raw;
 
     /* Full per-blit trace (env BLIT_TRACE_ALL=1) → logs/pc_blit_trace.txt, for
      * comparison against the PUAE side to find the first diverging blit. */
