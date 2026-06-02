@@ -193,16 +193,25 @@ thread at a clean per-frame re-entry (e.g. main-loop top `$577114`) with the loa
 — the engine re-reads all live state (player/objects/camera) from `g_mem` (a5-rel +
 chip RAM) each frame, so it should continue the saved scene. NOT yet implemented.
 
-## Chains-not-drawn (level 35 chamber) — investigation so far
+## Chandelier chains — FIXED (blitter LINE mode implemented)
 
-- Rendered the user's chamber savestate via `loadmem`+`render` (two big skulls,
-  candelabra, floor spikes, small hanging chandeliers near the ceiling). The chains
-  from the hanging chandeliers up to the ceiling anchor don't draw.
-- RULED OUT: blitter line-mode (game issues 0 LINE blits in gameplay; our blitter
-  has no line mode but it's never used here). RULED OUT: object-dispatch miss (0
-  rt-misses across level 35 gameplay — the chain-drawing code runs). So it's a
-  drawing-detail bug (a normal area blit / renderer interpretation), not a missing
-  handler. Needs a live PC-vs-reference comparison of the chain blit in that scene.
+Root cause: the game draws the chains with the blitter's **LINE mode** (BLTCON1
+bit0), and `hw_do_blit` only ever did area copy — it ignored bit0, so every chain
+line-draw was mistreated as an area blit → no chain. Found by the PUAE oracle
+(`pugoto 35` + `puloadmem` teleport): PUAE issues LINE-mode blits (con1=0001 etc.)
+from engine routine `$57DE3C` for the chains; PC issued none. FIX: implemented
+`hw_do_line()` (Bresenham, octant/accumulator logic ported 1:1 from PUAE
+`blitter.c` actually_do_blit line path) + area **FILL** mode (inclusive/exclusive,
+PUAE `build_blitfilltable`). Both gated by BLTCON1 bits, so normal area blits are
+untouched (no intro/title regression). Verified: the orange diagonal chain now
+draws in PC at the chamber, matching the PUAE reference.
+
+LESSON (per user): audit which blitter MODES the game uses vs what our blitter
+implements (env `BLT_MODES` on the PUAE side logs con0/con1 incl. LINE/fill) —
+don't chase one hypothesis at a time. My first "ruled out line mode" was WRONG
+because I tested at level *start* where the chain is off-screen; the oracle at the
+actual chamber settled it. Candidate next: the **gameover-screen cursor** image is
+missing — possibly another mode/feature our blitter or sprite path lacks.
 
 ## Debugging tool: interactive REPL
 
