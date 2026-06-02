@@ -44,6 +44,25 @@ set(RECOMPILER      "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp/recomp.py")
 set(RECOMP_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp")
 set(GEN_DIR         "${CMAKE_CURRENT_SOURCE_DIR}/src/generated")
 set(GAME_H          "${GEN_DIR}/game.h")
+
+# src/generated/ is a build artifact derived from the user's Disk.* images (it's
+# a recompilation of the copyrighted game code, so it's gitignored — not shipped).
+# Regenerate it on configure if missing or if the recompiler/loaders/seeds
+# changed. tools/regen.sh is hash-gated and idempotent (a no-op when up-to-date):
+# it builds the bootstrap-clean bank dumper, dumps the bank inputs from the
+# disks, and runs the recompiler — no PUAE/Kickstart/WHDLoad/slave.
+execute_process(
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/regen.sh"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    RESULT_VARIABLE REGEN_RC
+)
+if(NOT REGEN_RC EQUAL 0)
+    message(FATAL_ERROR
+        "tools/regen.sh failed (rc=${REGEN_RC}). The recompiled code is generated "
+        "from your own Benefactor disks: ensure Disk.1/2/3 are in the repo root and "
+        "python3 + capstone (pip install capstone) are available.")
+endif()
+
 # The recompiler splits each bank's output across multiple .c files when the
 # function count grows, so the build picks them up by glob. CONFIGURE_DEPENDS
 # re-runs the glob on each build, so a regen that adds (or removes) bank
