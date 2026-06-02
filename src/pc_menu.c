@@ -32,10 +32,6 @@
  * without re-entering this override. */
 
 extern void hw_blitter_sync(void);
-extern void hw_vblank_wait(void);
-
-/* Keep the recomp body diffable / A/B-toggleable (recomp-overrides rule). */
-int g_native_menu_enable = 1;
 
 /* Menu display setup ($003872–$00395C). Factored out of pc_native_main_menu so
  * the host-driven path (pc.c) can run it once on menu entry and re-run it on a
@@ -170,30 +166,13 @@ void pc_menu_attract_preroll(M68KCtx *ctx)
     rt_call(ctx, a5 + 0x2b04u);         /* $007C22 */
 }
 
-/* Faithful native port of gfn_gp_003872 ($003872), coroutine form: setup then
- * the per-frame loop (hw_vblank_wait per iteration). On fire it exits via the
- * dispatch $0039D0; on a music-countdown timeout it returns to attract $0033E2.
- * The host-driven path (pc.c, when enabled) calls pc_menu_setup / pc_menu_loop_
- * body directly instead, so the menu runs with no hw_vblank_wait. */
+/* Override at $003872: the title menu runs host-driven (off the coroutine).
+ * Run the display setup and escape the coroutine; pc_step then drives the menu
+ * loop (pc_menu_setup / pc_menu_loop_body / pc_menu_dispatch_decide) with no
+ * hw_vblank_wait. */
 void pc_native_main_menu(M68KCtx *ctx)
 {
-    if (!g_native_menu_enable) { rt_call_generated(ctx, 0x003872u); return; }
-
-    /* Host-driven menu owns the frame loop in pc_step — escape the coroutine
-     * after setup and let it drive (no hw_vblank_wait here). */
-    if (pc_menu_host_takeover(ctx)) return;
-
-    pc_menu_setup(ctx);
-    for (;;) {
-        hw_vblank_wait();                       /* $003960 frame boundary */
-        int act = pc_menu_loop_body(ctx);
-        if (act == PC_MENU_FIRE) { rt_jump(ctx, 0x0039D0u); return; }
-        if (act == PC_MENU_TIMEOUT) {
-            pc_menu_attract_preroll(ctx);
-            rt_jump(ctx, ctx->A[5] - 0x1d3cu);  /* $0033E2 attract */
-            return;
-        }
-    }
+    pc_menu_host_takeover(ctx);
 }
 
 /* Write the 10-entry sprite/copper list at -$13b0(a5) and point -$13b4 at it. */
@@ -209,9 +188,9 @@ static const uint32_t k_lst_load[10]  = { 0x3d56u,0x3d57u,0x3d59u,0x3d57u,0x3d64
                                           0x3d65u,0x3d5eu,0x3d5cu,0x3d65u,0x3d66u };
 
 /* Decision + non-blocking state writes for the menu fire dispatch (gfn_gp_0039D0
- * body). Returns the outcome; the caller performs the terminal transition (and,
- * for PC_DISP_FLASH, the 151-frame wait then pc_menu_flash_finish). Shared by
- * the coroutine dispatch and the host driver so both stay identical. */
+ * body). Returns the outcome; the host driver (pc.c) performs the terminal
+ * transition (and, for PC_DISP_FLASH, the 151-frame wait then pc_menu_flash_
+ * finish on a coroutine, since $0045FC blocks). */
 int pc_menu_dispatch_decide(M68KCtx *ctx)
 {
     const uint32_t a5 = ctx->A[5];
@@ -267,21 +246,3 @@ after_clamp:                                 /* $003A6C */
 
 /* Flash-path tail (after the 151-frame wait): rebuild the list, then reload. */
 void pc_menu_flash_finish(M68KCtx *ctx) { menu_build_list(ctx, k_lst_flash); }
-
-/* Faithful native port of gfn_gp_0039D0 ($0039D0), coroutine form: decide, then
- * the terminal transition (loop $0039BE / reload $003872 / play $150 / flash). */
-void pc_native_menu_dispatch(M68KCtx *ctx)
-{
-    if (!g_native_menu_enable) { rt_call_generated(ctx, 0x0039D0u); return; }
-
-    switch (pc_menu_dispatch_decide(ctx)) {
-    case PC_DISP_LOOP:   rt_jump(ctx, 0x0039BEu); return;
-    case PC_DISP_RELOAD: rt_jump(ctx, 0x003872u); return;
-    case PC_DISP_PLAY:   rt_jump(ctx, 0x150u);    return;
-    case PC_DISP_FLASH:
-        for (int i = 0; i < 0x97; i++) hw_vblank_wait();    /* $003A98 d7=$96 */
-        pc_menu_flash_finish(ctx);
-        rt_jump(ctx, 0x003872u);
-        return;
-    }
-}

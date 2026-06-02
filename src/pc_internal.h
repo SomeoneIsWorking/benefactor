@@ -45,8 +45,7 @@ enum { PC_MENU_STAY = 0, PC_MENU_FIRE = 1, PC_MENU_TIMEOUT = 2 };
 void pc_menu_setup(M68KCtx *ctx);          /* $003872 display setup */
 int  pc_menu_loop_body(M68KCtx *ctx);      /* one loop iteration -> PC_MENU_* */
 void pc_menu_attract_preroll(M68KCtx *ctx);/* redraw before the attract jump */
-void pc_native_main_menu(M68KCtx *ctx);    /* override $003872 (coroutine form) */
-void pc_native_menu_dispatch(M68KCtx *ctx);/* override $0039D0 */
+void pc_native_main_menu(M68KCtx *ctx);    /* override $003872 (host-driven) */
 /* Fire-dispatch decision (shared by coroutine + host). */
 enum { PC_DISP_LOOP = 0, PC_DISP_RELOAD = 1, PC_DISP_PLAY = 2, PC_DISP_FLASH = 3 };
 int  pc_menu_dispatch_decide(M68KCtx *ctx);
