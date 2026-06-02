@@ -122,6 +122,7 @@ src/generated/game.h  – forward decls + dispatch table
 
 ## Critical Conventions & Gotchas
 
+- **Prefer ONE struct for global/module state, not many separate top-level variables.** Group related globals into a single struct instance (the established pattern is `GameState g_state` in `game_state.h`, with legacy-name `#define g_foo (g_state.foo)` accessors). One struct means one place to reset/snapshot/serialise (savestates), clearer ownership, and no scattered `extern` sprawl. When adding new global state, extend an existing state struct or introduce a small dedicated one — don't drop loose `int g_thing;` / `int g_other;` at file scope. (Applies to runtime state in `rt.c` too, e.g. the continuation-stack/yield state.)
 - **Hardware address routing:** `is_hw()` gates `$BFD000`, `$BFE000`, `$DFF000`. All other addresses are plain RAM.
 - **A5 = `$00531C`**, **A6 = `$00DFF002`** (hardware base offset by 2). Defined in `pc_internal.h`.
 - **Copper lists:** `$7BC8` = title screen; `$86CC` = gameplay. The game rebuilds them each frame.
