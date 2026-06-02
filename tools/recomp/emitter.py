@@ -845,10 +845,10 @@ def _find_patterns(insns):
         # The post-level-complete "press fire to continue" idiom is
         #   tst.b $bfe001.l   ; CIA-A PRA byte; bit7 = /FIR1 (active-low)
         #   bmi/bpl  self     ; loop while fire NOT pressed / IS pressed
-        # On real OCS the busy-loop is fine; in our coroutine model it never
-        # yields so the input layer can't update fire state and the watchdog
-        # fires. Fold the self-loop into hw_wait_fire(...) which yields a frame
-        # per check (same approach as hw_vblank_wait for the VPOSR pairs).
+        # On real OCS the busy-loop is fine; on our game thread it would spin
+        # forever (nothing on this thread updates fire state). Fold the self-loop
+        # into hw_wait_fire(...) which blocks a frame per check on the host
+        # handoff (same approach as hw_vblank_wait for the VPOSR pairs).
         try:
             if mnem0(insn) != 'tst':
                 return False
@@ -866,7 +866,7 @@ def _find_patterns(insns):
         # The intro/title code reads it at $3(a6); the gameplay-engine bank reads
         # the same parity at $5(a6). Both are the frame-parity byte of VPOSR
         # ($DFF004) as the hw layer models it — accept either so BOTH banks get
-        # the spin folded into a clean hw_vblank_wait() (a coroutine frame-yield)
+        # the spin folded into a clean hw_vblank_wait() (a blocking host handoff)
         # instead of a busy-loop the hw layer has to time-guess.
         try:
             if mnem0(insn) != 'btst':
@@ -1021,14 +1021,13 @@ def emit_func(c, addr, insns, translator, cname=None):
     """
     name = cname(addr) if cname else get_fn_name(addr)
 
-    # CPS (coroutine-free) transform — the ONLY codegen path: a frame wait and
-    # every rt_call become yield/resume points. A wait pushes a continuation
-    # (this fn + a resume label) and returns; after every rt_call we check
-    # g_rt.yield (a callee may have suspended) and, if set, push our own resume
-    # and return — unwinding to the host (rt_cont_run) with no ucontext. On
-    # re-entry the entry switch jumps straight to the resume label (the M68K
-    # state lives in ctx/g_mem, so the skipped 'before' code must not re-run;
-    # no C temporary is live across a wait/call boundary, so the goto is sound).
+    # Straight-line codegen: each function is plain blocking C. A frame wait is a
+    # blocking call (hw_vblank_wait / hw_wait_fire / hw_blitter_sync) — the game
+    # runs on its OWN OS thread, so the wait simply blocks on a condvar/mutex and
+    # the SDL main thread releases it once per frame (ping-pong handoff). No CPS /
+    # continuation / yield: the C call stack itself is the suspended state. The
+    # body is still buffered so unreferenced labels can be pruned and `(void)ctx;`
+    # emitted for stub fns (warning-clean generation).
 
     # Collect branch targets within this function.
     branch_targets = set()
@@ -1045,11 +1044,10 @@ def emit_func(c, addr, insns, translator, cname=None):
 
     skip_insns, pre_label, override = _find_patterns(insns)
 
-    body = []            # buffered body lines (CPS needs the resume count first)
-    rn = [0]             # resume-label counter
+    body = []            # buffered body lines (so unreferenced labels can be pruned)
 
     def w(s):
-        body.append(s)   # always buffer: needed for the resume count + label pruning
+        body.append(s)
 
     for insn in insns:
         a = insn.address
@@ -1071,15 +1069,12 @@ def emit_func(c, addr, insns, translator, cname=None):
             w(f'\nL_{a:06X}:\n')
 
         # Override: emit replacement body (or nothing if None) and move on.
+        # hw_vblank_wait()/hw_wait_fire()/hw_blitter_sync() are plain blocking
+        # calls now — the wait blocks the game thread until the host releases it.
         if a in override:
             ob = override[a]
             if ob is not None:
-                if ob == 'hw_vblank_wait();':
-                    rn[0] += 1; k = rn[0]
-                    w(f'  rt_cont_push(gfn_{name}, {k}); g_rt.yield = 1; return;\n')
-                    w(f'L_resume_{k}: ;\n')
-                else:
-                    w(f'  {ob}\n')
+                w(f'  {ob}\n')
             continue
 
         try:
@@ -1097,22 +1092,14 @@ def emit_func(c, addr, insns, translator, cname=None):
             for line in text.split('\n'):
                 if not line.strip():
                     continue
-                if line.strip().startswith('rt_call(ctx,'):
-                    w(f'  {line}\n')
-                    rn[0] += 1; k = rn[0]
-                    w(f'  if (g_rt.yield) {{ rt_cont_push(gfn_{name}, {k}); return; }}\n')
-                    w(f'L_resume_{k}: ;\n')
-                else:
-                    w(f'  {line}\n')
+                w(f'  {line}\n')
 
     # Drop label definitions nothing jumps to (no unused-label warnings). The
-    # only references are `goto L_x` (branches/dbra) and the CPS resume switch.
+    # only references are `goto L_x` (branches/dbra).
     referenced = set()
     for s in body:
         for m in re.finditer(r'goto (L_\w+)', s):
             referenced.add(m.group(1))
-    for k in range(1, rn[0] + 1):
-        referenced.add(f'L_resume_{k}')
 
     label_def = re.compile(r'^\s*(L_\w+):')
     uses_ctx = any('ctx' in s for s in body)
@@ -1121,13 +1108,6 @@ def emit_func(c, addr, insns, translator, cname=None):
     c.write(f'void gfn_{name}(M68KCtx *ctx) {{\n')
     if not uses_ctx:
         c.write('  (void)ctx;\n')   # stub fn that never touches the M68K context
-    if rn[0] > 0:
-        c.write('  int _resume = g_rt.resume; g_rt.resume = 0;\n')
-        c.write('  switch (_resume) {\n')
-        for k in range(1, rn[0] + 1):
-            c.write(f'  case {k}: goto L_resume_{k};\n')
-        c.write('  default: break;\n')
-        c.write('  }\n')
     for s in body:
         m = label_def.match(s)
         if m and m.group(1) not in referenced:

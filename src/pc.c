@@ -8,6 +8,7 @@
 #include "generated/game.h"
 #include "recomp/disk_boot.h"
 #include <setjmp.h>
+#include <pthread.h>
 
 #ifdef HARNESS_BUILD
 #include "harness/trace.h"
@@ -60,8 +61,10 @@ void pc_set_harness_mode(int on) { s_harness_mode = on; hw_set_no_pace(on); }
 #define INTENA_LVL6    0x2000u            /* EXTER — CIA-B timer (music/timer) */
 #define INTENA_LVL3    0x0070u            /* VERTB | COPER | BLIT (vblank/copper) */
 
-/* Call a recompiled function, saving/restoring all registers around it (used by
- * the coroutine's per-frame IRQ delivery). */
+/* Call a recompiled function, saving/restoring all registers around it (used for
+ * per-frame IRQ delivery). The IRQ runs on the MAIN thread while the game thread
+ * is parked at its vblank wait, so it shares s_game_ctx/g_mem race-free; the
+ * save/restore mirrors the CPU stacking registers across an interrupt. */
 static void call_fn(M68KCtx *ctx, uint32_t addr)
 {
     PC_LOG("-> $%06X\n", addr);
@@ -69,12 +72,7 @@ static void call_fn(M68KCtx *ctx, uint32_t addr)
     uint8_t n=ctx->N,z=ctx->Z,v=ctx->V,c=ctx->C,x=ctx->X;
     for (int i=0;i<8;i++) sa[i]=ctx->A[i];
     for (int i=0;i<8;i++) sd[i]=ctx->D[i];
-    /* Isolate the game's CPS continuation: an IRQ handler runs synchronously and
-     * must not push a continuation / yield into the suspended game flow. */
-    int s_sp = g_rt.cont_sp, s_y = g_rt.yield, s_r = g_rt.resume;
-    g_rt.yield = 0;
     rt_call(ctx, addr);
-    g_rt.cont_sp = s_sp; g_rt.yield = s_y; g_rt.resume = s_r;
     for (int i=0;i<8;i++) ctx->A[i]=sa[i];
     for (int i=0;i<8;i++) ctx->D[i]=sd[i];
     ctx->N=n;ctx->Z=z;ctx->V=v;ctx->C=c;ctx->X=x;
@@ -98,7 +96,7 @@ int pc_run(void)
 }
 
 
-int pc_step_cps(void);
+int pc_step_threaded(void);
 void pc_music_tick(void);
 
 /* The single per-frame advance. Runs the game's own flow for one displayed frame
@@ -495,25 +493,126 @@ int pc_is_title_card_displayed(void)
 /* Legacy alias — old code says "level card" but means "any banner". */
 int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
 
-/* Deferred save/load: SDLK_s / SDLK_d fire from inside hw_present_frame, which
- * is called from coro_yield — i.e. WHILE the game coroutine is live on the CPU.
- * Doing the I/O there snapshots a stale s_game_uc and a live s_game_stack
- * (their pairing is broken, load crashes inside swapcontext). The keys instead
- * set these flags and the work happens at the next pc_step exit, after the
- * coroutine has yielded back to main and s_game_uc holds the current state. */
+/* Deferred save/load: SDLK_s / SDLK_d fire from inside hw_present_frame, on the
+ * MAIN thread. The keys set these flags and the work happens at the next pc_step
+ * boundary, where the game thread is parked at its vblank wait (its M68K context
+ * quiescent). */
 int g_pc_pending_save = 0;
 int g_pc_pending_load = 0;
 
-/* Continuation-stack flow: the entry to (re)start at, and whether it has run. */
-static uint32_t s_cps_entry   = 0x003000u;
-static int      s_cps_started = 0;
-int pc_step_cps(void);
+/* ── Game thread + ping-pong handoff ────────────────────────────────────────────
+ * The game runs on its own OS thread; the SDL main thread paces frames. They
+ * hand off cooperatively via a condvar so EXACTLY ONE runs at a time (no data
+ * races on s_game_ctx/g_mem, deterministic frame-by-frame). This is the ucontext
+ * coroutine re-expressed with real threads + a mutex, as the user requested.
+ *
+ *   game thread:  rt_call($3000) ... hw_vblank_wait() -> game_thread_yield()
+ *                   [hands the turn to main, blocks until released]
+ *   main thread:  pc_step_threaded(): release game one frame, wait until it
+ *                   parks, then present (SDL must be on main) + deliver IRQ.
+ *
+ * s_turn: 1 = the game thread runs, 0 = the main thread runs (game parked). */
+static uint32_t s_game_entry   = 0x003000u;   /* address the game thread runs from */
+/* s_game_done lives on g_state (macro): set when the game flow returns from rt_call */
+
+static pthread_t       s_game_thread;
+static int             s_game_thread_live = 0;
+static pthread_mutex_t s_hand_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  s_hand_cv  = PTHREAD_COND_INITIALIZER;
+static int             s_turn          = 0;
+static int             s_game_exit_req = 0;
+static __thread int    s_is_game_thread = 0;
+
+int pc_step_threaded(void);
+
+/* The game thread's per-frame wait. Wired to hw_vblank_wait via g_hw_vblank_yield
+ * (the same seam the old coroutine used). Hands the turn to main and blocks until
+ * the host releases it. An IRQ handler that hits a wait runs on the MAIN thread
+ * (call_fn) — it must NOT block here (would deadlock), so non-game threads return
+ * immediately. On a restart request the parked thread exits cleanly. */
+static void game_thread_yield(void)
+{
+    if (!s_is_game_thread) return;
+    pthread_mutex_lock(&s_hand_mtx);
+    s_turn = 0;                            /* hand the turn back to main */
+    pthread_cond_broadcast(&s_hand_cv);
+    while (s_turn == 0 && !s_game_exit_req)
+        pthread_cond_wait(&s_hand_cv, &s_hand_mtx);
+    int exit_req = s_game_exit_req;
+    pthread_mutex_unlock(&s_hand_mtx);
+    if (exit_req) pthread_exit(NULL);
+}
+
+static void *game_thread_main(void *arg)
+{
+    (void)arg;
+    s_is_game_thread = 1;
+    /* Wait for the host's first release before touching anything. */
+    pthread_mutex_lock(&s_hand_mtx);
+    while (s_turn == 0 && !s_game_exit_req)
+        pthread_cond_wait(&s_hand_cv, &s_hand_mtx);
+    int exit_req = s_game_exit_req;
+    pthread_mutex_unlock(&s_hand_mtx);
+    if (exit_req) return NULL;
+
+    rt_call(&s_game_ctx, s_game_entry);    /* the whole game flow (never normally returns) */
+
+    { extern uint32_t rt_get_last_insn(void);
+      fprintf(stderr, "[game] flow RETURNED from $%06X (last insn $%06X)\n",
+              s_game_entry, rt_get_last_insn()); }
+    pthread_mutex_lock(&s_hand_mtx);
+    s_game_done = 1;
+    s_turn = 0;
+    pthread_cond_broadcast(&s_hand_cv);
+    pthread_mutex_unlock(&s_hand_mtx);
+    return NULL;
+}
+
+/* Spawn a fresh game thread (blocked at its initial wait until the first frame
+ * release). Caller has already set s_game_ctx + s_game_entry + bank flags. */
+static void game_thread_spawn(void)
+{
+    s_game_done     = 0;
+    s_game_exit_req = 0;
+    s_turn          = 0;
+    pthread_create(&s_game_thread, NULL, game_thread_main, NULL);
+    s_game_thread_live = 1;
+}
+
+/* Cooperatively stop the running game thread (parked at a wait or its initial
+ * wait) and join it. Only valid to call from the main thread with the game
+ * parked (s_turn == 0). */
+static void game_thread_stop(void)
+{
+    if (!s_game_thread_live) return;
+    pthread_mutex_lock(&s_hand_mtx);
+    s_game_exit_req = 1;
+    s_turn = 1;                            /* wake it so it observes the exit flag */
+    pthread_cond_broadcast(&s_hand_cv);
+    pthread_mutex_unlock(&s_hand_mtx);
+    pthread_join(s_game_thread, NULL);
+    s_game_thread_live = 0;
+}
+
+/* Release the game thread to run for exactly one frame (until its next vblank
+ * wait), then block until it parks (or the flow finishes). On return the game is
+ * parked and the main thread owns all shared state. */
+static void game_thread_run_one_frame(void)
+{
+    if (!s_game_thread_live) return;
+    pthread_mutex_lock(&s_hand_mtx);
+    s_turn = 1;
+    pthread_cond_broadcast(&s_hand_cv);
+    while (s_turn == 1 && !s_game_done)
+        pthread_cond_wait(&s_hand_cv, &s_hand_mtx);
+    pthread_mutex_unlock(&s_hand_mtx);
+}
 
 int pc_step(void)
 {
     /* Service any deferred pause-menu action (Resume/Retry/ExitToMenu/Quit)
-     * before anything else — we're on the main stack here, not the game
-     * coroutine, so we can safely rebuild s_game_uc if needed. */
+     * before anything else — we're on the MAIN thread here and the game thread
+     * is parked, so it's safe to stop/respawn the game thread if needed. */
     { extern void pc_pause_tick(void); pc_pause_tick(); }
 
     if (g_pc_pending_load) {
@@ -522,7 +621,7 @@ int pc_step(void)
     }
     if (!hw_running) return 1;
 
-    /* While paused, freeze the game coroutine entirely — don't swap in.
+    /* While paused, freeze the game thread entirely — don't release it.
      * Still call hw_present_frame so the pause overlay stays visible and
      * SDL events keep flowing (so the user can navigate the menu). */
     extern int pc_pause_active(void);
@@ -534,7 +633,7 @@ int pc_step(void)
     }
 
     hw_watchdog_arm("PC", 2);          /* catch an infinite loop in one frame */
-    int r = pc_step_cps();             /* coroutine-free: drive the continuation stack */
+    int r = pc_step_threaded();        /* release the game thread for one frame */
     hw_watchdog_disarm();
     if (g_pc_pending_save) {
         g_pc_pending_save = 0;
@@ -563,12 +662,12 @@ int pc_step(void)
     return r;
 }
 
-/* ── Native disk boot (coroutine-free, continuation-stack flow) ──────────────
+/* ── Native disk boot (game-thread flow) ─────────────────────────────────────
  * Boot from the original disk images, no snapshot: decrunch Disk.1's crunched
- * main game (ATN!) into $3000, then run the recompiled cold-start ($3000), which
- * is CPS-transformed — each frame wait yields via the continuation stack (g_rt)
- * and pc_step_cps resumes it. The game drives its real flow (intro → logos →
- * title → menu → gameplay) with no ucontext coroutine. */
+ * main game (ATN!) into $3000, then run the recompiled cold-start ($3000) on the
+ * game thread — each frame wait (hw_vblank_wait) parks it and pc_step_threaded
+ * releases it one frame at a time. The game drives its real flow (intro → logos
+ * → title → menu → gameplay). */
 /* s_game_ctx is the M68K register file (on g_state via game_state.h). */
 
 /* Deliver the game's level-6 CIA-B timer interrupt service routines. On real
@@ -672,32 +771,33 @@ static int pc_common_bringup(const char **disks, int n_disks)
         return -1;
     }
     pc_register_overrides();
+    g_hw_vblank_yield   = game_thread_yield;  /* hw_vblank_wait parks the game thread */
     g_hw_pc_owns_present = 1;
     { extern int g_native_render_delay; const char *e = getenv("PC_RENDER_DELAY");
       g_native_render_delay = e ? atoi(e) : 1; }  /* blitter-latency model (frames) */
     return 0;
 }
 
-/* Reset the continuation-stack flow to a fresh cold start ($3000). pc_step_cps
- * runs $3000 on the first frame, building g_rt.cont up to the first wait. */
+/* Reset to a fresh cold start ($3000): stop any running game thread, clear the
+ * M68K context, and spawn a new game thread parked at its initial wait. */
 static void pc_cps_reset(void)
 {
+    game_thread_stop();
     memset(&s_game_ctx, 0, sizeof s_game_ctx);
-    rt_cont_reset();
-    s_cps_started = 0;
-    s_cps_entry   = 0x003000u;
+    s_game_entry = 0x003000u;
+    game_thread_spawn();
 }
 
 /* (Re)start the flow at an explicit entry with a given register/bank setup —
- * used by exit-to-menu (title $3330) and direct-to-gameplay ($577000). The next
- * pc_step_cps runs `entry` (building the continuation stack to the first wait). */
+ * used by exit-to-menu (title $3330) and direct-to-gameplay ($577000). Stops the
+ * current game thread and spawns a fresh one parked at its initial wait. Safe to
+ * call from the main thread with the game parked. */
 static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay,
                             uint32_t d5, uint32_t d6)
 {
+    game_thread_stop();
     memset(&s_game_ctx, 0, sizeof s_game_ctx);
-    rt_cont_reset();
-    s_cps_started = 0;
-    s_cps_entry   = entry;
+    s_game_entry = entry;
     g_overlay_active  = !gameplay;
     g_gameplay_active = gameplay;
     g_credits_active  = 0;
@@ -706,16 +806,17 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay,
     s_game_ctx.A[7] = 0x00080000u;
     s_game_ctx.D[5] = d5;
     s_game_ctx.D[6] = d6;
+    game_thread_spawn();
 }
 
 int pc_init_from_disk(const char **disks, int n_disks)
 {
     if (pc_common_bringup(disks, n_disks) < 0) return -1;
-    /* The CPS-transformed cold-start ($3000) drives the whole flow (intro →
-     * logos → title → menu → gameplay) via the continuation stack; each frame
-     * wait yields and pc_step_cps resumes it. No coroutine. */
+    /* The cold-start ($3000) drives the whole flow (intro → logos → title → menu
+     * → gameplay) on the game thread; each frame wait (hw_vblank_wait) parks it
+     * and pc_step_threaded releases it one frame at a time. */
     pc_cps_reset();
-    fprintf(stderr, "[pc] disk boot: coroutine-free (continuation-stack) flow\n");
+    fprintf(stderr, "[pc] disk boot: game-thread flow\n");
     return 0;
 }
 
@@ -732,7 +833,7 @@ int pc_init_from_disk(const char **disks, int n_disks)
  *      at $3330+ have been overwritten with gameplay/credits code. Also
  *      replays the $6D714 block-copy so low-RAM engine state is fresh.
  *   3. Restart the continuation-stack flow at the title attract entry $003330
- *      (gp bank a5=$511E). Next pc_step_cps enters the poster directly. */
+ *      (gp bank a5=$511E). The respawned game thread enters the poster. */
 void pc_request_cold_restart(void)
 {
     extern void native_overlay_load(void);
@@ -803,43 +904,49 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level)
     return 0;
 }
 
-/* Advance the coroutine one frame (resume game until its next vblank yield),
- * then render. Returns 1 when the game's cold-start has returned (shouldn't). */
-/* Coroutine-free per-frame driver. The recompiled cold-start ($3000) runs once
- * (building the continuation stack to the first frame wait, via the CPS yield);
- * each subsequent frame rt_cont_run() resumes the suspended flow to its next
- * wait. The game draws, then yields at its vblank wait — present the drawn frame
- * and deliver the vblank IRQ (same order as the old coroutine: present, IRQ,
- * then next frame resumes). No ucontext. */
-int pc_step_cps(void)
+/* Per-frame driver. Release the game thread to run until its next vblank wait
+ * (it draws this frame's content, then parks), then present the drawn frame and
+ * deliver the vblank IRQ — same order as the old coroutine (present, IRQ, then
+ * next frame the game resumes). Present + IRQ run on the MAIN thread while the
+ * game thread is parked, so there are no races. Returns 1 to quit. */
+int pc_step_threaded(void)
 {
-    if (!s_cps_started) {
-        s_cps_started = 1;
-        rt_call(&s_game_ctx, s_cps_entry);  /* cold start: run to the first frame wait */
-    } else {
-        rt_cont_run(&s_game_ctx);          /* resume to the next frame wait */
-    }
+    if (s_game_done && !g_enter_gameplay) return 1;
+
+    game_thread_run_one_frame();   /* run the game to its next vblank wait (parks) */
 
     if (g_harness_prerender_hook) g_harness_prerender_hook();
     if (hw_present_frame() != 0) return 1;
     if (g_harness_frame_hook) g_harness_frame_hook();
-    coro_deliver_timer_irq();
 
-    /* Empty continuation stack after a resume = the flow returned from $3000. */
-    return (g_rt.cont_sp == 0) ? 1 : 0;
+    /* The $150 loader override (from the title main loop OR its IRQ) may have set
+     * g_enter_gameplay. Restart the game thread at the gameplay entry. Checked
+     * before s_game_done because the loader call unwinds the title flow. */
+    if (!g_enter_gameplay) {
+        if (s_game_done) return 1;
+        coro_deliver_timer_irq();   /* level-3 vblank ISR (music via pc_music_tick) */
+    }
+    if (g_enter_gameplay) {
+        g_enter_gameplay = 0;
+        pc_cps_start_at(g_gameplay_entry, 0x0057EE12u, /*gameplay=*/1,
+                        /*d5=*/0x00001000u, /*d6=*/0x0000FFFFu);
+        printf("[game] restarting game thread into gameplay $%06X\n", g_gameplay_entry);
+        return 0;
+    }
+    return s_game_done ? 1 : 0;
 }
 
-/* Savestate: snapshot the game coroutine + M68K memory to a file so a long-
- * run gameplay state can be reloaded without replaying from boot. Must be
- * called between pc_step()s — the game coro is then paused at coro_yield, the
- * cleanest boundary. Does NOT save hw.c statics; the game rewrites the bulk
- * of them (DMACON/INTENA/copper/BPL/audio shadows) on the next frame anyway. */
-/* Linux-only: re-exec self with ASLR disabled, before any other startup. The
- * game coroutine's saved ucontext_t + s_game_stack capture libc-side return
- * addresses (from inside swapcontext) and addresses of our BSS statics;
- * under ASLR those move per process, so a savestate loaded in a fresh
- * process crashes inside swapcontext. Pinning the layout makes savestates
- * portable across process restarts of the SAME binary. */
+/* Savestate: snapshot the M68K register context (g_state) + memory to a file.
+ * Called between pc_step()s, where the game thread is parked at its vblank wait.
+ * STOPGAP: this captures s_game_ctx + g_mem but NOT the game thread's C call
+ * stack, so loading mid-flow cannot resume the thread at the exact suspended
+ * point (proper fix would require serialising the call chain, same limitation
+ * the coroutine/CPS variants had). It is reliable for the fresh-entry paths
+ * (direct-to-gameplay / exit-to-menu) which respawn the thread at a known entry.
+ * Does NOT save hw.c statics; the game rewrites the bulk of them next frame. */
+/* Linux-only: re-exec self with ASLR disabled, before any other startup. Kept so
+ * BSS-static addresses captured in a savestate stay stable across restarts of
+ * the SAME binary. */
 #if defined(__linux__)
 #include <sys/personality.h>
 #include <unistd.h>
@@ -932,14 +1039,10 @@ int pc_loadstate(const char *path)
     ok &= fread(g_mem,    RT_MEM_SIZE,    1, f) == 1;
     fclose(f);
     if (!ok) { fprintf(stderr, "[pc] loadstate: short read\n"); return -1; }
-    /* uc_stack pointer is into our static g_state.game_stack — same address
-     * across runs of the same binary. The makecontext-installed instruction
-     * pointer lives inside s_game_uc; on the next pc_step the swapcontext
-     * into s_game_uc resumes at the saved yield point. uc_link is repointed
-     * defensively in case a future change moves these fields. */
-    s_game_uc.uc_stack.ss_sp   = s_game_stack;
-    s_game_uc.uc_stack.ss_size = sizeof s_game_stack;
-    s_game_uc.uc_link          = &s_main_uc;
+    /* g_state (incl. s_game_ctx) + g_mem are now loaded. The running game thread
+     * (parked at its vblank wait) keeps its own C-stack position, which no longer
+     * matches the loaded memory — see the STOPGAP note on pc_savestate. Callers
+     * that need a clean resume respawn the thread via pc_cps_start_at. */
     fprintf(stderr, "[pc] loadstate <- %s (gameplay_active=%d overlay=%d enter=%d entry=$%06X)\n",
             path, g_gameplay_active, g_overlay_active,
             g_enter_gameplay, g_gameplay_entry);
@@ -948,6 +1051,7 @@ int pc_loadstate(const char *path)
 
 void pc_fini(void)
 {
+    game_thread_stop();
     g_chip = NULL;
     rt_fini(); hw_fini();
 }
