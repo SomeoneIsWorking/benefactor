@@ -153,52 +153,54 @@ int pc_get_start_level(void)
     return g_pc_start_level > 0 ? g_pc_start_level : 1;
 }
 
-/* The 60-entry level table at $57782E maps $20.w (1..60) to (world, level_in_world).
- * Decoded form: levels 1-9 = world 0, levels 10-18 = world 1, levels 19-28 = world 2,
- * 29-38 = world 3, 39-48 = world 4, 49-58 = world 5, 59-60 = world 6. Note the
- * irregularity: worlds 0-1 have 9 levels each, worlds 2-5 have 10.
- *
- * In code, ALWAYS use pc_level_split() rather than divmod-by-10 — it reads the
- * real table out of g_mem so any data-driven shift stays correct. */
+/* ── Level / world layout — the ONE place the geometry is defined ────────────
+ * Mirrors the engine's level table at $57782E (worlds 0-1 have 9 levels,
+ * 2-5 have 10, 6 has 2). We compute directly rather than reading $57782E
+ * because that region is only populated in chip RAM after the gameplay
+ * overlay loads; before that it's zeros, which would map every level to
+ * (world 0, liw 0). The table is fixed game data, so the mirror can't
+ * diverge. Everything else derives from pc_levels_in_world(). */
+int pc_levels_in_world(int world)
+{
+    static const int wcount[PC_NUM_WORLDS] = { 9, 9, 10, 10, 10, 10, 2 };
+    if (world < 0 || world >= PC_NUM_WORLDS) return 0;
+    return wcount[world];
+}
+
+int pc_world_first_level(int world)
+{
+    if (world < 0 || world >= PC_NUM_WORLDS) return 0;
+    int g = 1;
+    for (int w = 0; w < world; w++) g += pc_levels_in_world(w);
+    return g;
+}
+
+/* Map global level (1..60) -> (world, level_in_world). ALWAYS use this
+ * rather than divmod-by-10 — the per-world counts are irregular. */
 void pc_level_split(int level, int *world_out, int *level_in_world_out)
 {
-    if (level < 1 || level > 60) {
-        if (world_out) *world_out = 0;
-        if (level_in_world_out) *level_in_world_out = 0;
-        return;
-    }
-    /* This mirrors the engine's table at $57782E exactly — worlds 0-1
-     * have 9 levels each, worlds 2-5 have 10, world 6 has 2. We compute
-     * directly rather than reading $57782E because that region only gets
-     * populated in chip RAM when native_overlay_load runs (PLAY GAME /
-     * LEVEL SELECT hand-off); before that it's zeros, which would map
-     * EVERY level to (world 0, liw 0) and pin the picker cursor at the
-     * top. The table is fixed game data — the hardcoded version can't
-     * diverge from the engine's. */
-    static const int wstart[7] = { 0, 9, 18, 28, 38, 48, 58 };
-    static const int wcount[7] = { 9, 9, 10, 10, 10, 10, 2 };
-    int n = level - 1;
-    for (int w = 0; w < 7; w++) {
-        if (n < wstart[w] + wcount[w]) {
-            if (world_out) *world_out = w;
-            if (level_in_world_out) *level_in_world_out = n - wstart[w];
-            return;
+    int world = 0, liw = 0;
+    if (level >= 1 && level <= PC_NUM_LEVELS) {
+        int n = level - 1;
+        for (int w = 0; w < PC_NUM_WORLDS; w++) {
+            int c = pc_levels_in_world(w);
+            if (n < c) { world = w; liw = n; break; }
+            n -= c;
         }
     }
-    if (world_out) *world_out = 0;
-    if (level_in_world_out) *level_in_world_out = 0;
+    if (world_out) *world_out = world;
+    if (level_in_world_out) *level_in_world_out = liw;
 }
 
 /* World names — preloaded from disk alongside the level names. They live
  * in each world's last chunk near the start, Caesar-shifted by +0x1A on
  * letters (spaces pass through unchanged). pc_preload_all_level_names()
  * decodes + caches them. */
-static char g_pc_preloaded_world_names[7][32];
+static char g_pc_preloaded_world_names[PC_NUM_WORLDS][32];
 static int  g_pc_preloaded_names_ready;   /* defined below */
-extern void pc_preload_all_level_names(void);  /* forward decl, defined below */
 const char *pc_world_name(int world)
 {
-    if (world < 0 || world >= 7) return "?";
+    if (world < 0 || world >= PC_NUM_WORLDS) return "?";
     if (!g_pc_preloaded_names_ready) pc_preload_all_level_names();
     if (g_pc_preloaded_names_ready && g_pc_preloaded_world_names[world][0])
         return g_pc_preloaded_world_names[world];
@@ -220,7 +222,7 @@ const char *pc_world_name(int world)
  * pc_preload_all_level_names() reads each world's last chunk into a
  * scratch g_mem area, runs atn_decrunch in place, and scrapes the
  * names. Runs once. State is not perturbed. */
-static char g_pc_preloaded_names[60][32];
+static char g_pc_preloaded_names[PC_NUM_LEVELS][32];
 /* g_pc_preloaded_names_ready forward-declared above (used by pc_world_name). */
 
 void pc_preload_all_level_names(void)
@@ -232,8 +234,8 @@ void pc_preload_all_level_names(void)
     if (g_pc_preloaded_names_ready) return;
     if (!g_mem) return;
 
-    static const int wlc[7]    = { 9, 9, 10, 10, 10, 10, 2 };  /* levels per world */
-    static const int wstart[7] = { 0, 9, 18, 28, 38, 48, 58 }; /* global level offset */
+    /* Per-world level counts / global offsets come from the SSoT accessors
+     * (pc_levels_in_world / pc_world_first_level) — never re-hardcode them. */
     /* Scratch buffer for decompression — picked to stay clear of every
      * dest used by the gameplay overlay ($577000-$589A1C) and the per-level
      * disk reads ($073880, $5AC4EA+, $5BE77E+, $5C4874+, $5D902A+, $5F1A88+).
@@ -283,7 +285,7 @@ void pc_preload_all_level_names(void)
                 cursor_end = scratch + (0x577800u - 0x577000u);
             }
         }
-        for (int world = 0; world < 7; world++) {
+        for (int world = 0; world < PC_NUM_WORLDS; world++) {
             uint32_t last_src = 0, last_len = 0;
             int      cn = 0;
             while (cursor < cursor_end && RD32(cursor) != 0) {
@@ -306,7 +308,7 @@ void pc_preload_all_level_names(void)
     /* Optional: dump EVERY chunk of every world so the offline pointer
      * scanner can see the full per-world data. */
     if (getenv("PC_DUMP_WORLDS")) {
-        for (int world = 0; world < 7; world++) {
+        for (int world = 0; world < PC_NUM_WORLDS; world++) {
             for (int ci = 0; ci < all_chunks_n[world]; ci++) {
                 uint32_t src = all_chunks_src[world][ci];
                 uint32_t len = all_chunks_len[world][ci];
@@ -328,7 +330,7 @@ void pc_preload_all_level_names(void)
     #undef MAX_CHUNKS
 
     /* Pass 2: per-world chunk load + name extraction. */
-    for (int world = 0; world < 7; world++) {
+    for (int world = 0; world < PC_NUM_WORLDS; world++) {
         uint32_t last_src = per_world_src[world];
         uint32_t last_len = per_world_len[world];
         if (last_src == 0 || last_len == 0 || last_len > 0x20000u) continue;
@@ -367,19 +369,48 @@ void pc_preload_all_level_names(void)
             g_pc_preloaded_world_names[world][j] = 0;
         }
 
-        /* Parse 10 entries (44 bytes/entry) starting at scratch + $60. The
-         * first opening-quote of name 0 lives right at offset $60; each
-         * subsequent entry is 44 bytes later. (We previously thought $61
-         * looking at $5F1AE9 - $5F1A88 — that was the FIRST CHAR of the
-         * name, not the opening quote.) */
-        for (int liw = 0; liw < wlc[world]; liw++) {
-            uint32_t entry = scratch + 0x60u + (uint32_t)liw * 44u;
+        /* Names are stored 44 bytes apart starting at scratch + $60 (the
+         * first opening-quote of slot 0 lives right at offset $60). BUT the
+         * storage order is NOT the play order: each per-world chunk also
+         * embeds the engine's $32 level table (a run of one 12-byte entry
+         * per level: [data_off, name_off, 0]). The level CARD picks its name
+         * via name_off — relocated against the name-array base $5786A8 — so
+         * play-order level `liw` maps to stored slot (name_off / 44), which
+         * is a non-trivial permutation. Reading sequentially instead made
+         * level-select show e.g. world-1 L4/L8 and L7/L9 swapped (the engine
+         * dispatcher at $5779C2 loads this name pointer into -$67ca(a5);
+         * confirmed against the live $32 table for all 7 worlds).
+         *
+         * Locate the table by its signature: n consecutive 12-byte entries
+         * whose 3rd long is 0 and whose (2nd long / 44) values form a
+         * permutation of 0..n-1. Fall back to identity if not found. */
+        int n = pc_levels_in_world(world);
+        long tbl = -1;
+        for (uint32_t o = 0; tbl < 0 && (uint64_t)o + 12u * (uint32_t)n <= outlen; o += 2) {
+            int seen[16] = {0}, ok = 1;
+            for (int k = 0; k < n; k++) {
+                uint32_t l0 = RD32(scratch + o + (uint32_t)k * 12u);
+                uint32_t l1 = RD32(scratch + o + (uint32_t)k * 12u + 4u);
+                uint32_t l2 = RD32(scratch + o + (uint32_t)k * 12u + 8u);
+                if (l2 != 0 || l0 == 0 || l0 >= outlen || (l1 % 44u) != 0) { ok = 0; break; }
+                uint32_t s = l1 / 44u;
+                if (s >= (uint32_t)n || seen[s]) { ok = 0; break; }
+                seen[s] = 1;
+            }
+            if (ok) tbl = (long)o;
+        }
+
+        for (int liw = 0; liw < n; liw++) {
+            int slot = liw;   /* identity fallback */
+            if (tbl >= 0)
+                slot = (int)(RD32(scratch + (uint32_t)tbl + (uint32_t)liw * 12u + 4u) / 44u);
+            uint32_t entry = scratch + 0x60u + (uint32_t)slot * 44u;
             int qa = -1;
             for (int i = 0; i < 36; i++) {
                 if (g_mem[entry + i] == '"') { qa = i; break; }
             }
             if (qa < 0) continue;
-            int gi = wstart[world] + liw;
+            int gi = (pc_world_first_level(world) - 1) + liw;
             int j = 0;
             for (int i = qa + 1; i < 44 && g_mem[entry + i] != '"' && j < 31; i++) {
                 g_pc_preloaded_names[gi][j++] = (char)g_mem[entry + i];
@@ -393,48 +424,41 @@ void pc_preload_all_level_names(void)
     memset(g_mem + scratch, 0, 0x20000u);
     #undef RD32
     g_pc_preloaded_names_ready = 1;
-    fprintf(stderr, "[level-names] preloaded all 60 from disk overlays:\n");
-    for (int w = 0; w < 7; w++)
+    fprintf(stderr, "[level-names] preloaded all %d from disk overlays:\n", PC_NUM_LEVELS);
+    for (int w = 0; w < PC_NUM_WORLDS; w++) {
         fprintf(stderr, "  world %d: \"%s\"\n", w, g_pc_preloaded_world_names[w]);
+        for (int i = 0; i < pc_levels_in_world(w); i++) {
+            int gl = pc_world_first_level(w) + i;
+            fprintf(stderr, "    L%-2d (w%dl%d): \"%s\"\n",
+                    gl, w, i + 1, pc_static_level_name(gl));
+        }
+    }
     fflush(stderr);
 }
 
 const char *pc_static_level_name(int level)
 {
-    if (level < 1 || level > 60) return "?";
+    if (level < 1 || level > PC_NUM_LEVELS) return "?";
     if (!g_pc_preloaded_names_ready) pc_preload_all_level_names();
     if (g_pc_preloaded_names_ready && g_pc_preloaded_names[level - 1][0])
         return g_pc_preloaded_names[level - 1];
     return "?";
 }
 
-/* The currently-loaded world's level-name table lives at $5786AC, 10 entries,
- * 44 bytes per entry. Each entry: a few padding bytes, a `}.` (0x7D 0x01)
- * marker, then `"NAME"` (ASCII, quoted), then padding to the next entry.
+/* Name of the level currently selected in $20.w.
  *
- * This is per-WORLD, NOT per-level — the names in the table are for the
- * currently-loaded world (the disk-load chunk fills this region as part of
- * the gameplay overlay). So pc_current_level_name() reads the entry matching
- * the CURRENT level_in_world; if you want a different level's name, you'd
- * need to load that world first.
- *
- * Returns a pointer into g_mem (valid until the next world load). */
+ * NOTE: the $5786AC name table is stored in slot order, which is NOT the
+ * play order — level `liw` maps to a permuted name slot via the engine's
+ * $32 level table (see pc_preload_all_level_names). Indexing $5786AC by
+ * liw directly therefore mislabels e.g. world-0 L4/L8 and L7/L9. We defer
+ * to the preloaded table, which already applies that permutation. */
 const char *pc_current_level_name(void)
 {
     extern uint8_t *g_mem;
     if (!g_mem) return "?";
     int level = ((int)g_mem[0x20] << 8) | g_mem[0x21];
-    if (level < 1 || level > 60) return "?";
-    int world, liw;
-    pc_level_split(level, &world, &liw);
-    if (liw < 0 || liw >= 10) return "?";
-    uint32_t entry = 0x5786ACu + (uint32_t)liw * 44u;
-    /* Scan forward up to ~36 bytes for an opening `"`, then read until the
-     * closing `"`. Returns a pointer into g_mem (we don't copy). */
-    for (int i = 0; i < 36; i++) {
-        if (g_mem[entry + i] == '"') return (const char *)&g_mem[entry + i + 1];
-    }
-    return "?";
+    if (level < 1 || level > PC_NUM_LEVELS) return "?";
+    return pc_static_level_name(level);
 }
 
 /* Banner state (cop1lc=$003914): GENERIC banner copper. Three engine paths
