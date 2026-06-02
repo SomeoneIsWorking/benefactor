@@ -964,17 +964,17 @@ void pc_pin_address_space(int argc, char **argv) { (void)argc; (void)argv; }
 #endif
 
 #define PC_SAVESTATE_MAGIC 0x42454E53u   /* 'BENS' */
-#define PC_SAVESTATE_VER   4u
+#define PC_SAVESTATE_VER   5u   /* v5: dropped dead ucontext fields from g_state */
 
-/* Savestate format (v4): one g_state blob + 8 MB g_mem.
+/* Savestate format (v5): one g_state blob + g_mem.
  *   uint32_t magic, ver
  *   uint32_t sizeof(g_state)
  *   uint32_t RT_MEM_SIZE
  *   uint64_t identity (linker addr of g_state — differs per build/binary)
  *   GameState g_state
  *   uint8_t   g_mem[RT_MEM_SIZE]
- * The identity word lets us reject loads from a different executable up front
- * (saved ucontext / s_game_stack / .text addresses won't match → crash).  */
+ * The identity word rejects loads from a different executable up front (the
+ * game thread's C stack is not captured — see the STOPGAP note on pc_savestate). */
 
 int pc_savestate(const char *path)
 {
