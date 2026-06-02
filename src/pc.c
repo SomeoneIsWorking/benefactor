@@ -780,6 +780,57 @@ static int pc_common_bringup(const char **disks, int n_disks)
     return 0;
 }
 
+/* ── Recompiler bank-input dumps, from the disks alone (no PUAE/Kickstart) ──────
+ * The three recompiler banks each correspond to an overlay the game loads into
+ * $3000+, and every one of those loads is reimplemented in hand-written C (pure
+ * disk read + ATN! decrunch + relocation): the boot decrunch (main/intro), the
+ * title overlay (native_overlay_load), and the gameplay overlay
+ * (native_overlay_load_d0). So we can regenerate every bank input from the
+ * Disk.* images with NO emulator. Each bank is produced from a FRESH boot
+ * decrunch so the overlay loads see clean $6D734 source data (mirrors the real
+ * boot → overlay sequence). */
+static int dump_region(const char *path, uint32_t off, uint32_t len)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) { fprintf(stderr, "[dumpbanks] cannot open %s\n", path); return -1; }
+    size_t n = fwrite(g_mem + off, 1, len, f);
+    fclose(f);
+    fprintf(stderr, "[dumpbanks] wrote %s (%zu bytes from $%06X)\n", path, n, off);
+    return (n == len) ? 0 : -1;
+}
+
+int pc_dump_banks_from_disk(const char **disks, int n_disks, const char *out_dir)
+{
+    extern void     native_overlay_load(void);     /* title overlay  (gp bank)  */
+    extern void     native_overlay_load_d0(void);  /* gameplay overlay (gpl bank) */
+    extern int      disk_boot_load(int, uint32_t, uint32_t, uint32_t);
+    extern uint32_t atn_decrunch(uint32_t);
+
+    hw_request_headless();                          /* no SDL window/audio */
+    if (pc_common_bringup(disks, n_disks) < 0) return -1;  /* main decrunch + setup */
+
+    char p[1024];
+    /* main / intro bank: the boot-decrunched $3000 image (pc_common_bringup just
+     * did the decrunch). Recompiler reads --chip-dump $3000 slice. */
+    snprintf(p, sizeof p, "%s/chip_ram_dump.bin", out_dir);
+    if (dump_region(p, 0, 0x80000u) < 0) return -1;
+
+    /* gp / title bank: fresh decrunch, then the title overlay load. */
+    disk_boot_load(1, 0x1880, 0x3000, 0x2442E); atn_decrunch(0x3000);
+    native_overlay_load();
+    snprintf(p, sizeof p, "%s/chip_flow_gp.bin", out_dir);
+    if (dump_region(p, 0, 0x80000u) < 0) return -1;
+
+    /* gpl / gameplay bank: fresh decrunch, then the gameplay overlay load. */
+    disk_boot_load(1, 0x1880, 0x3000, 0x2442E); atn_decrunch(0x3000);
+    native_overlay_load_d0();
+    snprintf(p, sizeof p, "%s/gmem_after_load.bin", out_dir);
+    if (dump_region(p, 0, 0x600000u) < 0) return -1;
+
+    fprintf(stderr, "[dumpbanks] done -> %s\n", out_dir);
+    return 0;
+}
+
 /* Reset to a fresh cold start ($3000): stop any running game thread, clear the
  * M68K context, and spawn a new game thread parked at its initial wait. */
 static void pc_cps_reset(void)
