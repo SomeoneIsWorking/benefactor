@@ -4,6 +4,40 @@
 
 ---
 
+## Execution model (2026-06-02): game thread + SDL main thread
+
+The recompiled game runs on its **own OS thread**; the SDL **main thread** paces
+frames. They hand off via a condvar (`s_hand_cv`/`s_turn` in `pc.c`) so EXACTLY
+ONE runs at a time — no data races on `s_game_ctx`/`g_mem`, deterministic.
+
+- A frame wait is a **plain blocking call**: the emitter folds VPOSR/vblank →
+  `hw_vblank_wait()`, fire → `hw_wait_fire()`, blitter → `hw_blitter_sync()`.
+  `hw_vblank_wait()` calls `g_hw_vblank_yield` = `game_thread_yield()` which parks
+  the game thread until the host releases it (one frame).
+- `pc_step_threaded()` (main): release the game thread one frame → it parks at its
+  next wait → present (SDL, on main) + deliver IRQ (`coro_deliver_timer_irq`,
+  runs on main while the game is parked) + audio.
+- Restart-at-entry (`pc_cps_start_at` for exit-to-menu/$3330, direct-gameplay/
+  $577000, `$150`+`g_enter_gameplay`) = cooperatively stop the old game thread +
+  spawn a fresh one at the new entry.
+
+This **REPLACES the CPS continuation transform** (commit 56e0f53), which broke the
+game (diverged in the first frames). The CPS revert: emitter emits straight-line
+blocking C (no resume switch / `rt_cont_push` / `g_rt.yield`); `rt.c` lost the
+continuation runtime (`g_rt`/`rt_cont_*`); `pc.c` lost `pc_step_cps`. It is a 1:1
+re-expression of the ucontext coroutine (commit 5a7717a) that was working, using
+real threads + a mutex per the user's request.
+
+**VERIFIED via headless harness:** boots → intro crawl renders/scrolls →
+title/screens transition on fire → `goto 1` (thread restart) → level card
+($003914) → cavern ($003484) "GET READY!" renders, engine running, **0 rt-misses,
+no watchdog**. `benefactor-pc` links pthread.
+
+Regen all banks with `TMPDIR=scratch/tmp` (main/gp/gpl; credits has no CPS, no
+input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
+
+---
+
 ## Harness Status
 
 **Current status: PERFECT MATCH — frames 1–34 match**.

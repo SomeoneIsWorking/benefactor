@@ -145,7 +145,7 @@ target_include_directories(benefactor-pc PRIVATE
     ${SDL2_INCLUDE_DIRS}
 )
 
-target_link_libraries(benefactor-pc PRIVATE ${SDL2_LIBRARIES} m)
+target_link_libraries(benefactor-pc PRIVATE ${SDL2_LIBRARIES} m pthread)
 target_compile_options(benefactor-pc PRIVATE -Wall -Wextra -g)
 
 # ── Comparison harness (PUAE reference + PC-port recompiler) ─────────────────
