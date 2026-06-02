@@ -275,8 +275,10 @@ void native_gp_disk_read(M68KCtx *ctx)
  *       a3 += $C8  ; next row of bitmap
  *     a1 += 1     ; advance one char-column
  *
- * Substitution: when the engine asks us to render "ENTER PASSWORD", we
- * actually blit "LEVEL SELECT" instead. */
+ * This is a faithful native port of the blitter — it renders exactly the
+ * string the engine passes. (The old cursor-1 "ENTER PASSWORD"->"LEVEL SELECT"
+ * label swap was removed; LEVEL SELECT is now layered on the faithful menu in
+ * pc_menu.c, where the menu item itself is changed rather than the glyphs.) */
 void native_menu_glyph_blit(M68KCtx *ctx)
 {
     uint32_t orig_a2 = ctx->A[2];
@@ -290,9 +292,6 @@ void native_menu_glyph_blit(M68KCtx *ctx)
         buf[len++] = (char)c;
     }
     const char *render = buf;
-    if (strcmp(buf, "ENTER PASSWORD") == 0) {
-        render = "LEVEL SELECT";
-    }
 
     const uint32_t font_base = 0x1BB30u;
     uint32_t a1 = ctx->A[1];
