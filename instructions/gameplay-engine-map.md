@@ -558,3 +558,22 @@ state, NOT a literal `$f70` write or a direct `rt_call`.
 dir throws and FIRE stays purely jump. That means re-gating the fire-entry into the
 throw/place flow on `hw_get_interact()` — NOT post-processing `$f80` globally. The
 `$57EB20` probe override is the confirmed hook/anchor for this work.
+
+#### Verified input behaviors (runtime, level 3) + why the input-level re-gate failed
+
+Measured via the HTTP harness (`/input`, `/mem`, `BENEFACTOR_DBG_DROP` probe):
+- **Jump = UP** alone (`$f70` → `$579D84`). Fire is NOT used for the normal jump.
+- **Long-jump = Fire + Left/Right**, and it still works *while carrying* (player X moves,
+  carry kept) — i.e. carrying does NOT turn Fire+dir into a throw. So **throw is unused**;
+  the only carried-item action in normal play is the **drop = Fire + Down**.
+- DROP fires while carrying (`$1094!=0`) with `$f80=$0022` (Fire `$20` + Down `$2`).
+
+**Dead end (do not repeat):** re-gating drop onto Interact+Down by patching the input
+around `$57DEAC` does NOT work. The drop *selection* reads the engine's **decoded input
+word `$10ac(a5)` (loaded into d4 at `$5796B0`)**, not `$f80` directly, so: stripping
+`$f80` fire after `$57DEAC` is too late, and presenting fire via `$bfe001` before
+`$57DEAC` didn't reach the decoded path either. Results were also unreliable because the
+test FAKED the carry state by poking `$1094` — the engine manages it, so it isn't stable.
+**Next attempt must:** (a) handle the `$10ac`/d4 decoded-input path (or find the actual
+fire-entry into the held-item flow), and (b) verify with a REAL carried item (pick one up
+in-game), not a poked `$1094`.
