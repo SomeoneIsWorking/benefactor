@@ -82,14 +82,8 @@ void native_gameplay_input(M68KCtx *ctx)
     extern void hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_joy_down(int), hw_set_joy_up(int);
 
     int down = hw_joy_down();
-
-    /* DROP only when actually carrying ($1094!=0). Forcing fire+down with empty hands
-     * drives the engine into its throw/place-empty-handed path ($57EB16, an uncovered
-     * dispatch target) and crashes — and you can't drop nothing anyway, so this is the
-     * correct condition, not just a guard. Without it, X-while-prone (X+Down, no item)
-     * crashed. */
     int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
-    int drop = carrying && ((hw_get_interact() && down) || hw_get_drop());
+    int drop_intent = (hw_get_interact() && down) || hw_get_drop();
 
     /* HOP: a dedicated Hop binding ORs into the up/jump input. The Up *direction* is left
      * fully vanilla — it hops, enters doors, climbs ladders and drives menus, exactly as
@@ -100,26 +94,39 @@ void native_gameplay_input(M68KCtx *ctx)
     int up_restore = (want_up != up_dir);
     if (up_restore) hw_set_joy_up(want_up);
 
-    int restore = 0, sf = 0, sl = 0, sd = 0;
-    if (drop) {
-        sf = hw_get_fire(); sl = hw_get_mouse_lmb(); sd = down;
-        hw_set_fire(1); hw_set_mouse_lmb(1);          /* present Fire → drop + no prone */
-        if (!down) hw_set_joy_down(1);                /* button-only press → supply Down */
+    /* DROP via the engine's real place (it dispatches the held-item action by player pose
+     * through the $5834de table — all those targets, incl. the prone pose's, are now
+     * recompiled; see the $57EB16 seed):
+     *   - drop intent + carrying → present Fire+Down so the engine drops in whatever pose
+     *     the player is in (correct placement + SFX); the place action runs instead of
+     *     prone, so it never prones.
+     *   - drop intent + empty-handed → strip Down so it doesn't prone and doesn't enter the
+     *     held-item flow (nothing to drop).
+     *   - plain Down (no drop intent) → strip Fire so a real Fire+Down can't drop. */
+    int restore = 0, sf = 0, sl = 0, down_add = 0, down_strip = 0;
+    if (drop_intent && carrying) {
+        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
+        hw_set_fire(1); hw_set_mouse_lmb(1);
+        if (!down) { hw_set_joy_down(1); down_add = 1; }   /* button-only press supplies Down */
         restore = 1;
+    } else if (drop_intent) {
+        if (down) { hw_set_joy_down(0); down_strip = 1; }  /* empty-handed: no prone, no flow */
     } else if (down) {
         sf = hw_get_fire(); sl = hw_get_mouse_lmb();
-        hw_set_fire(0); hw_set_mouse_lmb(0);          /* plain Down → prone, never drop */
+        hw_set_fire(0); hw_set_mouse_lmb(0);               /* plain Down → prone, never drop */
         restore = 1;
     }
 
     gfn_gpl_57DEAC(ctx);
 
-    if (restore) { hw_set_fire(sf); hw_set_mouse_lmb(sl); if (drop && !sd) hw_set_joy_down(0); }
-    if (up_restore) hw_set_joy_up(up_dir);
+    if (restore)     { hw_set_fire(sf); hw_set_mouse_lmb(sl); }
+    if (down_add)    hw_set_joy_down(0);
+    if (down_strip)  hw_set_joy_down(1);
+    if (up_restore)  hw_set_joy_up(up_dir);
 
-    if (getenv("BENEFACTOR_DBG_DROP") && (drop || down))
-        fprintf(stderr, "[drop-input] f80=%04X interact=%d down=%d dropbtn=%d -> drop=%d\n",
-                MR16(ctx->A[5] + 0xf80u), hw_get_interact(), down, hw_get_drop(), drop);
+    if (getenv("BENEFACTOR_DBG_DROP") && (drop_intent || down))
+        fprintf(stderr, "[drop-input] f80=%04X int=%d down=%d carry=%d intent=%d\n",
+                MR16(ctx->A[5] + 0xf80u), hw_get_interact(), down, carrying, drop_intent);
 }
 
 /* ── $57EB20 — "place carried item at tile" PROBE (BENEFACTOR_DBG_DROP=1) ──────
