@@ -78,3 +78,27 @@ verify gpl), tempo `$59b806`/`$59b808`. Full per-note RE still TODO.
 5. Remove the hw_audio boundary-reload guesswork once the native engine drives PCM.
 
 Verify each stage behaviorally vs PUAE (WAV compare + sfxcmp), never blind.
+
+## Status / progress (2026-06-03)
+
+- **SFX TRIGGER `$58656E` → native** (`native_sfx_trigger`, pc_overrides_audio.c).
+  Faithful priority arbitration; logs PLAY/REJECTED w/ frame+pri+vol under `SFX_NATIVE_LOG`.
+- **SFX DROP BUG fixed (commit 2cd9e73).** Root cause: the streamer chunks the sample
+  1 frame/chunk for Paula DMA; `hw_audio`'s continuous-DMA "reload at loop boundary"
+  mis-followed those per-frame AUDxLC/LEN swaps → ~1/3 of grunts rendered near-silent
+  even though they won arbitration. Fix = **native SFX voice**: on trigger we hand the
+  WHOLE sample (from the descriptor) to `hw_audio_sfx_play(ch,...)`, which plays it
+  one-shot/looped on Paula's fixed pan while `$57fe4e`/`$57fe4f` is set, bypassing the
+  chunk-follow. Every jump now bursts consistently (14/14 vs ~10/14). Total length =
+  `chunks(+c) * (chunk_longs_m1(+a)+1) * 4` bytes from base `$57fe78`; loop if `+e`≠0.
+- **OPEN: overall level gap.** PC full-mix peaks ~18% vs PUAE ~48% (same fire+left run).
+  Separate from the drop bug — looks like a master/mix-gain difference; not yet resolved.
+- **Music replayer (`$59BA7A`/`$59BB5E`+)** still recompiled, not yet native-owned.
+
+### Tooling
+- `AUDIO_SFX_ONLY=1` — mixer renders only the native SFX voices (drops music) WITHOUT
+  freezing the timer. Do NOT use `BENEFACTOR_MUTE_MUSIC` — it gates the LVL6 CIA timer,
+  which also stalls GET READY + SFX output (everything goes silent, level never starts).
+- `AUDIO_DUMP=path` (PC raw s16 stereo @22050) / `AUDIODUMP=1` (PUAE → logs/audio_puae.raw
+  @44100). `scratch/audio_tools.py` = `raw2wav` + `bursts` (envelope/peak per sound).
+- Drive: `rungame` (PC) + `pugoto N` (PUAE) — see instructions/current-state.md.
