@@ -50,6 +50,38 @@ void native_end_of_level(M68KCtx *ctx)
     gfn_gpl_578C3E(ctx);
 }
 
+/* ── $57DEAC — gameplay input read: re-gate item DROP onto the interact key ────
+ * Drop = the only carried-item action (throw unused): Fire+Down while carrying ($1094).
+ * The drop is selected by the engine's decoded-input state machine, so we steer it at
+ * the INPUT SOURCE (before $57DEAC decodes), scoped to carrying:
+ *   - interact key held → present FIRE at $bfe001 (bit7, active-low) so the engine's own
+ *     decode produces Fire (+ whatever direction is held → Down = drop);
+ *   - real Fire while carrying without interact → strip the fire bit from $f80 after the
+ *     decode so Fire alone can no longer drop.
+ * Jump=Up and long-jump=Fire+Left/Right are untouched outside the carry case. */
+void native_gameplay_input(M68KCtx *ctx)
+{
+    extern int hw_get_interact(void);
+    int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
+    int interact = hw_get_interact();
+
+    uint8_t cia = MR8(0xbfe001);
+    int forced = carrying && interact && (cia & 0x80);
+    if (forced) MW8(0xbfe001, (uint8_t)(cia & ~0x80));   /* present fire at source */
+
+    gfn_gpl_57DEAC(ctx);
+
+    if (forced) MW8(0xbfe001, cia);
+
+    if (carrying && !interact) {                          /* real Fire+Down must not drop */
+        uint16_t f80 = MR16(ctx->A[5] + 0xf80u);          /* (Down only — keep Fire+L/R long-jump) */
+        if ((f80 & 0x2) && (f80 & 0x20)) MW16(ctx->A[5] + 0xf80u, (uint16_t)(f80 & ~0x20));
+    }
+    if (getenv("BENEFACTOR_DBG_DROP") && carrying)
+        fprintf(stderr, "[drop-input] carry f80=%04X interact=%d forced=%d\n",
+                MR16(ctx->A[5] + 0xf80u), interact, forced);
+}
+
 /* ── $57EB20 — "place carried item at tile" PROBE (BENEFACTOR_DBG_DROP=1) ──────
  * Logs the caller PC + input state each time the place routine runs, to pin the
  * fire+down gate that selects the drop (so we can port it to interact+down). */
