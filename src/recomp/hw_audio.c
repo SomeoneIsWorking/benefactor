@@ -40,6 +40,45 @@ static inline uint8_t  aud_vol(int ch)
     return v > 64 ? 64 : v;
 }
 
+/* ── Native SFX voice (ch0/ch1) ────────────────────────────────────────────────
+ * The game's SFX streamer ($586612 ch0 / $58684C ch1) feeds Paula one ~1-frame
+ * CHUNK of the sample per frame (a HW DMA necessity: the next buffer must be ready
+ * before the current finishes). hw_audio's continuous-DMA model tried to follow
+ * those per-frame AUDxLC/LEN swaps and ended up truncating + quieting SFX — the
+ * "2nd jump renders wrong/very quiet" bug (PUAE plays the grunt at ~3-4x the peak,
+ * full length). We OWN the SFX path instead: native_sfx_trigger hands us the whole
+ * sample from the descriptor ($57fe50: base $57fe78, period, vol, chunk size,
+ * chunk count, loop), and we play it in one continuous shot, mixing it onto
+ * ch0/ch1 (Paula's fixed pan: ch0 left, ch1 right) while the engine's SFX-pending
+ * flag ($57fe4e/$57fe4f) is set. Faithful — same bytes Paula would play, minus the
+ * chunk-follow artifact. */
+typedef struct {
+    int      active;
+    uint32_t ptr;        /* current byte address in g_mem        */
+    int      rem;        /* bytes left in the current span       */
+    uint32_t loop_ptr;   /* loop restart addr (loop_len>0)       */
+    int      loop_len;   /* loop span in bytes (0 = one-shot)    */
+    int      period;     /* Paula period                         */
+    uint8_t  vol;        /* 0..64                                */
+    int64_t  tick;       /* exact-rate accumulator               */
+} SfxVoice;
+static SfxVoice s_sfx[2];
+
+/* Start a native SFX voice on ch (0/1). len_bytes = total one-shot length;
+ * loop_len>0 makes it loop from loop_ptr after the first pass. */
+void hw_audio_sfx_play(int ch, uint32_t ptr, int len_bytes, int period,
+                       uint8_t vol, uint32_t loop_ptr, int loop_len)
+{
+    if (ch < 0 || ch > 1 || len_bytes <= 0) return;
+    SfxVoice *v = &s_sfx[ch];
+    v->ptr = ptr;  v->rem = len_bytes;
+    v->loop_ptr = loop_ptr;  v->loop_len = loop_len;
+    v->period = period > 0 ? period : 1;
+    v->vol = vol > 64 ? 64 : vol;
+    v->tick = 0;  v->active = 1;
+}
+void hw_audio_sfx_stop(int ch) { if (ch >= 0 && ch < 2) s_sfx[ch].active = 0; }
+
 /* Benefactor's music driver uses DMA-streaming audio: it enables audio DMA once
  * (before our chip-RAM save-state was captured) and thereafter only updates
  * AUDxLC/LEN/PER/VOL — it never writes AUDxDAT.  So we model continuous Paula
@@ -50,22 +89,49 @@ static void hw_audio_mix(short *buf, int nsamples)
 {
     static int s_only_ch = -2;   /* AUDCH_ONLY: render only this channel (debug) */
     if (s_only_ch == -2) { const char *e = getenv("AUDCH_ONLY"); s_only_ch = e ? atoi(e) : -1; }
-    /* AUDIO_SFX_ONLY: isolate SFX from music WITHOUT touching the CIA timer (which
-     * BENEFACTOR_MUTE_MUSIC freezes, stalling GET READY + SFX output). Music and SFX
-     * share the voice channels; the engine's own pending flags say which is which:
-     *   $57fe4e=$FF -> ch0 is streaming SFX; $57fe4f=$FF -> ch1 is SFX.
-     * So pass ch0/ch1 only while their SFX flag is set, and drop ch2/ch3 (pure
-     * music). Reads the game's authoritative flag — a faithful capture filter. */
+    /* AUDIO_SFX_ONLY: isolate SFX from music for capture WITHOUT freezing the CIA
+     * timer (BENEFACTOR_MUTE_MUSIC gates LVL6, stalling GET READY + SFX output).
+     * SFX now lives in the native voices below; this just drops the music (the
+     * normal hw_audio channels). */
     static int s_sfx_only = -2;
     if (s_sfx_only == -2) s_sfx_only = getenv("AUDIO_SFX_ONLY") ? 1 : 0;
     extern uint8_t *g_mem;
     for (int ch = 0; ch < 4; ch++) {
         if (s_only_ch >= 0 && ch != s_only_ch) continue;
-        if (s_sfx_only) {
-            if (ch == 0 && !g_mem[0x57fe4e]) continue;
-            if (ch == 1 && !g_mem[0x57fe4f]) continue;
-            if (ch >= 2) continue;
+
+        /* Native SFX voice owns ch0/ch1 while the engine's SFX-pending flag is set
+         * ($57fe4e / $57fe4f). It mixes onto Paula's fixed pan (ch0 left, ch1
+         * right) and replaces the streamer-fed channel for that channel. */
+        if (ch < 2) {
+            SfxVoice *v   = &s_sfx[ch];
+            uint8_t   flg = (ch == 0) ? g_mem[0x57fe4e] : g_mem[0x57fe4f];
+            if (v->active && !flg) v->active = 0;   /* engine ended the sound */
+            if (v->active) {
+                int64_t step = (int64_t)v->period * OUTPUT_RATE;
+                int     side = (ch == 0) ? 0 : 1;   /* ch0 -> left, ch1 -> right */
+                for (int i = 0; i < nsamples && v->active; i++) {
+                    int8_t sample = (v->ptr < RT_MEM_SIZE) ? (int8_t)g_mem[v->ptr] : 0;
+                    int s   = sample * v->vol;
+                    int idx = i*2 + side;
+                    int vv  = buf[idx] + s;
+                    if (vv > 32767) vv = 32767; else if (vv < -32768) vv = -32768;
+                    buf[idx] = (short)vv;
+                    v->tick += PAULA_CLOCK_PAL;
+                    while (v->tick >= step) {
+                        v->tick -= step;
+                        v->ptr++;
+                        if (--v->rem <= 0) {
+                            if (v->loop_len > 0) { v->ptr = v->loop_ptr; v->rem = v->loop_len; }
+                            else { v->active = 0; break; }
+                        }
+                    }
+                }
+                continue;   /* voice replaces the streamer-fed channel this frame */
+            }
         }
+
+        if (s_sfx_only) continue;   /* SFX isolation: only the native voices play */
+
         AudioChannel *a = &s_audio[ch];
         if (!a->active) continue;
 

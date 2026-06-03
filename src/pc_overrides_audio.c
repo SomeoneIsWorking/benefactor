@@ -58,4 +58,20 @@ void native_sfx_trigger(M68KCtx *ctx)
         MW8(cur + i, MR8(src + i));
     MW8(0x57fe4e, 0xFFu);                /* ch0 pending                       */
     MW16(0xdff096u, 0x0001u);            /* DMACON: clear ch0 DMA (restart)   */
+
+    /* Own the rendering: hand the WHOLE sample to a native ch0 voice instead of
+     * letting hw_audio chase the streamer's per-frame chunks (which truncated +
+     * quieted SFX). Descriptor layout (mirrors $586612): +0 base ptr, +4 period,
+     * +6 vol, +a chunk(longs)-1, +c chunk count, +e loop add, +12 loop chunks. */
+    uint32_t base       = MR32(src + 0);
+    int      period     = (int)MR16(src + 4);
+    uint8_t  vol        = (uint8_t)MR16(src + 6);
+    int      chunk_b    = ((int)MR16(src + 0xa) + 1) * 4;   /* bytes per chunk */
+    int      chunks     = (int)MR16(src + 0xc);
+    uint16_t loop_add   = MR16(src + 0xe);
+    int      loop_chunks= (int)MR16(src + 0x12);
+    int      total_b    = chunks * chunk_b;
+    uint32_t loop_ptr   = loop_add ? base + loop_add : 0;
+    int      loop_b     = loop_add ? loop_chunks * chunk_b : 0;
+    hw_audio_sfx_play(0, base, total_b, period, vol, loop_ptr, loop_b);
 }

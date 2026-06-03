@@ -59,6 +59,12 @@ void hw_audio_render(short *buf, int nsamples);
 /* Push nframes stereo samples to the audio device (queue/push output mode). */
 void hw_audio_queue(const short *buf, int nframes);
 
+/* Native SFX voice (ch 0/1): play a whole sample in one shot from the descriptor,
+ * bypassing the per-frame chunk-follow that truncated/quieted SFX. See hw_audio.c. */
+void hw_audio_sfx_play(int ch, uint32_t ptr, int len_bytes, int period,
+                       uint8_t vol, uint32_t loop_ptr, int loop_len);
+void hw_audio_sfx_stop(int ch);
+
 /* Get/set current input state (shared between harness and hw.c). */
 int  hw_get_fire(void);
 int  hw_get_mouse_lmb(void);
