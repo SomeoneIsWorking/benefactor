@@ -19,6 +19,8 @@ static int s_dbg_endlevel = -1;   /* BENEFACTOR_DBG_ENDLEVEL=1 logs the win/lose
  * when 0 (default) the modern overrides aren't registered and controls are vanilla. */
 int g_modern_controls = 0;
 
+extern uint32_t hw_get_cop1lc(void);   /* for GO_TRACE diagnostics */
+
 /* ── $578C3E — end-of-level handler ──────────────────────────────────────────
  * Reached once a level ends. A level ends two ways, both of which set bit15 of
  * $10AC(a5) (tested by $5771C0/$579532) and route here:
@@ -27,12 +29,22 @@ int g_modern_controls = 0;
  *   WIN   (all merry men teleported away, then
  *          the player re-enters the teleporter) — win graphic set upstream
  *
- * $1E then selects: != 8 → end-of-level BANNER ($578C74), then load level via
- * $59DC02 (next level on a win — this is where the post-level FREEZE is);
- *         == 8 → CONTINUE / GAME OVER menu ($57731C).
+ * CORRECTED RE (2026-06-03, verified with BENEFACTOR_GO_TRACE + screenshots — the
+ * OLD comment here had the two branches BACKWARDS):
+ *   $1E != 8 → $578C74 — sets up selectable handlers ($585ac6/$578afc/$578a4a) and
+ *              IS the CONTINUE / GAME OVER menu path (renders at gp-bank cop1lc
+ *              $003914). On a normal death (lives left) this same path reloads the
+ *              level (card); on game-over (lives 0) it shows the menu.
+ *   $1E == 8 → $578C46 → jmp $57731C — and $57731C currently HANGS in our port (HTTP
+ *              goes unresponsive; not a clean reload). Do NOT route game-over here.
+ * pc_debug_game_over (O key) enters $578C3E with $1E ALREADY = 2, so the old
+ * "if $1E==8 set 2" did nothing → the menu still appeared (the user's bug).
  *
- * We own the decision here; bodies are still the original handlers (calling the
- * raw gfn_gpl_578C3E avoids re-entering this override). */
+ * TODO (game-over → level card): make the $578C74 path take its lives-left RELOAD
+ * branch on game-over. Find the lives/continue check inside $578C74's subtree
+ * (jsr -$6576/-$627e, reads $5859cd) and force the reload, OR find the level-reload
+ * entry and drive it (e.g. set g_enter_gameplay + g_gameplay_entry=$577000 for the
+ * current $20.w level). $57731C is a dead end — fix or avoid it. For now: passthrough. */
 void native_end_of_level(M68KCtx *ctx)
 {
     if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
@@ -48,28 +60,13 @@ void native_end_of_level(M68KCtx *ctx)
      * death path ($1E!=8 → lose banner + reload of the CURRENT level), so the player
      * just sees the death banner and returns to the level card to retry — no
      * game-over screen. (The lose banner graphic is already set upstream.) */
-    if (r16(GP_MODE_001E) == 8) {
-        MW16(GP_MODE_001E, 2);     /* 2 = "in a level" → banner+reload branch */
-        if (s_dbg_endlevel) fprintf(stderr, "[end-of-level] game-over bypassed -> level card\n");
-    }
-    gfn_gpl_578C3E(ctx);
-}
-
-/* ── $57731C — CONTINUE / GAME OVER menu (the convergence point) ──────────────
- * $578C3E's $1E==8 branch jmps here, but TWO other functions also jmp straight to
- * $57731C, so steering $1E at $578C3E alone doesn't catch every game-over (that was
- * the bug: the menu still appeared). Overriding the menu itself catches all paths.
- *
- * Bypass: the skull "GAME OVER" banner has already shown by the time we reach the
- * menu; instead of drawing CONTINUE/GAME OVER, take the normal lost-a-life path —
- * force $1E != 8 and run the raw end-of-level handler, whose reload branch ($578C74)
- * replays the level via the level card. Net effect: death always returns to the
- * level card to retry (no continue/game-over menu). */
-void native_continue_menu(M68KCtx *ctx)
-{
-    if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
-    if (s_dbg_endlevel) fprintf(stderr, "[continue-menu] $57731C bypassed -> level card reload\n");
-    MW16(GP_MODE_001E, 2);     /* != 8 → $578C3E reload branch ($578C74) → level card */
+    /* NOTE: the game-over bypass is NOT solved (see the RE block above the function).
+     * The CONTINUE/GAME OVER menu is the $578C74 ($1E!=8) path; forcing $1E=8 hits
+     * $57731C which HANGS. The likely real fix is to make $578C74 take its reload
+     * (level-card) branch on game-over — TBD. For now: clean passthrough (vanilla). */
+    if (getenv("BENEFACTOR_GO_TRACE"))
+        fprintf(stderr, "[GO] $578C3E enter $1E=%u cop1lc=%06X $10AC=%04X\n",
+                r16(GP_MODE_001E), hw_get_cop1lc(), r16(ctx->A[5] + GP_FLAGS_10AC));
     gfn_gpl_578C3E(ctx);
 }
 

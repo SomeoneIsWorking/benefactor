@@ -103,8 +103,6 @@ void pc_register_overrides(void)
     /* Gameplay flow (pc_overrides_gameplay.c) — native maps of game-flow
      * decisions. $578C3E is the end-of-level trigger (game-over vs next level). */
     rt_register_override_gp(0x00578C3Eu, native_end_of_level);
-    { extern void native_continue_menu(M68KCtx *ctx);   /* bypass CONTINUE/GAME OVER → card */
-      rt_register_override_gp(0x0057731Cu, native_continue_menu); }
     rt_register_override_gp(0x0059DC02u, native_level_load);
     rt_register_override_gp(0x005782B4u, native_level_setup);
     { extern void native_place_probe(M68KCtx *ctx);   /* BENEFACTOR_DBG_DROP probe */
