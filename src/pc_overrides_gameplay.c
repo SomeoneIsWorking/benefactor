@@ -38,6 +38,15 @@ void native_end_of_level(M68KCtx *ctx)
                 (r16(GP_MODE_001E) == 8) ? "-> game-over menu" : "-> banner+load");
         fflush(stderr);
     }
+    /* Bypass the CONTINUE / GAME OVER screen: when lives run out the engine sets
+     * $1E=8 and routes to the game-over menu ($57731C). We instead force the normal
+     * death path ($1E!=8 → lose banner + reload of the CURRENT level), so the player
+     * just sees the death banner and returns to the level card to retry — no
+     * game-over screen. (The lose banner graphic is already set upstream.) */
+    if (r16(GP_MODE_001E) == 8) {
+        MW16(GP_MODE_001E, 2);     /* 2 = "in a level" → banner+reload branch */
+        if (s_dbg_endlevel) fprintf(stderr, "[end-of-level] game-over bypassed -> level card\n");
+    }
     gfn_gpl_578C3E(ctx);
 }
 
