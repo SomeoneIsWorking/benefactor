@@ -51,9 +51,19 @@
     a pointer into the gameplay overlay's LEVEL DATA ($5Axxxx) — prime candidate for the
     tilemap / level structure to decode. (The $02/$04xxxx pages are the compose/scroll
     work buffers.)
-  - **Next concrete steps (next session, fresh context):** (1) RE the structure at
-    `$682(a5)`=$5A251C and nearby $5Axxxx tables → tilemap array + tile-graphics base +
-    level width. (2) Find the level-setup code that fills
+  - **Level-data pointers (read on the level-9 save, a5+$67A region $57F48C..):**
+    `$67A/$67E(a5)` = the two display pages `$0002B3EC` / `$00038628` (regions $02/$03,
+    swap each frame). `$682(a5)=$5A251C`, then `$57F498=$5A268C`, `$57F49C=$5ABB5E`,
+    `$57F4A0=$5ABD3E` — four $5Axxxx LEVEL-DATA structures (tilemap / tile-gfx / object
+    list / palette?, TBD). Dump of $5A251C (8-byte records): `000012DD 002A0242 / 000006D8
+    00280303 / 000014D6 002A0242 / 000014D8 002A0802 / 0 002A0802 ...` — a coord-ish long
+    + a `$2A0xxx` long per record (the $2Axxxx region is the decompressed level data; note
+    plane stride was also $2A0C). Camera `$0FA8` confirmed again here = $04CB while
+    playerX=1402 (screenX 175).
+  - **Next concrete steps (next session, fresh context):** (1) Decode the four $5Axxxx
+    structs (which is the tilemap array, which the tile-graphics base, which the width) —
+    cross-ref with the level-setup $5782B4 that fills them, and with the planar source page
+    ($02xxxx) the scroll copies from. (2) Find the level-setup code that fills
     the source bitmap from level data → that reveals the real tilemap + tile graphics +
     level width. (3) Either render natively from the tilemap (true B) OR — simpler given
     the planar pages — if a page already holds MORE than 320px of decoded terrain, decode
