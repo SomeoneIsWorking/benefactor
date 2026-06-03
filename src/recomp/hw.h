@@ -101,6 +101,15 @@ int hw_load_disk(int disk, uint32_t offset, uint32_t len, uint32_t dst_amiga);
 #define HW_DISPLAY_W  352
 #define HW_DISPLAY_H  282
 
+/* Widescreen output: the engine renders the 4:3 playfield into s_fb at
+ * HW_DISPLAY_W; the OUTPUT surface may be wider (HW_OUT_MAX cap). The 352-wide
+ * content is composited centered into the output, the L/R margins start as black
+ * pillarbox (Phase 2) and later carry native-rendered world (Phase 3+). The
+ * harness/comparison path keeps using the 352-wide s_fb directly. */
+#define HW_OUT_MAX    640
+int  hw_output_width(void);                 /* current output width (>=HW_DISPLAY_W) */
+const uint32_t *hw_get_output_framebuffer(void); /* wide composited surface (HW_OUT × H) */
+
 /*
  * Called by the copper emulation (or replaced copper logic) to set one
  * pixel in the output framebuffer (ARGB8888).

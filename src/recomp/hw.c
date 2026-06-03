@@ -180,6 +180,29 @@ static int    s_n_disks = 0;
 uint32_t s_fb[HW_DISPLAY_W * HW_DISPLAY_H];
 
 const uint32_t *hw_get_framebuffer(void) { return s_fb; }
+
+/* ── Widescreen output surface ─────────────────────────────────────────────────
+ * s_fb is always the engine's 4:3 render (352 wide). s_out is the final OUTPUT
+ * surface, >= 352 wide; the 352 content is composited centered into it. Default
+ * width = 352 (no change; harness/standalone identical). Wider via
+ * BENEFACTOR_WIDESCREEN=<width> (or =1 for a 480 default). */
+int s_hw_out_w = HW_DISPLAY_W;
+static uint32_t s_out[HW_OUT_MAX * HW_DISPLAY_H];
+int hw_output_width(void) { return s_hw_out_w; }
+const uint32_t *hw_get_output_framebuffer(void) { return s_out; }
+
+/* Composite the 352-wide s_fb (+ pillarbox margins) into s_out at s_hw_out_w. */
+static void hw_compose_output(void)
+{
+    int ow = s_hw_out_w;
+    int margin = (ow - HW_DISPLAY_W) / 2;        /* black bars L/R for now */
+    for (int y = 0; y < HW_DISPLAY_H; y++) {
+        uint32_t *dst = s_out + y * ow;
+        for (int x = 0; x < margin; x++) dst[x] = 0xFF000000u;
+        memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
+        for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = 0xFF000000u;
+    }
+}
 void hw_execute_copper(void);
 
 /* Beam counter (simulated at 50 Hz) */
@@ -379,6 +402,15 @@ void hw_request_headless(void) { s_force_headless = 1; }
 int hw_init(const char *title, const char **disk_paths, int n_disks)
 {
     s_headless = s_force_headless || (getenv("BENEFACTOR_HEADLESS") != NULL);
+
+    /* Widescreen output width (BENEFACTOR_WIDESCREEN=<px>, or =1 → 480). Read here
+     * (before the headless branch) so headless widescreen captures work too. */
+    { const char *e = getenv("BENEFACTOR_WIDESCREEN");
+      if (e) { int w = atoi(e); if (w <= 1) w = 480;
+               if (w < HW_DISPLAY_W) w = HW_DISPLAY_W;
+               if (w > HW_OUT_MAX)   w = HW_OUT_MAX;
+               s_hw_out_w = w & ~1; } }
+
     if (s_headless) {
         HW_LOG("HEADLESS mode – no SDL video/audio\n");
         GLOBAL_LOG_FLUSH();
@@ -396,7 +428,7 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
 
         s_window = SDL_CreateWindow(title,
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            HW_DISPLAY_W * 2, HW_DISPLAY_H * 2,
+            s_hw_out_w * 2, HW_DISPLAY_H * 2,
             SDL_WINDOW_RESIZABLE);
         if (!s_window) return -1;
 
@@ -408,12 +440,12 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
             s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_SOFTWARE);
         if (!s_renderer) return -1;
 
-        SDL_RenderSetLogicalSize(s_renderer, HW_DISPLAY_W, HW_DISPLAY_H);
+        SDL_RenderSetLogicalSize(s_renderer, s_hw_out_w, HW_DISPLAY_H);
 
         s_texture = SDL_CreateTexture(s_renderer,
             SDL_PIXELFORMAT_ARGB8888,
             SDL_TEXTUREACCESS_STREAMING,
-            HW_DISPLAY_W, HW_DISPLAY_H);
+            s_hw_out_w, HW_DISPLAY_H);
         if (!s_texture) return -1;
 
         hw_audio_open();
@@ -500,8 +532,10 @@ int hw_present_frame(void)
     /* Harness snap is taken by the caller (pc.c) AFTER the timer interrupt,
      * to match PUAE's ordering where VBlank fires after copper and before snap. */
 
+    hw_compose_output();   /* 352 content -> wide output (pillarbox margins) */
+
     if (!s_headless) {
-        SDL_UpdateTexture(s_texture, NULL, s_fb, HW_DISPLAY_W * 4);
+        SDL_UpdateTexture(s_texture, NULL, s_out, s_hw_out_w * 4);
         SDL_RenderClear(s_renderer);
         SDL_RenderCopy(s_renderer, s_texture, NULL, NULL);
         SDL_RenderPresent(s_renderer);

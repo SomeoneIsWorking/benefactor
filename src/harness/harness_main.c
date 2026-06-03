@@ -759,6 +759,16 @@ int main(int argc, char **argv)
             if (q) { fwrite(s_puae_fb, 4, FB_W * FB_H, q); fclose(q); }
             printf("[crepl] wrote %s + %s\n", pcpath, pupath);
         }
+        else if (!strcmp(cmd, "fbw")) {   /* fbw [tag] — dump the WIDE output surface */
+            extern int hw_output_width(void);
+            extern const uint32_t *hw_get_output_framebuffer(void);
+            char tag[64] = {0}; sscanf(line, "%*s %63s", tag);
+            char path[160]; snprintf(path, sizeof path, "logs/fbw_%s.bin", tag[0]?tag:"out");
+            int w = hw_output_width();
+            FILE *q = fopen(path, "wb");
+            if (q) { fwrite(hw_get_output_framebuffer(), 4, (size_t)w * FB_H, q); fclose(q); }
+            printf("[crepl] wrote %s (%dx%d)\n", path, w, FB_H);
+        }
         else printf("[crepl] ? %s", line);
         fflush(stdout);
     }

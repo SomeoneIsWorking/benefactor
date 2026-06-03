@@ -1,5 +1,29 @@
 # Widescreen — plan
 
+## Progress (2026-06-03)
+
+- **Phase 1 (camera-independence): VERIFIED enough to proceed.** The pickup work
+  (`PICKUP_SCAN`) showed off-screen objects' handlers ARE dispatched every frame
+  (items at screen-Y 432, dy=-400 from the player), and the object list is the full
+  level set loaded up front — no scroll-keyed spawn/cull. The object-loop walker
+  (`$57D7BC`) iterates the whole list with no screen gate. The rigorous "off-screen
+  enemy behaves identically to PUAE" check is deferred to Phase 4 (when margins show
+  them). Treat as confirmed; revisit if a margin enemy misbehaves.
+- **Phase 2 (widen surface + pillarbox): DONE.** Output width is runtime-configurable
+  via `BENEFACTOR_WIDESCREEN=<px>` (or `=1` → 480; default 352 = unchanged). The
+  engine still renders the 4:3 playfield into `s_fb` (352); `hw_compose_output()`
+  composites it CENTERED into a wider `s_out` (cap `HW_OUT_MAX`=640) with black
+  pillarbox margins, presented via the widened SDL texture/window. Harness path
+  (`s_fb`/`hw_get_framebuffer`, PUAE compare) is untouched; `hw_get_output_framebuffer`
+  + REPL `fbw [tag]` capture the wide surface. Verified: gameplay + menu both
+  pillarbox correctly at 480. Margins are black for now — Phase 3 fills the gameplay
+  margins with native tiles; for non-gameplay screens pillarbox is the FINAL look.
+- **Next: Phase 3** — RE the tilemap + camera X, native-draw background tiles into the
+  gameplay L/R margins, seam onto the engine's center.
+
+---
+
+
 Goal: render the gameplay at a wider aspect (e.g. 16:9 ≈ 480–576 px wide) instead of
 the Amiga's 320 px playfield, showing more of the level left/right. PC-native feature,
 in line with the port's direction (own the rendering; don't emulate the hardware).
