@@ -511,3 +511,21 @@ is one SFX call; the takeoff grunt fires from the grounded/long-jump path simila
 (active descriptor) on the SAME jump on both cores. Dynamic capture: `pcwatch
 57FE4E-57FE63` then inject a jump; the writer fn = `$58656E` (trigger) / `$586612`
 (streamer). The sample ptr in `$57fe50` is the exact grunt being played.
+
+## Object PICKUP mechanic — RE'd + native-widened (2026-06-03)
+
+Each collectible's per-frame handler collects on: `$f80(a5)==$20` (FIRE alone) AND
+player SCREEN pos (`$f94`=X/`$f96`=Y) within a tiny ONE-SIDED window of the item
+(`(a0)+0`=objY,`(a0)+2`=objX): `0 <= playerY-objY <= rangeY`, `0 <= playerX-objX <=
+rangeX` (unsigned). rangeX≈$6–$f → "must be on top of it." On win: busy flag
+($1098/$1094/$108e), `clr -$2(a0)`/`clr (a0)`, `$6c24(a5)` pickup sound via `$775c(a5)`,
+jmp tail `-$1a1e(a5)`. 19 handlers (lea $6c24(a5)): 586B1C 586B2A 586C10 586C1E 586D14
+586E6C 586ECC 586F9C 587006 5870CE 5871F4 587272 58733A 58743C 5874FE 587554 587616
+58766E 5876C4. **$586C10 = universal item** (every level; `PICKUP_SCAN=1` to map per level).
+
+NATIVE port (`src/pc_overrides_pickup.c`): own the RADIUS (the only wrong part), reuse
+each item's collect. `pickup_wide` widens+centers the zone (`PICKUP_RX`/`PICKUP_RY`,
+default 18/12 half-window, two-sided); inside it + fire → spoof player pos = item pos,
+`rt_call_generated(handler)` (its narrow test passes → full normal collect), restore.
+Off-screen items have screen coords far outside the window (excluded). Revert:
+`BENEFACTOR_RECOMP_PICKUP=1`.
