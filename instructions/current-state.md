@@ -38,6 +38,35 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
 
 ---
 
+## How to drive the game (CANONICAL — 2026-06-03)
+
+**Invocation is identical to the standalone — disks are POSITIONAL:**
+```
+./build/benefactor-harness Disk.1 Disk.2 Disk.3        # PUAE oracle + PC port, REPL
+./build/benefactor-pc      Disk.1 Disk.2 Disk.3        # standalone (SDL window)
+```
+PUAE restores `logs/puae_sync.state`, so it needs NO real Kickstart/WHDLoad for
+normal runs. `--kick DIR` / `--whdload PATH` are only for `BENEFACTOR_REFREEZE=1`.
+*(The old `<kick> <whdload> <disk1..3>` positional order silently ate Disk.1+Disk.2
+as kick/whdload and loaded only Disk.3 → garbage decrunch → boot crash at `$005EB0`
+/ `$B0461FFC`. That footgun is removed; both binaries now parse disks the same way.)*
+
+**Reach controllable gameplay in ONE step:** REPL command **`rungame`**
+- From cold boot: holds fire through the intro → menu, confirms PLAY GAME → level
+  card, fire-EDGE dismisses the card → gameplay, waits out GET READY. Lands at
+  `cop1lc=$003484`, player controllable.
+- After `--level N` (lands straight on the card): `rungame` just dismisses the
+  card + waits GET READY.
+- Each gate is detected by `cop1lc` ($008302 menu / $003914 card / $003484 play),
+  not a magic frame count. The card needs a fire EDGE (release→press), not a hold.
+
+Then inject input: `joy <up> <down> <left> <right>` (held) + `fire 0|1`; long-jump
+= fire+dir, hop = up. Diagnostics: `DISKBOOT_LOG=1` logs which disks open + the
+`$3000` ATN! magic (catches wrong-disk loads); `BENEFACTOR_SKIP_PUAE=1` boots the
+PC alone (PUAE REPL cmds then unavailable).
+
+---
+
 ## Harness Status
 
 **Current status: PERFECT MATCH — frames 1–34 match**.
@@ -126,7 +155,7 @@ Symptom: only the TOP ~128 logical rows of the cover art drew; bottom stayed bla
 The reflection is a copper-driven per-scanline effect: ~78 per-line re-points of BPL2PT ($00E4/$00E6) + BPLCON1 ($0102) horizontal wobble + COLOR09 ($0192) shimmer (confirmed in PC's copper — it animates frame-to-frame). The native renderer (`native_renderer.c`) capped BPL-pointer anchors at `MAX_ANCHORS=16`, silently dropping reflection lines past ~16 → only the top of the mirror tracked, rest was static/wrong. FIX: raise `MAX_ANCHORS` to `HW_DISPLAY_H + 8` (one re-point per scanline). Reflection now renders fully and ripples.
 
 ### Tooling notes for reaching these screens in the REPL
-`REPL=1 PC_DISK_BOOT=1 ./build/benefactor-harness <kick> <whdload> <disk1..3>`. Reach the title: `f 1; g 250; f 0` (fire advances the intro, then release — fire SKIPS the title, so observe with fire OFF). gp bank a5=$511E. Title reveal counters: bottom $4330 (a5-$dee), top $4332 (a5-$dec), toggle $34C8 (a5-$1c56). Leaderboard $00844A appears after ~2400 fire-off frames (`sp 2450`). PUAE cannot be driven to these screens in-harness (it dwells indefinitely at the $976 overlay-load screen, ~1s/frame) — use the saved `logs/cov_pu_s81_*.png`/`fb_puae_s81_*.bin` references instead.
+`./build/benefactor-harness Disk.1 Disk.2 Disk.3` (disks positional; see "How to drive" above). Reach the title: `f 1; g 250; f 0` (fire advances the intro, then release — fire SKIPS the title, so observe with fire OFF). gp bank a5=$511E. Title reveal counters: bottom $4330 (a5-$dee), top $4332 (a5-$dec), toggle $34C8 (a5-$1c56). Leaderboard $00844A appears after ~2400 fire-off frames (`sp 2450`). PUAE cannot be driven to these screens in-harness (it dwells indefinitely at the $976 overlay-load screen, ~1s/frame) — use the saved `logs/cov_pu_s81_*.png`/`fb_puae_s81_*.bin` references instead.
 
 ### Menu freeze — FIXED (2026-05-28, two recompiler bugs)
 Pressing fire on the title transitions to the **menu** (cop1lc=**$008302**, set at `$394A` in gfn_gp_003872). The menu setup calls the recompiled **ATN! decruncher `$3700`** (src $1339A "ATN!" $C800 → dest $49000), which spun forever and froze the whole app. Two emitter bugs (both fixed in `tools/recomp/emitter.py`, see "Confirmed Fixes Applied"):
@@ -314,7 +343,7 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 
 ## Debugging tool: interactive REPL
 
-`PC_REPL=1 ./build/benefactor-harness <kick> <whdload> <disk1..3>` boots the native disk coroutine and drops to a stdin REPL — step the flow and inspect chip RAM live without recompiling per probe. Commands: `s [n]` step, `g <frame>` run-to-frame, `u <addr> <val> [w|l]` step-until-memory-equals, `f <0|1>` hold fire/start, `p <addr> [n]` peek bytes, `w <addr>` peek word, `c` frame+cop1lc, `fb <path>` dump framebuffer, `q` quit. This replaced the env-var recompile cycle for the car-demo root-cause.
+`./build/benefactor-harness Disk.1 Disk.2 Disk.3` (disks positional) boots the native disk coroutine and drops to a stdin REPL — step the flow and inspect chip RAM live without recompiling per probe. Commands: `s [n]` step, `g <frame>` run-to-frame, `u <addr> <val> [w|l]` step-until-memory-equals, `f <0|1>` hold fire/start, `p <addr> [n]` peek bytes, `w <addr>` peek word, `c` frame+cop1lc, `fb <path>` dump framebuffer, `q` quit. This replaced the env-var recompile cycle for the car-demo root-cause.
 
 - **Logo palette fades restored** (`pc_overrides_boot.c` `native_boot_anim_iterator`, $0074AA = `$218e(a5)`, a5=$531C). This routine is the game's palette-fade iterator: the recompiled screen handlers ($3218/$31C2/$366A) call it ONCE per fade and expect it to BLOCK for the whole ramp (original $74AA waits `(delay+1)` vblank frames per pass via the `btst #0,$3(a6)` toggle + `dbra`, steps every R/G/B nibble one step toward target, repeats `outer` times → `outer*(delay+1)` ≈ 16*2 = 32 frames). The native override had been written for the OLD per-frame native-title design (one step per call, vblank delay skipped), so when the coroutine flow calls it once it collapsed the whole fade into a single frame — logo fade-ins/outs were invisible and pressing fire appeared to skip everything instantly. Fix: faithfully wait `(delay+1)` frames per pass with `hw_vblank_wait()` (which yields through the game coroutine, same as the recompiled hold loops). Verified: PC now matches PUAE frame-exact through the post-title logo screens — same screen transitions ($78F0 f=171, $77C0 f=237, $91D0 f=323 on both sides) and identical COLOR ramp each frame (black→full→black). LESSON: native overrides written for the dead per-frame native-title loop can silently break under the recompiled coroutine flow, which calls them once and expects original blocking semantics.
 
