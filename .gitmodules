@@ -1,3 +1,6 @@
 [submodule "vendor/libretro-uae"]
 	path = vendor/libretro-uae
-	url = https://github.com/libretro/libretro-uae
+	# Fork carrying the harness's benefactor-specific PUAE patches (chip-RAM
+	# watch/sync hooks). The pinned commit only exists here, not in upstream
+	# libretro/libretro-uae — this fork must be public for clones to build the harness.
+	url = https://github.com/SomeoneIsWorking/libretro-uae
