@@ -2,4 +2,4 @@
 # Format: ADDR [name]  [# comment].  See ../seeds_loader.py.
 
 57E38A  player_input_handler  # player movement/input handler (dispatched when a direction is held)
-57EB16  held_item_dispatch_alt  # $5834de[pose] held-item dispatch target (prone pose + empty-hand); interior to $57EAF6, reached via data table so the static scan misses it -> seed it (fixes X-while-prone / X-empty-handed crash)
+57EB16  drop_while_prone  # held-item DROP branch for the PRONE pose. Interior to $57EAF6, reached via a computed $f70 (not the $5834de table, not a code literal) so the static scan misses it. CONFIRMED real: with native drop logic bypassed (DROP_PASSTHROUGH), plain vanilla Fire+Down while prone+carrying reaches $57EB16 -- the original prone-drop would rt-miss without this seed. (Standing drop goes via $57EB20.)
