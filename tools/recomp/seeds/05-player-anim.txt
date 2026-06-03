@@ -2,3 +2,4 @@
 # Format: ADDR [name]  [# comment].  See ../seeds_loader.py.
 
 57E38A  player_input_handler  # player movement/input handler (dispatched when a direction is held)
+57EB16  held_item_dispatch_alt  # $5834de[pose] held-item dispatch target (prone pose + empty-hand); interior to $57EAF6, reached via data table so the static scan misses it -> seed it (fixes X-while-prone / X-empty-handed crash)
