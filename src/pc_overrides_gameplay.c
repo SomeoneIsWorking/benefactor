@@ -61,25 +61,29 @@ void native_end_of_level(M68KCtx *ctx)
  * Jump=Up and long-jump=Fire+Left/Right are untouched outside the carry case. */
 void native_gameplay_input(M68KCtx *ctx)
 {
-    extern int hw_get_interact(void);
+    extern int hw_get_interact(void), hw_get_fire(void), hw_get_mouse_lmb(void), hw_joy_down(void);
+    extern void hw_set_fire(int), hw_set_mouse_lmb(int);
     int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
-    int interact = hw_get_interact();
 
-    uint8_t cia = MR8(0xbfe001);
-    int forced = carrying && interact && (cia & 0x80);
-    if (forced) MW8(0xbfe001, (uint8_t)(cia & ~0x80));   /* present fire at source */
-
-    gfn_gpl_57DEAC(ctx);
-
-    if (forced) MW8(0xbfe001, cia);
-
-    if (carrying && !interact) {                          /* real Fire+Down must not drop */
-        uint16_t f80 = MR16(ctx->A[5] + 0xf80u);          /* (Down only — keep Fire+L/R long-jump) */
-        if ((f80 & 0x2) && (f80 & 0x20)) MW16(ctx->A[5] + 0xf80u, (uint16_t)(f80 & ~0x20));
+    /* While carrying AND Down is held, the engine's fire bit := the interact key, applied
+     * at the hw input source BEFORE $57DEAC decodes. $57DEAC reads $bfe001 bit7, which is
+     * (s_fire_pressed || s_mouse_lmb) — a fire keypress sets BOTH, so we must drive both.
+     * Interact+Down → fire+down → drop; Fire+Down → no fire → no drop. Down is not a jump
+     * direction, so Up-jump and Fire+Left/Right long-jump are untouched (fire is overridden
+     * only in the carry+Down case, and restored right after the decode). */
+    int restore = 0, sf = 0, sl = 0;
+    if (carrying && hw_joy_down()) {
+        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
+        int want = hw_get_interact();
+        hw_set_fire(want); hw_set_mouse_lmb(want);
+        restore = 1;
     }
+    gfn_gpl_57DEAC(ctx);
+    if (restore) { hw_set_fire(sf); hw_set_mouse_lmb(sl); }
+
     if (getenv("BENEFACTOR_DBG_DROP") && carrying)
-        fprintf(stderr, "[drop-input] carry f80=%04X interact=%d forced=%d\n",
-                MR16(ctx->A[5] + 0xf80u), interact, forced);
+        fprintf(stderr, "[drop-input] f80=%04X interact=%d down=%d\n",
+                MR16(ctx->A[5] + 0xf80u), hw_get_interact(), hw_joy_down());
 }
 
 /* ── $57EB20 — "place carried item at tile" PROBE (BENEFACTOR_DBG_DROP=1) ──────
