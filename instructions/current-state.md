@@ -242,7 +242,23 @@ because I tested at level *start* where the chain is off-screen; the oracle at t
 actual chamber settled it. Candidate next: the **gameover-screen cursor** image is
 missing — possibly another mode/feature our blitter or sprite path lacks.
 
-## OPEN: wrong SFX plays sometimes (jump grunt) — needs music/SFX code RE
+## FIXED (2026-06-03): wrong/quiet jump SFX — was the streamer chunk-follow
+
+**Root cause + fix below; confirmed by the user's ear.** The SFX streamer
+($586612/$58684C) feeds Paula one ~1-frame CHUNK per frame (DMA necessity);
+`hw_audio`'s continuous-DMA "reload at loop boundary" mis-followed those per-frame
+AUDxLC/LEN swaps and intermittently truncated/dropped grunts to near-silence
+(~1/3 of jumps, holding fire+left). FIX (commit 2cd9e73): a **native SFX voice** —
+`native_sfx_trigger` hands the whole sample (from descriptor `$57fe50`) to
+`hw_audio_sfx_play(ch)`, played one-shot/looped on Paula's fixed pan while
+`$57fe4e`/`$57fe4f` is set, bypassing the chunk-follow. Every jump now bursts
+(14/14 vs ~10/14), verified vs PUAE. Drive with `rungame`+`pugoto N`; isolate with
+`AUDIO_SFX_ONLY=1` (keeps the timer; `BENEFACTOR_MUTE_MUSIC` does NOT — it freezes
+LVL6). STILL OPEN (separate, lower priority): PC full-mix is a uniform ~2× quieter
+than PUAE (master/mix gain, affects music+SFX equally — not the drop bug). Music
+replayer ($59BA7A/$59BB5E+) still recompiled, not yet native-owned.
+
+### Historical investigation notes (pre-fix)
 
 Repro: compare harness, level 1, past GET READY, hold fire+left → repeated jumps
 + grunt SFX; PC sometimes plays a wrong/different sound. Tools added: `SFX_TRACE=1`
