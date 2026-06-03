@@ -105,6 +105,8 @@ void pc_register_overrides(void)
     rt_register_override_gp(0x00578C3Eu, native_end_of_level);
     rt_register_override_gp(0x0059DC02u, native_level_load);
     rt_register_override_gp(0x005782B4u, native_level_setup);
+    { extern void native_place_probe(M68KCtx *ctx);   /* BENEFACTOR_DBG_DROP probe */
+      rt_register_override_gp(0x0057EB20u, native_place_probe); }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled

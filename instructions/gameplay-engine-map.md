@@ -529,3 +529,32 @@ default 18/12 half-window, two-sided); inside it + fire → spoof player pos = i
 `rt_call_generated(handler)` (its narrow test passes → full normal collect), restore.
 Off-screen items have screen coords far outside the window (excluded). Revert:
 `BENEFACTOR_RECOMP_PICKUP=1`.
+
+### Held-item USE / THROW / DROP system (for the X+Down drop port — task #9)
+
+Carrying state: `$1094(a5)` = carried item id (0 = empty), `$109c(a5)` = carried item
+ptr, `$f84(a5)` = held item TYPE (index into the action table). When you pick up a
+carryable item the item object is deactivated (`clr.w (a0)`) and these are set.
+
+The held item's behaviour comes from the **action table at `$5834de`** (chip RAM,
+indexed by item type → a per-item action descriptor; `$4(descr)` is an allowed-input
+mask). `$579A00` is the held-item action DISPATCHER: reads `$f84`, indexes `$5834de`,
+`d0 = 3 & d4 & $4(a2)` (direction bits ∧ item mask) → if non-zero switches the player
+action to the throw/place state (`$579eb0`/`$57c522`…). Direction selects the action:
+**DOWN = place-at-feet (drop); LEFT/RIGHT = throw.** `d4` = decoded input flags (built
+in `$57DF78`/`$57DEAC`); the **whole held-item-use flow is entered by FIRE** (the
+player fire-action), exactly like the old fire-pickup — which is the conflict with the
+long-jump.
+
+DROP execution = `$57EB20` ("place carried item at tile"): no input check of its own;
+it's *called only when fire+down+carrying* selected it (confirmed at runtime via the
+`BENEFACTOR_DBG_DROP` probe — `native_place_probe`, registered on `$57EB20`: fires with
+`$f80=$0022` (fire+down), `d4` bit1=down, `$1094!=0`; then clears `$1094`/`$109c` at
+`$57EBA2`). It's reached by `rt_jump` (so `rt_get_last_insn`=0), i.e. via the action
+state, NOT a literal `$f70` write or a direct `rt_call`.
+
+**Port plan (task #9):** move the held-item-use ENTRY from FIRE to the interact key
+(same decoupling already done for pickup/levers), so interact+down drops / interact+
+dir throws and FIRE stays purely jump. That means re-gating the fire-entry into the
+throw/place flow on `hw_get_interact()` — NOT post-processing `$f80` globally. The
+`$57EB20` probe override is the confirmed hook/anchor for this work.

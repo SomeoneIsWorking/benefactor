@@ -50,6 +50,24 @@ void native_end_of_level(M68KCtx *ctx)
     gfn_gpl_578C3E(ctx);
 }
 
+/* ── $57EB20 — "place carried item at tile" PROBE (BENEFACTOR_DBG_DROP=1) ──────
+ * Logs the caller PC + input state each time the place routine runs, to pin the
+ * fire+down gate that selects the drop (so we can port it to interact+down). */
+void native_place_probe(M68KCtx *ctx)
+{
+    static int dbg = -1;
+    if (dbg < 0) dbg = getenv("BENEFACTOR_DBG_DROP") ? 1 : 0;
+    if (dbg) {
+        extern uint32_t rt_get_last_insn(void);
+        uint32_t a5 = ctx->A[5];
+        fprintf(stderr, "[place] $57EB20 from $%06X  $f80=%04X d4=%08X $1094=%04X $109c=%08X\n",
+                rt_get_last_insn(), MR16(a5 + 0xf80u),
+                ctx->D[4], MR16(a5 + 0x1094u), MR32(a5 + 0x109Cu));
+        fflush(stderr);
+    }
+    gfn_gpl_57EB20(ctx);
+}
+
 /* ── $5782B4 — level setup (runs on every level entry, incl. the win's next
  * level — where it FREEZES). Log how it's dispatched (the jumping instruction
  * via rt_get_last_insn) and the level-selecting registers, so we learn the
