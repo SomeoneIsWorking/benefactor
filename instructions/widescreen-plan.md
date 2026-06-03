@@ -18,8 +18,47 @@
   + REPL `fbw [tag]` capture the wide surface. Verified: gameplay + menu both
   pillarbox correctly at 480. Margins are black for now — Phase 3 fills the gameplay
   margins with native tiles; for non-gameplay screens pillarbox is the FINAL look.
-- **Next: Phase 3** — RE the tilemap + camera X, native-draw background tiles into the
-  gameplay L/R margins, seam onto the engine's center.
+- **Phase 3 IN PROGRESS (2026-06-03).** Decision: **full native background (approach B)**
+  (user picked it over hybrid). NOTE the catch: the engine blits tiles AND objects into
+  the SAME single-playfield 5-plane buffer, so a *pure* B that shows objects needs native
+  object drawing too (Phase 4) — until then the practical first result is C-shaped (native
+  background everywhere + engine's center buffer for objects). The native background
+  renderer is the shared foundation; build it first.
+  - **Camera X = `$57FDBA` (a5+$0FA8)** — screen-left world coord, engine-clamped to the
+    level's real edges (this is "camera stops where a normal camera would"). camera_tile =
+    `$0FA8`>>4, fine = `$0FA8`&15. Found via `scratch/camhunt.py` (differential scan).
+    `scratch/camedge.py` drives to edges to read the clamp range (= level edges) — but
+    walking LEFT off the start-area edge on the test save kills the player; drive RIGHT.
+  - **Background scroll mechanism (from `BLIT_LOG`):** NOT a tall-column blit. The terrain
+    is drawn as **16×16 tile cells** — `w=1 h=16` blits (~114/frame while scrolling), one
+    per plane, sourced from tile graphics, dest = the playfield double-buffer. As the camera
+    crosses a 16px boundary a new column of cells is blitted in. So: the `w=1 h=16` blit
+    SOURCES are tile-graphics addresses; the per-column sequence of sources encodes the
+    tilemap. Playfield buffers via `$67A/$67E/$682(a5)` (= `$57F48C/$57F490/$57F494`),
+    dest regions seen: $02/$03/$04xxxx; tile-gfx sources in $04/$05/$06xxxx.
+  - **Blit chain (from a clean BLIT_LOG, w=1 h=16):** the cells come in PAIRS with a
+    consistent **plane stride $2A0C** (=10764 ≈ 336×256/8 = one full-screen planar plane):
+    `src=$02xxxx → dst=$046xxxx`, then `src=$046xxxx → dst=$039xxxx`. The five cells of a
+    column step by $2A0C (the 5 bitplanes). So $02/$03/$04xxxx are full-screen PLANAR
+    bitmaps (plane stride $2A0C), and the "tile" draw is really a planar buffer→buffer copy
+    chain ($02→$04→$03), i.e. the engine composes/scrolls between off-screen pages, NOT a
+    simple tilemap→screen blit. CONSEQUENCE: the tilemap array + tile-graphics base are NOT
+    directly the blit sources here — need to RE the level-setup ($5782B4) that builds the
+    $02xxxx source bitmap, OR the scroll code that picks columns. Buffers via
+    `$67A/$67E/$682(a5)`.
+  - **Next concrete steps (next session, fresh context):** (1) Read `$67A/$67E/$682(a5)`
+    on the loaded save to map the three planar pages ($02/$03/$04xxxx) to their roles
+    (which is display, which is the wide source). (2) Find the level-setup code that fills
+    the source bitmap from level data → that reveals the real tilemap + tile graphics +
+    level width. (3) Either render natively from the tilemap (true B) OR — simpler given
+    the planar pages — if a page already holds MORE than 320px of decoded terrain, decode
+    the wider region straight from that page (camera `$0FA8` picks the window) and clamp to
+    level edges. Verify whether any page is wider than the screen first.
+  - **DIW over-fetch clip (committed? NO — in tree):** `native_renderer.c` now clips the
+    bitplane decode to DIWSTRT/DIWSTOP (`fb_x = H-123`), removing the engine's ~16px
+    smooth-scroll over-fetch garbage (the original screenshot bug). Correct HW behavior +
+    a clean 320 seam edge; but under full-B the background won't come from the bitplane
+    decode at all, so this may be superseded. Keep for now.
 
 ---
 
