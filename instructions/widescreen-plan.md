@@ -74,6 +74,56 @@
     smooth-scroll over-fetch garbage (the original screenshot bug). Correct HW behavior +
     a clean 320 seam edge; but under full-B the background won't come from the bitplane
     decode at all, so this may be superseded. Keep for now.
+  - **DIW clip REVERTED (2026-06-04):** discarded the uncommitted clip change — clamping
+    to DIWSTRT/DIWSTOP pulls the view back to the ~320px display window, the exact thing
+    widescreen must EXCEED. Dead end. Kill the right-edge garbage by rendering real tiles +
+    stopping the camera at level edges, not by clipping.
+
+### Phase 3 RE — tile rendering DECODED (2026-06-04)
+
+Disassembled from `logs/savestate.bin` (level-9 save; g_mem at file offset `0x5D0`, so
+chip addr A = file `0x5D0+A`; disasm via `python3 tools/disasm2.py logs/savestate.bin
+$((0x5D0+ADDR)) ADDR LEN`). Verified the actual scroll + tile-draw path. a5 = `$57EE12`.
+
+- **Scroll/redraw + camera clamp + copper-BPL build = `$57C79E`** (entered mid-routine
+  from the scroll orchestrator). Camera math:
+  - `d2` = candidate screen-left world X (player-tracking, then `subi.w #$9f`).
+  - **Level edges (the camera clamp):** `min_cam = $107a(a5) - 0x90`, `max_cam =
+    $107c(a5) - 0x100`. On the L9 save: `$107a=144`, `$107c=1648` → camera ∈ **[0, 1392]**.
+    `$107a`/`$107c` are the per-level world bounds — read these for the wide-camera clamp.
+  - `move.w d2,$fa8(a5)` then `subi.w #$10` → camera_x. fine = `~d2 & 0xf` → BPLCON1
+    (copper at `$3572`/`$3576`); coarse `d2>>4` → BPL ptr byte offset `(d2>>4)*2` into the
+    `$2B3EC` page; 5 BPL ptrs written to copper at `$3576..` each +`$2A0C` (plane stride).
+  - **Confirms: the `$2B3EC` display page is only screen-width + margin (row stride `$2e`
+    = 46 bytes = 368px; plane stride `$2A0C` = 46×234). It is a WRAP buffer — off-screen
+    terrain is NOT present. So approach B (native tilemap render) is mandatory; no
+    read-wider-from-page shortcut.**
+- **Per-cell tile draw = `$57C72A`** (one 16×16×5-plane tile, fully unrolled, CPU
+  `move.w (a4)+` + blitter copy into BOTH double-buffer pages; alt blitter-only path at
+  `$57CA80` when `$10c4(a5)` set — masked/transparent tiles). It reads the source pointers:
+  - `a1 = $552A0` = **TILEMAP** (indexed by `d2 ≈ (camera>>4)*2 + 0x2a + phase`).
+    `tileval = $552A0[d2]; idx = tileval & 0xFE`.
+  - `a4 = $5A539E` = **tile-graphics POINTER TABLE**; `gfx = *(long*)($5A539E + idx)`.
+    Entries are contiguous `$5D902A + n*$A0` (each tile gfx = `$A0`=160 bytes). On L9 save:
+    `[0]=$5D902A,[1]=$5D90CA,...` (+$A0 each).
+  - `a0 = $57F4BC` = **phase table**, 16 entries × {d2_adjust.w, a3_adjust.w} (one per
+    fine-scroll phase), TWO halves selected by `sign($694(a5))` (scroll direction;
+    `lea $40(a0),a0` picks the 2nd half).
+  - **Tile gfx format (from the unrolled writes — `(a4)+`→rows at `$2e` stride, then
+    `adda d6,a3` per plane): PLANE-MAJOR, 5 planes × 16 rows × 1 word = 80 words = 160B.**
+- **Decompressor `$5782B4` → `$59DC02`**: a generic stream decompressor (magic
+  `"=SB="`=`$3D53423D`, chunk `$4000`) that decompresses level data from the `$5Axxxx`
+  region into the display page `$2B3EC`. Not the tilemap source per se.
+
+**Native wide background — what's now known vs. still needed:**
+- KNOWN: camera (`$0fa8`), level-edge clamp (`$107a`/`$107c`), tile size (16×16×5bpp,
+  160B plane-major), tile-gfx table (`$5A539E[idx]`, `idx=mapval&0xFE`), palette (copper).
+- STILL NEEDED (next pass — use the RUNNING harness to correlate, not more static disasm
+  of unrolled code): the **tilemap 2D layout** — the column stride in `$552A0` and the
+  vertical indexing (the `$57C72A` cell-draw is called per-cell by a vertical loop in its
+  caller; find that loop OR derive the stride empirically by dumping `$552A0` against the
+  visible screen at a known camera). Hypothesis: column-major, `d2` walks columns; vertical
+  via a loop that steps `d2` by a row count. Confirm before building the renderer.
 
 ---
 
