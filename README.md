@@ -8,6 +8,8 @@ A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosi
   <img src="screenshots/gameplay-treetop.png" alt="Treetop Rescue gameplay" width="320" />
   <img src="screenshots/gameplay-stones-and-bones.png" alt="Stones and Bones gameplay" width="320" />
   <img src="screenshots/gameplay-techno.png" alt="Techno Treat gameplay" width="320" />
+  <img src="screenshots/gameplay-winterland.png" alt="Merry Winterland gameplay" width="320" />
+  <img src="screenshots/gameplay-minniat.png" alt="To Hell With Minniat gameplay" width="320" />
   <img src="screenshots/level-complete.png" alt="Level Complete banner with the level password" width="320" />
 </p>
 
@@ -17,7 +19,6 @@ A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosi
   <img src="screenshots/title-card-stones-and-bones.png" alt="Stones and Bones title card" width="240" />
   <img src="screenshots/title-card-winterland.png" alt="Merry Winterland title card" width="240" />
   <img src="screenshots/title-card-techno.png" alt="Techno Treat title card" width="240" />
-  <img src="screenshots/game-over.png" alt="Continue / Game Over menu" width="240" />
 </p>
 
 <p align="center">
@@ -108,7 +109,7 @@ These subsystems don't run recompiled M68K — they're hand-written C:
 | Audio | `recomp/hw_audio.c` | Mixes the 4 Paula channels from the live register shadows into 22050 Hz SDL audio. |
 | Boot disk loader + ATN! decrunch | `recomp/disk_boot.c`, `pc_overrides_boot.c` | Reads raw `Disk.N` images, runs the ATN!-decruncher. Replaces the M68K-side raw-MFM disk reader. |
 | Overlay loader (`$6D714` / `$150`) | `pc_overrides_boot.c` | All four `D0` paths: gameplay overlay (`d0=0`), boot/title (`d0=1`), reserved (`d0=2`), end-game/credits (`d0=3`). Replays the `$6D734→$150..$2A57` block-copy so low-RAM engine state is correct. |
-| Title main menu | `pc_overrides_title.c` | Our menu loop replaces `$003872`. PLAY GAME / LEVEL SELECT / LOAD EXTRA LEVELS. |
+| Title main menu | `pc_overrides.c` (`native_menu_setup` / `native_main_menu_fire_dispatch`) | Our menu setup + fire-dispatch replace `$003872` / `$0039D0`. PLAY GAME / LEVEL SELECT / LOAD EXTRA LEVELS. |
 | Menu glyph blit | `pc_overrides_boot.c` | "ENTER PASSWORD" → "LEVEL SELECT" substitution without touching chip RAM. |
 | Per-level disk reader (`$577B8C`) | `pc_overrides_boot.c` `native_gp_disk_read` | Gameplay engine's "stream level data from disk" — natively a `disk_boot_load`. |
 | Timer-IRQ delivery | `pc.c` `coro_deliver_timer_irq`, `pc_music_tick` | We call the game's installed LVL3 / LVL6 handlers at the right rate; no CIA-B timer emulation. |
@@ -166,6 +167,7 @@ These wrap the binary, not the game logic:
 
 ## TODO
 
+- **Widescreen (in progress).** The output surface can widen beyond the 4:3 playfield and pillarboxes the centered render; native wide-background tiles + objects in the L/R margins (to actually show more of the level) are next.
 - **Controller support.** Gamepad input (SDL2 `GameController`) — currently keyboard-only.
 - **Progress-aware LEVEL SELECT.** Track which levels the player has completed; undiscovered levels appear as `??????` and undiscovered worlds can't be navigated to.
 - **Save slots with screenshots** *(maybe)*. A proper Save / Load UI on top of the existing savestate format — multiple named slots, each with a framebuffer thumbnail and timestamp. Replaces the all-purpose `logs/savestate.bin` with a real UX.
