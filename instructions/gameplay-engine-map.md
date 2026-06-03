@@ -310,6 +310,7 @@ displacements). Tracking only the ones we've seen referenced so far.
 | `+$10A6` | `$57FEB8` | array | player position+state block (`movem.w (a4),d1-d4` reads 4 words) |
 | `+$10AC` | `$57FEBE` | bits | **MAIN STATE-FLAG WORD** (bits 1/3/4/5/6/7/15 all tested) |
 | `+$10AD` | `$57FEBF` | bits | low byte of above; bit5 swaps subsystem 17 order |
+| `+$0FA8` | `$57FDBA` | word | **CAMERA X (screen-left world coordinate)** — confirmed via differential memory scan (`scratch/camhunt.py`): tracks player world X (`$10A6`) 1:1 in mid-level but offset by the player's screen X (held constant ≈175 while scrolling). This is the engine's scroll position, already clamped to the level's real edges (a normal camera "stops" here). For native widescreen: read this as the camera, clamp the wide view to its min/max (the level edges). camera_tile = `$0FA8`>>4, fine = `$0FA8`&15. |
 | `+$10C0` | `$57FED2` | long | backup of `$F90` |
 | `+$10D4` | `$57FEE6` | long | snapshot of `$28.w` at level start |
 | `+$10D8` | `$57FEEA` | long | (`$57C686`) scroll/position acc |
