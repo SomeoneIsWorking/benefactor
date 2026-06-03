@@ -52,6 +52,9 @@ void native_gp_disk_read(M68KCtx *ctx);
 void native_overlay_load_d0(void);
 /* pc_overrides_audio.c — native gameplay audio engine (staged) */
 void native_sfx_trigger(M68KCtx *ctx);
+/* pc_overrides_pickup.c — native object-pickup mechanic (widened range) */
+void pickup_register(void);
+void pickup_register_scan(void);
 /* pc_overrides_copper.c */
 void native_sprite_blitter_setup(M68KCtx *ctx);
 void native_game_frame(M68KCtx *ctx);

@@ -110,5 +110,12 @@ void pc_register_overrides(void)
     if (!getenv("BENEFACTOR_RECOMP_AUDIO")) {
         rt_register_override_gp(0x0058656Eu, native_sfx_trigger);
     }
+
+    /* Object-pickup mechanic — native port with a WIDENED pickup window
+     * (pc_overrides_pickup.c). Vanilla's ~9px one-sided horizontal range made keys
+     * almost impossible to grab unless standing right on them. Set
+     * BENEFACTOR_RECOMP_PICKUP=1 to keep the recompiled (narrow) handlers. */
+    if (getenv("PICKUP_SCAN"))               pickup_register_scan();  /* diagnostics */
+    else if (!getenv("BENEFACTOR_RECOMP_PICKUP")) pickup_register();   /* widened pickups */
 }
 
