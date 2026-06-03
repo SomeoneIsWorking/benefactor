@@ -390,9 +390,9 @@ void hw_handle_key(int sym, int down)
     case SDLK_TAB: /* cycle real-time speed 1x -> 2x -> 4x */
         if (down) hw_cycle_speed();
         break;
-    case SDLK_s: /* save: defer to main-stack boundary (we're inside the
-                  * coroutine here when invoked from hw_present_frame, so
-                  * s_game_uc is stale and direct save would crash on load). */
+    case SDLK_s: /* save: defer to the main-thread frame boundary in pc_step (the
+                  * game thread must be parked so its M68K ctx + chip RAM are
+                  * coherent; pc_savestate_allowed then gates on steady gameplay). */
         if (down) { extern int g_pc_pending_save, g_pc_pending_load;
                     g_pc_pending_save = 1; (void)g_pc_pending_load; }
         break;
@@ -549,6 +549,9 @@ int hw_present_frame(void)
      * select. */
     { extern void pc_pause_menu_overlay(uint32_t *fb);
       pc_pause_menu_overlay(s_fb); }
+    /* Save/load toast — topmost, so feedback is visible over any overlay. */
+    { extern void pc_toast_overlay(uint32_t *fb);
+      pc_toast_overlay(s_fb); }
 
     /* Harness snap is taken by the caller (pc.c) AFTER the timer interrupt,
      * to match PUAE's ordering where VBlank fires after copper and before snap. */
