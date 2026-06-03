@@ -31,119 +31,95 @@
 
 unsigned long g_native_pickup_hits = 0;
 
-/* Pickup window params — runtime-tunable (env defaults, live via HTTP /pickup).
- * cx/cy bias the window onto the sprite centre ($f94 is a player edge, so there's
- * an intrinsic ~player-width bias); rx/ry = half-window; off = spoof hotspot. */
-int g_pickup_rx = -1, g_pickup_ry = -1, g_pickup_cx = -999, g_pickup_cy = -999, g_pickup_off = -1;
+/* Extra HORIZONTAL (X) pickup/interaction reach, in pixels, ON TOP of each handler's
+ * own vanilla window. Single knob ("interact_extend" in benefactor.json, default 5).
+ * Vertical reach is left exactly as the original game. -1 = unresolved. */
+int g_interact_extend = -1;
 
-/* Interactable (lever/switch/door) window — a SEPARATE, more generous default than
- * the collectible window. Two reasons: the user wants interactables widened too, and
- * some native interactable windows are already wider than collectibles (e.g. $597892
- * is X≤24) — the override REPLACES the native trigger (it clears fire when out of the
- * wide zone), so the wide window must be ≥ the widest native window or it would NARROW
- * that handler's reach. */
-int g_interact_rx = -1, g_interact_ry = -1;
-
-/* One-trigger-per-press latch (interactables only). Levers are one-shot toggles
- * (you rewind to reset them), so holding the interact key must NOT re-fire across
- * frames. Collectibles don't use this (they're removed on collect; their verified
- * "hold to grab" behaviour is preserved). Frame-scoped via the shared key state:
- * consumed on the first in-range trigger of a press, rearmed when the key releases. */
+/* One-trigger-per-press latch (interactables only). Levers are one-shot toggles, so
+ * holding the interact key must NOT re-fire across frames. Consumed only when a trigger
+ * actually changes the object's state; rearmed when the key releases. Collectibles
+ * (latch=0) keep firing each frame (they vanish on collect, so there's no flip-flop). */
 static int s_interact_consumed = 0;
 
-/* Shared widening core. latch=1 → one-shot per key press (levers); latch=0 →
- * fire every in-range frame (collectibles). */
-static void interact_wide(M68KCtx *ctx, uint32_t addr,
-                          int rx, int ry, int cx, int cy, int off, int latch)
+/* Native interaction-reach extension around the engine's object-driven handlers.
+ *
+ * Each collectible/interactable handler reads the player ($f94/$f96) + its own object
+ * coords, gates on FIRE ($f80==$20) within a narrow proximity window, then runs its
+ * collect/toggle. We keep those handlers (re-implementing ~30 of them byte-for-byte to
+ * change two constants would be pure porting risk) but OWN the interaction decision:
+ *   - drive it from the INTERACT key, never FIRE — so FIRE stays free for the long-jump
+ *     (when the key is up, the fire bit is cleared for the handler, so FIRE can never
+ *     pick up or toggle); and
+ *   - extend the player's HORIZONTAL reach by `extend` px: nudge the player's apparent X
+ *     toward the object by up to `extend` before the handler runs, so the handler's OWN
+ *     (unchanged) window triggers `extend` px sooner, symmetrically on both sides. Y is
+ *     never touched, so vertical reach is exactly the original.
+ * $f80/$f94 are restored immediately after the handler runs. latch=1 (levers) fires once
+ * per key press (consumed on a real state change); latch=0 (collectibles) every frame. */
+static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
 {
-    int objY = (int16_t)MR16(ctx->A[0] + 0u);
-    int objX = (int16_t)MR16(ctx->A[0] + 2u);
-    int py   = (int16_t)MR16(ctx->A[5] + A5_F96);
-    int px   = (int16_t)MR16(ctx->A[5] + A5_F94);
-    int dy = (py - objY) - cy, dx = (px - objX) - cx;   /* centred on the sprite */
+    extern int hw_get_interact(void);
+    int interact = hw_get_interact();
+    if (!interact) s_interact_consumed = 0;            /* key released → rearm latch */
 
     if (latch && getenv("INTERACT_SCAN")) {
-        /* Log the first dispatch of each interactable handler in a level + its
-         * world position, so we can confirm the address is live and locate it. */
         static uint32_t seen[32]; static int nseen = 0;
         int known = 0; for (int i = 0; i < nseen; i++) if (seen[i] == addr) known = 1;
         if (!known && nseen < 32) {
             seen[nseen++] = addr;
             fprintf(stderr, "[interact-scan] $%06X a0=%06X objX=%d objY=%d st4=%04X\n",
-                    addr, ctx->A[0], objX, objY, MR16(ctx->A[0] + 4u));
+                    addr, ctx->A[0], (int)(int16_t)MR16(ctx->A[0]+2u),
+                    (int)(int16_t)MR16(ctx->A[0]+0u), MR16(ctx->A[0] + 4u));
             fflush(stderr);
         }
     }
 
-    extern int hw_get_interact(void);
-    int interact = hw_get_interact();
-    if (!interact) s_interact_consumed = 0;            /* key released → rearm latch */
-    int in_range = dy >= -ry && dy <= ry && dx >= -rx && dx <= rx;
-    int edge     = latch ? (interact && !s_interact_consumed) : interact;
-    int collect  = edge && in_range;
+    int active = interact && !(latch && s_interact_consumed);
 
-    if (getenv("PICKUP_MEASURE") && interact
-        && dx > -60 && dx < 60 && dy > -60 && dy < 60)
-        fprintf(stderr, "[pk-measure] $%06X dx=%d dy=%d (range rx=%d ry=%d -> %s)\n",
-                addr, dx, dy, rx, ry, collect ? "IN" : "out");
-
-    /* Decouple INTERACT from FIRE. The vanilla handler collects when $f80==$20
-     * (fire alone) AND the player is in its narrow window — which is why holding
-     * fire to charge a long-jump grabs the item. We instead:
-     *  - on the INTERACT key (in our wider window): present the player at the item
-     *    hotspot + set fire-alone so the handler's gate passes -> collect;
-     *  - otherwise: CLEAR the fire bit for this handler so fire never picks up,
-     *    leaving fire free for long-jump. $f80 is restored before any other code. */
-    uint16_t s_f80 = MR16(ctx->A[5] + A5_F80), sy = 0, sx = 0;
-    if (collect) {
-        if (latch) s_interact_consumed = 1;            /* one trigger per key press */
-        sy = MR16(ctx->A[5] + A5_F96);
-        sx = MR16(ctx->A[5] + A5_F94);
-        MW16(ctx->A[5] + A5_F96, (uint16_t)(objY + off));
-        MW16(ctx->A[5] + A5_F94, (uint16_t)(objX + off));
-        MW16(ctx->A[5] + A5_F80, 0x20);             /* fire-alone -> gate passes   */
+    uint16_t s_f80 = MR16(ctx->A[5] + A5_F80);
+    uint16_t s_f94 = MR16(ctx->A[5] + A5_F94);
+    if (active) {
+        int objX = (int16_t)MR16(ctx->A[0] + 2u);
+        int px   = (int16_t)s_f94;
+        int d    = objX - px;                          /* nudge toward object (X only) */
+        if (d >  extend) d =  extend;
+        if (d < -extend) d = -extend;
+        MW16(ctx->A[5] + A5_F94, (uint16_t)(px + d));
+        MW16(ctx->A[5] + A5_F80, 0x20);                /* present interact as fire     */
     } else {
-        MW16(ctx->A[5] + A5_F80, (uint16_t)(s_f80 & ~0x20));  /* free fire for jump */
+        MW16(ctx->A[5] + A5_F80, (uint16_t)(s_f80 & ~0x20));  /* FIRE never interacts  */
     }
-    uint16_t pre_obj = MR16(ctx->A[0]);
-    rt_call_generated(ctx, addr);                   /* the item's own full logic   */
-    MW16(ctx->A[5] + A5_F80, s_f80);                /* restore input              */
-    if (collect) {
+
+    uint32_t pre0 = MR32(ctx->A[0]);                   /* obj +0/+2 (coords / active)  */
+    uint32_t pre4 = MR32(ctx->A[0] + 4u);              /* obj +4/+6 (state)            */
+    rt_call_generated(ctx, addr);
+    int triggered = active && (MR32(ctx->A[0]) != pre0 || MR32(ctx->A[0] + 4u) != pre4);
+
+    MW16(ctx->A[5] + A5_F80, s_f80);                   /* restore input                */
+    MW16(ctx->A[5] + A5_F94, s_f94);
+    if (triggered) {
+        if (latch) s_interact_consumed = 1;            /* one toggle per key press     */
+        g_native_pickup_hits++;
         if (getenv("PICKUP_LOG"))
-            fprintf(stderr, "[pickup] $%06X dx=%d dy=%d collected=%d\n",
-                    addr, dx, dy, MR16(ctx->A[0]) != pre_obj);
-        MW16(ctx->A[5] + A5_F96, sy);
-        MW16(ctx->A[5] + A5_F94, sx);
-        if (MR16(ctx->A[0]) != pre_obj) g_native_pickup_hits++;
+            fprintf(stderr, "[interact] $%06X triggered (extend=%d)\n", addr, extend);
     }
 }
 
-/* Collectible widening — narrow centred window, no latch (vanilla "hold to grab"
- * preserved); the object is removed on collect so it can't re-fire. */
-static void pickup_wide(M68KCtx *ctx, uint32_t addr)
+/* Resolve the single horizontal-extend knob (env override > benefactor.json > 5). */
+static int interact_extend_px(void)
 {
     extern int pc_config_int(const char *, int);
-    /* env override > benefactor.json > default. -1/-999 = "not yet resolved". */
-    if (g_pickup_rx  < 0)    { const char *e = getenv("PICKUP_RX");  g_pickup_rx  = e ? atoi(e) : pc_config_int("pickup_rx", 14); }
-    if (g_pickup_ry  < 0)    { const char *e = getenv("PICKUP_RY");  g_pickup_ry  = e ? atoi(e) : pc_config_int("pickup_ry", 12); }
-    if (g_pickup_cx  == -999){ const char *e = getenv("PICKUP_CX");  g_pickup_cx  = e ? atoi(e) : pc_config_int("pickup_cx", -4); }
-    if (g_pickup_cy  == -999){ const char *e = getenv("PICKUP_CY");  g_pickup_cy  = e ? atoi(e) : pc_config_int("pickup_cy", 0); }
-    if (g_pickup_off < 0)    { const char *e = getenv("PICKUP_SPOOF_OFF"); g_pickup_off = e ? atoi(e) : pc_config_int("pickup_off", 4); }
-    interact_wide(ctx, addr, g_pickup_rx, g_pickup_ry, g_pickup_cx, g_pickup_cy, g_pickup_off, 0);
+    if (g_interact_extend < 0) {
+        const char *e = getenv("INTERACT_EXTEND");
+        g_interact_extend = e ? atoi(e) : pc_config_int("interact_extend", 5);
+        if (g_interact_extend < 0) g_interact_extend = 0;
+    }
+    return g_interact_extend;
 }
 
-/* Interactable (lever/switch/door) widening — wider window, one-shot latch. Reuses
- * the collectible cx/cy bias + spoof-offset (same player-edge physics). */
-static void lever_wide(M68KCtx *ctx, uint32_t addr)
-{
-    extern int pc_config_int(const char *, int);
-    if (g_interact_rx < 0) { const char *e = getenv("INTERACT_RX"); g_interact_rx = e ? atoi(e) : pc_config_int("interact_rx", 24); }
-    if (g_interact_ry < 0) { const char *e = getenv("INTERACT_RY"); g_interact_ry = e ? atoi(e) : pc_config_int("interact_ry", 16); }
-    if (g_pickup_cx  == -999){ const char *e = getenv("PICKUP_CX");  g_pickup_cx  = e ? atoi(e) : pc_config_int("pickup_cx", -4); }
-    if (g_pickup_cy  == -999){ const char *e = getenv("PICKUP_CY");  g_pickup_cy  = e ? atoi(e) : pc_config_int("pickup_cy", 0); }
-    if (g_pickup_off < 0)    { const char *e = getenv("PICKUP_SPOOF_OFF"); g_pickup_off = e ? atoi(e) : pc_config_int("pickup_off", 4); }
-    interact_wide(ctx, addr, g_interact_rx, g_interact_ry, g_pickup_cx, g_pickup_cy, g_pickup_off, 1);
-}
+static void pickup_wide(M68KCtx *ctx, uint32_t addr) { interact_wide(ctx, addr, interact_extend_px(), 0); }
+static void lever_wide (M68KCtx *ctx, uint32_t addr) { interact_wide(ctx, addr, interact_extend_px(), 1); }
 
 /* Thin per-handler thunks (the override dispatch can't pass the address). */
 #define PK(hex) void native_pickup_##hex(M68KCtx *ctx) { pickup_wide(ctx, 0x##hex##u); }

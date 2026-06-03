@@ -4,14 +4,9 @@
   "pickup_enabled": true,
   "pickup_scan": false,
 
-  "pickup_rx": 14,
-  "pickup_ry": 12,
-  "pickup_cx": -4,
-  "pickup_cy": 0,
-  "pickup_off": 4,
-
-  "_comment2": "Interactables (levers/switches/doors): wider window, one-shot per press.",
+  "_comment2": "Interactables (levers/switches/doors): one-shot per interact-key press.",
   "interact_enabled": true,
-  "interact_rx": 24,
-  "interact_ry": 16
+
+  "_comment3": "Extra HORIZONTAL reach (px) for pickup + interaction, on top of vanilla. Vertical reach is unchanged.",
+  "interact_extend": 5
 }
