@@ -150,6 +150,8 @@ int main(int argc, char **argv)
         return 1;
     }
     pc_set_harness_mode(1);   /* harness drives stepping; skip host-rate pacing */
+    { extern int g_pc_force_load_identity_mismatch;
+      if (getenv("BENEFACTOR_FORCE_LOAD")) g_pc_force_load_identity_mismatch = 1; }
 
     /* PUAE reads joystick fire ($BFE001 bit7); configure both ports as joypads so
      * the injected fire reaches the game. */
