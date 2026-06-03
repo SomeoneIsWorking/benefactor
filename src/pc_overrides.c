@@ -107,11 +107,9 @@ void pc_register_overrides(void)
     rt_register_override_gp(0x005782B4u, native_level_setup);
     { extern void native_place_probe(M68KCtx *ctx);   /* BENEFACTOR_DBG_DROP probe */
       rt_register_override_gp(0x0057EB20u, native_place_probe); }
-    /* NOTE: drop re-gate (Fire+Down -> Interact+Down) is NOT wired yet — task #9. An
-     * input-source patch at $57DEAC was tried and reverted: the drop selection reads the
-     * engine's DECODED input ($10ac/d4), so a $f80/$bfe001 patch around $57DEAC doesn't
-     * reliably reach it. Needs the $10ac decode handled + real-carry (not poked) testing.
-     * Vanilla Fire+Down drop is left intact. */
+    /* Re-gate item DROP from Fire+Down to Interact+Down (pc_overrides_gameplay.c). */
+    { extern void native_gameplay_input(M68KCtx *ctx);
+      rt_register_override_gp(0x0057DEACu, native_gameplay_input); }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled
