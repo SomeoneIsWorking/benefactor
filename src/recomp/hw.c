@@ -260,6 +260,7 @@ static uint8_t  s_mouse_lmb = 0;    /* SPACE / RETURN (active high) */
 static uint8_t  s_fire_pressed = 0; /* any fire key pressed (active high) */
 static uint8_t  s_interact = 0;     /* dedicated INTERACT key (X) — separate from fire */
 static uint8_t  s_drop = 0;         /* dedicated DROP button — one of the drop bindings */
+static uint8_t  s_hop  = 0;         /* HOP action (separate from the Up direction) */
 void (*g_hw_boot_handoff)(void) = NULL;  /* native disk-boot → frame-loop hand-off */
 
 void hw_set_joystick(int up, int down, int left, int right, int fire)
@@ -276,7 +277,10 @@ int  hw_get_interact(void)  { return s_interact; }
 void hw_set_interact(int on) { s_interact = !!on; }
 int  hw_get_drop(void)   { return s_drop; }
 void hw_set_drop(int on)  { s_drop = !!on; }
+int  hw_get_hop(void)    { return s_hop; }
+void hw_set_hop(int on)   { s_hop = !!on; }
 void hw_set_joy_down(int on) { s_joy_down = !!on; }
+void hw_set_joy_up(int on)   { s_joy_up = !!on; }
 int  hw_joy_up(void)    { return s_joy_up; }
 int  hw_joy_down(void)  { return s_joy_down; }
 int  hw_joy_left(void)  { return s_joy_left; }
@@ -292,7 +296,8 @@ static void apply_bound_input(void)
     s_joy_left  = pc_input_active(PI_LEFT);
     s_joy_right = pc_input_active(PI_RIGHT);
     s_joy_down  = pc_input_active(PI_DOWN);
-    s_joy_up    = pc_input_active(PI_UP) || pc_input_active(PI_HOP);
+    s_joy_up    = pc_input_active(PI_UP);   /* Up direction only; HOP is separate (s_hop) */
+    s_hop       = pc_input_active(PI_HOP);
     int fire    = pc_input_active(PI_FIRE);
     s_fire_pressed = fire; if (fire) s_joy_buttons |= 1; else s_joy_buttons &= ~1;
     s_mouse_lmb = fire;                    /* fire also = port-0/menu select */
