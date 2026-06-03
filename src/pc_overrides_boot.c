@@ -121,7 +121,7 @@ void native_overlay_load(void)
      * The block copy ($6D734 -> $150) needs the boot decrunch to have populated
      * $6D734 — true at every call site (boot, or exit-to-menu after a reload). */
     overlay_load_title();
-    g_overlay_active = 1;
+    g_pc_screen = PC_SCR_OVERLAY;
 }
 
 void native_overlay_loader(M68KCtx *ctx)
@@ -150,7 +150,7 @@ void native_overlay_load_d0(void)
      * needs the boot-decrunch source at $6D734 (present after pc_common_bringup);
      * it runs before chunk 0 overwrites $6E000.. so the source is still valid. */
     overlay_load_gameplay();
-    g_overlay_active = 1;
+    g_pc_screen = PC_SCR_OVERLAY;
 }
 
 /* Override for $000150 — the loader body the game relocated to low memory and
@@ -444,9 +444,7 @@ void native_overlay_loader_reloc(M68KCtx *ctx)
         }
         /* Flip dispatch to the credits/end-game bank — different bytes at
          * $3330+ than gameplay, so the gpl table mustn't match here. */
-        g_credits_active  = 1;
-        g_gameplay_active = 0;
-        g_overlay_active  = 0;
+        g_pc_screen = PC_SCR_CREDITS;
         printf("[overlay-loader] $150 d0=3: end-game/credits overlay loaded;"
                " entering $3330 with credits bank active\n");
         rt_jump(ctx, 0x00003330u);

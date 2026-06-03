@@ -746,11 +746,13 @@ static void coro_deliver_timer_irq(void)
                 | ((uint32_t)g_chip[0x7a] << 8)  |  (uint32_t)g_chip[0x7b];
     extern int rt_intro_has_fn(uint32_t), rt_gp_has_fn(uint32_t);
     if (v6 && !rt_intro_has_fn(v6) && rt_gp_has_fn(v6)) {
-        /* Title vector: handler lives only in the title-state bank. */
-        g_overlay_active = 1;
+        /* Title vector: handler lives only in the title-state bank. Route dispatch
+         * to the overlay bank just for this call, then restore the screen. */
+        int _save_screen = g_pc_screen;
+        g_pc_screen = PC_SCR_OVERLAY;
         if (v3) call_fn(&s_game_ctx, v3);
         call_fn(&s_game_ctx, v6);
-        g_overlay_active = 0;
+        g_pc_screen = _save_screen;
     } else {
         /* Intro (all screens): the $3160 wrapper isn't recompiled, so call its
          * leaf music driver + the audio-shadow copy directly. */
@@ -854,9 +856,7 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay,
     game_thread_stop();
     memset(&s_game_ctx, 0, sizeof s_game_ctx);
     s_game_entry = entry;
-    g_overlay_active  = !gameplay;
-    g_gameplay_active = gameplay;
-    g_credits_active  = 0;
+    g_pc_screen = gameplay ? PC_SCR_GAMEPLAY : PC_SCR_OVERLAY;
     s_game_ctx.A[5] = a5;
     s_game_ctx.A[6] = 0x00DFF000u;
     s_game_ctx.A[7] = 0x00080000u;
