@@ -112,10 +112,11 @@ void pc_register_overrides(void)
     }
 
     /* Object-pickup mechanic — native port with a WIDENED pickup window
-     * (pc_overrides_pickup.c). Vanilla's ~9px one-sided horizontal range made keys
-     * almost impossible to grab unless standing right on them. Set
-     * BENEFACTOR_RECOMP_PICKUP=1 to keep the recompiled (narrow) handlers. */
-    if (getenv("PICKUP_SCAN"))               pickup_register_scan();  /* diagnostics */
-    else if (!getenv("BENEFACTOR_RECOMP_PICKUP")) pickup_register();   /* widened pickups */
+     * (pc_overrides_pickup.c). WIP: the delegate-spoof widening broke collection
+     * entirely (can't pick up anything), so it is OPT-IN (BENEFACTOR_WIDE_PICKUP=1)
+     * until root-caused — the DEFAULT is the vanilla recompiled handlers, which work
+     * (just with the narrow range). PICKUP_SCAN maps per-level collectibles. */
+    if (getenv("PICKUP_SCAN"))             pickup_register_scan();  /* diagnostics    */
+    else if (getenv("BENEFACTOR_WIDE_PICKUP")) pickup_register();   /* widened (WIP)  */
 }
 
