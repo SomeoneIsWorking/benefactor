@@ -14,6 +14,11 @@
 
 static int s_dbg_endlevel = -1;   /* BENEFACTOR_DBG_ENDLEVEL=1 logs the win/lose trigger state */
 
+/* Master switch for the opt-in modern control scheme (X = interact, X+Down = drop,
+ * Hop as its own action). Set once from "modern_controls" in pc_register_overrides;
+ * when 0 (default) the modern overrides aren't registered and controls are vanilla. */
+int g_modern_controls = 0;
+
 /* ── $578C3E — end-of-level handler ──────────────────────────────────────────
  * Reached once a level ends. A level ends two ways, both of which set bit15 of
  * $10AC(a5) (tested by $5771C0/$579532) and route here:

@@ -107,9 +107,6 @@ void pc_register_overrides(void)
     rt_register_override_gp(0x005782B4u, native_level_setup);
     { extern void native_place_probe(M68KCtx *ctx);   /* BENEFACTOR_DBG_DROP probe */
       rt_register_override_gp(0x0057EB20u, native_place_probe); }
-    /* Re-gate item DROP from Fire+Down to Interact+Down (pc_overrides_gameplay.c). */
-    { extern void native_gameplay_input(M68KCtx *ctx);
-      rt_register_override_gp(0x0057DEACu, native_gameplay_input); }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled
@@ -118,20 +115,56 @@ void pc_register_overrides(void)
         rt_register_override_gp(0x0058656Eu, native_sfx_trigger);
     }
 
-    /* Object-pickup mechanic — native port with a WIDENED, centered pickup window
-     * (pc_overrides_pickup.c). Vanilla's tiny one-sided range means you must stand
-     * almost on top of a key; the widening fixes that. Config (benefactor.json):
-     * "pickup_enabled" (default true) ON/off; "pickup_scan" (default false) maps
-     * per-level collectibles. Env still overrides: PICKUP_SCAN / BENEFACTOR_RECOMP_PICKUP. */
+    /* ── Modern controls (OPT-IN: "modern_controls", default false) ──────────────
+     * The modern scheme separates INTERACT from FIRE: X (interact) collects items,
+     * toggles levers, and — with Down — drops the carried item; Hop is its own
+     * bindable action; FIRE no longer interacts. It also widens the pickup/interact
+     * reach (vanilla's window is tiny and one-sided). All of it is implemented by
+     * three overrides — the input re-gate ($57DEAC, pc_overrides_gameplay.c) and the
+     * pickup/lever wideners (pc_overrides_pickup.c).
+     *
+     * When modern_controls is OFF (default), NONE of these are registered, so the
+     * engine's ORIGINAL handlers run: Fire does pickup/interact/drop-with-Down and
+     * Up is jump — i.e. exactly the authentic Amiga control scheme.
+     *
+     * KNOWN GAP (TODO): a few interactions are NOT yet on the interact key in modern
+     * mode and still respond to FIRE — notably PICKING UP / CARRYING MERRY MEN (you
+     * lift and toss them to spots they can't reach on their own, and move the gray
+     * "blind"/unconverted ones away from hazards). Their pick-up handlers aren't in
+     * the pickup/interact override lists (pc_overrides_pickup.c) yet; find them
+     * (PICKUP_SCAN / object-table walk) and add them so modern mode covers them.
+     *
+     * The only user config is "modern_controls" (on/off) and "interact_extend" (the
+     * reach in px). interact_extend applies in BOTH schemes — in vanilla it just
+     * extends Fire's reach; in modern it also moves the trigger to X. Debug-only env:
+     * PICKUP_SCAN (identify collectible handlers), BENEFACTOR_RECOMP_PICKUP (keep the
+     * recompiled pickup for A/B). */
     { extern int pc_config_bool(const char *, int);
+      extern void native_gameplay_input(M68KCtx *ctx);
       extern void interact_register(void);
-      int scan    = getenv("PICKUP_SCAN") ? 1 : pc_config_bool("pickup_scan", 0);
-      int enabled = getenv("BENEFACTOR_RECOMP_PICKUP") ? 0 : pc_config_bool("pickup_enabled", 1);
-      if (scan)         pickup_register_scan();   /* diagnostics */
-      else if (enabled) pickup_register();        /* widened collectibles */
-      /* Levers/switches/doors — same widening, one-shot latch (separate config). */
-      if (!scan && enabled && pc_config_bool("interact_enabled", 1))
-          interact_register();
+      extern int interact_extend_px(void);
+      extern int g_modern_controls;
+
+      int modern = getenv("BENEFACTOR_MODERN_CONTROLS")
+                     ? atoi(getenv("BENEFACTOR_MODERN_CONTROLS"))
+                     : pc_config_bool("modern_controls", 0);
+      g_modern_controls = modern;
+      int extend = interact_extend_px();
+      fprintf(stderr, "[controls] modern_controls=%d interact_extend=%d\n", modern, extend);
+
+      if (getenv("PICKUP_SCAN")) {
+          pickup_register_scan();                 /* diagnostic — identify item handlers */
+      } else {
+          if (modern)                             /* X+Down drop, hop — modern only */
+              rt_register_override_gp(0x0057DEACu, native_gameplay_input);
+          /* Pickup/interact wideners: needed in modern (X trigger) OR whenever the
+           * reach is extended in vanilla (Fire trigger + interact_extend>0). */
+          if ((modern || extend > 0) && !getenv("BENEFACTOR_RECOMP_PICKUP")) {
+              pickup_register();
+              interact_register();
+          }
+      }
+      /* else (vanilla, extend==0): no overrides; the engine's own Fire handlers run. */
     }
 }
 

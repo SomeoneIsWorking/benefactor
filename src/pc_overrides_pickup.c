@@ -60,6 +60,29 @@ static int s_interact_consumed = 0;
 static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
 {
     extern int hw_get_interact(void);
+    extern int g_modern_controls;
+
+    /* VANILLA controls: keep FIRE as the trigger and the handler's own semantics —
+     * only EXTEND the horizontal reach by `extend` px (nudge the player toward the
+     * object while fire is held so the handler's narrow window triggers sooner). No
+     * fire-clearing, no latch; with extend==0 this is a pure passthrough. This is why
+     * interact_extend works whether or not modern controls are on. */
+    if (!g_modern_controls) {
+        uint16_t s_f80 = MR16(ctx->A[5] + A5_F80);
+        uint16_t s_f94 = MR16(ctx->A[5] + A5_F94);
+        if (extend > 0 && (s_f80 & 0x20)) {            /* fire held → reach further    */
+            int objX = (int16_t)MR16(ctx->A[0] + 2u);
+            int px   = (int16_t)s_f94;
+            int d    = objX - px;
+            if (d >  extend) d =  extend;
+            if (d < -extend) d = -extend;
+            MW16(ctx->A[5] + A5_F94, (uint16_t)(px + d));
+        }
+        rt_call_generated(ctx, addr);
+        MW16(ctx->A[5] + A5_F94, s_f94);               /* restore X (f80 untouched)    */
+        return;
+    }
+
     int interact = hw_get_interact();
     if (!interact) s_interact_consumed = 0;            /* key released → rearm latch */
 
@@ -107,12 +130,12 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
 }
 
 /* Resolve the single horizontal-extend knob (env override > benefactor.json > 5). */
-static int interact_extend_px(void)
+int interact_extend_px(void)
 {
     extern int pc_config_int(const char *, int);
     if (g_interact_extend < 0) {
         const char *e = getenv("INTERACT_EXTEND");
-        g_interact_extend = e ? atoi(e) : pc_config_int("interact_extend", 5);
+        g_interact_extend = e ? atoi(e) : pc_config_int("interact_extend", 0);
         if (g_interact_extend < 0) g_interact_extend = 0;
     }
     return g_interact_extend;
