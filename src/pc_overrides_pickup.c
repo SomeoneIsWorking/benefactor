@@ -44,45 +44,50 @@ static void pickup_wide(M68KCtx *ctx, uint32_t addr)
     if (cx == -999) { const char *e = getenv("PICKUP_CX"); cx = e ? atoi(e) : 8; }
     if (cy == -999) { const char *e = getenv("PICKUP_CY"); cy = e ? atoi(e) : 0; }
 
+    static int off = -1;
+    if (off < 0) { const char *e = getenv("PICKUP_SPOOF_OFF"); off = e ? atoi(e) : 4; }
+
     int objY = (int16_t)MR16(ctx->A[0] + 0u);
     int objX = (int16_t)MR16(ctx->A[0] + 2u);
     int py   = (int16_t)MR16(ctx->A[5] + A5_F96);
     int px   = (int16_t)MR16(ctx->A[5] + A5_F94);
     int dy = (py - objY) - cy, dx = (px - objX) - cx;   /* centred on the sprite */
 
-    /* Spoof only when the player is pressing fire (alone) and is inside the
-     * centered zone — then the item's own test will collect. Otherwise vanilla. */
-    int spoof = (MR16(ctx->A[5] + A5_F80) == 0x20)
-             && dy >= -ry && dy <= ry && dx >= -rx && dx <= rx;
+    extern int hw_get_interact(void);
+    int interact = hw_get_interact();
+    int in_range = dy >= -ry && dy <= ry && dx >= -rx && dx <= rx;
+    int collect  = interact && in_range;
 
-    /* PICKUP_MEASURE: log dx/dy whenever fire is pressed and an item is anywhere
-     * near (±60px) — to calibrate the range against the on-screen distance. */
-    if (getenv("PICKUP_MEASURE") && MR16(ctx->A[5] + A5_F80) == 0x20
+    if (getenv("PICKUP_MEASURE") && interact
         && dx > -60 && dx < 60 && dy > -60 && dy < 60)
         fprintf(stderr, "[pk-measure] $%06X dx=%d dy=%d (range rx=%d ry=%d -> %s)\n",
-                addr, dx, dy, rx, ry, spoof ? "IN" : "out");
+                addr, dx, dy, rx, ry, collect ? "IN" : "out");
 
-    uint16_t sy = 0, sx = 0;
-    if (spoof) {
+    /* Decouple INTERACT from FIRE. The vanilla handler collects when $f80==$20
+     * (fire alone) AND the player is in its narrow window — which is why holding
+     * fire to charge a long-jump grabs the item. We instead:
+     *  - on the INTERACT key (in our wider window): present the player at the item
+     *    hotspot + set fire-alone so the handler's gate passes -> collect;
+     *  - otherwise: CLEAR the fire bit for this handler so fire never picks up,
+     *    leaving fire free for long-jump. $f80 is restored before any other code. */
+    uint16_t s_f80 = MR16(ctx->A[5] + A5_F80), sy = 0, sx = 0;
+    if (collect) {
         sy = MR16(ctx->A[5] + A5_F96);
         sx = MR16(ctx->A[5] + A5_F94);
-        /* Present the player at the item's hotspot, not its raw (a0) coord: the
-         * handler compares the player against a slightly-offset coord (e.g. $586C10
-         * adds 4 to Y). A small +offset lands inside the one-sided window. Tunable
-         * via PICKUP_SPOOF_OFF. Works for STATIC collectibles (keys); a moving item
-         * whose per-frame physics ($5869e2) shifts the coord won't match. */
-        static int off = -1;
-        if (off < 0) { const char *e = getenv("PICKUP_SPOOF_OFF"); off = e ? atoi(e) : 4; }
         MW16(ctx->A[5] + A5_F96, (uint16_t)(objY + off));
         MW16(ctx->A[5] + A5_F94, (uint16_t)(objX + off));
+        MW16(ctx->A[5] + A5_F80, 0x20);             /* fire-alone -> gate passes   */
+    } else {
+        MW16(ctx->A[5] + A5_F80, (uint16_t)(s_f80 & ~0x20));  /* free fire for jump */
     }
     uint16_t pre_obj = MR16(ctx->A[0]);
     rt_call_generated(ctx, addr);                   /* the item's own full logic   */
-    if (spoof) {
+    MW16(ctx->A[5] + A5_F80, s_f80);                /* restore input              */
+    if (collect) {
         if (getenv("PICKUP_LOG"))
-            fprintf(stderr, "[pickup] $%06X dx=%d dy=%d  collected=%d\n",
+            fprintf(stderr, "[pickup] $%06X dx=%d dy=%d collected=%d\n",
                     addr, dx, dy, MR16(ctx->A[0]) != pre_obj);
-        MW16(ctx->A[5] + A5_F96, sy);               /* restore before the tail runs */
+        MW16(ctx->A[5] + A5_F96, sy);
         MW16(ctx->A[5] + A5_F94, sx);
         if (MR16(ctx->A[0]) != pre_obj) g_native_pickup_hits++;
     }

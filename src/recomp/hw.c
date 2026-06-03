@@ -257,6 +257,7 @@ static uint8_t  s_joy_buttons = 0;   /* bit 0 = fire (Z/LCTRL) */
 static uint8_t  s_joy_up = 0, s_joy_down = 0, s_joy_left = 0, s_joy_right = 0;
 static uint8_t  s_mouse_lmb = 0;    /* SPACE / RETURN (active high) */
 static uint8_t  s_fire_pressed = 0; /* any fire key pressed (active high) */
+static uint8_t  s_interact = 0;     /* dedicated INTERACT key (X) — separate from fire */
 void (*g_hw_boot_handoff)(void) = NULL;  /* native disk-boot → frame-loop hand-off */
 
 void hw_set_joystick(int up, int down, int left, int right, int fire)
@@ -269,6 +270,8 @@ int  hw_get_fire(void)     { return s_fire_pressed; }
 int  hw_get_mouse_lmb(void) { return s_mouse_lmb; }
 void hw_set_fire(int on)   { s_fire_pressed = on; if (on) s_joy_buttons |= 1; else s_joy_buttons &= ~1; }
 void hw_set_mouse_lmb(int on) { s_mouse_lmb = on; }
+int  hw_get_interact(void)  { return s_interact; }
+void hw_set_interact(int on) { s_interact = !!on; }
 int  hw_joy_up(void)    { return s_joy_up; }
 int  hw_joy_down(void)  { return s_joy_down; }
 int  hw_joy_left(void)  { return s_joy_left; }
@@ -360,6 +363,9 @@ void hw_handle_key(int sym, int down)
     case SDLK_RETURN:
         if (down) s_joy_buttons |= 1; else s_joy_buttons &= ~1;
         s_fire_pressed = down; s_mouse_lmb = down; break;
+    case SDLK_x:        /* dedicated INTERACT (pickup/lever) — separate from fire */
+    case SDLK_LSHIFT:
+        s_interact = down; break;
     case SDLK_l:   /* debug: force LEVEL COMPLETE (the teleport win) */
         if (down) { extern void pc_debug_complete_level(void); pc_debug_complete_level(); }
         break;
