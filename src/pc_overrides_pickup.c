@@ -51,6 +51,13 @@ static void pickup_wide(M68KCtx *ctx, uint32_t addr)
     int spoof = (MR16(ctx->A[5] + A5_F80) == 0x20)
              && dy >= -ry && dy <= ry && dx >= -rx && dx <= rx;
 
+    /* PICKUP_MEASURE: log dx/dy whenever fire is pressed and an item is anywhere
+     * near (±60px) — to calibrate the range against the on-screen distance. */
+    if (getenv("PICKUP_MEASURE") && MR16(ctx->A[5] + A5_F80) == 0x20
+        && dx > -60 && dx < 60 && dy > -60 && dy < 60)
+        fprintf(stderr, "[pk-measure] $%06X dx=%d dy=%d (range rx=%d ry=%d -> %s)\n",
+                addr, dx, dy, rx, ry, spoof ? "IN" : "out");
+
     uint16_t sy = 0, sx = 0;
     if (spoof) {
         g_native_pickup_hits++;
