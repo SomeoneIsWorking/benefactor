@@ -8,5 +8,10 @@
   "pickup_ry": 12,
   "pickup_cx": -4,
   "pickup_cy": 0,
-  "pickup_off": 4
+  "pickup_off": 4,
+
+  "_comment2": "Interactables (levers/switches/doors): wider window, one-shot per press.",
+  "interact_enabled": true,
+  "interact_rx": 24,
+  "interact_ry": 16
 }

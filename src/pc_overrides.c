@@ -119,10 +119,14 @@ void pc_register_overrides(void)
      * "pickup_enabled" (default true) ON/off; "pickup_scan" (default false) maps
      * per-level collectibles. Env still overrides: PICKUP_SCAN / BENEFACTOR_RECOMP_PICKUP. */
     { extern int pc_config_bool(const char *, int);
+      extern void interact_register(void);
       int scan    = getenv("PICKUP_SCAN") ? 1 : pc_config_bool("pickup_scan", 0);
       int enabled = getenv("BENEFACTOR_RECOMP_PICKUP") ? 0 : pc_config_bool("pickup_enabled", 1);
       if (scan)         pickup_register_scan();   /* diagnostics */
-      else if (enabled) pickup_register();        /* widened */
+      else if (enabled) pickup_register();        /* widened collectibles */
+      /* Levers/switches/doors — same widening, one-shot latch (separate config). */
+      if (!scan && enabled && pc_config_bool("interact_enabled", 1))
+          interact_register();
     }
 }
 
