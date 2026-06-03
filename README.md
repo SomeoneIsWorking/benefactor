@@ -103,7 +103,7 @@ Optional tunables live in a JSON file `benefactor.json` next to the disks (copy
 | `interact_enabled` | `true` | Same extended reach + interact key for levers/switches/doors (one trigger per key press). |
 | `interact_extend` | `5` | Extra **horizontal** (X) reach in pixels for pickup + interaction, on top of each object's vanilla window. Vertical reach is unchanged. |
 | `pickup_scan` | `false` | Debug: log which collectible handler each item uses. |
-| `bind_left/right/up/down/hop/fire/interact/drop` | see below | **Key bindings.** Each value is a comma-separated list of *chords*; a chord is keys joined by `+` (e.g. `"X+Down, C, RShift"`). Names: `Up/Down/Left/Right`, `Space`, `Return`, `LShift/RShift`, `LCtrl/Ctrl/RCtrl`, `Tab`, single letters/digits. Omit a line to keep its default. `hop` is a separate action from `up` (bind it to its own key/button — useful for gamepads where stick-up would hop by accident). |
+| `bind_left/right/up/down/hop/fire/interact/drop` | see below | **Key bindings.** Each value is a comma-separated list of *chords*; a chord is keys joined by `+` (e.g. `"X+Down, C, RShift"`). Names: `Up/Down/Left/Right`, `Space`, `Return`, `LShift/RShift`, `LCtrl/Ctrl/RCtrl`, `Tab`, single letters/digits. Omit a line to keep its default. `hop` is a separate bindable jump trigger (in addition to the Up direction) — handy for a gamepad face button. The Up direction stays fully vanilla (hop / enter door / climb / menu). |
 
 ## How it runs
 
