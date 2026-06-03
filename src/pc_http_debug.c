@@ -147,7 +147,7 @@ static void handle_poke(int fd, const char *q)
  * changed). Lets the debugger move the player, fire, and interact without a window. */
 static void handle_input(int fd, const char *q)
 {
-    extern void hw_set_interact(int), hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_drop(int);
+    extern void hw_set_interact(int), hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_drop(int), hw_set_hop(int);
     extern void hw_set_joystick(int,int,int,int,int);
     char b[8];
     int interact = query_get(q, "interact", b, sizeof b) ? atoi(b) : 0;
@@ -157,14 +157,16 @@ static void handle_input(int fd, const char *q)
     int l = query_get(q, "l", b, sizeof b) ? atoi(b) : 0;
     int r = query_get(q, "r", b, sizeof b) ? atoi(b) : 0;
     int drop = query_get(q, "drop", b, sizeof b) ? atoi(b) : 0;
+    int hop  = query_get(q, "hop", b, sizeof b) ? atoi(b) : 0;
     hw_set_joystick(u, d, l, r, fire);
     hw_set_mouse_lmb(fire);
     hw_set_interact(interact);
     hw_set_drop(drop);
-    char body[160];
+    hw_set_hop(hop);
+    char body[192];
     int n = snprintf(body, sizeof body,
-        "{\"ok\":true,\"interact\":%d,\"fire\":%d,\"u\":%d,\"d\":%d,\"l\":%d,\"r\":%d,\"drop\":%d}\n",
-        interact, fire, u, d, l, r, drop);
+        "{\"ok\":true,\"interact\":%d,\"fire\":%d,\"u\":%d,\"d\":%d,\"l\":%d,\"r\":%d,\"drop\":%d,\"hop\":%d}\n",
+        interact, fire, u, d, l, r, drop, hop);
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 

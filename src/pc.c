@@ -68,7 +68,9 @@ void pc_set_harness_mode(int on) { s_harness_mode = on; hw_set_no_pace(on); }
  * save/restore mirrors the CPU stacking registers across an interrupt. */
 static void call_fn(M68KCtx *ctx, uint32_t addr)
 {
-    PC_LOG("-> $%06X\n", addr);
+    static int trc = -1;
+    if (trc < 0) trc = getenv("BENEFACTOR_IRQ_TRACE") ? 1 : 0;
+    if (trc) PC_LOG("-> $%06X\n", addr);
     uint32_t sa[8], sd[8];
     uint8_t n=ctx->N,z=ctx->Z,v=ctx->V,c=ctx->C,x=ctx->X;
     for (int i=0;i<8;i++) sa[i]=ctx->A[i];
@@ -77,7 +79,7 @@ static void call_fn(M68KCtx *ctx, uint32_t addr)
     for (int i=0;i<8;i++) ctx->A[i]=sa[i];
     for (int i=0;i<8;i++) ctx->D[i]=sd[i];
     ctx->N=n;ctx->Z=z;ctx->V=v;ctx->C=c;ctx->X=x;
-    PC_LOG("<- $%06X\n", addr);
+    if (trc) PC_LOG("<- $%06X\n", addr);
 }
 
 /* ── Game loop (single path: disk-boot coroutine) ───────────────────────────── */

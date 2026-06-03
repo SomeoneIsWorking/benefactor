@@ -78,11 +78,25 @@ void native_end_of_level(M68KCtx *ctx)
 void native_gameplay_input(M68KCtx *ctx)
 {
     extern int hw_get_interact(void), hw_get_fire(void), hw_get_mouse_lmb(void);
-    extern int hw_joy_down(void), hw_get_drop(void);
-    extern void hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_joy_down(int);
+    extern int hw_joy_down(void), hw_get_drop(void), hw_joy_up(void), hw_get_hop(void);
+    extern void hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_joy_down(int), hw_set_joy_up(int);
 
     int down = hw_joy_down();
     int drop = (hw_get_interact() && down) || hw_get_drop();   /* logical DROP binding */
+
+    /* HOP / UP separation. The engine hops on the up bit ($08) while grounded — but it
+     * also climbs ladders + navigates menus with up. So gate the UP *direction*'s hop on
+     * the player being airborne, and let a separate HOP binding hop unconditionally:
+     *   engine up = Hop  OR  (Up direction AND not grounded)
+     * Grounded (can-hop) = player pose $f84==4 (4 standing/walking, 0 airborne; a ladder
+     * is a distinct pose, so up still climbs there). With the default keyboard bind
+     * (hop=Up) both fire together so Up still hops; bind hop to its own key/button and the
+     * Up direction stops hopping while grounded (the gamepad goal). */
+    int up_dir   = hw_joy_up();
+    int grounded = (MR16(ctx->A[5] + 0xF84u) == 4);
+    int want_up  = hw_get_hop() || (up_dir && !grounded);
+    int up_restore = (want_up != up_dir);
+    if (up_restore) hw_set_joy_up(want_up);
 
     int restore = 0, sf = 0, sl = 0, sd = 0;
     if (drop) {
@@ -99,6 +113,7 @@ void native_gameplay_input(M68KCtx *ctx)
     gfn_gpl_57DEAC(ctx);
 
     if (restore) { hw_set_fire(sf); hw_set_mouse_lmb(sl); if (drop && !sd) hw_set_joy_down(0); }
+    if (up_restore) hw_set_joy_up(up_dir);
 
     if (getenv("BENEFACTOR_DBG_DROP") && (drop || down))
         fprintf(stderr, "[drop-input] f80=%04X interact=%d down=%d dropbtn=%d -> drop=%d\n",
