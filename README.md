@@ -82,9 +82,9 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 | Key | Action |
 |-----|--------|
 | Arrows | Move (also: navigate menus; ←/→ cycles level in the LEVEL SELECT panel) |
-| Z / Ctrl / Space / Return | Fire / Action / Jump / Menu select |
-| X / Left Shift | **Interact** — pick up items, pull levers (separate from Fire, so you can long-jump while standing on an item) |
-| X + Down, or C / Right Shift | **Drop** the carried item (two bindings, both work). Down alone still goes prone — dropping never triggers prone, and Fire+Down no longer drops |
+| Z / Ctrl / Space / Return | Fire / Action / Jump / Menu select. With default (vanilla) controls, Fire also picks up items, pulls levers, and drops with Down. |
+| X / Left Shift | **Interact** — pick up items, pull levers (*requires `modern_controls: true`*; separate from Fire, so you can long-jump while standing on an item) |
+| X + Down, or C / Right Shift | **Drop** the carried item (*requires `modern_controls: true`*). Down alone still goes prone — dropping never triggers prone, and Fire+Down no longer drops |
 | Esc | In-game **pause menu** (Resume / Retry / Exit to main menu / Quit); elsewhere it quits |
 | TAB | Cycle real-time speed (1× / 2× / 4×) |
 | S / D | Save / load a savestate (`logs/savestate.bin`) |
@@ -99,11 +99,9 @@ Optional tunables live in a JSON file `benefactor.json` next to the disks (copy
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `pickup_enabled` | `true` | Extend the reach for item pickup onto the interact key (vanilla is so narrow you must stand on the item, and uses fire). |
-| `interact_enabled` | `true` | Same extended reach + interact key for levers/switches/doors (one trigger per key press). |
-| `interact_extend` | `5` | Extra **horizontal** (X) reach in pixels for pickup + interaction, on top of each object's vanilla window. Vertical reach is unchanged. |
-| `pickup_scan` | `false` | Debug: log which collectible handler each item uses. |
-| `bind_left/right/up/down/hop/fire/interact/drop` | see below | **Key bindings.** Each value is a comma-separated list of *chords*; a chord is keys joined by `+` (e.g. `"X+Down, C, RShift"`). Names: `Up/Down/Left/Right`, `Space`, `Return`, `LShift/RShift`, `LCtrl/Ctrl/RCtrl`, `Tab`, single letters/digits. Omit a line to keep its default. `hop` is a separate bindable jump trigger (in addition to the Up direction) — handy for a gamepad face button. The Up direction stays fully vanilla (hop / enter door / climb / menu). |
+| `modern_controls` | `false` | **Opt-in modern control scheme.** `false` = authentic Amiga controls (Fire does pickup/interact/drop-with-Down, Up = jump). `true` enables X = interact/pickup, X+Down = drop, a separate Hop action, and Fire no longer interacts. The interact/hop/drop bindings only apply when this is on. *(Known gap: a few interactions — e.g. picking up / carrying merry men — still respond to Fire in modern mode.)* |
+| `interact_extend` | `5` | Extra **horizontal** (X) reach in pixels for pickup + interaction, on top of each object's vanilla window (vertical reach unchanged). Applies in **both** schemes — in vanilla it just extends Fire's reach; in modern it also moves the trigger to X. Set `0` for the exact original reach. |
+| `bind_left/right/up/down/hop/fire/interact/drop` | see below | **Key bindings.** Each value is a comma-separated list of *chords*; a chord is keys joined by `+` (e.g. `"X+Down, C, RShift"`). Names: `Up/Down/Left/Right`, `Space`, `Return`, `LShift/RShift`, `LCtrl/Ctrl/RCtrl`, `Tab`, single letters/digits. Omit a line to keep its default. `interact`/`hop`/`drop` only do anything with `modern_controls: true`; `hop` is a separate jump trigger (the Up direction stays fully vanilla — jump / enter door / climb / menu). |
 
 ## How it runs
 

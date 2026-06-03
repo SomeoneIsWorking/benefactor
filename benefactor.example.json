@@ -1,14 +1,11 @@
 {
   "_comment": "Copy to benefactor.json (next to the disks) to tune. Env vars override these.",
 
-  "pickup_enabled": true,
-  "pickup_scan": false,
+  "_comment0": "Modern controls (X = interact/pickup, X+Down = drop, Hop as its own action, FIRE no longer interacts). OFF by default = authentic Amiga scheme (FIRE does pickup/interact/drop-with-Down, Up = jump). interact_extend and the interact/hop/drop bindings below only take effect when this is true.",
+  "modern_controls": false,
 
-  "_comment2": "Interactables (levers/switches/doors): one-shot per interact-key press.",
-  "interact_enabled": true,
-
-  "_comment3": "Extra HORIZONTAL reach (px) for pickup + interaction, on top of vanilla. Vertical reach is unchanged.",
-  "interact_extend": 5,
+  "_comment1": "Extra HORIZONTAL reach (px) for pickup + interaction, on top of vanilla (vertical unchanged). Applies in BOTH schemes (vanilla extends Fire's reach; modern moves it to X). 0 = exact original reach. Try 15 if pickups feel too fiddly.",
+  "interact_extend": 0,
 
   "_comment4": "Key bindings. Each value is a comma-separated list of CHORDS; a chord is keys joined by '+'. Names: Up/Down/Left/Right, Space, Return, LShift/RShift, LCtrl/Ctrl/RCtrl, Tab, single letters/digits. Omit any line to keep the default shown.",
   "bind_left":     "Left",
