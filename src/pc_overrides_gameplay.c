@@ -82,19 +82,21 @@ void native_gameplay_input(M68KCtx *ctx)
     extern void hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_joy_down(int), hw_set_joy_up(int);
 
     int down = hw_joy_down();
-    int drop = (hw_get_interact() && down) || hw_get_drop();   /* logical DROP binding */
 
-    /* HOP / UP separation. The engine hops on the up bit ($08) while grounded — but it
-     * also climbs ladders + navigates menus with up. So gate the UP *direction*'s hop on
-     * the player being airborne, and let a separate HOP binding hop unconditionally:
-     *   engine up = Hop  OR  (Up direction AND not grounded)
-     * Grounded (can-hop) = player pose $f84==4 (4 standing/walking, 0 airborne; a ladder
-     * is a distinct pose, so up still climbs there). With the default keyboard bind
-     * (hop=Up) both fire together so Up still hops; bind hop to its own key/button and the
-     * Up direction stops hopping while grounded (the gamepad goal). */
+    /* DROP only when actually carrying ($1094!=0). Forcing fire+down with empty hands
+     * drives the engine into its throw/place-empty-handed path ($57EB16, an uncovered
+     * dispatch target) and crashes — and you can't drop nothing anyway, so this is the
+     * correct condition, not just a guard. Without it, X-while-prone (X+Down, no item)
+     * crashed. */
+    int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
+    int drop = carrying && ((hw_get_interact() && down) || hw_get_drop());
+
+    /* HOP: a dedicated Hop binding ORs into the up/jump input. The Up *direction* is left
+     * fully vanilla — it hops, enters doors, climbs ladders and drives menus, exactly as
+     * the engine intends. (An earlier grounded-gate that suppressed up-hop while standing
+     * was wrong: it broke up-to-enter-door.) */
     int up_dir   = hw_joy_up();
-    int grounded = (MR16(ctx->A[5] + 0xF84u) == 4);
-    int want_up  = hw_get_hop() || (up_dir && !grounded);
+    int want_up  = up_dir || hw_get_hop();
     int up_restore = (want_up != up_dir);
     if (up_restore) hw_set_joy_up(want_up);
 
