@@ -68,6 +68,8 @@ void hw_audio_sfx_stop(int ch);
 /* Get/set current input state (shared between harness and hw.c). */
 int  hw_get_fire(void);
 int  hw_get_mouse_lmb(void);
+int  hw_get_interact(void);          /* dedicated interact key (X/LShift), not fire */
+void hw_set_interact(int on);
 void hw_set_fire(int on);
 void hw_set_mouse_lmb(int on);
 void hw_set_no_pace(int on);

@@ -159,10 +159,10 @@ int main(int argc, char **argv)
     int win_inited = 0;
     if (headed) { harness_combined_init(); win_inited = 1; harness_combined_present(); }
 
-    int fire = 0;
+    int fire = 0, interact = 0;
     int ju = 0, jd = 0, jl = 0, jr = 0;   /* held joystick directions */
     #define STEP_PC() do { g_harness_compared_frame++; hw_set_joystick(ju, jd, jl, jr, fire); \
-                           hw_set_mouse_lmb(fire); pc_step(); \
+                           hw_set_mouse_lmb(fire); hw_set_interact(interact); pc_step(); \
                            if (headed) harness_combined_present(); } while (0)
     #define STEP_PU() do { g_harness_compared_frame++; input_force_fire(fire); \
                            input_force_dir(ju, jd, jl, jr); \
@@ -344,6 +344,9 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(cmd, "fire")) {
             sscanf(line, "%*s %d", &fire); printf("[crepl] fire=%d\n", fire);
+        }
+        else if (!strcmp(cmd, "interact")) {   /* interact [0|1] — hold the dedicated interact key (pickup/lever) */
+            sscanf(line, "%*s %d", &interact); printf("[crepl] interact=%d\n", interact);
         }
         else if (!strcmp(cmd, "goto")) {  /* goto <N> — restart PC coroutine at level N (1..60), bypassing title */
             int n = 0; sscanf(line, "%*s %d", &n);
