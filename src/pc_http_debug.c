@@ -248,6 +248,14 @@ static void handle_request(int fd, char *req)
         extern void pc_debug_game_over(void); pc_debug_game_over();
         send_response(fd, "200 OK", "text/plain", "death triggered\n", 16);
     }
+    else if (!strcmp(path, "/recent")) {         /* debug: recent rt_call targets (oldest..newest) */
+        extern int rt_recent_snapshot(uint32_t *out, int max);
+        uint32_t r[48]; int n = rt_recent_snapshot(r, 48);
+        char body[1024]; int p = 0;
+        for (int i = 0; i < n && p < (int)sizeof body - 10; i++)
+            p += snprintf(body + p, sizeof body - p, "%06X\n", r[i]);
+        send_response(fd, "200 OK", "text/plain", body, (size_t)p);
+    }
     else if (!strcmp(path, "/")) {
         const char *help =
             "Benefactor debug HTTP. Endpoints:\n"

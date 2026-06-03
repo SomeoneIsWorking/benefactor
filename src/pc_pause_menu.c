@@ -94,17 +94,27 @@ void pc_pause_input_select(void)
  * To keep this file free of pc.c internals, exposes one helper. */
 extern void pc_request_cold_restart(void);
 
-static void do_retry_current_level(void)
+/* Restart the CURRENT level from the top (→ level card → cavern). Same
+ * mechanism as the REPL `goto N` command: keep $20.w at its current value (so
+ * the level table dispatcher picks this level), point gameplay_entry at $577000,
+ * and ask pc_step_threaded to respawn the game thread there. Only sets flags —
+ * the actual thread teardown/respawn happens on the main loop in
+ * pc_step_threaded — so this is safe to call from inside the game thread too
+ * (e.g. the native game-over transition). Exposed for pc_overrides_gameplay.c. */
+void pc_request_level_restart(void)
 {
-    /* Same mechanism as the REPL `goto N` command: keep $20.w at its
-     * current value (so the level table dispatcher picks this level),
-     * point gameplay_entry at $577000, and ask pc_step_coro to restart
-     * the coroutine. Naturally walks through level-card → cavern. */
+    extern int g_pc_restart_reinit;
     g_gameplay_entry = 0x577000u;
     g_enter_gameplay = 1;
+    g_pc_restart_reinit = 1;   /* re-decrunch overlay + re-pin card sentinels on restart */
     /* We're restarting into gameplay; set the screen so dispatch routes to the
      * gpl bank even if we somehow came from credits (the restart re-confirms it). */
     g_pc_screen = PC_SCR_GAMEPLAY;
+}
+
+static void do_retry_current_level(void)
+{
+    pc_request_level_restart();
 }
 
 /* Called at the TOP of pc_step. If there's a pending menu action, perform it
