@@ -30,19 +30,27 @@ unsigned long g_native_sfx_trigger_hits = 0;
 void native_sfx_trigger(M68KCtx *ctx)
 {
     g_native_sfx_trigger_hits++;
-    if (getenv("SFX_NATIVE_LOG"))
-        fprintf(stderr, "[native-sfx] trigger #%lu a3=$%06X\n",
-                g_native_sfx_trigger_hits, (unsigned)ctx->A[3]);
 
     const uint32_t src = ctx->A[3];      /* &new sound descriptor             */
     const uint32_t cur = 0x57fe50u;      /* active descriptor slot            */
+    const char *log = getenv("SFX_NATIVE_LOG");
+    extern int hw_get_frame_num(void);
 
     if (MR8(0x57fe4e)) {                 /* a sound is currently playing      */
         uint16_t new_pri = MR16(src + 0x10);
         uint16_t cur_pri = MR16(cur + 0x10);
-        if (new_pri < cur_pri) return;                              /* lower → keep */
-        if (new_pri == cur_pri && MR16(src + 6) < MR16(cur + 6)) return; /* tie, quieter → keep */
+        if (new_pri < cur_pri ||         /* lower → keep / tie+quieter → keep */
+            (new_pri == cur_pri && MR16(src + 6) < MR16(cur + 6))) {
+            if (log) fprintf(stderr, "[native-sfx] f%d #%lu a3=$%06X pri=%u vol=%u "
+                             "REJECTED (active pri=%u)\n", hw_get_frame_num(),
+                             g_native_sfx_trigger_hits, (unsigned)src,
+                             (unsigned)new_pri, (unsigned)MR16(src+6), (unsigned)cur_pri);
+            return;
+        }
     }
+    if (log) fprintf(stderr, "[native-sfx] f%d #%lu a3=$%06X pri=%u vol=%u PLAY\n",
+                     hw_get_frame_num(), g_native_sfx_trigger_hits, (unsigned)src,
+                     (unsigned)MR16(src+0x10), (unsigned)MR16(src+6));
 
     MW16(0x586610u, 0);                  /* reset ping-pong buffer selector   */
     MW32(0x57fe78u, MR32(src));          /* stable base sample ptr            */

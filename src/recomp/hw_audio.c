@@ -50,8 +50,22 @@ static void hw_audio_mix(short *buf, int nsamples)
 {
     static int s_only_ch = -2;   /* AUDCH_ONLY: render only this channel (debug) */
     if (s_only_ch == -2) { const char *e = getenv("AUDCH_ONLY"); s_only_ch = e ? atoi(e) : -1; }
+    /* AUDIO_SFX_ONLY: isolate SFX from music WITHOUT touching the CIA timer (which
+     * BENEFACTOR_MUTE_MUSIC freezes, stalling GET READY + SFX output). Music and SFX
+     * share the voice channels; the engine's own pending flags say which is which:
+     *   $57fe4e=$FF -> ch0 is streaming SFX; $57fe4f=$FF -> ch1 is SFX.
+     * So pass ch0/ch1 only while their SFX flag is set, and drop ch2/ch3 (pure
+     * music). Reads the game's authoritative flag — a faithful capture filter. */
+    static int s_sfx_only = -2;
+    if (s_sfx_only == -2) s_sfx_only = getenv("AUDIO_SFX_ONLY") ? 1 : 0;
+    extern uint8_t *g_mem;
     for (int ch = 0; ch < 4; ch++) {
         if (s_only_ch >= 0 && ch != s_only_ch) continue;
+        if (s_sfx_only) {
+            if (ch == 0 && !g_mem[0x57fe4e]) continue;
+            if (ch == 1 && !g_mem[0x57fe4f]) continue;
+            if (ch >= 2) continue;
+        }
         AudioChannel *a = &s_audio[ch];
         if (!a->active) continue;
 
