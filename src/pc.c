@@ -503,6 +503,14 @@ int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
 int g_pc_pending_save = 0;
 int g_pc_pending_load = 0;
 
+/* Set by pc_request_level_restart (pause-menu Retry, native game-over → level
+ * card). When the restart actually fires in pc_step_threaded, re-decrunch the
+ * gameplay overlay + re-pin the card-render sentinels first, so the entry starts
+ * from pristine chip RAM regardless of what the previous screen (e.g. the
+ * game-over menu, which overwrites the display page $38628 + the $3e/$184/$100
+ * card chain) left behind. Done on the main loop with the game thread parked. */
+int g_pc_restart_reinit = 0;
+
 /* ── Game thread + ping-pong handoff ────────────────────────────────────────────
  * The game runs on its own OS thread; the SDL main thread paces frames. They
  * hand off cooperatively via a condvar so EXACTLY ONE runs at a time (no data
@@ -1016,6 +1024,23 @@ int pc_step_threaded(void)
     }
     if (g_enter_gameplay) {
         g_enter_gameplay = 0;
+        /* Full re-init for a level RESTART (pause Retry / native game-over). We're
+         * on the main thread with the game parked, so it's safe to re-decrunch the
+         * overlay + re-pin the card sentinels (same contract as pc_init_to_gameplay)
+         * — this resets the chip RAM the previous screen corrupted. Preserve $20.w
+         * (current level) across the reload. */
+        if (g_pc_restart_reinit) {
+            g_pc_restart_reinit = 0;
+            extern void native_overlay_load_d0(void), pc_preload_all_level_names(void);
+            uint8_t lv = g_mem[0x21];
+            native_overlay_load_d0();
+            for (uint32_t a = 0x3eu; ; a = 0x184u) {
+                g_mem[a] = 0x00; g_mem[a+1] = 0x00; g_mem[a+2] = 0x0A; g_mem[a+3] = 0x68;
+                if (a == 0x184u) break;
+            }
+            pc_preload_all_level_names();
+            g_mem[0x20] = 0x00; g_mem[0x21] = lv;
+        }
         pc_cps_start_at(g_gameplay_entry, 0x0057EE12u, /*gameplay=*/1,
                         /*d5=*/0x00001000u, /*d6=*/0x0000FFFFu);
         printf("[game] restarting game thread into gameplay $%06X\n", g_gameplay_entry);

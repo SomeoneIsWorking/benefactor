@@ -67,7 +67,53 @@ void native_end_of_level(M68KCtx *ctx)
     if (getenv("BENEFACTOR_GO_TRACE"))
         fprintf(stderr, "[GO] $578C3E enter $1E=%u cop1lc=%06X $10AC=%04X\n",
                 r16(GP_MODE_001E), hw_get_cop1lc(), r16(ctx->A[5] + GP_FLAGS_10AC));
-    gfn_gpl_578C3E(ctx);
+    gfn_gpl_578C3E(ctx);   /* let the banner play; the menu is intercepted at $585AC6 */
+}
+
+/* ── $59C5B0 — card/menu screen renderer: port the game-over transition ───────
+ * $59C5B0 renders BOTH the in-game level card AND the CONTINUE/GAME OVER screen
+ * (same cop1lc $003914), keyed by bit6 of $1093. On death the engine runs the
+ * game-over screen ($578C74: skull banner → CONTINUE/GAME OVER menu) which, once
+ * a choice is made, transitions by jumping back into the gameplay engine to
+ * reload the level (CONTINUE → $5770D0 / GAME OVER → $57731C). Those raw jumps
+ * reset a7 and re-run gameplay setup from DEEP in the call stack — which hangs in
+ * our threaded model (rt_jump is a same-frame trampoline, it can't unwind the C
+ * stack the way a real m68k jmp does).
+ *
+ * Port the transition to the engine-faithful destination — "reload the current
+ * level" — via the clean PC re-entry we already own: respawn the game thread at
+ * $577000 for the current $20.w level (pc_request_level_restart, the same call
+ * the pause-menu Retry uses → level card → cavern). We take it the moment the
+ * game-over screen begins, so the player goes straight to the level card to retry
+ * instead of the CONTINUE/GAME OVER menu.
+ *
+ * Discriminator: bit6 of $1093 — set ($60) for the whole game-over screen, clear
+ * ($80) during gameplay and the in-game level card. Verified the ONLY writer is
+ * `bset #6,$1093` at $578C84 (the game-over setup), so this never fires on a win
+ * or normal play. Read it ABSOLUTE at $57FEA5, NOT a5-relative: by the time
+ * $59C5B0 runs, $59BA7A has done `movea.l a6,a5` so a5 = $DFF000. */
+void native_gameover_menu(M68KCtx *ctx)
+{
+    uint8_t f = MR8(0x57FEA5u);        /* $1093: bit6 game-over, bit5 menu-phase */
+    if (getenv("BENEFACTOR_GO_TRACE"))
+        fprintf(stderr, "[GO] $59C5B0 $57FEA5=%02X cop1lc=%06X\n", f, hw_get_cop1lc());
+    /* Banner phase = bit6 set, bit5 clear ($40): leave it alone so the skull
+     * GAME OVER animation + fade play in full. Menu phase = bit6+bit5 ($60): the
+     * banner has faded and the engine is about to show the CONTINUE/GAME OVER
+     * menu. Redirect THERE to the level card (reload current level) via the clean
+     * thread re-entry we already own. */
+    if ((f & 0x60u) == 0x60u) {
+        extern void pc_request_level_restart(void);
+        MW8(0x57FEA5u, f & ~0x60u);    /* drop the markers for a clean restarted state */
+        pc_request_level_restart();    /* respawn at $577000 (current level) → level card */
+        if (getenv("BENEFACTOR_GO_TRACE"))
+            fprintf(stderr, "[GO] menu phase → reload current level (level card)\n");
+        /* Set-flags-and-return (the proven $150 hand-off pattern): we skip the
+         * menu render; the flow parks at its next vblank wait and pc_step_threaded
+         * tears this thread down and respawns at $577000. */
+        return;
+    }
+    gfn_gpl_59C5B0(ctx);               /* banner / in-game level card → render as usual */
 }
 
 /* ── $57DEAC — gameplay input read: re-gate item DROP onto the interact key ────

@@ -103,6 +103,12 @@ void pc_register_overrides(void)
     /* Gameplay flow (pc_overrides_gameplay.c) — native maps of game-flow
      * decisions. $578C3E is the end-of-level trigger (game-over vs next level). */
     rt_register_override_gp(0x00578C3Eu, native_end_of_level);
+    /* $59C5B0 = card/menu screen renderer. Native game-over transition: when the
+     * CONTINUE/GAME OVER screen begins (bit6 of $1093), reload the current level
+     * (→ level card) instead of showing the menu, via the clean thread re-entry.
+     * See native_gameover_menu. */
+    { extern void native_gameover_menu(M68KCtx *ctx);
+      rt_register_override_gp(0x0059C5B0u, native_gameover_menu); }
     rt_register_override_gp(0x0059DC02u, native_level_load);
     rt_register_override_gp(0x005782B4u, native_level_setup);
     { extern void native_place_probe(M68KCtx *ctx);   /* BENEFACTOR_DBG_DROP probe */
