@@ -84,6 +84,7 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 | Arrows | Move (also: navigate menus; ←/→ cycles level in the LEVEL SELECT panel) |
 | Z / Ctrl / Space / Return | Fire / Action / Jump / Menu select |
 | X / Left Shift | **Interact** — pick up items, pull levers (separate from Fire, so you can long-jump while standing on an item) |
+| X + Down, or C / Right Shift | **Drop** the carried item (two bindings, both work). Down alone still goes prone — dropping never triggers prone, and Fire+Down no longer drops |
 | Esc | In-game **pause menu** (Resume / Retry / Exit to main menu / Quit); elsewhere it quits |
 | TAB | Cycle real-time speed (1× / 2× / 4×) |
 | S / D | Save / load a savestate (`logs/savestate.bin`) |
