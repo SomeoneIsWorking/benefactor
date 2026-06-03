@@ -33,6 +33,8 @@ int disk_boot_open(const char *const *paths, int n)
         fseek(s_disk[i], 0, SEEK_END);
         s_disk_sz[i] = (uint32_t)ftell(s_disk[i]);
         rewind(s_disk[i]);
+        if (getenv("DISKBOOT_LOG"))
+            fprintf(stderr, "[diskboot] opened[%d] '%s' size=%u\n", i, paths[i], s_disk_sz[i]);
         opened++;
     }
     return opened > 0 ? 0 : -1;

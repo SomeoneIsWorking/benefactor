@@ -13,9 +13,16 @@ extern uint8_t *g_mem;
 
 /* main / intro bank: the boot loader's Load(Disk.1 @$1880, $2442E -> $3000) +
  * ATN! decrunch. Mirrors the step in pc_common_bringup. */
+#include <stdio.h>
+#include <stdlib.h>
 void overlay_load_main(void)
 {
-    disk_boot_load(1, 0x1880u, 0x3000u, 0x2442Eu);
+    int got = disk_boot_load(1, 0x1880u, 0x3000u, 0x2442Eu);
+    if (getenv("DISKBOOT_LOG")) {
+        uint32_t m = ((uint32_t)g_mem[0x3000]<<24)|((uint32_t)g_mem[0x3001]<<16)
+                   | ((uint32_t)g_mem[0x3002]<<8)|g_mem[0x3003];
+        fprintf(stderr, "[overlay_load_main] disk_boot_load got=%d magic@3000=$%08X (ATN!=$41544E21)\n", got, m);
+    }
     atn_decrunch(0x3000u);
 }
 

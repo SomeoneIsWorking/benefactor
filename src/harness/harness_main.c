@@ -84,49 +84,55 @@ int main(int argc, char **argv)
      * otherwise drop the buffered loader/diagnostic output). */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
-    if (argc < 4) {
-        fprintf(stderr,
-            "Usage: %s <kick_dir> <whdload_path> <disk1> [disk2] [disk3] [--headed]\n"
-            "\n"
-            "Boots PUAE (reference) and the PC port (native disk boot) and drops\n"
-            "into a REPL. The two cores run INDEPENDENTLY (no lockstep).\n"
-            "\n"
-            "REPL commands:\n"
-            "  fire 0|1   hold/release fire+start on BOTH cores\n"
-            "  pc [n]     advance the PC port n frames (default 1)\n"
-            "  pu [n]     advance PUAE n frames (default 1)\n"
-            "  both [n]   advance both n frames, interleaved (no comparison)\n"
-            "  state      print each core's cop1lc\n"
-            "  cmp        framebuffer pixel-diff PC vs PUAE\n"
-            "  fb         dump logs/fb_pc.bin + logs/fb_puae.bin\n"
-            "  q          quit\n",
-            argv[0]);
-        return 1;
-    }
-
-    const char *kick_dir   = argv[1];
-    const char *whdload_path = argv[2];
+    /* Invocation matches the standalone PC port: disk files are POSITIONAL.
+     *   benefactor-harness Disk.1 [Disk.2] [Disk.3] [flags]
+     * PUAE (the reference oracle) restores a frozen save-state (logs/puae_sync.state),
+     * so it does NOT need a real Kickstart ROM or WHDLoad path for normal runs — it
+     * mounts an empty drive and relies entirely on the restored state. The --kick /
+     * --whdload flags are only needed for BENEFACTOR_REFREEZE=1 (a fresh PUAE boot to
+     * regenerate the sync state). This removes the old confusing positional
+     * <kick> <whdload> <disk...> convention that silently consumed Disk.1/Disk.2. */
+    const char *kick_dir     = "kickstart";   /* placeholder; unused unless REFREEZE */
+    const char *whdload_path = "whdload/Benefactor";
     const char *disks[4]   = { NULL };
     int n_disks = 0;
     int headed  = 0;
     int play_mode = 0;
     int direct_level = 0;   /* 0 = full title boot; 1..60 = jump straight to that level */
-    for (int i = 3; i < argc; i++) {
+    for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headed")) headed = 1;
         else if (!strcmp(argv[i], "--play")) { play_mode = 1; headed = 1; }
         else if (!strcmp(argv[i], "--level") && i + 1 < argc) {
             direct_level = atoi(argv[++i]);
         }
+        else if (!strcmp(argv[i], "--kick") && i + 1 < argc)    kick_dir = argv[++i];
+        else if (!strcmp(argv[i], "--whdload") && i + 1 < argc) whdload_path = argv[++i];
         else if (n_disks < 3)             disks[n_disks++] = argv[i];
     }
-    if (n_disks < 1) { fprintf(stderr, "[harness] need at least disk1\n"); return 1; }
+    if (n_disks < 1) {
+        fprintf(stderr,
+            "Usage: %s <disk1> [disk2] [disk3] [--headed] [--play] [--level N]\n"
+            "                          [--kick DIR] [--whdload PATH]\n"
+            "\n"
+            "Boots PUAE (reference, from logs/puae_sync.state) and the PC port\n"
+            "(native disk boot) and drops into a REPL. Cores run INDEPENDENTLY.\n"
+            "Disk files are positional, exactly like ./benefactor-pc.\n"
+            "--kick/--whdload are only needed with BENEFACTOR_REFREEZE=1.\n"
+            "\n"
+            "REPL: fire 0|1 | pc [n] | pu [n] | both [n] | state | cmp | fb | q\n",
+            argv[0]);
+        return 1;
+    }
 
     printf("[harness] === BENEFACTOR PC vs PUAE compare (no lockstep) ===\n");
     fflush(stdout);
 
-    /* Boot PUAE (reference oracle) and leave it ready to step via retro_run(). */
+    /* Boot PUAE (reference oracle) and leave it ready to step via retro_run().
+     * DIAGNOSTIC: BENEFACTOR_SKIP_PUAE=1 skips the PUAE core entirely so the PC
+     * boot can be observed in isolation (PUAE-dependent REPL cmds will crash). */
     char chip_ram_path[512] = "";
-    if (run_puae_phase(kick_dir, whdload_path, /*boot_frames*/5000, /*n_frames*/1,
+    if (!getenv("BENEFACTOR_SKIP_PUAE") &&
+        run_puae_phase(kick_dir, whdload_path, /*boot_frames*/5000, /*n_frames*/1,
                        chip_ram_path, sizeof chip_ram_path,
                        /*display_only*/0, /*interactive*/1) < 0)
         return 1;
@@ -256,6 +262,53 @@ int main(int argc, char **argv)
             FrameState c; hw_get_snap(&c);
             printf("[crepl] runtocard: %s after %u frames (cop1lc=$%06X)\n",
                    pc_is_title_card_displayed() ? "REACHED" : "gave up", i + (i < maxf), c.cop1lc);
+        }
+        else if (!strcmp(cmd, "rungame")) {
+            /* rungame — ONE reliable drive into controllable gameplay (level 1 via
+             * PLAY GAME), from wherever we are (boot, menu, or the level card).
+             * For an arbitrary level, launch with `--level N` (lands on the card)
+             * and then `rungame` dismisses the card + waits out GET READY.
+             *
+             * The flow has three gates, each needing a specific input:
+             *   menu  ($008302): hold fire to confirm PLAY GAME (cursor 0)
+             *   card  ($003914): a fire EDGE (release→press) starts the level
+             *   GET READY overlay on gameplay ($003484): clears on a timer
+             * Each stage is detected by cop1lc, not a magic frame count, so it
+             * stays correct if timings drift. */
+            #define COP_MENU 0x008302u
+            #define COP_CARD 0x003914u
+            #define COP_PLAY 0x003484u
+            int saved_fire = fire; unsigned i;
+            /* 1. intro -> menu: the cover-art/attract is a hold-fire gate, so hold
+             * fire to advance to the menu (skipped if --level put us past it). */
+            if (hw_get_cop1lc() != COP_CARD && hw_get_cop1lc() != COP_PLAY) {
+                fire = 1;
+                for (i = 0; i < 3000 && hw_get_cop1lc() != COP_MENU; i++) STEP_PC();
+                /* settle the menu fade-in with fire released */
+                fire = 0; for (i = 0; i < 12; i++) STEP_PC();
+            }
+            /* 2. menu -> card: confirm PLAY GAME (cursor 0) by holding fire. */
+            if (hw_get_cop1lc() == COP_MENU) {
+                fire = 1;
+                for (i = 0; i < 600 && hw_get_cop1lc() != COP_CARD; i++) STEP_PC();
+                fire = 0;
+            }
+            /* (if --level landed us straight on the card, steps 1-2 are no-ops) */
+            /* 3. card -> gameplay: a clean fire edge. */
+            if (hw_get_cop1lc() == COP_CARD) {
+                fire = 0; for (i = 0; i < 12; i++) STEP_PC();
+                fire = 1;
+                for (i = 0; i < 600 && hw_get_cop1lc() != COP_PLAY; i++) STEP_PC();
+                fire = 0;
+            }
+            /* 4. wait out the GET READY banner so the player is controllable. */
+            for (i = 0; i < 500; i++) STEP_PC();
+            fire = saved_fire;
+            printf("[crepl] rungame: cop1lc=$%06X %s\n", hw_get_cop1lc(),
+                   hw_get_cop1lc() == COP_PLAY ? "(in gameplay)" : "(NOT in gameplay)");
+            #undef COP_MENU
+            #undef COP_CARD
+            #undef COP_PLAY
         }
         else if (!strcmp(cmd, "lnames")) {
             /* Print the current world's level names in PLAY order, via the
