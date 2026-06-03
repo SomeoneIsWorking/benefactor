@@ -4,9 +4,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <unistd.h>
 
 static volatile int s_running = 1;
-static void handler(int sig) { (void)sig; s_running = 0; }
+/* SIGINT/SIGTERM: exit promptly. The old handler only set s_running, which nothing
+ * checked, so the process ignored TERM (needed kill -9). _exit is async-signal-safe
+ * and guarantees the process actually dies. */
+static void handler(int sig) { (void)sig; s_running = 0; _exit(0); }
 
 int main(int argc, char **argv)
 {

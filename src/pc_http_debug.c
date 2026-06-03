@@ -143,6 +143,46 @@ static void handle_poke(int fd, const char *q)
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
+/* /input?interact=1&fire=0&u=0&d=0&l=0&r=0 — drive the game over HTTP (held until
+ * changed). Lets the debugger move the player, fire, and interact without a window. */
+static void handle_input(int fd, const char *q)
+{
+    extern void hw_set_interact(int), hw_set_fire(int), hw_set_mouse_lmb(int);
+    extern void hw_set_joystick(int,int,int,int,int);
+    char b[8];
+    int interact = query_get(q, "interact", b, sizeof b) ? atoi(b) : 0;
+    int fire = query_get(q, "fire", b, sizeof b) ? atoi(b) : 0;
+    int u = query_get(q, "u", b, sizeof b) ? atoi(b) : 0;
+    int d = query_get(q, "d", b, sizeof b) ? atoi(b) : 0;
+    int l = query_get(q, "l", b, sizeof b) ? atoi(b) : 0;
+    int r = query_get(q, "r", b, sizeof b) ? atoi(b) : 0;
+    hw_set_joystick(u, d, l, r, fire);
+    hw_set_mouse_lmb(fire);
+    hw_set_interact(interact);
+    char body[128];
+    int n = snprintf(body, sizeof body,
+        "{\"ok\":true,\"interact\":%d,\"fire\":%d,\"u\":%d,\"d\":%d,\"l\":%d,\"r\":%d}\n",
+        interact, fire, u, d, l, r);
+    send_response(fd, "200 OK", "application/json", body, (size_t)n);
+}
+
+/* /pickup?rx=&ry=&cx=&cy=&off= — live-tune the pickup window (calibration). */
+static void handle_pickup(int fd, const char *q)
+{
+    extern int g_pickup_rx, g_pickup_ry, g_pickup_cx, g_pickup_cy, g_pickup_off;
+    char b[8];
+    if (query_get(q, "rx", b, sizeof b))  g_pickup_rx  = atoi(b);
+    if (query_get(q, "ry", b, sizeof b))  g_pickup_ry  = atoi(b);
+    if (query_get(q, "cx", b, sizeof b))  g_pickup_cx  = atoi(b);
+    if (query_get(q, "cy", b, sizeof b))  g_pickup_cy  = atoi(b);
+    if (query_get(q, "off", b, sizeof b)) g_pickup_off = atoi(b);
+    char body[160];
+    int n = snprintf(body, sizeof body,
+        "{\"rx\":%d,\"ry\":%d,\"cx\":%d,\"cy\":%d,\"off\":%d}\n",
+        g_pickup_rx, g_pickup_ry, g_pickup_cx, g_pickup_cy, g_pickup_off);
+    send_response(fd, "200 OK", "application/json", body, (size_t)n);
+}
+
 static void handle_fb(int fd, int as_ppm)
 {
     const uint32_t *fb = hw_get_framebuffer();
@@ -190,6 +230,8 @@ static void handle_request(int fd, char *req)
     if      (!strcmp(path, "/state"))   handle_state(fd);
     else if (!strcmp(path, "/mem"))     handle_mem(fd, query);
     else if (!strcmp(path, "/poke"))    handle_poke(fd, query);
+    else if (!strcmp(path, "/input"))   handle_input(fd, query);
+    else if (!strcmp(path, "/pickup"))  handle_pickup(fd, query);
     else if (!strcmp(path, "/fb.ppm"))  handle_fb(fd, 1);
     else if (!strcmp(path, "/fb.bin"))  handle_fb(fd, 0);
     else if (!strcmp(path, "/")) {

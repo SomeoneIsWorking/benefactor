@@ -31,21 +31,19 @@
 
 unsigned long g_native_pickup_hits = 0;
 
-/* Shared: widen the pickup radius for one collectible handler, delegating the
- * actual collect to the recompiled body. `addr` = the handler being overridden. */
+/* Pickup window params — runtime-tunable (env defaults, live via HTTP /pickup).
+ * cx/cy bias the window onto the sprite centre ($f94 is a player edge, so there's
+ * an intrinsic ~player-width bias); rx/ry = half-window; off = spoof hotspot. */
+int g_pickup_rx = -1, g_pickup_ry = -1, g_pickup_cx = -999, g_pickup_cy = -999, g_pickup_off = -1;
+
 static void pickup_wide(M68KCtx *ctx, uint32_t addr)
 {
-    static int rx = -1, ry = -1, cx = -999, cy = -999;
-    if (rx < 0)     { const char *e = getenv("PICKUP_RX"); rx = e ? atoi(e) : 12; }
-    if (ry < 0)     { const char *e = getenv("PICKUP_RY"); ry = e ? atoi(e) : 10; }
-    /* The object coord is its LEFT edge, so a window centered on it reaches into
-     * the sprite on the right (only-left pickup). cx/cy bias the window onto the
-     * sprite centre so it's symmetric. Tunable: PICKUP_CX / PICKUP_CY. */
-    if (cx == -999) { const char *e = getenv("PICKUP_CX"); cx = e ? atoi(e) : 8; }
-    if (cy == -999) { const char *e = getenv("PICKUP_CY"); cy = e ? atoi(e) : 0; }
-
-    static int off = -1;
-    if (off < 0) { const char *e = getenv("PICKUP_SPOOF_OFF"); off = e ? atoi(e) : 4; }
+    if (g_pickup_rx  < 0)    { const char *e = getenv("PICKUP_RX");  g_pickup_rx  = e ? atoi(e) : 12; }
+    if (g_pickup_ry  < 0)    { const char *e = getenv("PICKUP_RY");  g_pickup_ry  = e ? atoi(e) : 12; }
+    if (g_pickup_cx  == -999){ const char *e = getenv("PICKUP_CX");  g_pickup_cx  = e ? atoi(e) : 0; }
+    if (g_pickup_cy  == -999){ const char *e = getenv("PICKUP_CY");  g_pickup_cy  = e ? atoi(e) : 0; }
+    if (g_pickup_off < 0)    { const char *e = getenv("PICKUP_SPOOF_OFF"); g_pickup_off = e ? atoi(e) : 4; }
+    int rx = g_pickup_rx, ry = g_pickup_ry, cx = g_pickup_cx, cy = g_pickup_cy, off = g_pickup_off;
 
     int objY = (int16_t)MR16(ctx->A[0] + 0u);
     int objX = (int16_t)MR16(ctx->A[0] + 2u);
