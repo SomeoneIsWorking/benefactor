@@ -13,3 +13,4 @@
 void pc_config_load(void);                          /* load benefactor.json / $BENEFACTOR_CONFIG */
 int  pc_config_int (const char *key, int def);      /* number, or def if absent  */
 int  pc_config_bool(const char *key, int def);      /* true/false/1/0, or def    */
+int  pc_config_str (const char *key, char *out, int cap); /* quoted string → out; 1 if found */

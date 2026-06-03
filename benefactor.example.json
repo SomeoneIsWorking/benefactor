@@ -8,5 +8,15 @@
   "interact_enabled": true,
 
   "_comment3": "Extra HORIZONTAL reach (px) for pickup + interaction, on top of vanilla. Vertical reach is unchanged.",
-  "interact_extend": 5
+  "interact_extend": 5,
+
+  "_comment4": "Key bindings. Each value is a comma-separated list of CHORDS; a chord is keys joined by '+'. Names: Up/Down/Left/Right, Space, Return, LShift/RShift, LCtrl/Ctrl/RCtrl, Tab, single letters/digits. Omit any line to keep the default shown.",
+  "bind_left":     "Left",
+  "bind_right":    "Right",
+  "bind_up":       "Up",
+  "bind_down":     "Down",
+  "bind_hop":      "Up",
+  "bind_fire":     "Z, LCtrl, Space, Return",
+  "bind_interact": "X, LShift",
+  "bind_drop":     "X+Down, C, RShift"
 }
