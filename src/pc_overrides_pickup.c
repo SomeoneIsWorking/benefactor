@@ -38,11 +38,13 @@ int g_pickup_rx = -1, g_pickup_ry = -1, g_pickup_cx = -999, g_pickup_cy = -999, 
 
 static void pickup_wide(M68KCtx *ctx, uint32_t addr)
 {
-    if (g_pickup_rx  < 0)    { const char *e = getenv("PICKUP_RX");  g_pickup_rx  = e ? atoi(e) : 12; }
-    if (g_pickup_ry  < 0)    { const char *e = getenv("PICKUP_RY");  g_pickup_ry  = e ? atoi(e) : 12; }
-    if (g_pickup_cx  == -999){ const char *e = getenv("PICKUP_CX");  g_pickup_cx  = e ? atoi(e) : 0; }
-    if (g_pickup_cy  == -999){ const char *e = getenv("PICKUP_CY");  g_pickup_cy  = e ? atoi(e) : 0; }
-    if (g_pickup_off < 0)    { const char *e = getenv("PICKUP_SPOOF_OFF"); g_pickup_off = e ? atoi(e) : 4; }
+    extern int pc_config_int(const char *, int);
+    /* env override > benefactor.json > default. -1/-999 = "not yet resolved". */
+    if (g_pickup_rx  < 0)    { const char *e = getenv("PICKUP_RX");  g_pickup_rx  = e ? atoi(e) : pc_config_int("pickup_rx", 14); }
+    if (g_pickup_ry  < 0)    { const char *e = getenv("PICKUP_RY");  g_pickup_ry  = e ? atoi(e) : pc_config_int("pickup_ry", 12); }
+    if (g_pickup_cx  == -999){ const char *e = getenv("PICKUP_CX");  g_pickup_cx  = e ? atoi(e) : pc_config_int("pickup_cx", -4); }
+    if (g_pickup_cy  == -999){ const char *e = getenv("PICKUP_CY");  g_pickup_cy  = e ? atoi(e) : pc_config_int("pickup_cy", 0); }
+    if (g_pickup_off < 0)    { const char *e = getenv("PICKUP_SPOOF_OFF"); g_pickup_off = e ? atoi(e) : pc_config_int("pickup_off", 4); }
     int rx = g_pickup_rx, ry = g_pickup_ry, cx = g_pickup_cx, cy = g_pickup_cy, off = g_pickup_off;
 
     int objY = (int16_t)MR16(ctx->A[0] + 0u);

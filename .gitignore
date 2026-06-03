@@ -34,3 +34,6 @@ __pycache__
 .claude/
 .vscode/
 scratch/
+
+# User config (copy from benefactor.example.json)
+/benefactor.json

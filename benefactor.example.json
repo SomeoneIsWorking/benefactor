@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy to benefactor.json (next to the disks) to tune. Env vars override these.",
+
+  "pickup_enabled": true,
+  "pickup_scan": false,
+
+  "pickup_rx": 14,
+  "pickup_ry": 12,
+  "pickup_cx": -4,
+  "pickup_cy": 0,
+  "pickup_off": 4
+}
