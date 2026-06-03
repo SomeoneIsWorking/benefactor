@@ -102,9 +102,9 @@ static void do_retry_current_level(void)
      * the coroutine. Naturally walks through level-card → cavern. */
     g_gameplay_entry = 0x577000u;
     g_enter_gameplay = 1;
-    /* If the engine somehow left credits_active set (shouldn't, but be
-     * defensive — restart drops us back into gameplay context). */
-    g_credits_active = 0;
+    /* We're restarting into gameplay; set the screen so dispatch routes to the
+     * gpl bank even if we somehow came from credits (the restart re-confirms it). */
+    g_pc_screen = PC_SCR_GAMEPLAY;
 }
 
 /* Called at the TOP of pc_step. If there's a pending menu action, perform it

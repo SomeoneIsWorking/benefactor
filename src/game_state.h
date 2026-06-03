@@ -55,11 +55,11 @@ typedef struct GameState {
     /* ── Paula audio channel state ───────────────────────────────────────── */
     AudioChannel audio[4];
 
-    /* ── Runtime bank routing (rt.c uses these to pick credits vs gpl vs
-     *    gp vs intro) ─────────────────────────────────────────────────── */
-    int overlay_active;
-    int gameplay_active;
-    int credits_active;
+    /* ── Current screen / active bank — single source of truth ───────────────
+     * rt.c picks credits vs gpl vs gp vs intro from this. The overlay/gameplay/
+     * credits "active" flags are DERIVED from it (read-only macros below), so they
+     * can never disagree. Set it via g_pc_screen = PC_SCR_*, not the flags. */
+    int screen;     /* PC_SCR_* (see enum in this header) */
 
     /* ── Game-state machine (cross-coroutine restart flags) ──────────────── */
     int      enter_gameplay;
@@ -97,9 +97,14 @@ extern GameState g_state;
 #define s_ciab_icr_mask           (g_state.ciab_icr_mask)
 #define s_audio                   (g_state.audio)
 
-#define g_overlay_active          (g_state.overlay_active)
-#define g_gameplay_active         (g_state.gameplay_active)
-#define g_credits_active          (g_state.credits_active)
+/* The current screen / active bank (single source of truth). INTRO = the cold
+ * boot + intro/logos/cover-art (none of the overlay banks active). */
+enum { PC_SCR_INTRO = 0, PC_SCR_OVERLAY, PC_SCR_GAMEPLAY, PC_SCR_CREDITS };
+#define g_pc_screen               (g_state.screen)
+/* DERIVED, read-only — do NOT assign these; set g_pc_screen instead. */
+#define g_overlay_active          (g_state.screen == PC_SCR_OVERLAY)
+#define g_gameplay_active         (g_state.screen == PC_SCR_GAMEPLAY)
+#define g_credits_active          (g_state.screen == PC_SCR_CREDITS)
 #define g_enter_gameplay          (g_state.enter_gameplay)
 #define g_gameplay_entry          (g_state.gameplay_entry)
 #define g_pc_start_level          (g_state.pc_start_level)
