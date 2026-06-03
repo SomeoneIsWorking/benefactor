@@ -37,6 +37,7 @@ static inline int _hwtrace_enabled(void) {
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "../pc_input.h"
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Amiga OCS register offsets (relative to $DFF000)                           */
@@ -281,6 +282,24 @@ int  hw_joy_down(void)  { return s_joy_down; }
 int  hw_joy_left(void)  { return s_joy_left; }
 int  hw_joy_right(void) { return s_joy_right; }
 
+/* Derive the engine input flags from the resolved (config-bound) actions. Called after
+ * every gameplay key event. Up = Up direction OR a separate Hop binding — so a dedicated
+ * hop key/button works while the Up direction still drives menus + ladders. (Suppressing
+ * hop on the Up *direction* while grounded — so stick-up only climbs — needs a grounded/
+ * on-ladder signal that isn't pinned yet; see pc_input + the input task.) */
+static void apply_bound_input(void)
+{
+    s_joy_left  = pc_input_active(PI_LEFT);
+    s_joy_right = pc_input_active(PI_RIGHT);
+    s_joy_down  = pc_input_active(PI_DOWN);
+    s_joy_up    = pc_input_active(PI_UP) || pc_input_active(PI_HOP);
+    int fire    = pc_input_active(PI_FIRE);
+    s_fire_pressed = fire; if (fire) s_joy_buttons |= 1; else s_joy_buttons &= ~1;
+    s_mouse_lmb = fire;                    /* fire also = port-0/menu select */
+    s_interact  = pc_input_active(PI_INTERACT);
+    s_drop      = pc_input_active(PI_DROP);
+}
+
 /* Single keyboard→input-state mapper, shared by the standalone
  * (hw_present_frame) and the harness (input.c) so there is exactly one input
  * path. 'sym' is an SDL keysym; window-level events (QUIT/ESC/F11/mouse) stay
@@ -331,16 +350,11 @@ void hw_handle_key(int sym, int down)
         }
     }
 
-    switch (sym) {
-    case SDLK_UP:
-    case SDLK_DOWN:
-    case SDLK_LEFT:
-    case SDLK_RIGHT: {
-        /* When the title menu's LEVEL SELECT panel is open, the arrows
-         * navigate the panel (↑/↓ = ±1 level, ←/→ = jump by world).
-         * Otherwise they fall through to normal joystick / menu nav. */
+    /* Title-menu LEVEL SELECT panel: arrows navigate the panel, not the game. */
+    {
         extern int g_level_select_visible;
-        if (down && g_level_select_visible) {
+        if (down && g_level_select_visible &&
+            (sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT || sym == SDLK_RIGHT)) {
             int cur = pc_get_start_level();
             if (cur < 1) cur = 1;
             int w, liw; pc_level_split(cur, &w, &liw);
@@ -351,28 +365,17 @@ void hw_handle_key(int sym, int down)
                 case SDLK_LEFT:  pc_set_start_level(pc_world_first_level(w > 0 ? w - 1 : 0)); break;
                 case SDLK_RIGHT: pc_set_start_level(pc_world_first_level(w < PC_NUM_WORLDS - 1 ? w + 1 : w)); break;
             }
-            break;
+            return;
         }
-        switch (sym) {
-            case SDLK_UP:    s_joy_up    = down; break;
-            case SDLK_DOWN:  s_joy_down  = down; break;
-            case SDLK_LEFT:  s_joy_left  = down; break;
-            case SDLK_RIGHT: s_joy_right = down; break;
-        }
-        break;
     }
-    case SDLK_z:
-    case SDLK_LCTRL:
-    case SDLK_SPACE:
-    case SDLK_RETURN:
-        if (down) s_joy_buttons |= 1; else s_joy_buttons &= ~1;
-        s_fire_pressed = down; s_mouse_lmb = down; break;
-    case SDLK_x:        /* dedicated INTERACT (pickup/lever) — separate from fire */
-    case SDLK_LSHIFT:
-        s_interact = down; break;
-    case SDLK_c:        /* dedicated DROP button (one binding; X+Down is the other) */
-    case SDLK_RSHIFT:
-        s_drop = down; break;
+
+    /* Gameplay / menu input — resolved through the config-bound action layer
+     * (pc_input). Movement, hop, fire, interact and drop are all remappable. */
+    pc_input_load();
+    pc_input_key(sym, down);
+    apply_bound_input();
+
+    switch (sym) {
     case SDLK_l:   /* debug: force LEVEL COMPLETE (the teleport win) */
         if (down) { extern void pc_debug_complete_level(void); pc_debug_complete_level(); }
         break;

@@ -57,3 +57,19 @@ int pc_config_bool(const char *key, int def)
     if (!strncmp(v, "false", 5)) return 0;
     return (int)strtol(v, NULL, 0) != 0;
 }
+
+/* Copy a quoted string value into out (NUL-terminated, truncated to cap). Returns 1 on
+ * success, 0 if the key is absent or not a string. */
+int pc_config_str(const char *key, char *out, int cap)
+{
+    const char *v = find_value(key);
+    if (!v || *v != '"' || cap <= 0) return 0;
+    v++;
+    int i = 0;
+    while (*v && *v != '"' && i < cap - 1) {
+        if (*v == '\\' && v[1]) v++;      /* allow simple escapes */
+        out[i++] = *v++;
+    }
+    out[i] = 0;
+    return 1;
+}
