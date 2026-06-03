@@ -55,6 +55,24 @@ void native_end_of_level(M68KCtx *ctx)
     gfn_gpl_578C3E(ctx);
 }
 
+/* ── $57731C — CONTINUE / GAME OVER menu (the convergence point) ──────────────
+ * $578C3E's $1E==8 branch jmps here, but TWO other functions also jmp straight to
+ * $57731C, so steering $1E at $578C3E alone doesn't catch every game-over (that was
+ * the bug: the menu still appeared). Overriding the menu itself catches all paths.
+ *
+ * Bypass: the skull "GAME OVER" banner has already shown by the time we reach the
+ * menu; instead of drawing CONTINUE/GAME OVER, take the normal lost-a-life path —
+ * force $1E != 8 and run the raw end-of-level handler, whose reload branch ($578C74)
+ * replays the level via the level card. Net effect: death always returns to the
+ * level card to retry (no continue/game-over menu). */
+void native_continue_menu(M68KCtx *ctx)
+{
+    if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
+    if (s_dbg_endlevel) fprintf(stderr, "[continue-menu] $57731C bypassed -> level card reload\n");
+    MW16(GP_MODE_001E, 2);     /* != 8 → $578C3E reload branch ($578C74) → level card */
+    gfn_gpl_578C3E(ctx);
+}
+
 /* ── $57DEAC — gameplay input read: re-gate item DROP onto the interact key ────
  * Drop = the only carried-item action (throw unused): Fire+Down while carrying ($1094).
  * The drop is selected by the engine's decoded-input state machine, so we steer it at
