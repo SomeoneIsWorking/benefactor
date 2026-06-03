@@ -98,10 +98,9 @@ Optional tunables live in a JSON file `benefactor.json` next to the disks (copy
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `pickup_enabled` | `true` | Widened interact range for item pickup (vanilla is so narrow you must stand on the item). |
-| `pickup_rx` / `pickup_ry` | `14` / `12` | Pickup half-window (px) in X / Y. |
-| `pickup_cx` / `pickup_cy` | `-4` / `0` | Re-center the window on the sprite (the player coord is an edge). |
-| `pickup_off` | `4` | Hotspot offset used when collecting. |
+| `pickup_enabled` | `true` | Extend the reach for item pickup onto the interact key (vanilla is so narrow you must stand on the item, and uses fire). |
+| `interact_enabled` | `true` | Same extended reach + interact key for levers/switches/doors (one trigger per key press). |
+| `interact_extend` | `5` | Extra **horizontal** (X) reach in pixels for pickup + interaction, on top of each object's vanilla window. Vertical reach is unchanged. |
 | `pickup_scan` | `false` | Debug: log which collectible handler each item uses. |
 
 ## How it runs

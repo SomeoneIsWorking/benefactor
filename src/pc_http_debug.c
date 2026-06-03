@@ -166,20 +166,14 @@ static void handle_input(int fd, const char *q)
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
-/* /pickup?rx=&ry=&cx=&cy=&off= — live-tune the pickup window (calibration). */
+/* /pickup?extend=N — live-tune the extra horizontal pickup/interaction reach (px). */
 static void handle_pickup(int fd, const char *q)
 {
-    extern int g_pickup_rx, g_pickup_ry, g_pickup_cx, g_pickup_cy, g_pickup_off;
+    extern int g_interact_extend;
     char b[8];
-    if (query_get(q, "rx", b, sizeof b))  g_pickup_rx  = atoi(b);
-    if (query_get(q, "ry", b, sizeof b))  g_pickup_ry  = atoi(b);
-    if (query_get(q, "cx", b, sizeof b))  g_pickup_cx  = atoi(b);
-    if (query_get(q, "cy", b, sizeof b))  g_pickup_cy  = atoi(b);
-    if (query_get(q, "off", b, sizeof b)) g_pickup_off = atoi(b);
-    char body[160];
-    int n = snprintf(body, sizeof body,
-        "{\"rx\":%d,\"ry\":%d,\"cx\":%d,\"cy\":%d,\"off\":%d}\n",
-        g_pickup_rx, g_pickup_ry, g_pickup_cx, g_pickup_cy, g_pickup_off);
+    if (query_get(q, "extend", b, sizeof b)) g_interact_extend = atoi(b);
+    char body[64];
+    int n = snprintf(body, sizeof body, "{\"interact_extend\":%d}\n", g_interact_extend);
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
