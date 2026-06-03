@@ -46,9 +46,14 @@
     directly the blit sources here — need to RE the level-setup ($5782B4) that builds the
     $02xxxx source bitmap, OR the scroll code that picks columns. Buffers via
     `$67A/$67E/$682(a5)`.
-  - **Next concrete steps (next session, fresh context):** (1) Read `$67A/$67E/$682(a5)`
-    on the loaded save to map the three planar pages ($02/$03/$04xxxx) to their roles
-    (which is display, which is the wide source). (2) Find the level-setup code that fills
+  - **Page roles (read on the level-9 save):** `$67A(a5)=$67E(a5)=$038628` → the DISPLAY
+    double-buffer page (region $03 = the blit chain's final dest). `$682(a5)=$5A251C` →
+    a pointer into the gameplay overlay's LEVEL DATA ($5Axxxx) — prime candidate for the
+    tilemap / level structure to decode. (The $02/$04xxxx pages are the compose/scroll
+    work buffers.)
+  - **Next concrete steps (next session, fresh context):** (1) RE the structure at
+    `$682(a5)`=$5A251C and nearby $5Axxxx tables → tilemap array + tile-graphics base +
+    level width. (2) Find the level-setup code that fills
     the source bitmap from level data → that reveals the real tilemap + tile graphics +
     level width. (3) Either render natively from the tilemap (true B) OR — simpler given
     the planar pages — if a page already holds MORE than 320px of decoded terrain, decode
