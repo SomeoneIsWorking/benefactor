@@ -516,6 +516,7 @@ int g_pc_pending_load = 0;
  *
  * s_turn: 1 = the game thread runs, 0 = the main thread runs (game parked). */
 static uint32_t s_game_entry   = 0x003000u;   /* address the game thread runs from */
+static int      s_game_resume  = 0;           /* 1 = re-enter via rt_resume (savestate load) */
 /* s_game_done lives on g_state (macro): set when the game flow returns from rt_call */
 
 static pthread_t       s_game_thread;
@@ -558,7 +559,10 @@ static void *game_thread_main(void *arg)
     pthread_mutex_unlock(&s_hand_mtx);
     if (exit_req) return NULL;
 
-    rt_call(&s_game_ctx, s_game_entry);    /* the whole game flow (never normally returns) */
+    if (s_game_resume)
+        rt_resume(&s_game_ctx, s_game_entry);  /* savestate load: re-enter mid-cycle (no a7 push) */
+    else
+        rt_call(&s_game_ctx, s_game_entry);    /* the whole game flow (never normally returns) */
 
     { extern uint32_t rt_get_last_insn(void);
       fprintf(stderr, "[game] flow RETURNED from $%06X (last insn $%06X)\n",
@@ -620,7 +624,9 @@ int pc_step(void)
 
     if (g_pc_pending_load) {
         g_pc_pending_load = 0;
-        pc_loadstate("logs/savestate.bin");
+        extern void pc_toast_show(const char *, int);
+        if (pc_loadstate("logs/savestate.bin") == 0) pc_toast_show("STATE LOADED", 0);
+        else pc_toast_show("LOAD FAILED (no/old savestate)", 1);
     }
     if (!hw_running) return 1;
 
@@ -640,7 +646,15 @@ int pc_step(void)
     hw_watchdog_disarm();
     if (g_pc_pending_save) {
         g_pc_pending_save = 0;
-        pc_savestate("logs/savestate.bin");
+        extern int  pc_savestate_allowed(const char **);
+        extern void pc_toast_show(const char *, int);
+        const char *reason = NULL;
+        if (!pc_savestate_allowed(&reason))
+            pc_toast_show(reason ? reason : "Cannot save here", 1);
+        else if (pc_savestate("logs/savestate.bin") == 0)
+            pc_toast_show("STATE SAVED", 0);
+        else
+            pc_toast_show("SAVE FAILED", 1);
     }
 
     short ab[PC_AUD_SPF * 2];
@@ -844,7 +858,22 @@ static void pc_cps_reset(void)
 {
     game_thread_stop();
     memset(&s_game_ctx, 0, sizeof s_game_ctx);
-    s_game_entry = 0x003000u;
+    s_game_entry  = 0x003000u;
+    s_game_resume = 0;
+    game_thread_spawn();
+}
+
+/* Savestate LOAD resume: re-enter the steady-gameplay cycle at $577114 with the
+ * loaded ctx (ctx->resume==1 → the top switch jumps to the post-wait label). No
+ * native stack is restored — the cycle reads everything from g_mem + ctx. Uses
+ * rt_resume (is_call=0) so it doesn't push a return addr onto the saved a7. */
+static void pc_resume_gameplay_thread(void)
+{
+    game_thread_stop();
+    rt_reset_callstack();
+    g_pc_screen   = PC_SCR_GAMEPLAY;
+    s_game_entry  = 0x00577114u;
+    s_game_resume = 1;
     game_thread_spawn();
 }
 
@@ -857,7 +886,8 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay,
 {
     game_thread_stop();
     memset(&s_game_ctx, 0, sizeof s_game_ctx);
-    s_game_entry = entry;
+    s_game_entry  = entry;
+    s_game_resume = 0;
     g_pc_screen = gameplay ? PC_SCR_GAMEPLAY : PC_SCR_OVERLAY;
     s_game_ctx.A[5] = a5;
     s_game_ctx.A[6] = 0x00DFF000u;
@@ -1022,17 +1052,40 @@ void pc_pin_address_space(int argc, char **argv) { (void)argc; (void)argv; }
 #endif
 
 #define PC_SAVESTATE_MAGIC 0x42454E53u   /* 'BENS' */
-#define PC_SAVESTATE_VER   5u   /* v5: dropped dead ucontext fields from g_state */
+#define PC_SAVESTATE_VER   6u   /* v6: frame-loop resume (M68KCtx.resume); load respawns at $577114 */
 
-/* Savestate format (v5): one g_state blob + g_mem.
+/* Whether a savestate can be taken right now. Only the steady-gameplay frame loop
+ * is resumable: the game thread must be parked at the resumable main-loop wait
+ * ($577114), which is exactly when s_game_ctx.resume==1 (set by the bracketed wait
+ * in gfn_gpl_577114_main_loop). Everywhere else — menus, intro, the level card,
+ * and mid-transition loads/death animations — has no resumable suspension point,
+ * so a save there could not be cleanly restored. Returns 1 if allowed; otherwise
+ * 0 and *reason gets a short human-readable explanation (for the on-screen toast). */
+int pc_savestate_allowed(const char **reason)
+{
+    if (!g_gameplay_active) {
+        if (reason) *reason = "Can only save during gameplay";
+        return 0;
+    }
+    if (s_game_ctx.resume != 1) {
+        if (reason) *reason = "Can't save here (level transition)";
+        return 0;
+    }
+    return 1;
+}
+
+/* Savestate format (v6): one g_state blob + g_mem. NO native/host state is saved
+ * (no stack, no RIP/RSP) — the only suspended state is the M68K context (incl.
+ * ctx->resume) and chip RAM, both inside g_state/g_mem. Load re-enters the
+ * gameplay cycle at $577114 (see pc_resume_gameplay_thread), so a save round-trips
+ * across process restarts.
  *   uint32_t magic, ver
  *   uint32_t sizeof(g_state)
  *   uint32_t RT_MEM_SIZE
- *   uint64_t identity (linker addr of g_state — differs per build/binary)
+ *   uint64_t identity (linker addr of g_state — a same-build guard; the recompiled
+ *            gameplay code/resume indices must match, so reject other binaries)
  *   GameState g_state
- *   uint8_t   g_mem[RT_MEM_SIZE]
- * The identity word rejects loads from a different executable up front (the
- * game thread's C stack is not captured — see the STOPGAP note on pc_savestate). */
+ *   uint8_t   g_mem[RT_MEM_SIZE] */
 
 int pc_savestate(const char *path)
 {
@@ -1081,10 +1134,9 @@ int pc_loadstate(const char *path)
                 "[pc] loadstate: savestate %s was written by a DIFFERENT binary\n"
                 "      (saved ident=$%016lx, this binary=$%016lx). Save and load\n"
                 "      must use the SAME executable (don't mix benefactor-pc and\n"
-                "      benefactor-harness, and re-save after a rebuild).\n"
-                "      Pass --force-load to bypass for diagnostics (game state will\n"
-                "      load but coroutine resume is likely to crash since the saved\n"
-                "      RIP/RSP and stack return addresses point at OLD .text).\n",
+                "      benefactor-harness, and re-save after a rebuild — the\n"
+                "      recompiled gameplay code/resume indices must match).\n"
+                "      Pass --force-load to bypass for diagnostics.\n",
                 path, (unsigned long)saved_ident,
                 (unsigned long)(uintptr_t)&g_state);
             fclose(f); return -1;
@@ -1097,13 +1149,22 @@ int pc_loadstate(const char *path)
     ok &= fread(g_mem,    RT_MEM_SIZE,    1, f) == 1;
     fclose(f);
     if (!ok) { fprintf(stderr, "[pc] loadstate: short read\n"); return -1; }
-    /* g_state (incl. s_game_ctx) + g_mem are now loaded. The running game thread
-     * (parked at its vblank wait) keeps its own C-stack position, which no longer
-     * matches the loaded memory — see the STOPGAP note on pc_savestate. Callers
-     * that need a clean resume respawn the thread via pc_cps_start_at. */
-    fprintf(stderr, "[pc] loadstate <- %s (gameplay_active=%d overlay=%d enter=%d entry=$%06X)\n",
-            path, g_gameplay_active, g_overlay_active,
-            g_enter_gameplay, g_gameplay_entry);
+    /* g_state (incl. s_game_ctx, with resume) + g_mem are now loaded. The old game
+     * thread (parked at its own wait on the PRE-load memory) is stale: discard it
+     * and spawn a fresh thread that re-enters the steady-gameplay cycle at $577114.
+     * ctx->resume==1 makes the top switch jump to the post-wait label, so the cycle
+     * continues frame-accurately from purely g_mem + ctx (no native stack restored).
+     * Saves are only ever taken in that state (pc_savestate_allowed), so every valid
+     * savestate loads this way. */
+    if (g_gameplay_active && s_game_ctx.resume == 1) {
+        pc_resume_gameplay_thread();
+    } else {
+        fprintf(stderr, "[pc] loadstate: WARNING — not a steady-gameplay state "
+                "(gameplay=%d resume=%u); cannot cleanly resume\n",
+                g_gameplay_active, s_game_ctx.resume);
+    }
+    fprintf(stderr, "[pc] loadstate <- %s (gameplay_active=%d overlay=%d resume=%u)\n",
+            path, g_gameplay_active, g_overlay_active, s_game_ctx.resume);
     return 0;
 }
 

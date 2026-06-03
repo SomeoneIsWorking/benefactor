@@ -22,6 +22,13 @@ typedef struct M68KCtx {
     /* Supervisor state (rarely needed in game code) */
     uint8_t  S;
     uint8_t  I;   /* interrupt mask level */
+    /* Software-coroutine resume index for frame-loop-driven functions. 0 = enter
+     * at the top; non-zero = a resume label inside a resumable function (the only
+     * one today is gfn_gpl_577114_main_loop, whose inline per-frame vblank wait
+     * becomes `resume=N; return;` so pc.c can drive it one frame per call WITHOUT
+     * a live C stack — that's what makes the gameplay savestate portable. Saved
+     * as part of g_state. See project-savestate-frame-loop. */
+    uint32_t resume;
 } M68KCtx;
 
 /* ── Memory access – implemented in rt.c, routes hardware I/O ─────────────── */
@@ -156,6 +163,8 @@ void rt_register_override_gp(uint32_t addr, NativeFn fn);  /* fires only during 
 /* These are implemented in rt.c using the dispatch table from game.h */
 void rt_call(M68KCtx *ctx, uint32_t addr);
 void rt_jump(M68KCtx *ctx, uint32_t addr);
+void rt_resume(M68KCtx *ctx, uint32_t addr);   /* savestate load: re-enter mid-cycle (no a7 push) */
+void rt_reset_callstack(void);                 /* drop dispatch stack (thread discarded) */
 /* Call generated function at addr, bypassing any registered native override.
  * Use from within a native override to invoke the original recompiled logic
  * without re-entering the override (i.e. the "super" call). */

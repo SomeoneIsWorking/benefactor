@@ -747,6 +747,23 @@ static void rt_call_impl(M68KCtx *ctx, uint32_t addr, int is_call)
 
 void rt_call(M68KCtx *ctx, uint32_t addr) { rt_call_impl(ctx, addr, 1); }
 
+/* Re-enter the game flow at `addr` as a tail transfer (is_call=0), NOT a call.
+ * Used by the savestate LOAD path to resume a resumable function mid-cycle
+ * ($577114 with ctx->resume set): a normal rt_call would push a return address
+ * onto the M68K stack (ctx->A[7]) and corrupt the saved mid-cycle a7, since
+ * $577114 — unlike the gameplay entry $577000 — does not reset a7. is_call=0
+ * runs the same dispatch trampoline without that push. */
+void rt_resume(M68KCtx *ctx, uint32_t addr) { rt_call_impl(ctx, addr, 0); }
+
+/* Reset the dispatch call-stack. Used when the old game thread is discarded on a
+ * savestate load (its stack is abandoned mid-block) so stale entries don't linger
+ * into the freshly spawned resume thread. */
+void rt_reset_callstack(void)
+{
+    rt_callstack_sp = 0;
+    s_rt_jump_pending = 0;
+}
+
 void rt_jump(M68KCtx *ctx, uint32_t addr)
 {
     /* Generated callers do `rt_jump(ctx, X); return;` — defer dispatch to the

@@ -11,6 +11,23 @@ except ImportError:
     from entries  import get_fn_name                           # type: ignore
 
 # ---------------------------------------------------------------------------
+# Savestate-resumable functions
+# ---------------------------------------------------------------------------
+# RESUMABLE_FNS: M68K functions whose per-frame BEAM-WAIT loops are bracketed with
+# a `ctx->resume` marker + a top-of-function resume switch, so a savestate taken at
+# the frame boundary can be restored WITHOUT serializing a native C stack (the only
+# suspended state is the M68K ctx — incl. ctx->resume — and chip RAM, both in
+# g_state). BEAM_WAIT_LOOP_TOPS maps the loop-top address of each such beam wait to
+# a non-zero resume index.
+#
+# The steady-gameplay frame boundary is the VHPOSR beam spin `cmpi.b #line,$6(a6);
+# bne self` in the main loop (gfn_gpl_577114, loop top $577130) — NOT the folded
+# hw_vblank_wait. Measured: 100% of steady-gameplay suspensions park there
+# (rt_callstack depth 1). See project-savestate-frame-loop.
+RESUMABLE_FNS       = {0x577114}
+BEAM_WAIT_LOOP_TOPS = {0x577130: 1}
+
+# ---------------------------------------------------------------------------
 # Instruction translator
 # ---------------------------------------------------------------------------
 
@@ -1029,13 +1046,17 @@ def emit_func(c, addr, insns, translator, cname=None):
     # body is still buffered so unreferenced labels can be pruned and `(void)ctx;`
     # emitted for stub fns (warning-clean generation).
 
-    # Collect branch targets within this function.
+    # Collect branch targets within this function (and each branch insn's dest,
+    # for beam-wait back-edge detection in resumable functions).
     branch_targets = set()
+    branch_dest    = {}                       # insn addr -> branch target addr
     for insn in insns:
         try:
             for op in insn.operands:
                 if op.type == M68K_OP_BR_DISP:
-                    branch_targets.add(insn.address + 2 + op.br_disp.disp)
+                    tgt = insn.address + 2 + op.br_disp.disp
+                    branch_targets.add(tgt)
+                    branch_dest[insn.address] = tgt
         except Exception:
             pass
     insn_addrs      = {insn.address for insn in insns}
@@ -1043,6 +1064,26 @@ def emit_func(c, addr, insns, translator, cname=None):
     translator.cur_insn_addrs = insn_addrs
 
     skip_insns, pre_label, override = _find_patterns(insns)
+
+    # ── Savestate-resumable functions ────────────────────────────────────────
+    # A function in RESUMABLE_FNS has its per-frame BEAM-WAIT loops (listed in
+    # BEAM_WAIT_LOOP_TOPS by loop-top address) bracketed so the suspended position
+    # is recoverable WITHOUT a live C stack:
+    #   ctx->resume = K;     // set just before the loop top — "parked in this wait"
+    #   L_<top>: <cmpi $6(a6); bcc L_<top>>   // the VHPOSR beam spin (UNCHANGED;
+    #                        // it still yields per-read inside hw_read8, so the
+    #                        // thread parks here exactly as before)
+    #   ctx->resume = 0;     // after the back-branch (loop fall-through = exit)
+    # plus a `switch (ctx->resume)` at the top that goes straight to L_<top>.
+    # The steady-gameplay frame boundary is this beam wait (cmpi.b #line,$6(a6);
+    # bne self — NOT the folded hw_vblank_wait; measured: rt_callstack depth 1 in
+    # gfn_gpl_577114). A save taken while resume==K is at the frame boundary; LOAD
+    # re-enters $577114 and the switch resumes the spin → frame-accurate, no native
+    # stack. SAFE: no C local crosses the wait (cross-frame state is ctx->D/A or
+    # g_mem); the loop top is a function-scope label reachable by a forward goto.
+    resumable  = addr in RESUMABLE_FNS
+    beam_tops  = {a: k for a, k in BEAM_WAIT_LOOP_TOPS.items()
+                  if resumable and a in insn_addrs} if resumable else {}
 
     body = []            # buffered body lines (so unreferenced labels can be pruned)
 
@@ -1067,6 +1108,12 @@ def emit_func(c, addr, insns, translator, cname=None):
 
         if a in branch_targets:
             w(f'\nL_{a:06X}:\n')
+            # Mark "parked in this beam-wait" as the FIRST statement of the loop top
+            # (covers every entry path + each spin iteration), so a save taken while
+            # the thread is parked in the VHPOSR read here is recognised as the
+            # steady frame boundary and a load can resume the spin (resume switch).
+            if a in beam_tops:
+                w(f'  ctx->resume = {beam_tops[a]};\n')
 
         # Override: emit replacement body (or nothing if None) and move on.
         # hw_vblank_wait()/hw_wait_fire()/hw_blitter_sync() are plain blocking
@@ -1094,6 +1141,15 @@ def emit_func(c, addr, insns, translator, cname=None):
                     continue
                 w(f'  {line}\n')
 
+        # Back-edge of a bracketed beam-wait loop: a CONDITIONAL branch loops
+        # while waiting; falling through it exits the wait, so clear the marker.
+        # (An unconditional branch into the loop top is not a spin back-edge — its
+        # fall-through is dead code, so don't emit there.)
+        if branch_dest.get(a) in beam_tops:
+            _mn = insn.mnemonic.split('.')[0].lower()
+            if _mn not in ('bra', 'bsr', 'jmp', 'jsr'):
+                w('  ctx->resume = 0;\n')
+
     # Drop label definitions nothing jumps to (no unused-label warnings). The
     # only references are `goto L_x` (branches/dbra).
     referenced = set()
@@ -1108,6 +1164,14 @@ def emit_func(c, addr, insns, translator, cname=None):
     c.write(f'void gfn_{name}(M68KCtx *ctx) {{\n')
     if not uses_ctx:
         c.write('  (void)ctx;\n')   # stub fn that never touches the M68K context
+    if beam_tops:
+        # Resume dispatcher (savestate LOAD): jump straight into the beam-wait loop
+        # we were parked in. resume==0 (normal entry) falls through to the top.
+        c.write('  switch (ctx->resume) {\n')
+        for ta, k in sorted(beam_tops.items(), key=lambda kv: kv[1]):
+            c.write(f'    case {k}: goto L_{ta:06X};\n')
+        c.write('    default: break;\n')
+        c.write('  }\n')
     for s in body:
         m = label_def.match(s)
         if m and m.group(1) not in referenced:

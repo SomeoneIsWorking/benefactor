@@ -96,13 +96,17 @@ static void handle_state(int fd)
     uint16_t p1 = (uint16_t)((g_mem[0x57FEBA] << 8) | g_mem[0x57FEBB]);
     uint16_t p2 = (uint16_t)((g_mem[0x57FEBC] << 8) | g_mem[0x57FEBD]);
     uint16_t p3 = (uint16_t)((g_mem[0x57FEBE] << 8) | g_mem[0x57FEBF]);
-    char body[512];
+    extern int pc_savestate_allowed(const char **);
+    const char *why = NULL;
+    int saveable = pc_savestate_allowed(&why);
+    char body[640];
     int n = snprintf(body, sizeof body,
         "{\"level\":%u,\"cop1lc\":\"%06X\","
         "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
+        "\"saveable\":%d,\"save_reason\":\"%s\","
         "\"player_block\":[%u,%u,%u,%u]}\n",
         level, cop1lc, g_gameplay_active, g_overlay_active, g_credits_active,
-        p0, p1, p2, p3);
+        saveable, why ? why : "", p0, p1, p2, p3);
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
@@ -232,6 +236,14 @@ static void handle_request(int fd, char *req)
     else if (!strcmp(path, "/pickup"))  handle_pickup(fd, query);
     else if (!strcmp(path, "/fb.ppm"))  handle_fb(fd, 1);
     else if (!strcmp(path, "/fb.bin"))  handle_fb(fd, 0);
+    else if (!strcmp(path, "/save")) {
+        extern int g_pc_pending_save; g_pc_pending_save = 1;
+        send_response(fd, "200 OK", "text/plain", "save queued\n", 12);
+    }
+    else if (!strcmp(path, "/load")) {
+        extern int g_pc_pending_load; g_pc_pending_load = 1;
+        send_response(fd, "200 OK", "text/plain", "load queued\n", 12);
+    }
     else if (!strcmp(path, "/")) {
         const char *help =
             "Benefactor debug HTTP. Endpoints:\n"

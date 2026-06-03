@@ -145,6 +145,38 @@ int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t 
     return draw_text(fb, x, y, s, scale, argb);
 }
 
+/* ── Transient toast (save/load feedback) ───────────────────────────────────
+ * A short message shown top-center for a couple of seconds. pc_toast_show sets
+ * it (e.g. "STATE SAVED", or a reason it couldn't be); pc_toast_overlay draws +
+ * counts it down, called from hw_present_frame after the game frame is composed. */
+static char     s_toast[96];
+static int      s_toast_frames = 0;
+static uint32_t s_toast_accent = 0xFF60FF80;
+
+void pc_toast_show(const char *msg, int is_error)
+{
+    snprintf(s_toast, sizeof s_toast, "%s", msg ? msg : "");
+    s_toast_frames = 160;                        /* ~2.7s @ 60fps */
+    s_toast_accent = is_error ? 0xFFFF6048u : 0xFF60FF80u;
+}
+
+void pc_toast_overlay(uint32_t *fb)
+{
+    if (s_toast_frames <= 0 || !s_toast[0]) return;
+    s_toast_frames--;
+    int tlen = (int)strlen(s_toast) * 6;         /* 6px / glyph at scale 1 */
+    int pad  = 8, ph = 16;
+    int pw   = tlen + pad * 2;
+    int px   = (FB_W - pw) / 2;
+    int py   = 14;
+    fill_rect(fb, px,          py,          pw, ph, 0xFF101830);
+    fill_rect(fb, px,          py,          pw, 1,  s_toast_accent);
+    fill_rect(fb, px,          py + ph - 1, pw, 1,  s_toast_accent);
+    fill_rect(fb, px,          py,          1,  ph, s_toast_accent);
+    fill_rect(fb, px + pw - 1, py,          1,  ph, s_toast_accent);
+    draw_text(fb, px + pad, py + 5, s_toast, 1, 0xFFFFFFFFu);
+}
+
 void pc_level_select_overlay(uint32_t *fb)
 {
     if (!g_level_select_visible) return;
