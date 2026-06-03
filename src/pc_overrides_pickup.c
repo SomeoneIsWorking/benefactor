@@ -35,19 +35,23 @@ unsigned long g_native_pickup_hits = 0;
  * actual collect to the recompiled body. `addr` = the handler being overridden. */
 static void pickup_wide(M68KCtx *ctx, uint32_t addr)
 {
-    static int rx = -1, ry = -1;
-    if (rx < 0) { const char *e = getenv("PICKUP_RX"); rx = e ? atoi(e) : 18; }
-    if (ry < 0) { const char *e = getenv("PICKUP_RY"); ry = e ? atoi(e) : 12; }
+    static int rx = -1, ry = -1, cx = -999, cy = -999;
+    if (rx < 0)     { const char *e = getenv("PICKUP_RX"); rx = e ? atoi(e) : 12; }
+    if (ry < 0)     { const char *e = getenv("PICKUP_RY"); ry = e ? atoi(e) : 10; }
+    /* The object coord is its LEFT edge, so a window centered on it reaches into
+     * the sprite on the right (only-left pickup). cx/cy bias the window onto the
+     * sprite centre so it's symmetric. Tunable: PICKUP_CX / PICKUP_CY. */
+    if (cx == -999) { const char *e = getenv("PICKUP_CX"); cx = e ? atoi(e) : 8; }
+    if (cy == -999) { const char *e = getenv("PICKUP_CY"); cy = e ? atoi(e) : 0; }
 
     int objY = (int16_t)MR16(ctx->A[0] + 0u);
     int objX = (int16_t)MR16(ctx->A[0] + 2u);
     int py   = (int16_t)MR16(ctx->A[5] + A5_F96);
     int px   = (int16_t)MR16(ctx->A[5] + A5_F94);
-    int dy = py - objY, dx = px - objX;
+    int dy = (py - objY) - cy, dx = (px - objX) - cx;   /* centred on the sprite */
 
-    /* Spoof only when the player is pressing fire (alone) and is inside the WIDER
-     * centered zone — then the item's own (narrow) test will see player==item and
-     * collect. Otherwise leave everything vanilla. */
+    /* Spoof only when the player is pressing fire (alone) and is inside the
+     * centered zone — then the item's own test will collect. Otherwise vanilla. */
     int spoof = (MR16(ctx->A[5] + A5_F80) == 0x20)
              && dy >= -ry && dy <= ry && dx >= -rx && dx <= rx;
 
