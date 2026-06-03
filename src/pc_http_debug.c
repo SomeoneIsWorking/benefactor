@@ -244,6 +244,10 @@ static void handle_request(int fd, char *req)
         extern int g_pc_pending_load; g_pc_pending_load = 1;
         send_response(fd, "200 OK", "text/plain", "load queued\n", 12);
     }
+    else if (!strcmp(path, "/gameover")) {       /* debug: force a death (drain a life) */
+        extern void pc_debug_game_over(void); pc_debug_game_over();
+        send_response(fd, "200 OK", "text/plain", "death triggered\n", 16);
+    }
     else if (!strcmp(path, "/")) {
         const char *help =
             "Benefactor debug HTTP. Endpoints:\n"
