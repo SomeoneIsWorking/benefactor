@@ -70,8 +70,11 @@ int  hw_get_fire(void);
 int  hw_get_mouse_lmb(void);
 int  hw_get_interact(void);          /* dedicated interact key (X/LShift), not fire */
 void hw_set_interact(int on);
+int  hw_get_drop(void);              /* dedicated DROP button — one of the drop bindings */
+void hw_set_drop(int on);
 void hw_set_fire(int on);
 void hw_set_mouse_lmb(int on);
+void hw_set_joy_down(int on);        /* force the down direction (for the drop→fire+down bridge) */
 void hw_set_no_pace(int on);
 void hw_set_external_input(int on);
 void hw_set_joystick(int up, int down, int left, int right, int fire);

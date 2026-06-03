@@ -59,31 +59,50 @@ void native_end_of_level(M68KCtx *ctx)
  *   - real Fire while carrying without interact → strip the fire bit from $f80 after the
  *     decode so Fire alone can no longer drop.
  * Jump=Up and long-jump=Fire+Left/Right are untouched outside the carry case. */
+/* DROP bindings — the engine performs a drop on Fire+Down while carrying, and Fire
+ * (held) is what stops Down from going prone. Rather than hard-wire one key combo, we
+ * resolve a logical DROP from any of several bindings and translate it uniformly:
+ *
+ *   DROP requested  := (interact + Down)  OR  (dedicated Drop button)   [extensible]
+ *
+ *   - DROP requested → present Fire (+ inject Down for a button-only press) at the hw
+ *     source BEFORE $57DEAC decodes → the engine drops AND, because Fire is held, never
+ *     goes prone (matching vanilla Fire+Down) — even after the item has left your hands.
+ *   - Down without any DROP binding → strip Fire so plain Down/Fire+Down just go prone
+ *     and never drop.
+ *   - Everything else (Up=hop, Fire+Left/Right=long-jump, Interact alone) is untouched.
+ *
+ * Adding a controller button later is just OR-ing another source into `drop`; the
+ * translation + prone handling below are binding-agnostic. $bfe001 bit7 reads as
+ * (s_fire_pressed || s_mouse_lmb), so both are driven. State is restored after decode. */
 void native_gameplay_input(M68KCtx *ctx)
 {
-    extern int hw_get_interact(void), hw_get_fire(void), hw_get_mouse_lmb(void), hw_joy_down(void);
-    extern void hw_set_fire(int), hw_set_mouse_lmb(int);
-    int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
+    extern int hw_get_interact(void), hw_get_fire(void), hw_get_mouse_lmb(void);
+    extern int hw_joy_down(void), hw_get_drop(void);
+    extern void hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_joy_down(int);
 
-    /* While carrying AND Down is held, the engine's fire bit := the interact key, applied
-     * at the hw input source BEFORE $57DEAC decodes. $57DEAC reads $bfe001 bit7, which is
-     * (s_fire_pressed || s_mouse_lmb) — a fire keypress sets BOTH, so we must drive both.
-     * Interact+Down → fire+down → drop; Fire+Down → no fire → no drop. Down is not a jump
-     * direction, so Up-jump and Fire+Left/Right long-jump are untouched (fire is overridden
-     * only in the carry+Down case, and restored right after the decode). */
-    int restore = 0, sf = 0, sl = 0;
-    if (carrying && hw_joy_down()) {
+    int down = hw_joy_down();
+    int drop = (hw_get_interact() && down) || hw_get_drop();   /* logical DROP binding */
+
+    int restore = 0, sf = 0, sl = 0, sd = 0;
+    if (drop) {
+        sf = hw_get_fire(); sl = hw_get_mouse_lmb(); sd = down;
+        hw_set_fire(1); hw_set_mouse_lmb(1);          /* present Fire → drop + no prone */
+        if (!down) hw_set_joy_down(1);                /* button-only press → supply Down */
+        restore = 1;
+    } else if (down) {
         sf = hw_get_fire(); sl = hw_get_mouse_lmb();
-        int want = hw_get_interact();
-        hw_set_fire(want); hw_set_mouse_lmb(want);
+        hw_set_fire(0); hw_set_mouse_lmb(0);          /* plain Down → prone, never drop */
         restore = 1;
     }
-    gfn_gpl_57DEAC(ctx);
-    if (restore) { hw_set_fire(sf); hw_set_mouse_lmb(sl); }
 
-    if (getenv("BENEFACTOR_DBG_DROP") && carrying)
-        fprintf(stderr, "[drop-input] f80=%04X interact=%d down=%d\n",
-                MR16(ctx->A[5] + 0xf80u), hw_get_interact(), hw_joy_down());
+    gfn_gpl_57DEAC(ctx);
+
+    if (restore) { hw_set_fire(sf); hw_set_mouse_lmb(sl); if (drop && !sd) hw_set_joy_down(0); }
+
+    if (getenv("BENEFACTOR_DBG_DROP") && (drop || down))
+        fprintf(stderr, "[drop-input] f80=%04X interact=%d down=%d dropbtn=%d -> drop=%d\n",
+                MR16(ctx->A[5] + 0xf80u), hw_get_interact(), down, hw_get_drop(), drop);
 }
 
 /* ── $57EB20 — "place carried item at tile" PROBE (BENEFACTOR_DBG_DROP=1) ──────
