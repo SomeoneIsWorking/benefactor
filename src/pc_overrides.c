@@ -13,6 +13,8 @@
  * implementations.  Address order matches the game call sequence. */
 void pc_register_overrides(void)
 {
+    { extern void pc_config_load(void); pc_config_load(); }   /* benefactor.json */
+
     /* Hardware waits (pc_overrides_hw.c) */
     /* NOTE: $0030C2 is NOT a hardware-wait loop — it is the state-machine
      * dispatch RE-ENTRY (movem.l (a7)+,a4-a6; bra $3092). Overriding it with a
@@ -113,10 +115,14 @@ void pc_register_overrides(void)
 
     /* Object-pickup mechanic — native port with a WIDENED, centered pickup window
      * (pc_overrides_pickup.c). Vanilla's tiny one-sided range means you must stand
-     * almost on top of a key; the widening fixes that. ON by default;
-     * BENEFACTOR_RECOMP_PICKUP=1 reverts to the vanilla narrow handlers, PICKUP_SCAN
-     * maps per-level collectibles. (Range tunable via PICKUP_RX/RY → JSON config.) */
-    if (getenv("PICKUP_SCAN"))                    pickup_register_scan();  /* diagnostics */
-    else if (!getenv("BENEFACTOR_RECOMP_PICKUP")) pickup_register();       /* widened */
+     * almost on top of a key; the widening fixes that. Config (benefactor.json):
+     * "pickup_enabled" (default true) ON/off; "pickup_scan" (default false) maps
+     * per-level collectibles. Env still overrides: PICKUP_SCAN / BENEFACTOR_RECOMP_PICKUP. */
+    { extern int pc_config_bool(const char *, int);
+      int scan    = getenv("PICKUP_SCAN") ? 1 : pc_config_bool("pickup_scan", 0);
+      int enabled = getenv("BENEFACTOR_RECOMP_PICKUP") ? 0 : pc_config_bool("pickup_enabled", 1);
+      if (scan)         pickup_register_scan();   /* diagnostics */
+      else if (enabled) pickup_register();        /* widened */
+    }
 }
 

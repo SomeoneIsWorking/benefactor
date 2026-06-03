@@ -91,6 +91,19 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 | L | Debug: trigger LEVEL COMPLETE |
 | O | Debug: trigger GAME OVER |
 
+## Configuration
+
+Optional tunables live in a JSON file `benefactor.json` next to the disks (copy
+`benefactor.example.json`). Env vars of the same name still override it. Current keys:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `pickup_enabled` | `true` | Widened interact range for item pickup (vanilla is so narrow you must stand on the item). |
+| `pickup_rx` / `pickup_ry` | `14` / `12` | Pickup half-window (px) in X / Y. |
+| `pickup_cx` / `pickup_cy` | `-4` / `0` | Re-center the window on the sprite (the player coord is an edge). |
+| `pickup_off` | `4` | Hotspot offset used when collecting. |
+| `pickup_scan` | `false` | Debug: log which collectible handler each item uses. |
+
 ## How it runs
 
 The original binary is a moving target — different overlays load different code at the same chip-RAM addresses depending on game state. The port handles this as a hybrid:
