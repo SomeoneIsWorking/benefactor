@@ -60,18 +60,27 @@ static void pickup_wide(M68KCtx *ctx, uint32_t addr)
 
     uint16_t sy = 0, sx = 0;
     if (spoof) {
-        g_native_pickup_hits++;
-        if (getenv("PICKUP_LOG"))
-            fprintf(stderr, "[pickup] $%06X dx=%d dy=%d -> widen-collect\n", addr, dx, dy);
         sy = MR16(ctx->A[5] + A5_F96);
         sx = MR16(ctx->A[5] + A5_F94);
-        MW16(ctx->A[5] + A5_F96, (uint16_t)objY);   /* present player AT the item */
-        MW16(ctx->A[5] + A5_F94, (uint16_t)objX);
+        /* Present the player at the item's hotspot, not its raw (a0) coord: the
+         * handler compares the player against a slightly-offset coord (e.g. $586C10
+         * adds 4 to Y). A small +offset lands inside the one-sided window. Tunable
+         * via PICKUP_SPOOF_OFF. Works for STATIC collectibles (keys); a moving item
+         * whose per-frame physics ($5869e2) shifts the coord won't match. */
+        static int off = -1;
+        if (off < 0) { const char *e = getenv("PICKUP_SPOOF_OFF"); off = e ? atoi(e) : 4; }
+        MW16(ctx->A[5] + A5_F96, (uint16_t)(objY + off));
+        MW16(ctx->A[5] + A5_F94, (uint16_t)(objX + off));
     }
+    uint16_t pre_obj = MR16(ctx->A[0]);
     rt_call_generated(ctx, addr);                   /* the item's own full logic   */
     if (spoof) {
+        if (getenv("PICKUP_LOG"))
+            fprintf(stderr, "[pickup] $%06X dx=%d dy=%d  collected=%d\n",
+                    addr, dx, dy, MR16(ctx->A[0]) != pre_obj);
         MW16(ctx->A[5] + A5_F96, sy);               /* restore before the tail runs */
         MW16(ctx->A[5] + A5_F94, sx);
+        if (MR16(ctx->A[0]) != pre_obj) g_native_pickup_hits++;
     }
 }
 
