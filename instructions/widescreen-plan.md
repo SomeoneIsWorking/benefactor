@@ -215,6 +215,34 @@ Verify wide=0 == vanilla (sprite decode must match the engine's `BLTCON0=$09F0` 
 / cookie-cut for masked). Source spec verified by disasm of `logs/savestate.bin` (L9, file
 off `0x5D0+addr`); live dump `scratch/bin/gm_obj.bin` (cam=881, playerX=1056, level 9).
 
+### Phase 4 — DONE so far + the no-choke-point reality (2026-06-04)
+
+- **DONE: one continuous bg + `$57D8D0` objects.** The bg loop's centre-clip
+  (`in_margin`/`width_px`, commit `ba229bc`) was deleted — it was a center+margins SEAM added
+  to chase byte-exact wide=0 parity (vanilla clips its playfield to the data-fetch window, so
+  matching it forced the split). Now every output px → one absolute world X → tilemap, edge to
+  edge, clamped only at level edges. `$57D8D0` capture (`native_objdraw_capture` /
+  `native_objlayer_from_capture`) draws the objects it covers (platforms, box, ladders, items).
+  USER-CONFIRMED 'best result so far'.
+- **NO single object-draw choke point.** `BLIT_LOG=1` + group-by-`fn=` (g_rt_last_call) shows
+  gameplay sprites are blitted by ~8 SCATTERED routines, each a per-category loop doing 5-plane
+  blits into the double-buffer pages ($02xxxx/$03xxxx), each with its OWN clip:
+  - `57C79E` bg tiles (skip — we render tilemap). `57DB5E` = `$57DB34` list-A executor (the
+    `$57D8D0` objects we already capture). `57DA40` list-B executor.
+  - `57A666` cookie-cut sprites (`con0=8FCA`, mask=A ch, minterm CA); `57A88A`/`57D282` opaque
+    (`con0=09F0`, D=A); `57D6C4`/`57D688` cookie-cut; `57DB16`; `578974` GET READY banner (5
+    blits); `578B94` (low-mem src → HUD/text?). NOT hw sprites (copper SPRxPT all 0).
+  - **Characters (player+walkers), banner, pause, some deco are drawn by these OTHER routines**
+    → not in the `$57D8D0` capture → invisible/early-culled in the native render.
+- **DECISION (user): per-routine unclipped capture.** Hook each sprite-draw routine at its
+  per-sprite point BEFORE its 352 clip, capture `{src, mask, worldX, worldY, w, h, mode}`,
+  draw natively across the wide view (faithful, gives margin objects too; no magic ranges, no
+  blit-replay quirk-chasing). Capturing at the blit level (`hw_do_blit`) gives only CLIPPED
+  on-screen sprites (no margins) — must intercept before each routine's clip. RE each routine.
+- **KNOWN BUG: native camera alignment is off by a few px toward the L/R EDGES.** So native
+  compares skip an edge band: `wsdiff` excludes `WSDIFF_EDGE` px (default 32) per side. Fix the
+  edge camera math separately (cam16/x_off/scroll1 vs $57FDBA); don't tune objects to it.
+
 Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
 then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read
 offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed running live
