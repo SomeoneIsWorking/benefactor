@@ -75,3 +75,9 @@ void native_timer_interrupt   (M68KCtx *ctx);
 void native_end_of_level      (M68KCtx *ctx);
 void native_level_load        (M68KCtx *ctx);
 void native_level_setup       (M68KCtx *ctx);
+void native_objwalk           (M68KCtx *ctx);   /* $57D79A — per-frame object-list walker */
+void native_objdraw_capture   (M68KCtx *ctx);   /* $57D8D0 — capture object for widescreen */
+/* Widescreen object capture, read by native_renderer.c (last complete frame). */
+int  native_wsobj_count(void);
+int  native_wsobj_get(int i, int *x, int *y, int *w, int *h,
+                      uint32_t *src, uint32_t *mod);
