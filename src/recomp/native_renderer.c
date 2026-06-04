@@ -438,6 +438,7 @@ void native_render_frame(void)
 #define WS_TILEROW  0xF4u            /* tilemap row stride FALLBACK (L9); real one is per-level */
 #define WS_PHASETAB 0x0057F4BCu      /* row-offset/phase table; entry[1].d2adj = row stride */
 #define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
+int g_ws_view_left = 0, g_ws_view_w = 0;   /* last wide-render view mapping (worldX = view_left + x) */
 /* s_objlayer holds the per-frame PROJECTION of the page display-list (decorations under
  * objects), in world coords (absolute world X, screen Y). Rebuilt each frame from s_pg. */
 static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
@@ -839,6 +840,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
         if (view_left < level_lo)      view_left = level_lo;
         if (view_left > level_hi - ow) view_left = level_hi - ow;
     }
+
+    { extern int g_ws_view_left, g_ws_view_w; g_ws_view_left = view_left; g_ws_view_w = ow; }
 
     /* Playfield vertical extent = the scanline span of the FIRST BPL anchor (the
      * scrolling buffer pointers); the next anchor begins the HUD. Both are derived by

@@ -114,7 +114,7 @@ int hw_load_disk(int disk, uint32_t offset, uint32_t len, uint32_t dst_amiga);
  * content is composited centered into the output, the L/R margins start as black
  * pillarbox (Phase 2) and later carry native-rendered world (Phase 3+). The
  * harness/comparison path keeps using the 352-wide s_fb directly. */
-#define HW_OUT_MAX    640
+#define HW_OUT_MAX    960
 int  hw_output_width(void);                 /* current output width (>=HW_DISPLAY_W) */
 const uint32_t *hw_get_output_framebuffer(void); /* wide composited surface (HW_OUT × H) */
 
