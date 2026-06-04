@@ -55,24 +55,28 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    from the box con0 immediate (`$5789A6`), not hardcoded. REPL: `bpos` prints the
    captured offsets + derived placement.
 
-4. **Animated sprites culled at the vanilla 320 window (torches, teleporter, etc.).** OPEN.
-   ROOT CAUSE NAILED (2026-06-05, L9 repro: torch flame at worldX≈902). The torch is a
-   self-contained animated COOKIE-CUT sprite (rock+stick+flame, one blit `con0=4FCA
-   apt=$066C86 3x21`) drawn via `$57D3F4`; the wall's "lit" look is baked into the BG tiles
-   (stays). The sprite is captured into `s_wschar` ONLY while on-window: at cam 938 (torch
-   36px left of the window) it still draws & shows in the wide margin; by cam 981 (79px
-   left) the engine STOPS calling its draw → not captured → vanishes — even though it's at
-   wide-screen x≈225 (well inside a 960px view). So unlike `$57D8D0` (list-A: the engine
-   reaches the choke for off-screen objects too, writing a skip-descriptor INSIDE — we
-   capture at entry, pre-clip, so list-A shows in margins), the `$57D3F4` char path and the
-   list-B execs are GATED by a per-object camera cull UPSTREAM of the draw (in the walker
-   `$57D79A`/object handler). This is the SAME root cause as #1 (Marry Men) and #2.
-   FIX (one change covers torches + teleporter + marry men): hook the walker's per-object
-   point BEFORE its cull, capture every object's {worldX, worldY, gfx, mask, w, h, con0}
-   regardless of on/off-screen, draw natively across the wide view. Tools added: REPL
-   `wsobjs` (dump captured obj/char lists + screenX), `view_left` in `wsobjs`,
-   `BENEFACTOR_WIDESCREEN` now up to 960 (`HW_OUT_MAX`). NOTE: needs ≥640px to even observe
-   the cull — at 480 the sprite leaves the true wide edge before the cull triggers.
+4. **`$06xxxx` objects culled ~3 tiles past the window (torches, teleporter, enemies).** OPEN.
+   ROOT CAUSE NAILED to a single camera pixel (2026-06-05, L9, BENEFACTOR_WIDESCREEN=960).
+   Held right, dumped every frame f70..f140 + its `wsobjs` list; user pinpointed the torch
+   present at f92, gone at f93 (cam 960→961, ONE pixel). Diff of the two object lists: the
+   torch = two list-A objects at **worldX 912** — `src=$060FA2` (16×32, the tall rock+stick+
+   flame) and `src=$067DC6` (16×4) — both drop the instant screenX goes −48 → −49. A third
+   object at the SAME worldX 912, `src=$05BCB4` (16×9), SURVIVES; so does obj1 `src=$0590D4`
+   at worldX 336 / screenX −625. So the cull is **per-object-TYPE, not a screen clip**:
+   `$06xxxx` (real object gfx) handlers cull when `screenX>>4 < -3` (object's left tile ≥4
+   cols left of the camera) BEFORE reaching `$57D8D0`; `$05xxxx` (decoration gfx) objects
+   are NOT culled and persist far off-screen (we already capture them at `$57D8D0` entry,
+   pre-clip, so they show across the margin). That's why list-A "mostly works" in the margin
+   but enemies/torches pop out ~3 tiles in.
+   This is the SAME family as #1 (Marry Men) — `$06xxxx` sprites gated by a per-object cull
+   upstream of the draw choke. FIX OPTIONS: (a) find & WIDEN the per-handler cull constant
+   (`screenX>>4 < -3`) so the engine draws further into the margin and we capture it at
+   `$57D8D0`/`$57D3F4` (clean if the cull is shared/few sites); (b) read object worldX/Y +
+   gfx from the object struct at the walker `$57D79A` per-object point, bypassing handler
+   culls entirely. NEXT: locate the cull (in the `$06xxxx` object handlers dispatched by the
+   walker) — is it shared? Tools added: REPL `wsobjs` (obj/char lists + screenX + data src),
+   `view_left` in `wsobjs`, `BENEFACTOR_WIDESCREEN` up to 960 (`HW_OUT_MAX`). NOTE: needs
+   ≥640px to observe — at 480 the sprite leaves the true wide edge before the cull triggers.
 
 5. **Vanilla (non-widescreen / 352) playfield EDGES show the tile-column render toggles.**
    OPEN. On real HW the display window (DIWSTRT/DIWSTOP) hides the partially-drawn edge
