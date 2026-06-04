@@ -115,7 +115,25 @@ $((0x5D0+ADDR)) ADDR LEN`). Verified the actual scroll + tile-draw path. a5 = `$
   `"=SB="`=`$3D53423D`, chunk `$4000`) that decompresses level data from the `$5Axxxx`
   region into the display page `$2B3EC`. Not the tilemap source per se.
 
-### Phase 3 RE — TILEMAP FULLY DECODED (2026-06-04, harness-verified)
+### Phase 3 RE — tilemap INDEXING decoded; tile-gfx format UNRESOLVED (2026-06-04)
+
+**HONESTY CORRECTION (supersedes the "FULLY DECODED" commit `de15028`):** the tilemap
+INDEXING (where/how the engine reads `$552A0`) is harness-verified and solid, but the
+value→tile-graphics DECODE below is **NOT yet correct**. A standalone reference renderer
+(`scratch/ws_render.py`, reads a `dumpall` g_mem dump) was built to gate the claim — and it
+produces NOISE, not the real clean cave. Tried 5-plane plane-major, 4-plane, and
+4-plane+mask (bytes 128-159 as mask) — all noise vs the real frame
+(`scratch/screenshots/ws_real_fb.png` = brown cave, platforms, ladders, player, HUD).
+So the `$5A539E`-table targets are NOT plain 160B plane-major tiles. **What's actually
+SOLID** = the indexing (base/stride/col-mapping). **What's OPEN** = the tile pixel format
+(plane count/order/mask) AND possibly the value→gfx mapping itself (a page-search for the
+decoded source column at 46-byte stride found NO match, which already hinted the format is
+wrong — pressed on anyway, lesson logged). NEXT: reverse the EXACT tile format by matching
+a known-correct on-screen tile *from the display page* (`$2B3EC`, which renders right) back
+to its `$5D9xxx` source — accounting for the fine-scroll bit-shift the draw applies — OR
+set a read-watch on the draw's `(a4)` gfx-source reads to capture the real bytes + match to
+the on-screen tile. Reference renderer + gameplay dump (`scratch/bin/gmem_gameplay.bin`,
+cam=961) are the verification harness; gate any future claim on a clean reference render.
 
 Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
 then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read
@@ -139,7 +157,8 @@ offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed runn
   `[$57FE8C - $90, $57FE8E - $100]` (a5+$107a/$107c); L9 = `[0, 1392]`.
 - **Palette**: from the copper list (native_renderer already parses COLORxx).
 
-**→ Native wide renderer (now buildable, no unknowns):** for the wide camera window,
+**→ Native wide renderer (indexing known; tile pixel decode still WRONG — see correction
+above):** for the wide camera window,
 for each visible world column `C = worldX>>4` (clamped to level edges) and each playfield
 row `r` in 0..~13: `w = MR16($552A0 + r*$F4 + C*2)`; `gfx = MR32($5A539E + (w & $FE))`;
 decode the 16×16×5bpp plane-major tile at `gfx` with the copper palette; place at screen
