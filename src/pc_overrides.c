@@ -122,6 +122,10 @@ void pc_register_overrides(void)
     rt_register_override_gp(0x0057D8D0u, native_objdraw_capture);
     /* The player is drawn by its own routine ($57A666), not the object loop. */
     rt_register_override_gp(0x0057A666u, native_player_capture);
+    /* Cookie-cut characters (walkers/enemies) build blit descriptors at $57D3F4
+     * (executor $57D6C4) — a separate path from the $57D8D0 object loop. Capture
+     * each at entry (D0/D1/D5/A1) before its camera-clip; super-call the body. */
+    rt_register_override_gp(0x0057D3F4u, native_char_capture);
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled

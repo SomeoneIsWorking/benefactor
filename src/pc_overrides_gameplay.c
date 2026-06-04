@@ -287,13 +287,95 @@ int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint3
     return 1;
 }
 
+/* ── Native COOKIE-CUT CHARACTER capture for widescreen ($57D3F4) ─────────────
+ * Walkers/enemies (and other cookie-cut characters) are NOT drawn by the $57D8D0
+ * object loop — each object's per-type handler tail-jumps to $57D3F4, the
+ * descriptor BUILDER, which clips the sprite to the [cam, cam+$180] window and
+ * enqueues a 6-long blit descriptor consumed by the executor $57D6C4. So $57D3F4
+ * is hit once per character with the resolved draw values live in registers,
+ * BEFORE the camera-clip — the right place to capture for the wide view.
+ *
+ * RE (disasm of $57D3F4 builder + $57D6C4 executor, verified by standalone decode
+ * scratch/ws_char3.py — see widescreen-plan.md "Phase 4 — character draw"):
+ *   Entry regs:  D0=worldX, D1=worldY (screen row), D5=anim frame offset,
+ *                A1=sprite descriptor base.
+ *   Descriptor:  maskoff=MR16(A1+0); BMOD=(int16)MR16(A1+2) (modulos hi word);
+ *                size=MR16(A1+8) => w=size&$3F words, h=size>>6 rows;
+ *                gfxBase=MR32(A1+$A).
+ *   DATA (B chan, 5-plane) base = gfxBase + 5*D5  (the engine's add.l d5 then
+ *                d5*=4, add.l d5 at $57D514..$57D51C — ×5 for the 5 planes). The
+ *                earlier reverted attempt used gfxBase+D5 (×1) and decoded to
+ *                scattered noise; ×5 is the fix.
+ *   MASK (A chan, 1 plane reused for all 5) base = gfxBase + D5 + maskoff.
+ *   Row stride (BOTH chans, A&B modulo = BMOD) = w*2 + BMOD  (=4 on the L9 walker;
+ *                BMOD=-2 makes consecutive rows overlap 2 bytes). DATA plane stride
+ *                = the B-channel auto-advance per blit = h*(w*2+BMOD) = h*rowstride
+ *                (executor steps only the DEST by $2A0C/plane; B advances in HW). */
+typedef struct { int x, y, w, h; uint32_t data, mask; int rowstride; } WsChar;
+#define WS_CHAR_MAX 64
+static WsChar s_wschar[WS_CHAR_MAX];
+static int    s_wschar_n = 0;
+static WsChar s_wschar_done[WS_CHAR_MAX];
+static int    s_wschar_done_n = 0;
+static int    s_wschar_log = -1;
+
+int native_wschar_count(void) { return s_wschar_done_n; }
+int native_wschar_get(int i, int *x, int *y, int *w, int *h,
+                      uint32_t *data, uint32_t *mask, int *rowstride)
+{
+    if (i < 0 || i >= s_wschar_done_n) return 0;
+    const WsChar *c = &s_wschar_done[i];
+    *x = c->x; *y = c->y; *w = c->w; *h = c->h;
+    *data = c->data; *mask = c->mask; *rowstride = c->rowstride;
+    return 1;
+}
+
+void native_char_capture(M68KCtx *ctx)
+{
+    int      worldX = (int16_t)(uint16_t)ctx->D[0];
+    int      worldY = (int16_t)(uint16_t)ctx->D[1];
+    uint32_t d5     = ctx->D[5];
+    uint32_t a1     = ctx->A[1];
+
+    uint16_t maskoff = MR16(a1 + 0x00u);
+    int16_t  bmod    = (int16_t)(uint16_t)MR16(a1 + 0x02u); /* modulos hi word = BMOD */
+    uint16_t size    = MR16(a1 + 0x08u);
+    int      w       = size & 0x3F;
+    int      h       = size >> 6;
+    uint32_t gfxBase = MR32(a1 + 0x0Au);
+
+    uint32_t data1x = gfxBase + d5;                        /* gfxBase + D5 (×1) */
+    uint32_t mask   = data1x + maskoff;
+    /* DATA = gfxBase + 5*D5, replicating add.w d5,d5 (×2) twice then add.l d5,d1
+     * (the *4 is 16-bit; the original full-width D5 was already added in data1x). */
+    uint32_t d5mul  = (d5 & 0xFFFF0000u) | (((d5 & 0xFFFFu) * 4u) & 0xFFFFu);
+    uint32_t data   = data1x + d5mul;
+    int      rowstride = w * 2 + bmod;
+
+    if (s_wschar_n < WS_CHAR_MAX && w > 0 && h > 0 && rowstride > 0)
+        s_wschar[s_wschar_n++] = (WsChar){ worldX, worldY, w, h, data, mask, rowstride };
+
+    if (s_wschar_log < 0)
+        s_wschar_log = getenv("WSCHAR_LOG") ? atoi(getenv("WSCHAR_LOG")) : 0;
+    if (s_wschar_log && s_wschar_n <= s_wschar_log) {
+        int cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
+        GLOBAL_LOG("[wschar] x=%d y=%d (screenX=%d) w=%d h=%d data=%06X mask=%06X rs=%d\n",
+                   worldX, worldY, worldX - cam, w, h, data, mask, rowstride);
+    }
+
+    gfn_gpl_57D3F4(ctx);
+}
+
 /* $57D79A — object-list walker entry. Fires once per frame, before the per-object
- * draw calls. Promote the just-built list to "done" and start a fresh capture. */
+ * draw calls. Promote the just-built lists to "done" and start fresh captures. */
 void native_objwalk(M68KCtx *ctx)
 {
     memcpy(s_wsobj_done, s_wsobj, sizeof(WsObj) * (size_t)s_wsobj_n);
     s_wsobj_done_n = s_wsobj_n;
     s_wsobj_n = 0;
+    memcpy(s_wschar_done, s_wschar, sizeof(WsChar) * (size_t)s_wschar_n);
+    s_wschar_done_n = s_wschar_n;
+    s_wschar_n = 0;
     gfn_gpl_57D79A(ctx);
 }
 

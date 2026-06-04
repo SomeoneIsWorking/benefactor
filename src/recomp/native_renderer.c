@@ -513,6 +513,9 @@ extern int native_wsobj_count(void);
 extern int native_wsobj_get(int i, int *x, int *y, int *w, int *h,
                             uint32_t *src, uint32_t *mod);
 extern int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase);
+extern int native_wschar_count(void);
+extern int native_wschar_get(int i, int *x, int *y, int *w, int *h,
+                             uint32_t *data, uint32_t *mask, int *rowstride);
 
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
@@ -595,6 +598,56 @@ static void native_wsplayer_compose(int pf_top, int pf_bot)
     }
 }
 
+/* Composite captured cookie-cut CHARACTERS ($57D3F4 walkers/enemies) into
+ * s_objlayer. Each is a 5-plane DATA + 1-plane MASK sprite, both with the same
+ * per-row stride `rs` (= w*2 + BMOD; BMOD is usually -2 so rows overlap). DATA
+ * plane stride = h*rs (the B-channel auto-advance per plane in the executor). The
+ * mask gates transparency (cookie-cut), the data colour index runs through the
+ * per-scanline copper palette. Placed at absolute world (x, y) so it shares the
+ * background's world coordinate — no tuning constants. See pc_overrides_gameplay.c
+ * native_char_capture / widescreen-plan.md "Phase 4 — character draw". */
+static void native_wschar_compose(int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    if (!M || getenv("WS_NOOBJ")) return;
+    int n = native_wschar_count();
+    for (int i = 0; i < n; i++) {
+        int x, y, w, h, rs; uint32_t data, mask;
+        if (!native_wschar_get(i, &x, &y, &w, &h, &data, &mask, &rs)) continue;
+        if (w <= 0 || h <= 0 || w > 64 || h > 256 || rs <= 0) continue;
+        uint32_t pstride = (uint32_t)h * (uint32_t)rs;       /* B auto-advance/plane */
+        /* DISPLAYED width = rs/2 words, NOT w. Verified from the actual blits
+         * (BLIT_LOG fn=$57D688): the blit reads w words/row but the row only
+         * ADVANCES `rs` bytes (rs = w*2+BMOD), and the spillover word past rs is
+         * killed by BLTALWM=$0000 (the fine-shift guard word) — so only rs/2 words
+         * are ever drawn. The data is packed at rs bytes/row (plane stride h*rs =
+         * 84 = 21*4 on the L9 walker, matching the measured bpt step $54). Using w
+         * drew the masked spillover word as a doubled second body. */
+        int ww  = rs / 2; if (ww < 1) ww = 1;
+        int wpx = ww * 16;
+        if (data + pstride * 5u > RT_MEM_SIZE) continue;
+        if (mask + (uint32_t)(h - 1) * (uint32_t)rs + (uint32_t)ww * 2u > RT_MEM_SIZE) continue;
+        for (int r = 0; r < h; r++) {
+            int sy = pf_top + y + r;
+            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+            const uint32_t *pal = s_scan[sy].palette;
+            for (int c = 0; c < wpx; c++) {
+                int wo = c >> 4, bit = 15 - (c & 15);
+                uint32_t rowoff = (uint32_t)r * (uint32_t)rs + (uint32_t)wo * 2u;
+                uint16_t mw = gmem_r16(M, mask + rowoff);
+                if (!((mw >> bit) & 1u)) continue;            /* cookie-cut: mask gates */
+                int worldX = x + c;
+                if (worldX < 0 || worldX >= WS_LAYER_W) continue;
+                int ci = 0;
+                for (int p = 0; p < 5; p++)
+                    if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
+                        ci |= (1 << p);
+                s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+            }
+        }
+    }
+}
+
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
     if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only (margin 0 = compare-at-352) */
@@ -671,6 +724,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     /* Fill the object layer from the engine's captured per-object draw list, then
      * composite the player (drawn by its own routine $57A666, not the object loop). */
     native_objlayer_from_capture(pf_top, pf_bot);
+    native_wschar_compose(pf_top, pf_bot);
     native_wsplayer_compose(pf_top, pf_bot);
 
     if (getenv("WS_DBG")) {
