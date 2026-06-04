@@ -461,6 +461,7 @@ typedef struct {
     uint32_t src[5], mask;    /* gfx source per plane; mask plane (0 = opaque)  */
     int      np, w, h, shift, smod, mmod;
     int      deco;            /* 1 = static decoration (baked bg; restore can't erase it) */
+    int      pfill[5];        /* per plane: -1 = read src[p]; 0/1 = constant fill (no A/B src) */
     int      pj_wx0, pj_sy0;  /* last projected world-X / screen-Y (diagnostics)          */
 } PgSprite;
 static int s_diag_cam16 = 0;
@@ -711,7 +712,15 @@ static void native_objlayer_ingest(void)
         if (ps) {
             ps->base=base; ps->dpt=r0->dpt; ps->mask=r0->mask; ps->np=np; ps->deco=deco;
             ps->w=r0->w; ps->h=r0->h; ps->shift=r0->shift; ps->smod=r0->smod; ps->mmod=r0->mmod;
-            for (int p = 0; p < np; p++) ps->src[p] = rec[g0 + p].src;
+            for (int p = 0; p < np; p++) {
+                ps->src[p] = rec[g0 + p].src;
+                /* A plane with no A/B source channel is a constant fill (minterm output for
+                 * all-zero inputs = con0 bit0), e.g. a "set this plane to 1 everywhere" used
+                 * to push a sprite into the bright COLOR16-31 range. Reading it as gfx would
+                 * corrupt that plane's bit. */
+                uint16_t c = rec[g0 + p].con0;
+                ps->pfill[p] = (((c >> 11) & 1) || ((c >> 10) & 1)) ? -1 : (int)(c & 1);
+            }
         }
     }
 }
@@ -753,6 +762,7 @@ static void native_objlayer_project(int cam16, int pf_top, int pf_bot)
                     }
                     int ci = 0;
                     for (int p = 0; p < ps->np; p++) {
+                        if (ps->pfill[p] >= 0) { if (ps->pfill[p]) ci |= (1 << p); continue; }
                         uint32_t sa = ps->src[p] + (uint32_t)py * srow + (uint32_t)(px >> 3);
                         if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
                     }
