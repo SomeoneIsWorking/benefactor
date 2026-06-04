@@ -115,25 +115,39 @@ $((0x5D0+ADDR)) ADDR LEN`). Verified the actual scroll + tile-draw path. a5 = `$
   `"=SB="`=`$3D53423D`, chunk `$4000`) that decompresses level data from the `$5Axxxx`
   region into the display page `$2B3EC`. Not the tilemap source per se.
 
-### Phase 3 RE — tilemap INDEXING decoded; tile-gfx format UNRESOLVED (2026-06-04)
+### Phase 3 RE — tile decode FULLY CRACKED & VERIFIED (2026-06-04)
 
-**HONESTY CORRECTION (supersedes the "FULLY DECODED" commit `de15028`):** the tilemap
-INDEXING (where/how the engine reads `$552A0`) is harness-verified and solid, but the
-value→tile-graphics DECODE below is **NOT yet correct**. A standalone reference renderer
-(`scratch/ws_render.py`, reads a `dumpall` g_mem dump) was built to gate the claim — and it
-produces NOISE, not the real clean cave. Tried 5-plane plane-major, 4-plane, and
-4-plane+mask (bytes 128-159 as mask) — all noise vs the real frame
-(`scratch/screenshots/ws_real_fb.png` = brown cave, platforms, ladders, player, HUD).
-So the `$5A539E`-table targets are NOT plain 160B plane-major tiles. **What's actually
-SOLID** = the indexing (base/stride/col-mapping). **What's OPEN** = the tile pixel format
-(plane count/order/mask) AND possibly the value→gfx mapping itself (a page-search for the
-decoded source column at 46-byte stride found NO match, which already hinted the format is
-wrong — pressed on anyway, lesson logged). NEXT: reverse the EXACT tile format by matching
-a known-correct on-screen tile *from the display page* (`$2B3EC`, which renders right) back
-to its `$5D9xxx` source — accounting for the fine-scroll bit-shift the draw applies — OR
-set a read-watch on the draw's `(a4)` gfx-source reads to capture the real bytes + match to
-the on-screen tile. Reference renderer + gameplay dump (`scratch/bin/gmem_gameplay.bin`,
-cam=961) are the verification harness; gate any future claim on a clean reference render.
+The standalone reference renderer (`scratch/ws_render.py`, reads a `dumpall` g_mem dump)
+now reproduces the real cave EXACTLY at 480px wide (`scratch/screenshots/ws_final.png` vs
+`ws_real_fb.png`: matching dirt, platforms, two ladders, green ledges, red pickups, dark
+bg). **COMPLETE, VERIFIED tile-render spec:**
+
+- **Tile SELECTION:** `gfx = read_long($5A539E + (mapword & 0xFFFE))`. The earlier `&0xFE`
+  was THE bug — the draw does `moveq #$fe,d0` (= `$FFFFFFFE`) then `and.w (a1,d2),d0`, so
+  the mask is `0xFFFE` (clears only bit 0), and the FULL 16-bit map word (e.g. `0x05EC`,
+  `0x0320`) is the table byte-offset. The `$5A539E` table is NOT uniformly strided — always
+  use the lookup, never a `$5D902A + n*$A0` formula.
+- **Tile GRAPHICS format:** 160 bytes, **5-plane PLANE-MAJOR**: `plane p, row r` word =
+  `gfx + p*32 + r*2`, 16 rows × 1 word (16×16px, 5bpp). (Row-interleaved was wrong.)
+- **PALETTE is PER-SCANLINE (copper).** The playfield region (copper VP ~39–231 / display
+  lines ~12–204) sets COLOR16-31 to the cave browns (`FFFFFF BB8855 AA6633 995522 884422
+  553311 442200 331100 ...`). Parsing the copper to its END grabs the *HUD* palette
+  (greens/cyan at VP 255+ wrapped) — wrong. `native_renderer.c::walk_copper` ALREADY builds
+  the correct per-scanline `st->palette`, so the C port gets this for free. `g_state.palette`
+  is a grey/tan FALLBACK ramp, not the displayed colors.
+- Indexing (base `$552A0`, row-major, row stride `$F4`=244B, `col = worldX>>4`, ~14 rows)
+  unchanged & still harness-verified.
+
+New harness REPL cmd `pal` prints the live 32-entry palette (committed). Reference renderer
++ gameplay dump (`scratch/bin/gmem_gameplay.bin`, cam=961) + `scratch/screenshots/ws_*.png`
+are the verification harness — gate any render claim on a clean reference render.
+
+**→ NEXT: port to `native_renderer.c`** (C). Per visible world column `C = worldX>>4`
+(camera `$57FDBA`, clamp to `[$57FE8C-$90, $57FE8E-$100]`), per playfield row `r` 0..~13:
+`w = chip_r16($552A0 + r*$F4 + C*2)`; `gfx = chip_r32($5A539E + (w & 0xFFFE))`; decode the
+16×16×5bpp plane-major tile; place at `(C*16 - camera_x, playfield_top + r*16)` using the
+playfield-row `st->palette`. Fill the wide output margins (approach C: keep the engine's
+320 center for objects, native tiles in the L/R margins), then Phase 4 = native objects.
 
 Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
 then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read
@@ -157,8 +171,8 @@ offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed runn
   `[$57FE8C - $90, $57FE8E - $100]` (a5+$107a/$107c); L9 = `[0, 1392]`.
 - **Palette**: from the copper list (native_renderer already parses COLORxx).
 
-**→ Native wide renderer (indexing known; tile pixel decode still WRONG — see correction
-above):** for the wide camera window,
+**→ Native wide renderer (decode now FULLY VERIFIED — see the 2026-06-04 cracked spec
+above; note the tile SELECTION mask is `0xFFFE` not `0xFE`):** for the wide camera window,
 for each visible world column `C = worldX>>4` (clamped to level edges) and each playfield
 row `r` in 0..~13: `w = MR16($552A0 + r*$F4 + C*2)`; `gfx = MR32($5A539E + (w & $FE))`;
 decode the 16×16×5bpp plane-major tile at `gfx` with the copper palette; place at screen

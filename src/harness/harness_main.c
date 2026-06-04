@@ -675,6 +675,14 @@ int main(int argc, char **argv)
                 printf("\n");
             }
         }
+        else if (!strcmp(cmd, "pal")) {   /* pal — print the live 32-entry ARGB palette (g_state.palette) */
+            printf("[crepl] palette (ARGB):\n");
+            for (int i = 0; i < 32; i += 8) {
+                printf("  %2d:", i);
+                for (int j = i; j < i + 8; j++) printf(" %06X", g_state.palette[j] & 0xFFFFFF);
+                printf("\n");
+            }
+        }
         else if (!strcmp(cmd, "audlc")) {  /* audlc — print PC + PUAE per-channel audio sample ptr (AUDxLC),
                                               len, vol, active. Diff a single jump to find the grunt channel. */
             printf("[audlc] PC ");
