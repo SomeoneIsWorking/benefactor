@@ -56,6 +56,7 @@ destinations and lessons:
 | `instructions/gameplay-engine-map.md` | Working RE map of the `$577000+` engine: per-frame loop subsystems, level setup, object/animation system, a5-relative state vars (incl. player movement/JUMP state machine + SFX engine). **Update as you native-port pieces.** |
 | `instructions/audio-engine.md` | Full RE map of the gameplay AUDIO engine (replayer + SFX): vblank tick `$59BA7A`, SFX `$586xxx` (trigger `$58656E`, streamers `$586612`/`$58684C`), CIA output ISR `$59BF3E`/`$59BFA6`, shared state, + staged native-port plan. |
 | `instructions/widescreen-plan.md` | Plan for widescreen gameplay (wider view than the 320px Amiga playfield); feasible because game logic is camera-independent. |
+| `instructions/remaining-issues.md` | Living list of open issues (widescreen sprites + other native-port gaps) with RE status + next steps. |
 
 ## Key Files
 
