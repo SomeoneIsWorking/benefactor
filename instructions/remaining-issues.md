@@ -51,13 +51,12 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    them BEFORE the engine's camera clip (same pre-clip principle as the walker), draw
    across the wide view.
 
-5. **Native camera alignment off by a few px toward the L/R EDGES.** OPEN (known). Native
-   compares skip an edge band (`wsdiff` excludes `WSDIFF_EDGE`=32px/side). The edge
-   camera math (cam16/x_off/scroll1 vs `$57FDBA`) is slightly off near edges; fix
-   separately, don't tune objects to it.
-
-### Widescreen — DONE (verified this push series)
+### Widescreen — DONE / NOT-A-BUG (verified this push series)
 - Native tilemap background (per-level row stride), wide camera clamp/center.
+- **Wide camera is GREAT** (user-confirmed) — NOT an issue. The `wsdiff` edge-band
+  exclusion (`WSDIFF_EDGE`=32px/side) exists because the COMPARE path (native@352 vs
+  vanilla) diverges near edges due to a VANILLA engine camera quirk, not a native bug.
+  Don't "fix" the native edge camera to match vanilla there.
 - Player draw (`$57A666`), damage-blink black silhouette.
 - Cookie-cut characters/walkers (`$57D3F4`, no doubling).
 - `$57D8D0` list-A objects (platforms, pickups, ladders, box).
@@ -66,7 +65,7 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
 ## B. Other known native-port issues (pre-existing, see instructions/current-state.md)
 
-6. **Native hardware-SPRITE rendering unimplemented (no CONFIRMED reachable use yet).**
+5. **Native hardware-SPRITE rendering unimplemented (no CONFIRMED reachable use yet).**
    `native_render_frame` has zero hardware-sprite (SPRxPT) compositing code — distinct
    from the blitter object draws above. The previously-cited example (gameover CONTINUE
    cursor = hardware sprite 0) is MOOT: the PC port intentionally bypasses the GAME OVER
@@ -77,12 +76,12 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    until a real hardware-sprite use is observed; audit the copper SPRxPT across screens
    before building this.
 
-7. **Vestigial password field beside LEVEL SELECT** ("3MQLGPQLGP", renderer `$003DAA`,
+6. **Vestigial password field beside LEVEL SELECT** ("3MQLGPQLGP", renderer `$003DAA`,
    double-emitted). Cosmetic; needs the bitmap-draw routine or a recompiler-level fix.
 
-8. **Audio: PC full-mix ~2× quieter than PUAE** (master/mix gain, affects music+SFX
+7. **Audio: PC full-mix ~2× quieter than PUAE** (master/mix gain, affects music+SFX
    equally). Separate from the (fixed) SFX-drop bug. Music replayer (`$59BA7A`+) still
    recompiled, not yet native-owned.
 
-9. **Final-level win path crashes** — different code path; NOT a recompiler/dispatch
+8. **Final-level win path crashes** — different code path; NOT a recompiler/dispatch
    miss. Don't force-win the final level as a coverage test. ([[project_final_level_win_path]])
