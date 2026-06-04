@@ -115,15 +115,43 @@ $((0x5D0+ADDR)) ADDR LEN`). Verified the actual scroll + tile-draw path. a5 = `$
   `"=SB="`=`$3D53423D`, chunk `$4000`) that decompresses level data from the `$5Axxxx`
   region into the display page `$2B3EC`. Not the tilemap source per se.
 
-**Native wide background — what's now known vs. still needed:**
-- KNOWN: camera (`$0fa8`), level-edge clamp (`$107a`/`$107c`), tile size (16×16×5bpp,
-  160B plane-major), tile-gfx table (`$5A539E[idx]`, `idx=mapval&0xFE`), palette (copper).
-- STILL NEEDED (next pass — use the RUNNING harness to correlate, not more static disasm
-  of unrolled code): the **tilemap 2D layout** — the column stride in `$552A0` and the
-  vertical indexing (the `$57C72A` cell-draw is called per-cell by a vertical loop in its
-  caller; find that loop OR derive the stride empirically by dumping `$552A0` against the
-  visible screen at a known camera). Hypothesis: column-major, `d2` walks columns; vertical
-  via a loop that steps `d2` by a row count. Confirm before building the renderer.
+### Phase 3 RE — TILEMAP FULLY DECODED (2026-06-04, harness-verified)
+
+Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
+then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read
+offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed running live
+(via rt wrappers — `pcwatch 57FDBA` shows 2 camera writes/frame from `fn=$57C72A`).
+
+**TILEMAP — complete spec (everything needed to render natively):**
+- **Base `$552A0`** (fixed work-buffer addr; per-level CONTENTS, stable address). Live
+  bytes match the L9 savestate exactly.
+- **ROW-MAJOR. Row stride `$F4` = 244 bytes = 122 columns/row.** Map height ≈ **14–16
+  playfield rows** (rows 0–13 terrain, ~14–16 solid floor, row 17+ = out of playfield).
+- **Index: `word @ $552A0 + row*$F4 + col*2`**, where **`col = worldX>>4` ABSOLUTELY**
+  (col N covers world px [N*16, N*16+16); verified: camera_tile 56 + 21-col lead → col 78).
+- **Entry word**: low byte `& $FE` selects the tile; high byte = collision/layer ATTR
+  (0x00/0x03/0x04/0x05/0x0B seen — ignore for rendering).
+- **Tile graphics**: `gfx_ptr = read_long($5A539E + (word & $FE))`
+  = `$5D902A + ((word & $FE)/4) * $A0`. (`$5A539E` table + `$5D902A` gfx base both
+  STABLE addrs, per-level data.) Each tile = **`$A0`=160 bytes, PLANE-MAJOR: 5 planes ×
+  16 rows × 1 word** (16×16px, 5bpp).
+- **Camera** = `word @ $57FDBA` (= a5+$0fa8, a5=$57EE12). **Level edges** =
+  `[$57FE8C - $90, $57FE8E - $100]` (a5+$107a/$107c); L9 = `[0, 1392]`.
+- **Palette**: from the copper list (native_renderer already parses COLORxx).
+
+**→ Native wide renderer (now buildable, no unknowns):** for the wide camera window,
+for each visible world column `C = worldX>>4` (clamped to level edges) and each playfield
+row `r` in 0..~13: `w = MR16($552A0 + r*$F4 + C*2)`; `gfx = MR32($5A539E + (w & $FE))`;
+decode the 16×16×5bpp plane-major tile at `gfx` with the copper palette; place at screen
+`(C*16 - camera_x, playfield_top + r*16)`. The engine's per-column incremental redraw
+(phase table `$57F4BC`, double-buffer, the 21-col lead) is an OPTIMIZATION we do NOT need
+to replicate — we read the full map directly. Fine scroll = `camera_x & 15`.
+NOTE the masked-tile path (`$57CA80`, when `$10c4(a5)` set) handles transparent/overlay
+tiles — base terrain uses the `& $FE` gfx; revisit transparency if margins look wrong.
+
+REMAINING for Phase 3/4 (not blockers for a first wide background): confirm exact
+playfield row count + top Y (DIW); per-level stability of `$5A539E`/`$5D902A` (verify on a
+2nd world); parallax/background layer (if any 2nd playfield); then Phase 4 native objects.
 
 ---
 
