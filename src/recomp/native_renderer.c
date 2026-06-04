@@ -501,10 +501,20 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
         int x_off   = DDF_TO_X(st->ddfstrt);
         int scroll1 = st->bplcon1 & 0xF;
 
-        /* ONE renderer: the PC composes the ENTIRE playfield width itself from the
-         * tilemap (the engine's bitplane output is not used for the playfield). No
-         * engine-center carve-out, hence no seam and no alignment constants. */
+        /* The engine's composited page (already in s_out's center via hw_compose_output)
+         * carries the full visible scene — bg tiles + objects + decorations — drawn by
+         * the PC-owned blitter. Native tiles fill ONLY outside the engine's valid fetch
+         * window (the margins + the engine's border over-fetch); since the native bg is
+         * bit-exact with the page, the seam is continuous. The skip range = the engine's
+         * DDF window [x_off+scroll1, +width_px). */
+        int fetch_w = (((int)st->ddfstop - (int)st->ddfstrt) >> 3) + 1;
+        if (fetch_w < 1) fetch_w = 1; if (fetch_w > 64) fetch_w = 64;
+        int eng_lo = margin + x_off + scroll1;
+        int eng_hi = eng_lo + fetch_w * 16;
+        if (eng_lo < margin) eng_lo = margin;
+        if (eng_hi > margin + HW_DISPLAY_W) eng_hi = margin + HW_DISPLAY_W;
         for (int x = 0; x < ow; x++) {
+            if (x >= eng_lo && x < eng_hi) continue;          /* engine's composited center */
             int lx = (x - margin) - x_off - scroll1;          /* engine bitplane bit index */
             int worldX = cam16 + lx;                          /* identical to engine mapping */
             if (worldX < 0) continue;
@@ -524,8 +534,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
         }
     }
 
-    if (!getenv("BENEFACTOR_WS_NOOBJ"))
-        native_render_wide_objects(out, ow, margin, cam, pf_top, pf_bot);
+    (void)native_render_wide_objects;   /* objects come from the engine's composited center */
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.
