@@ -243,6 +243,28 @@ off `0x5D0+addr`); live dump `scratch/bin/gm_obj.bin` (cam=881, playerX=1056, le
   compares skip an edge band: `wsdiff` excludes `WSDIFF_EDGE` px (default 32) per side. Fix the
   edge camera math separately (cam16/x_off/scroll1 vs $57FDBA); don't tune objects to it.
 
+#### Per-routine RE progress
+
+- **`$57A666` = PLAYER draw (DONE RE, not yet ported).** Reads player block `$10a6(a5)`
+  (`$57FEB8`): `movem.w (a4),d1-d4` → d1=worldX, d2=worldY, d3=facing/anim idx, d4=state.
+  Screen pos written to `$f94`/`$f96(a5)`. Clip: `d0=worldX-$fa8(a5)` (camera); `cmpi.w #$150`
+  → cull if off-screen. **Player is camera-centered so it is NEVER in the margins** — it's
+  invisible today only because the native renderer neither reads the page nor captures this
+  blit. Sprite (cookie-cut, `BLTCON0=$XFCA`, ASH=worldX&15):
+  - **gfx (A ch) = `$52AA0` + frameoff**, A-modulo $24, **plane stride $280** (auto-advance).
+  - **mask (B ch) = `$19E02` + frameoff**, **plane stride $2800** (manual `lea $2800(a0)`).
+  - frameoff: `d3 = $2286(a5)[d3]` (+$14 if facing bit `$7(a4)` bit1 set); a0/a2 += d3.
+  - dest = `$67e(a5)`(page B) + `$5A1D18[worldY*2]` + worldX>>3; plane stride $2A0C.
+  - size `$402` → w=2 (32px), h=16. 5 planes.
+  - NOTE gfx and mask have DIFFERENT plane strides ($280 vs $2800) — get this right or the
+    player decodes to garbage. Verify the decode standalone (decode $52AA0/$19E02 to ASCII)
+    BEFORE wiring, the same way the bg tile decode was verified.
+- **TODO remaining routines:** `57A88A`/`57D282` (opaque `con0=09F0` object loops),
+  `57D6C4`/`57D688`/`57DB16` (cookie-cut object loops), `578974` (GET READY banner, 5 blits),
+  `578B94` (low-mem src → HUD/text?), pause menu. Each: find the per-sprite pre-clip point,
+  capture `{src, mask, worldX, worldY, w, h, mode}` unclipped, draw natively. Player first
+  (highest value, simplest position source = the player block).
+
 Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
 then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read
 offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed running live
