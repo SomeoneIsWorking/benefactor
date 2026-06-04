@@ -78,9 +78,15 @@ void native_level_setup       (M68KCtx *ctx);
 void native_objwalk           (M68KCtx *ctx);   /* $57D79A — per-frame object-list walker */
 void native_objdraw_capture   (M68KCtx *ctx);   /* $57D8D0 — capture object for widescreen */
 void native_player_capture    (M68KCtx *ctx);   /* $57A666 — capture player for widescreen */
+void native_char_capture      (M68KCtx *ctx);   /* $57D3F4 — capture cookie-cut characters */
 /* Widescreen object capture, read by native_renderer.c (last complete frame). */
 int  native_wsobj_count(void);
 int  native_wsobj_get(int i, int *x, int *y, int *w, int *h,
                       uint32_t *src, uint32_t *mod);
 /* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask). */
 int  native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase);
+/* Captured cookie-cut characters (walkers/enemies) drawn via $57D3F4/$57D6C4.
+ * 5-plane DATA (plane stride h*rowstride) + 1-plane MASK, both row stride rowstride. */
+int  native_wschar_count(void);
+int  native_wschar_get(int i, int *x, int *y, int *w, int *h,
+                       uint32_t *data, uint32_t *mask, int *rowstride);

@@ -448,24 +448,45 @@ the center into the native renderer once the tile path is proven.
 - Vertical: this plan widens horizontally only; vertical 16:9 would need the same tilemap
   treatment top/bottom and is out of scope unless wanted.
 
-### Phase 4 — character (walker/enemy) draw: capture SOLVED, gfx plane decode OPEN (2026-06-04)
+### Phase 4 — character (walker/enemy) draw: DONE & PORTED (2026-06-04)
 
-Attempted (subagent + me); REVERTED because the sprite colors render corrupt. What's nailed
-vs open, so the redo is clean (verify the decode standalone BEFORE re-wiring):
-- **Choke point = `$57D3F4`** (cookie-cut character draw, clips to the `[cam, cam+$180]`
-  window). It does NOT blit directly — it BUILDS a 6-long descriptor into a queue
-  `{data, mask, con0/1=$XFCA, modulos, dest, size}` consumed by the executor `$57D6C4`.
-  Capture worldX=`d0`, worldY=`d1` at entry; super-call. (Position/capture WORKED — characters
-  appeared at the right spots incl. margins; only the gfx decode was wrong.)
-- **Descriptor `a1`:** SIZE=`MR16(a1+8)` → w=`&$3F`, h=`>>6`. data gfx = `MR32(a1+$A) + d5`
-  (d5 = anim frame offset; gfx base `$061EB6` on the L9 walker). mask = `data + MR16(a1+0)`
-  (offset `$4DD0` for that char). rowmod = `(int16)MR16(a1+2)` = `-2`.
-- **Row stride = `w*2 + rowmod` = 4** — VERIFIED: the MASK decodes to a clean humanoid
-  silhouette at rstride 4 (scratch/ws_char2.py); rstride 6 is garbage.
-- **OPEN: the DATA plane stride.** NOT packed (`row_stride*h`=88 → corrupt) and NOT
-  `mask_offset/5` (`$F90` → still corrupt, tested in-app). The 5 data planes are spread with
-  a large per-buffer stride; the mask sits past plane 4. Must RE how `$57D6C4` advances the
-  SOURCE pointer per plane (it re-points BLTBPT/BLTAPT each of the 5 unrolled planes; find the
-  per-plane source advance — likely from BLTBMOD/the `modulos` long, or hw auto-advance).
-  Then verify a clean ASCII decode of the L9 walker (data `$0626D2`, mask `$0674A2`, w3 h22)
-  in scratch/ws_char2.py BEFORE re-wiring `native_wschar_compose`.
+Native-drawn in the wide view (single walker, no doubling), VERIFIED in-app at
+`BENEFACTOR_WIDESCREEN=480` (`scratch/screenshots/ws_char9fix.png`). Implemented as
+`native_char_capture` ($57D3F4 override, pc_overrides_gameplay.c) + `native_wschar_compose`
+(native_renderer.c). The earlier reverted attempt had TWO bugs, both from hand-arithmetic
+instead of reading ground truth:
+
+- **Choke point = `$57D3F4`** (descriptor BUILDER). Each object's per-type handler
+  tail-jumps here (continuation after `jmp (a1,d0.w)` dispatch at `$57D3F0`), so it's hit
+  ONCE PER CHARACTER with resolved values live, BEFORE the `[cam, cam+$180]` clip. It builds
+  6-long descriptors into TWO queues consumed by executors `$57D6C4` (small chars) and
+  `$57D688` (the w=3 walkers). Capture at entry, super-call. Regs: `d0`=worldX, `d1`=worldY,
+  `d5`=anim frame offset, `a1`=descriptor.
+- **Descriptor `a1`:** maskoff=`MR16(a1+0)`; BMOD=`(int16)MR16(a1+2)` (modulos hi word);
+  SIZE=`MR16(a1+8)` → w=`&$3F` words, h=`>>6`; gfxBase=`MR32(a1+$A)`.
+- **BUG 1 (was "DATA plane decode OPEN") — DATA base = gfxBase + 5·d5, not +d5.** The builder
+  does `add.l d5,d1` (data=base+d5) then `add.w d5,d5`(×2) twice + `add.l d5,d1` again →
+  base + 5·d5 (×5 for the 5 planes); MASK uses base+d5 (×1) + maskoff. The reverted attempt
+  used base+d5 (×1) for DATA → scattered checkerboard noise. **DATA plane stride = h·rowstride**
+  (the B-channel HARDWARE auto-advance per blit; the executor steps only the DEST by `$2A0C`/
+  plane). VERIFIED against the real blits (`BLIT_LOG` fn=$57D688): bpt steps `061EB6→061F0A→…`
+  = `$54` = 21·4 = h·rowstride; apt(mask)=`066C86` constant across all 5 planes.
+- **BUG 2 (the "doubling" the user caught) — displayed width = rowstride/2 words, NOT w.** The
+  blit reads `w`=3 words/row but row-ADVANCES only `rowstride` = `w*2+BMOD` = 4 bytes (=2 words);
+  the spillover 3rd word (the fine-shift guard) is killed by `BLTALWM=$0000` (verified in the
+  blit log: walkers afwm=FFFF **alwm=0000**; small chars w=2/bmod=0 afwm=alwm=FFFF). Rendering
+  `w`=3 words drew that masked spillover as a doubled second body. `rowstride/2` gives the true
+  packed/displayed width in BOTH cases (walker 4/2=2, small char 4/2=2). The data is packed at
+  `rowstride` bytes/row.
+- **Row stride (both DATA & MASK, since AMOD=BMOD) = `w*2+BMOD` = 4** on the L9 walker.
+
+LESSON (per the user): don't hand-derive sprite bounds/strides — READ them from the actual
+blits. `BLIT_LOG=1` now also logs `afwm`/`alwm`; group by `fn=` (g_rt_last_call) to find which
+executor draws what and read the real per-plane bpt step (= plane stride), apt-constancy,
+size, modulos, and word masks. The player ($57A666) is a SEPARATE path (B manually re-pointed,
+plane stride `$2800` ≠ h·rowstride) handled by `native_wsplayer_compose`.
+
+TODO remaining routines (other sprite loops in the margins): `$57A88A`/`$57D282` (opaque
+`con0=09F0`), `$57D6C4`-fed small chars share the path (already captured), `$578974` GET READY
+banner, `$578B94` HUD/text. Each: capture pre-clip at its builder, draw via the same
+rowstride-derived decode.
