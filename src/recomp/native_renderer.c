@@ -428,7 +428,8 @@ void native_render_frame(void)
  * Tilemap (~$552A0) and tile gfx (~$5D9xxx, >512KB) are read straight from g_mem
  * (they don't change within a level), NOT via the 512KB chip_r16 window. */
 #define WS_TILEMAP  0x000552A0u
-#define WS_TILEROW  0xF4u            /* tilemap row stride (bytes) = 122 columns */
+#define WS_TILEROW  0xF4u            /* tilemap row stride FALLBACK (L9); real one is per-level */
+#define WS_PHASETAB 0x0057F4BCu      /* row-offset/phase table; entry[1].d2adj = row stride */
 #define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
 /* s_objlayer holds the per-frame PROJECTION of the page display-list (decorations under
  * objects), in world coords (absolute world X, screen Y). Rebuilt each frame from s_pg. */
@@ -600,7 +601,16 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     const uint8_t *M = g_mem;
     if (!M || WS_GFXTAB + 4u >= RT_MEM_SIZE) return;
 
-    int cam    = (int)gmem_r16(M, WS_CAMERA);
+    int cam    = (int16_t)gmem_r16(M, WS_CAMERA);   /* camera is SIGNED (can be -16 etc.) */
+
+    /* Tilemap row stride is PER-LEVEL (narrow levels have fewer columns/row), so it
+     * must NOT be hardcoded. The engine stores a row-offset table at $57F4BC whose
+     * entry[k].d2adj = k * rowstride (16-byte fine-scroll phase table, {d2adj.w,
+     * a3adj.w} x 16). entry[1].d2adj = the per-level row stride in bytes (L1=64,
+     * L9=244=$F4). Hardcoding $F4 made every non-L9 level decode the wrong rows. */
+    int rowstride = (int16_t)gmem_r16(M, WS_PHASETAB + 4);
+    if (rowstride < 0) rowstride = -rowstride;
+    if (rowstride <= 0) rowstride = (int)WS_TILEROW;   /* fallback to L9 if unreadable */
     /* World X of the displayed left coarse column. Deriving it from cam arithmetic is
      * direction-asymmetric (the engine's coarse update is hysteretic — verified: a cam
      * formula tears the bg for one frame at boundaries while scrolling LEFT). Instead read
@@ -684,7 +694,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
             int col = worldX >> 4;
             if (col < mincol || col >= maxcol) continue;
             int tx = worldX & 15;
-            uint32_t mo = WS_TILEMAP + (uint32_t)r * WS_TILEROW + (uint32_t)col * 2u;
+            uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
             if (mo + 1u >= RT_MEM_SIZE) continue;
             uint16_t w = gmem_r16(M, mo);
             uint32_t gfx = gmem_r32(M, WS_GFXTAB + (uint32_t)(w & 0xFFFEu));
