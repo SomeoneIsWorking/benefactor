@@ -76,6 +76,8 @@ void native_end_of_level      (M68KCtx *ctx);
 void native_level_load        (M68KCtx *ctx);
 void native_level_setup       (M68KCtx *ctx);
 void native_objwalk           (M68KCtx *ctx);   /* $57D79A — per-frame object-list walker */
+void native_objstep           (M68KCtx *ctx);   /* $57D7BC — per-object loop step (wide cull) */
+void native_objstep_b         (M68KCtx *ctx);   /* $57D8B4 — animated-object loop step (wide cull) */
 void native_objdraw_capture   (M68KCtx *ctx);   /* $57D8D0 — capture object for widescreen */
 void native_player_capture    (M68KCtx *ctx);   /* $57A666 — capture player for widescreen */
 void native_char_capture      (M68KCtx *ctx);   /* $57D3F4 — capture cookie-cut characters */
