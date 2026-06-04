@@ -813,8 +813,10 @@ int main(int argc, char **argv)
             extern int native_pglist_dump(uint32_t*,uint32_t*,uint32_t*,int*,int*,int);
             extern void native_blitdiag_ctx(int*,uint32_t*,uint32_t*);
             unsigned minw=0; sscanf(line,"%*s %u",&minw);
-            uint32_t base[512],dpt[512],src0[512]; int w[512],h[512];
+            uint32_t base[512],dpt[512],src0[512],mask[512]; int w[512],h[512],sx[512],sy[512],shf[512],np[512],dc[512];
             int n = native_pglist_dump(base,dpt,src0,w,h,512);
+            extern int native_pglist_dump2(int*,int*,uint32_t*,int*,int*,int*,int);
+            native_pglist_dump2(sx,sy,mask,shf,np,dc,512);
             int pn; uint32_t db,bp; native_blitdiag_ctx(&pn,&db,&bp);
             extern void native_pglist_stats(long*,long*); long adds=0,rems=0; native_pglist_stats(&adds,&rems);
             extern void native_objup_stats(long*,long*); long runs=0,nz=0; native_objup_stats(&runs,&nz);
@@ -822,8 +824,9 @@ int main(int argc, char **argv)
                    "objup_runs=%ld objup_nonzero=%ld\n", n, db, bp, adds, rems, runs, nz);
             for (int k=0;k<n && k<512;k++) {
                 if ((unsigned)w[k]*16 < minw) continue;
-                printf("  base=%06X dpt=%06X src0=%06X %dx%d %s\n",
-                       base[k],dpt[k],src0[k],w[k]*16,h[k], base[k]==db?"(DISPLAYED)":"(back)");
+                printf("  base=%06X dpt=%06X src0=%06X %dx%d sx=%d sy=%d msk=%06X shf=%d np=%d %s %s\n",
+                       base[k],dpt[k],src0[k],w[k]*16,h[k], sx[k],sy[k],mask[k],shf[k],np[k],
+                       dc[k]?"DECO":"obj", base[k]==db?"(DISPLAYED)":"(back)");
             }
         }
         else if (!strcmp(cmd, "pal")) {   /* pal — print the live 32-entry ARGB palette (g_state.palette) */
