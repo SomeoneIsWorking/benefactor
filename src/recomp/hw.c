@@ -192,17 +192,22 @@ static uint32_t s_out[HW_OUT_MAX * HW_DISPLAY_H];
 int hw_output_width(void) { return s_hw_out_w; }
 const uint32_t *hw_get_output_framebuffer(void) { return s_out; }
 
-/* Composite the 352-wide s_fb (+ pillarbox margins) into s_out at s_hw_out_w. */
+/* Composite the 352-wide s_fb (+ pillarbox margins) into s_out at s_hw_out_w.
+ * For gameplay, native_render_wide_bg then fills the margins with the off-screen
+ * terrain decoded from the level tilemap (Phase 3 widescreen). */
+void native_render_wide_bg(uint32_t *out, int ow, int margin);   /* native_renderer.c */
 static void hw_compose_output(void)
 {
     int ow = s_hw_out_w;
-    int margin = (ow - HW_DISPLAY_W) / 2;        /* black bars L/R for now */
+    int margin = (ow - HW_DISPLAY_W) / 2;        /* black bars L/R by default */
     for (int y = 0; y < HW_DISPLAY_H; y++) {
         uint32_t *dst = s_out + y * ow;
         for (int x = 0; x < margin; x++) dst[x] = 0xFF000000u;
         memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
         for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = 0xFF000000u;
     }
+    if (ow > HW_DISPLAY_W)
+        native_render_wide_bg(s_out, ow, margin);   /* fill margins w/ native tiles */
 }
 void hw_execute_copper(void);
 
