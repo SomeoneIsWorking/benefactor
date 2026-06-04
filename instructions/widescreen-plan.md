@@ -175,6 +175,46 @@ live, camera-independent — see [[gameplay-engine-map]] object walker `$57D7BC`
 the hardware-sprite clip. Then verify a 2nd world (per-level `$5A539E`/`$5D9xxx` stability)
 and any parallax/background 2nd layer.
 
+### Phase 4 RE — object draw path FULLY DECODED (2026-06-04)
+
+REJECTED the last session's "page display-list" (`native_objlayer_ingest`/`project`,
+`s_pg`): it captured RAW hardware blits and reverse-classified them by MAGIC src ranges
+(`0x045000`/`0x054000`/`0x060000`), reverse-derived world pos from `dst-bplpt`, and had to
+re-implement every blitter quirk (phantom ASH columns, per-plane FILL) → endless patches.
+That violates [[feedback_render_full_native_not_hybrid]]. DELETE it; render objects from the
+engine's own resolved per-object draw values instead.
+
+**The choke point = `$57D8D0`** (`gfn_gpl_57D8D0`, a registered/overridable fn). EVERY
+"normal" object handler (`$59AC38` etc., the per-type animation-script VM) runs first
+(advancing the frame even off-screen — camera-independent) then `jmp -$1542(a5)` = `$57D8D0`.
+So at `$57D8D0` ENTRY the engine has each object's resolved values, BEFORE the camera-clip
+throws off-screen ones away. Live regs at entry:
+- **`d0` = object world X**, **`d1` = object world Y** (screen row; game doesn't scroll Y).
+- **`d5` = per-type anim gfx offset** = `animTable[frame]` (the `move.w table(pc,d5),d5` in
+  the `$59ACxx` handler; table is per object type, e.g. `$59AC6C`).
+- **`a1`** = object handler ptr. Descriptor fields (after `lea -$10(a1)`): `MOD=MR32(a1-$10)`,
+  `SIZE=MR16(a1-$C)` = `(height<<6)|width_words`, `objGfxBase=MR32(a1-$A)`.
+- **gfx src = `objGfxBase + d5`** (5-plane sprite, plane stride `$2A0C`, w words × h rows).
+- dst (engine only) = `pageBase($57F490) + $5A1D18[worldY*2] + worldX/8`. `$5A1D18` = row→page
+  byte-offset table. We DON'T need dst: native draws at screen `(worldX - camera, worldY)`.
+
+**The camera-clip IS the camera-dependence** (`$57D8D0`): `screenX = d0 - $57FDBA`; off-left
+or `objTile >= (camera+$160=352)>>4` → emits a no-blit sentinel and SKIPS the object. This is
+the ONLY thing to bypass for widescreen — capture unclipped, clip to the WIDE buffer instead.
+
+Also: **special multi-tile path `$57D81C`** (high-bit objects, `(a1) bmi`) — a manual
+`move.w (a2)+,(a3)` tile blit with strides `$2E`/`$29DE`, ALSO camera-clipped (`cmpi.w
+#$150,d1` at `$57D826`); and a **masked path** (`$57fed8` flag) using a B (mask) channel.
+Both secondary; the normal `$57D8D0` path covers most objects (player/enemies/pickups).
+
+**Plan:** native override of `$57D8D0` → capture `{worldX=d0, worldY=d1, src=objGfxBase+d5,
+mod, w=SIZE&$3F, h=SIZE>>6, masked}` into a native per-frame list, then super-call the recomp
+body (vanilla center unaffected). Native renderer draws bg (tilemap, done) + this object list
+at `(worldX-camera, worldY)` across the wide buffer — ONE renderer, no magic, no blit-replay.
+Verify wide=0 == vanilla (sprite decode must match the engine's `BLTCON0=$09F0` straight copy
+/ cookie-cut for masked). Source spec verified by disasm of `logs/savestate.bin` (L9, file
+off `0x5D0+addr`); live dump `scratch/bin/gm_obj.bin` (cam=881, playerX=1056, level 9).
+
 Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
 then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read
 offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed running live
