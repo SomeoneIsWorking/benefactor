@@ -306,8 +306,9 @@ void hw_do_blit(void)
     if (getenv("BLIT_LOG")) {
         static FILE *bl = NULL; static long n = 0;
         if (!bl) bl = fopen("logs/blit_log.txt", "w");
-        if (bl) { fprintf(bl, "%ld apt=%06X bpt=%06X cpt=%06X dpt=%06X w=%d h=%d con0=%04X con1=%04X amod=%d bmod=%d cmod=%d dmod=%d\n",
-                          n++, apt, bpt, cpt, dpt, width_words, height, bltcon0, bltcon1, amod, bmod, cmod, dmod); fflush(bl); }
+        extern volatile uint32_t g_rt_last_call;
+        if (bl) { fprintf(bl, "%ld apt=%06X bpt=%06X cpt=%06X dpt=%06X w=%d h=%d con0=%04X con1=%04X amod=%d bmod=%d cmod=%d dmod=%d fn=%06X\n",
+                          n++, apt, bpt, cpt, dpt, width_words, height, bltcon0, bltcon1, amod, bmod, cmod, dmod, (unsigned)g_rt_last_call); fflush(bl); }
     }
 
     /* GP_BLIT_TRACE: log destination regions of gameplay blits (diagnostic). */
