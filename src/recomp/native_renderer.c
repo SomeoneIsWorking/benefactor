@@ -430,8 +430,13 @@ void native_render_frame(void)
 #define WS_TILEMAP  0x000552A0u
 #define WS_TILEROW  0xF4u            /* tilemap row stride (bytes) = 122 columns */
 #define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
-/* Persistent world-indexed object/decoration layer (see native_objlayer_update). */
-static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];   /* ARGB, alpha 0 = transparent */
+/* Two world-indexed layers (see native_objlayer_update):
+ *  s_objlayer  — DYNAMIC objects (player/enemies/items, src $06xxxx/$01xxxx); fresh each
+ *                frame (they move; persisting would ghost under scroll).
+ *  s_decolayer — STATIC decorations (box, torch, src $054000-$060000 work buffer); PERSISTS
+ *                across frames (drawn once at setup/column-cross, never moves → no ghost). */
+static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];    /* dynamic, cleared each frame  */
+static uint32_t s_decolayer[HW_DISPLAY_H][WS_LAYER_W];   /* decorations, persistent      */
 static int      s_objlayer_init = 0;
 #define WS_GFXTAB   0x005A539Eu
 #define WS_CAMERA   0x0057FDBAu
@@ -540,8 +545,11 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                     ci |= (1 << p);
             row[x] = pal[ci & 0x1Fu];
 
-            /* Composite the world object/decoration layer on top of the bg tile. */
+            /* Composite the world layers on top of the bg tile: decorations first
+             * (persistent), then dynamic objects. */
             if (worldX >= 0 && worldX < WS_LAYER_W) {
+                uint32_t d = s_decolayer[y][worldX];
+                if (d & 0xFF000000u) row[x] = d;
                 uint32_t o = s_objlayer[y][worldX];
                 if (o & 0xFF000000u) row[x] = o;
             }
@@ -573,11 +581,9 @@ static void native_objlayer_update(int cam, int pf_top, int pf_bot)
     int n = hw_blit_capture_count();
     const BlitRec *rec = hw_blit_capture_recs();
     if (!M) return;
-    /* Fresh each frame (world-persistence ghosts under scroll because restore-clear and
-     * the original draw use different camera offsets). Cleared, sprites set, restores
-     * skipped — clean full-width native objects, no ghost trails. */
+    /* Dynamic layer fresh each frame; decoration layer persists (init once). */
     memset(s_objlayer, 0, sizeof s_objlayer);
-    s_objlayer_init = 1;
+    if (!s_objlayer_init) { memset(s_decolayer, 0, sizeof s_decolayer); s_objlayer_init = 1; }
 
     int cam16 = ((cam + 15) & ~15);
     uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
@@ -600,6 +606,10 @@ static void native_objlayer_update(int cam, int pf_top, int pf_bot)
 
         int masked  = (r0->mask != 0u);
         int restore = (!masked && r0->src >= 0x045000u && r0->src < 0x054000u);  /* bg-restore */
+        /* Decorations (box, torch) source from the $054000-$060000 work buffer and are
+         * STATIC — route them to the persistent layer; everything else is dynamic. */
+        int deco    = (r0->src >= 0x054000u && r0->src < 0x060000u);
+        uint32_t (*layer)[WS_LAYER_W] = deco ? s_decolayer : s_objlayer;
         uint32_t off = r0->dpt - base;
         int orow = (int)(off / WS_ROWSTRIDE), xbyte = (int)(off % WS_ROWSTRIDE);
         int wpx  = r0->w * 16;
@@ -624,7 +634,7 @@ static void native_objlayer_update(int cam, int pf_top, int pf_bot)
                     uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
                     if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
                 }
-                s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0xFFFFFFu);   /* set opaque */
+                layer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0xFFFFFFu);   /* set opaque */
             }
         }
     }
