@@ -114,6 +114,13 @@ void pc_register_overrides(void)
     { extern void native_place_probe(M68KCtx *ctx);   /* BENEFACTOR_DBG_DROP probe */
       rt_register_override_gp(0x0057EB20u, native_place_probe); }
 
+    /* Widescreen object capture (pc_overrides_gameplay.c): record each object's
+     * UNCLIPPED draw params at the engine's per-object draw choke point ($57D8D0,
+     * before its 352px camera-clip) so the native renderer can draw objects across
+     * the full wide view. Both super-call the recomp body → vanilla unaffected. */
+    rt_register_override_gp(0x0057D79Au, native_objwalk);
+    rt_register_override_gp(0x0057D8D0u, native_objdraw_capture);
+
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled
      * bodies (A/B comparison while porting). */

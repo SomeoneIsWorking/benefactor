@@ -251,3 +251,74 @@ void native_level_load(M68KCtx *ctx)
     }
     gfn_gpl_59DC02(ctx);
 }
+
+/* ── Native object capture for widescreen ($57D79A walk + $57D8D0 draw) ───────
+ * The engine draws each "normal" gameplay object (player, enemies, pickups) by
+ * running its per-type animation-script VM ($59ACxx) then `jmp -$1542(a5)` =
+ * $57D8D0, which CLIPS the object to the 352px screen window ([cam, cam+$160])
+ * and emits a blit descriptor — or, for off-screen objects, a no-blit sentinel
+ * (so they vanish). We capture each object's UNCLIPPED draw params at $57D8D0
+ * ENTRY (before the clip), so the native widescreen renderer can draw it at its
+ * true world position across the full wide view, then super-call the recomp body
+ * so the vanilla center is byte-for-byte unaffected.
+ *
+ * Regs at entry (the engine already ran the VM, even for off-screen objects —
+ * the simulation is camera-independent): D0=worldX, D1=worldY, D5=anim gfx
+ * offset, A1=object handler ptr. From A1: MOD=MR32(A1-$10), SIZE=MR16(A1-$C) =
+ * (height<<6)|width_words, gfxBase=MR32(A1-$A); gfx src = gfxBase + (int16)D5.
+ * Sprite is 5-plane plane-major, plane stride $2A0C, w words x h rows.
+ * Full RE: instructions/widescreen-plan.md "Phase 4 RE — object draw path". */
+typedef struct { int x, y, w, h; uint32_t src, mod; } WsObj;
+#define WS_OBJ_MAX 256
+static WsObj s_wsobj[WS_OBJ_MAX];
+static int   s_wsobj_n = 0;       /* count being built this frame              */
+static WsObj s_wsobj_done[WS_OBJ_MAX];
+static int   s_wsobj_done_n = 0;  /* last COMPLETE frame's list (for renderer) */
+static int   s_wsobj_log = -1;
+
+/* Renderer-facing API (called from native_renderer.c). Returns the last fully
+ * captured frame's object list — stable while the next frame is being built. */
+int native_wsobj_count(void) { return s_wsobj_done_n; }
+int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint32_t *mod)
+{
+    if (i < 0 || i >= s_wsobj_done_n) return 0;
+    const WsObj *o = &s_wsobj_done[i];
+    *x = o->x; *y = o->y; *w = o->w; *h = o->h; *src = o->src; *mod = o->mod;
+    return 1;
+}
+
+/* $57D79A — object-list walker entry. Fires once per frame, before the per-object
+ * draw calls. Promote the just-built list to "done" and start a fresh capture. */
+void native_objwalk(M68KCtx *ctx)
+{
+    memcpy(s_wsobj_done, s_wsobj, sizeof(WsObj) * (size_t)s_wsobj_n);
+    s_wsobj_done_n = s_wsobj_n;
+    s_wsobj_n = 0;
+    gfn_gpl_57D79A(ctx);
+}
+
+/* $57D8D0 — per-object draw choke point. Capture unclipped, then super-call. */
+void native_objdraw_capture(M68KCtx *ctx)
+{
+    int      worldX = (int16_t)(uint16_t)ctx->D[0];
+    int      worldY = (int16_t)(uint16_t)ctx->D[1];
+    uint32_t obj    = ctx->A[1];
+    uint16_t size   = MR16(obj - 0x0Cu);
+    int      w      = size & 0x3F;          /* width in words (0 => 64) */
+    int      h      = size >> 6;            /* height in rows           */
+    uint32_t mod    = MR32(obj - 0x10u);
+    uint32_t src    = MR32(obj - 0x0Au) + (uint32_t)(int32_t)(int16_t)(uint16_t)ctx->D[5];
+
+    if (s_wsobj_n < WS_OBJ_MAX)
+        s_wsobj[s_wsobj_n++] = (WsObj){ worldX, worldY, w, h, src, mod };
+
+    if (s_wsobj_log < 0)
+        s_wsobj_log = getenv("WSOBJ_LOG") ? atoi(getenv("WSOBJ_LOG")) : 0;
+    if (s_wsobj_log && s_wsobj_n <= s_wsobj_log) {
+        int cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
+        GLOBAL_LOG("[wsobj] x=%d y=%d (screenX=%d) w=%d h=%d src=%06X mod=%08X\n",
+                   worldX, worldY, worldX - cam, w, h, src, mod);
+    }
+
+    gfn_gpl_57D8D0(ctx);
+}
