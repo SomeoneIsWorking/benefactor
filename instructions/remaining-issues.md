@@ -86,17 +86,19 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    912+48−960=0 ≤368 drawn; f93 cam 961 → −1 = 65535 >368 skipped. The `$57D81C` multi-tile
    path has the twin `cmpi.w #$150` at `$57D826`. ($05xxxx decorations come through a
    different path with no such test, which is why they persist.)
-   **FIX:** widen `$30` (left margin) and `$170` (window width) so the engine dispatches
-   objects across the wide view; they reach `$57D8D0`, where we capture at ENTRY, while
-   `$57D8D0`'s own internal clip writes skip-descriptors for off-page parts → the engine's
-   page blit can't overflow. e.g. for a 960px view (320 margin/side): `$30`→`$140` (320),
-   `$170`→`$3C0` (960). CAVEAT: the walker is recompiled (constants are C literals in the
-   generated walker, NOT read from g_mem) and the generated code can't be hand-edited
-   (regenerated at build). So apply via EITHER a native re-implementation of the walker's
-   per-object visibility/dispatch loop, OR a targeted recompiler emit of these two immediates
-   from a widescreen constant. Do NOT multi-pass the walker (it has per-frame side effects:
-   queue build, anim/timer advance `$78e0(a5)`). Tools added: REPL `wsobjs` (obj/char lists +
-   screenX + data src),
+   **FIX (override, NOT recompiler):** widen `$30` (left margin) and `$170` (window width)
+   so the engine dispatches objects across the wide view; they reach `$57D8D0`, where we
+   capture at ENTRY, while `$57D8D0`'s own internal clip writes skip-descriptors for off-page
+   parts → the engine's page blit can't overflow. e.g. for a 960px view (320 margin/side):
+   `$30`→`$140` (320), `$170`→`$3C0` (960). The walker is recompiled (constants are C
+   literals) — apply via the EXISTING `native_objwalk` override of `$57D79A`: re-implement
+   the per-object visibility/dispatch loop natively with the wide window, still dispatching
+   the recompiled per-object handlers (`jmp (a1)` → `rt_jump`). This is a BEHAVIOR change for
+   a PC-native feature → an override, NOT a recompiler edit (do NOT emit different immediates
+   from the recompiler — that mistranslates the ROM and breaks the oracle diff; see
+   [[create-override]] "the boundary"). Do NOT multi-pass the walker (it has per-frame side
+   effects: queue build, anim/timer advance `$78e0(a5)`) — re-implement it ONCE.
+   Tools added: REPL `wsobjs` (obj/char lists + screenX + data src),
    `view_left` in `wsobjs`, `BENEFACTOR_WIDESCREEN` up to 960 (`HW_OUT_MAX`). NOTE: needs
    ≥640px to observe — at 480 the sprite leaves the true wide edge before the cull triggers.
 

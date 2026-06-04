@@ -1,5 +1,25 @@
 # Creating Native Overrides
 
+## Recompiler vs override — the boundary (read first)
+
+The recompiler does ONE thing: **faithful translation of the original binary**. Touch it
+ONLY for:
+1. **a recompiler bug** — an instruction translated wrong (mistranslation, bad flag/operand
+   handling, an unimplemented opcode), or
+2. **a missed dispatch target** — a jump/call target the scanner didn't register.
+
+**Everything else is an OVERRIDE.** Any change to *game behavior* — widening a window,
+changing a constant, altering logic for a PC-native feature (widescreen), skipping a wait,
+fixing a wrong runtime result — is an override, never a recompiler edit.
+
+A constant living in generated code does **NOT** make it a recompiler change. Deliberately
+emitting a *different* value than the ROM holds is mistranslation: it breaks the
+"generated code is sacrosanct / diffable against the oracle" property and makes every
+divergence comparison meaningless. To change such a constant for a feature, **override the
+function** — super-call the recompiled body and adjust around it, or re-implement the loop
+natively (still dispatching the recompiled per-object handlers). The recompiled body stays
+byte-faithful and A/B-toggleable.
+
 ## Native Override Pattern
 
 Use this to replace a recompiled function with hand-written C:
