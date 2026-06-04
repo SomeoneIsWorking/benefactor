@@ -142,7 +142,19 @@ New harness REPL cmd `pal` prints the live 32-entry palette (committed). Referen
 + gameplay dump (`scratch/bin/gmem_gameplay.bin`, cam=961) + `scratch/screenshots/ws_*.png`
 are the verification harness — gate any render claim on a clean reference render.
 
-**Phase 3 native wide background — DONE & working in-app (2026-06-04).** Implemented in
+**Phase 3 — native playfield render (engine↔bitplane relation RE'd & PC-owned).**
+CORRECTION to the earlier hybrid: the engine-center + native-margins approach was a
+FAKE (two renderers glued → seam + tuning constants); REJECTED by the user. The
+engine composes the WHOLE playfield as blitter A→D copies into the double-buffer pages
+($2B3EC/$38628): tile columns (scroll $57C72A) + object sprites (executor $57DB34,
+descriptors {src,mod,dst,size} × 5 planes step $2A0C, BLTCON0=$09F0 straight copy).
+That whole relation is now RE'd. native_render_wide_bg now composes the ENTIRE playfield
+width itself from the tilemap (engine bitplane NOT used for the playfield) — ONE renderer,
+no seam, no alignment constants (worldX derived per-scanline from copper x_off/scroll1 +
+camera, exactly the engine's own mapping). Verified seamless at 480 (ws_onerenderer.png).
+NEXT: native OBJECTS via the RE'd $57DB34 descriptors (recover world pos from dst, draw
+sprite from src across the wide buffer) — then the player/enemies render too and native
+becomes the sole gameplay renderer at all widths. (was: hybrid margins) Implemented in
 `native_renderer.c::native_render_wide_bg(out, ow, margin)`, called from
 `hw.c::hw_compose_output` whenever the output is wider than 352 (gameplay only, gated on
 `s_cur_cop1lc==$003484`). It fills the L/R output margins (+ the engine's thin side borders)

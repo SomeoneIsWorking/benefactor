@@ -397,12 +397,19 @@ void native_render_frame(void)
 /* ── Widescreen native tile background (Phase 3) ────────────────────────────────
  * The gameplay engine only blits the visible ~336px of the scrolling tilemap into
  * the bitplane buffer, so the off-screen world isn't in chip RAM as pixels. For a
- * wider-than-320 view we draw the off-screen terrain ourselves, directly from the
- * level tilemap + tile graphics + the camera X, into the wide output margins. The
- * engine's center playfield is kept as-is (it carries the live objects/player); we
- * only fill the L/R margins + the engine's thin side borders. Decode spec
- * (harness-verified, see instructions/widescreen-plan.md):
- *   camera   = word @ $57FDBA;  edges [$57FE8C-$90, $57FE8E-$100]
+ * wider-than-320 view we draw the WHOLE playfield ourselves, directly from the level
+ * tilemap + tile graphics + the camera X — the game's own render logic, widened.
+ *
+ * The screen<->world mapping is DERIVED from the same copper/camera state the engine
+ * uses (NOT tuned): for display x the engine shows bitplane bit-index
+ *   lx = x - x_off - scroll1            (x_off = DDF_TO_X(ddfstrt), scroll1 = bplcon1&F)
+ * and that bit-index is world pixel  worldX = (camera & ~15) + lx. So our native tile
+ * fetch uses the identical formula → it is pixel-exact with the engine, and there is
+ * no seam to tune. We render every output column this way and then leave the engine's
+ * VALID fetched window (where its bitplanes carry the live objects/player) intact;
+ * the engine's off-window border over-fetch is overwritten by our native tiles.
+ * Decode spec (harness-verified, see instructions/widescreen-plan.md):
+ *   camera   = word @ $57FDBA;  level edges [$57FE8C-$90, $57FE8E-$100]
  *   tilemap  = $552A0, ROW-MAJOR, row stride $F4, col = worldX>>4
  *   tile gfx = read_long($5A539E + (mapword & 0xFFFE)); 160B, 5-plane PLANE-MAJOR
  *              (plane p, row r word = gfx + p*32 + r*2), 16x16 5bpp
@@ -410,6 +417,7 @@ void native_render_frame(void)
  * Tilemap (~$552A0) and tile gfx (~$5D9xxx, >512KB) are read straight from g_mem
  * (they don't change within a level), NOT via the 512KB chip_r16 window. */
 #define WS_TILEMAP  0x000552A0u
+#define WS_TILEROW  0xF4u            /* tilemap row stride (bytes) = 122 columns */
 #define WS_GFXTAB   0x005A539Eu
 #define WS_CAMERA   0x0057FDBAu
 #define WS_EDGE_LO  0x0057FE8Cu
@@ -424,45 +432,50 @@ static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
     if (margin <= 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;  /* gameplay only */
-
-    /* Layout tunables (env-overridable while aligning the seam to the engine center).
-     * pfl/pfr = engine playfield left/right x within s_fb (the native fill seams up
-     * to these); anchor = the s_out x (relative to margin) showing worldX==camera. */
-    static int init = 0, anchor = 4, pfl = 4, pfr = 340, pf_top = 12, pf_rows = 14;
-    if (!init) {
-        init = 1; const char *e;
-        if ((e = getenv("BENEFACTOR_WS_ANCHOR"))) anchor = atoi(e);
-        if ((e = getenv("BENEFACTOR_WS_PFL")))    pfl    = atoi(e);
-        if ((e = getenv("BENEFACTOR_WS_PFR")))    pfr    = atoi(e);
-        if ((e = getenv("BENEFACTOR_WS_TOP")))    pf_top = atoi(e);
-        if ((e = getenv("BENEFACTOR_WS_ROWS")))   pf_rows= atoi(e);
-    }
-
     const uint8_t *M = g_mem;
     if (!M || WS_GFXTAB + 4u >= RT_MEM_SIZE) return;
-    int cam  = (int)gmem_r16(M, WS_CAMERA);
-    int cmin = (int)gmem_r16(M, WS_EDGE_LO) - 0x90;
-    int cmax = (int)gmem_r16(M, WS_EDGE_HI) - 0x100;
+
+    int cam    = (int)gmem_r16(M, WS_CAMERA);
+    int cam16  = cam & ~15;                              /* coarse (tile-aligned) world X */
+    int cmin   = (int)gmem_r16(M, WS_EDGE_LO) - 0x90;
+    int cmax   = (int)gmem_r16(M, WS_EDGE_HI) - 0x100;
     int mincol = (cmin < 0 ? 0 : cmin) >> 4;
-    int maxcol = (cmax + 320) >> 4;            /* last valid level column */
+    int maxcol = (cmax + 320) >> 4;                      /* last valid level column */
 
-    int y_lo = pf_top, y_hi = pf_top + pf_rows * 16;
-    if (y_hi > HW_DISPLAY_H) y_hi = HW_DISPLAY_H;
-    int skip_lo = margin + pfl, skip_hi = margin + pfr;   /* engine center: leave intact */
+    /* Playfield vertical extent = the scanline span of the FIRST BPL anchor (the
+     * scrolling buffer pointers); the next anchor begins the HUD. Both are derived by
+     * walk_copper. tilemap row 0 maps to the playfield's first scanline (no vert scroll). */
+    if (s_nanchors < 1) return;
+    int pf_top = s_anchors[0].first_line;
+    int pf_bot = (s_nanchors >= 2) ? s_anchors[1].first_line : pf_top + 16 * 16;
+    if (pf_bot > HW_DISPLAY_H) pf_bot = HW_DISPLAY_H;
 
-    for (int y = y_lo; y < y_hi; y++) {
-        int r  = (y - pf_top) >> 4;
-        int ty = (y - pf_top) & 15;
-        const uint32_t *pal = s_scan[y].palette;
+    for (int y = pf_top; y < pf_bot; y++) {
+        int dy = y - pf_top;
+        int r  = dy >> 4;
+        int ty = dy & 15;
+        if (r < 0) continue;
+        const ScanState *st = &s_scan[y];
+        /* must be the 5-plane single-playfield scanline the scroll buffer drives */
+        int bpu = (st->bplcon0 >> 12) & 7;
+        if (bpu < 5 || ((st->bplcon0 >> 10) & 1)) continue;   /* skip HUD/dpf lines */
+        const uint32_t *pal = st->palette;
         uint32_t *row = out + (size_t)y * ow;
+
+        int x_off   = DDF_TO_X(st->ddfstrt);
+        int scroll1 = st->bplcon1 & 0xF;
+
+        /* ONE renderer: the PC composes the ENTIRE playfield width itself from the
+         * tilemap (the engine's bitplane output is not used for the playfield). No
+         * engine-center carve-out, hence no seam and no alignment constants. */
         for (int x = 0; x < ow; x++) {
-            if (x >= skip_lo && x < skip_hi) continue;     /* engine center playfield */
-            int worldX = cam + (x - margin - anchor);
+            int lx = (x - margin) - x_off - scroll1;          /* engine bitplane bit index */
+            int worldX = cam16 + lx;                          /* identical to engine mapping */
             if (worldX < 0) continue;
             int col = worldX >> 4;
             if (col < mincol || col >= maxcol) continue;
             int tx = worldX & 15;
-            uint32_t mo = WS_TILEMAP + (uint32_t)r * 0xF4u + (uint32_t)col * 2u;
+            uint32_t mo = WS_TILEMAP + (uint32_t)r * WS_TILEROW + (uint32_t)col * 2u;
             if (mo + 1u >= RT_MEM_SIZE) continue;
             uint16_t w = gmem_r16(M, mo);
             uint32_t gfx = gmem_r32(M, WS_GFXTAB + (uint32_t)(w & 0xFFFEu));
