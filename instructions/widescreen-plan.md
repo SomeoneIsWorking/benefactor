@@ -447,3 +447,25 @@ the center into the native renderer once the tile path is proven.
 - HUD width treatment (centered vs extended art) — product decision.
 - Vertical: this plan widens horizontally only; vertical 16:9 would need the same tilemap
   treatment top/bottom and is out of scope unless wanted.
+
+### Phase 4 — character (walker/enemy) draw: capture SOLVED, gfx plane decode OPEN (2026-06-04)
+
+Attempted (subagent + me); REVERTED because the sprite colors render corrupt. What's nailed
+vs open, so the redo is clean (verify the decode standalone BEFORE re-wiring):
+- **Choke point = `$57D3F4`** (cookie-cut character draw, clips to the `[cam, cam+$180]`
+  window). It does NOT blit directly — it BUILDS a 6-long descriptor into a queue
+  `{data, mask, con0/1=$XFCA, modulos, dest, size}` consumed by the executor `$57D6C4`.
+  Capture worldX=`d0`, worldY=`d1` at entry; super-call. (Position/capture WORKED — characters
+  appeared at the right spots incl. margins; only the gfx decode was wrong.)
+- **Descriptor `a1`:** SIZE=`MR16(a1+8)` → w=`&$3F`, h=`>>6`. data gfx = `MR32(a1+$A) + d5`
+  (d5 = anim frame offset; gfx base `$061EB6` on the L9 walker). mask = `data + MR16(a1+0)`
+  (offset `$4DD0` for that char). rowmod = `(int16)MR16(a1+2)` = `-2`.
+- **Row stride = `w*2 + rowmod` = 4** — VERIFIED: the MASK decodes to a clean humanoid
+  silhouette at rstride 4 (scratch/ws_char2.py); rstride 6 is garbage.
+- **OPEN: the DATA plane stride.** NOT packed (`row_stride*h`=88 → corrupt) and NOT
+  `mask_offset/5` (`$F90` → still corrupt, tested in-app). The 5 data planes are spread with
+  a large per-buffer stride; the mask sits past plane 4. Must RE how `$57D6C4` advances the
+  SOURCE pointer per plane (it re-points BLTBPT/BLTAPT each of the 5 unrolled planes; find the
+  per-plane source advance — likely from BLTBMOD/the `modulos` long, or hw auto-advance).
+  Then verify a clean ASCII decode of the L9 walker (data `$0626D2`, mask `$0674A2`, w3 h22)
+  in scratch/ws_char2.py BEFORE re-wiring `native_wschar_compose`.
