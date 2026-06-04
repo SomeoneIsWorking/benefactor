@@ -511,6 +511,7 @@ static void native_objlayer_project(int cam16, int pf_top, int pf_bot);
 extern int native_wsobj_count(void);
 extern int native_wsobj_get(int i, int *x, int *y, int *w, int *h,
                             uint32_t *src, uint32_t *mod);
+extern int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase);
 
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
@@ -552,6 +553,43 @@ static void native_objlayer_from_capture(int pf_top, int pf_bot)
                         ci |= (1 << p);
                 if (ci) s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
             }
+        }
+    }
+}
+
+/* Composite the captured PLAYER ($57A666) into s_objlayer. 16px x 16 rows,
+ * cookie-cut: 5-plane DATA at dbase (plane stride $2800, row stride $28, word0),
+ * 1-plane MASK at mbase (row stride $28). Drawn where the mask bit is set, with
+ * the data colour index through the per-scanline copper palette. Placed at
+ * absolute world (x..x+15, top y) so it shares the bg's world coordinate. */
+#define WS_PLR_DATA_PSTRIDE 0x2800u
+#define WS_PLR_ROW_STRIDE   0x28u
+static void native_wsplayer_compose(int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    int x, y; uint32_t dbase, mbase;
+    if (!M || getenv("WS_NOOBJ")) return;
+    if (!native_wsplayer_get(&x, &y, &dbase, &mbase)) return;
+    if (dbase + WS_PLR_DATA_PSTRIDE * 4u + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) return;
+    if (mbase + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) return;
+    for (int r = 0; r < 16; r++) {
+        int sy = pf_top + y + r;
+        if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+        const uint32_t *pal = s_scan[sy].palette;
+        uint16_t mw = gmem_r16(M, mbase + (uint32_t)r * WS_PLR_ROW_STRIDE);
+        uint16_t dw[5];
+        for (int p = 0; p < 5; p++)
+            dw[p] = gmem_r16(M, dbase + (uint32_t)p * WS_PLR_DATA_PSTRIDE
+                                      + (uint32_t)r * WS_PLR_ROW_STRIDE);
+        for (int c = 0; c < 16; c++) {
+            int bit = 15 - c;
+            if (!((mw >> bit) & 1u)) continue;           /* cookie-cut: mask gates */
+            int worldX = x + c;
+            if (worldX < 0 || worldX >= WS_LAYER_W) continue;
+            int ci = 0;
+            for (int p = 0; p < 5; p++)
+                if ((dw[p] >> bit) & 1u) ci |= (1 << p);
+            s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
         }
     }
 }
@@ -599,8 +637,10 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     }
 
     if (pf_top < 0) return;
-    /* Fill the object layer from the engine's captured per-object draw list. */
+    /* Fill the object layer from the engine's captured per-object draw list, then
+     * composite the player (drawn by its own routine $57A666, not the object loop). */
     native_objlayer_from_capture(pf_top, pf_bot);
+    native_wsplayer_compose(pf_top, pf_bot);
 
     if (getenv("WS_DBG")) {
         int scroll1 = s_scan[pf_top].bplcon1 & 0xF;

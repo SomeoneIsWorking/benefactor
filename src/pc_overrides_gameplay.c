@@ -322,3 +322,70 @@ void native_objdraw_capture(M68KCtx *ctx)
 
     gfn_gpl_57D8D0(ctx);
 }
+
+/* ── Native PLAYER capture for widescreen ($57A666) ──────────────────────────
+ * The player is drawn by its OWN routine ($57A666), not the $57D8D0 object loop,
+ * so it isn't in the s_wsobj capture. It's also camera-CENTERED (never in the
+ * margins) but is invisible in the native renderer today because that renderer
+ * reads neither the engine page nor this blit. Capture its resolved draw params
+ * at entry, then super-call the recomp body (vanilla center unaffected).
+ *
+ * RE (disasm of $57A666, verified by standalone decode scratch/ws_player.py):
+ *   player block $10A6(a5)=$57FEB8: worldX,worldY,animidx,state (movem.w d1-d4);
+ *   facing byte $7(a4)=$57FEBF bit1 -> frameoff += $14.
+ *   frameoff   = MR16($2286(a5) + animidx) (+$14 if facing).
+ *   gfx left X = worldX - 8 + xoff, xoff=s16(MR16($23E2(a5) + animidx));
+ *                if state($57FEBE) bit1 set: xoff = -xoff + 2.
+ *   top row    = clamp(worldY, max $D8) - 8 + yoff, yoff=s16(MR16($253E(a5) +
+ *                animidx)); floored at 0.
+ *   Sprite: 16px x 16 rows, COOKIE-CUT (BLTCON0=$XFCA, minterm $CA, D=A?B:C):
+ *     A channel (MASK)  = $52AA0 + frameoff, single plane, row stride $28.
+ *     B channel (DATA)  = $19E02 + frameoff, 5-plane (plane stride $2800),
+ *                         row stride $28, word0 only (BLTALWM=$0000 kills word1).
+ *   NOTE: the plan's earlier note had A/B reversed — the channels above are the
+ *   verified ones (minterm $CA => A=mask). See widescreen-plan.md "Phase 4". */
+typedef struct { int x, y; uint32_t dbase, mbase; int valid; } WsPlayer;
+static WsPlayer s_wsplayer_done;
+
+int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase)
+{
+    if (!s_wsplayer_done.valid) return 0;
+    *x = s_wsplayer_done.x; *y = s_wsplayer_done.y;
+    *dbase = s_wsplayer_done.dbase; *mbase = s_wsplayer_done.mbase;
+    return 1;
+}
+
+/* a5 (gameplay work-area base) — used for the player block + animation tables.
+ * Compute table addresses as A5 + disp so hand hex-arithmetic can't go wrong. */
+#define GP_A5 0x57EE12u
+
+void native_player_capture(M68KCtx *ctx)
+{
+    int      worldX  = (int16_t)(uint16_t)MR16(GP_A5 + 0x10A6u);
+    int      worldY  =          (uint16_t)MR16(GP_A5 + 0x10A8u); /* unsigned clamp below */
+    uint16_t animidx =          (uint16_t)MR16(GP_A5 + 0x10AAu);
+    uint16_t state   =          (uint16_t)MR16(GP_A5 + 0x10ACu);
+    uint8_t  fbyte   =          (uint8_t) MR8 (GP_A5 + 0x10ADu);
+
+    uint16_t frameoff = (uint16_t)MR16(GP_A5 + 0x2286u + animidx);
+    if (fbyte & 2) frameoff = (uint16_t)(frameoff + 0x14);
+
+    int xoff = (int16_t)(uint16_t)MR16(GP_A5 + 0x23E2u + animidx);
+    if (state & 2) xoff = -xoff + 2;
+    int wxleft = worldX - 8 + xoff;
+
+    int d2 = worldY;
+    if (d2 > 0xD8) d2 = 0xD8;                 /* cmpi #$d8 / bcs (unsigned) clamp */
+    d2 -= 8;
+    d2 += (int16_t)(uint16_t)MR16(GP_A5 + 0x253Eu + animidx);
+    if (d2 < 0) d2 = 0;
+
+    s_wsplayer_done = (WsPlayer){
+        wxleft, d2,
+        0x19E02u + frameoff,                  /* B = DATA (5-plane, stride $2800) */
+        0x52AA0u + frameoff,                  /* A = MASK (single plane)          */
+        1
+    };
+
+    gfn_gpl_57A666(ctx);
+}

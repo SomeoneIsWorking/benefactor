@@ -120,6 +120,8 @@ void pc_register_overrides(void)
      * the full wide view. Both super-call the recomp body → vanilla unaffected. */
     rt_register_override_gp(0x0057D79Au, native_objwalk);
     rt_register_override_gp(0x0057D8D0u, native_objdraw_capture);
+    /* The player is drawn by its own routine ($57A666), not the object loop. */
+    rt_register_override_gp(0x0057A666u, native_player_capture);
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled
