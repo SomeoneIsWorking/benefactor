@@ -73,8 +73,13 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    (`screenX>>4 < -3`) so the engine draws further into the margin and we capture it at
    `$57D8D0`/`$57D3F4` (clean if the cull is shared/few sites); (b) read object worldX/Y +
    gfx from the object struct at the walker `$57D79A` per-object point, bypassing handler
-   culls entirely. NEXT: locate the cull (in the `$06xxxx` object handlers dispatched by the
-   walker) — is it shared? Tools added: REPL `wsobjs` (obj/char lists + screenX + data src),
+   culls entirely. RULED OUT (despawn): the active object-pointer list `$1162(a5)`=`$57FF74`
+   is byte-identical at f92 vs f93 — the object STAYS in the list, the walker still iterates
+   it; only its handler skips the `$57D8D0` draw when `screenX>>4 < -3`. So the cull is in
+   the `$06xxxx` object HANDLER (dispatched `jmp (a1,d2)`), upstream of `$57D8D0`, before its
+   draw jump. NEXT: identify the torch object's handler (find the `$1162` entry whose struct
+   worldX=912) and the shared/per-type cull. Tools added: REPL `wsobjs` (obj/char lists +
+   screenX + data src),
    `view_left` in `wsobjs`, `BENEFACTOR_WIDESCREEN` up to 960 (`HW_OUT_MAX`). NOTE: needs
    ≥640px to observe — at 480 the sprite leaves the true wide edge before the cull triggers.
 
