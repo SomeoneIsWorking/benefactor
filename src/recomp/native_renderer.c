@@ -95,6 +95,14 @@ static ScanState s_scan[HW_DISPLAY_H];
 static BplAnchor s_anchors[MAX_ANCHORS];
 static int       s_nanchors;
 
+/* Per-scanline BPL pointer + geometry snapshot (single-playfield lines), so the wide
+ * renderer can decode the engine's page at OFF-SCREEN x (the margins) — testing whether
+ * the page buffer holds content beyond the visible fetch window. */
+static uint32_t s_line_bplpt[HW_DISPLAY_H][MAX_PLANES];
+static int16_t  s_line_xoff[HW_DISPLAY_H], s_line_scr1[HW_DISPLAY_H];
+static uint8_t  s_line_bpu[HW_DISPLAY_H];
+static int16_t  s_line_width[HW_DISPLAY_H];
+
 /* Title intro: the story-text scroller is reimplemented natively (see
  * draw_title_text) because the recompiled blitter corrupts the composited
  * text buffer ($077E60) via the A-shift carry. On the title we render the
@@ -372,6 +380,9 @@ void native_render_frame(void)
         } else {
             /* Single playfield, 1-5 planes (title box = 4, gameplay = 5).
              * BPLCON1 delays the playfield by `scroll1` lores px (smooth scroll). */
+            for (int p = 0; p < MAX_PLANES; p++) s_line_bplpt[y][p] = bplpt[p];
+            s_line_xoff[y] = (int16_t)x_off; s_line_scr1[y] = (int16_t)scroll1;
+            s_line_bpu[y] = (uint8_t)bpu;    s_line_width[y] = (int16_t)width_px;
             for (int x = 0; x < HW_DISPLAY_W; x++) {
                 int lx = x - x_off - scroll1;
                 row[x] = (lx >= 0 && lx < width_px)
@@ -418,6 +429,10 @@ void native_render_frame(void)
  * (they don't change within a level), NOT via the 512KB chip_r16 window. */
 #define WS_TILEMAP  0x000552A0u
 #define WS_TILEROW  0xF4u            /* tilemap row stride (bytes) = 122 columns */
+#define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
+/* Persistent world-indexed object/decoration layer (see native_objlayer_update). */
+static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];   /* ARGB, alpha 0 = transparent */
+static int      s_objlayer_init = 0;
 #define WS_GFXTAB   0x005A539Eu
 #define WS_CAMERA   0x0057FDBAu
 #define WS_EDGE_LO  0x0057FE8Cu
@@ -426,6 +441,7 @@ void native_render_frame(void)
 
 static void native_render_wide_objects(uint32_t *out, int ow, int margin,
                                        int cam, int pf_top, int pf_bot);
+static void native_objlayer_update(int cam, int pf_top, int pf_bot);
 
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
@@ -486,6 +502,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                 cam16, bp0, DDF_TO_X(s_scan[pf_top].ddfstrt), pf_top, pf_bot);
     }
 
+    /* Replay this frame's captured object/decoration blits into the persistent world layer. */
+    native_objlayer_update(cam, pf_top, pf_bot);
+
     for (int y = pf_top; y < pf_bot; y++) {
         int dy = y - pf_top;
         int r  = dy >> 4;
@@ -501,20 +520,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
         int x_off   = DDF_TO_X(st->ddfstrt);
         int scroll1 = st->bplcon1 & 0xF;
 
-        /* The engine's composited page (already in s_out's center via hw_compose_output)
-         * carries the full visible scene — bg tiles + objects + decorations — drawn by
-         * the PC-owned blitter. Native tiles fill ONLY outside the engine's valid fetch
-         * window (the margins + the engine's border over-fetch); since the native bg is
-         * bit-exact with the page, the seam is continuous. The skip range = the engine's
-         * DDF window [x_off+scroll1, +width_px). */
-        int fetch_w = (((int)st->ddfstop - (int)st->ddfstrt) >> 3) + 1;
-        if (fetch_w < 1) fetch_w = 1; if (fetch_w > 64) fetch_w = 64;
-        int eng_lo = margin + x_off + scroll1;
-        int eng_hi = eng_lo + fetch_w * 16;
-        if (eng_lo < margin) eng_lo = margin;
-        if (eng_hi > margin + HW_DISPLAY_W) eng_hi = margin + HW_DISPLAY_W;
+        /* ONE native renderer: the PC composes the ENTIRE playfield width from the level
+         * tilemap — the engine's bitplane/page is NOT used for display. */
         for (int x = 0; x < ow; x++) {
-            if (x >= eng_lo && x < eng_hi) continue;          /* engine's composited center */
             int lx = (x - margin) - x_off - scroll1;          /* engine bitplane bit index */
             int worldX = cam16 + lx;                          /* identical to engine mapping */
             if (worldX < 0) continue;
@@ -531,10 +539,15 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                 if ((gmem_r16(M, gfx + (uint32_t)p * 32u + (uint32_t)ty * 2u) >> (15 - tx)) & 1u)
                     ci |= (1 << p);
             row[x] = pal[ci & 0x1Fu];
+
+            /* Composite the world object/decoration layer on top of the bg tile. */
+            if (worldX >= 0 && worldX < WS_LAYER_W) {
+                uint32_t o = s_objlayer[y][worldX];
+                if (o & 0xFF000000u) row[x] = o;
+            }
         }
     }
-
-    (void)native_render_wide_objects;   /* objects come from the engine's composited center */
+    (void)native_render_wide_objects;
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.
@@ -545,6 +558,78 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
  * where the shared mask plane is set (transparency). */
 #define WS_PLANE_STRIDE 0x2A0Cu
 #define WS_ROWSTRIDE    46            /* playfield page row stride (bytes) = $2e */
+
+/* Persistent world-indexed object/decoration layer. The engine draws every object AND
+ * the static decorations (box, torch) as blits into the page; we replay those blits into
+ * this layer in WORLD coordinates (indexed by absolute world X, fixed scanline y): sprite
+ * draws SET a pixel, background-restore blits CLEAR it (alpha 0). It persists across frames
+ * so column-cross/once-drawn decorations stay, while dynamic objects erase+redraw — exactly
+ * mirroring the engine's own draw/restore. Composited over the native tilemap bg. */
+
+/* Process this frame's captured blits into the world layer (called before the bg pass). */
+static void native_objlayer_update(int cam, int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    int n = hw_blit_capture_count();
+    const BlitRec *rec = hw_blit_capture_recs();
+    if (!M) return;
+    /* Fresh each frame (world-persistence ghosts under scroll because restore-clear and
+     * the original draw use different camera offsets). Cleared, sprites set, restores
+     * skipped — clean full-width native objects, no ghost trails. */
+    memset(s_objlayer, 0, sizeof s_objlayer);
+    s_objlayer_init = 1;
+
+    int cam16 = ((cam + 15) & ~15);
+    uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+    int coarse = (int)((s_anchors[0].ptr[0] - disp_base) % WS_ROWSTRIDE);
+
+    int i = 0;
+    while (i < n) {
+        int g0 = i, np = 1;
+        while (i + np < n && np < 5
+               && rec[i + np].dpt == rec[i + np - 1].dpt + WS_PLANE_STRIDE
+               && rec[i + np].w == rec[g0].w && rec[i + np].h == rec[g0].h) np++;
+        const BlitRec *r0 = &rec[g0];
+        i += np;
+
+        uint32_t base;
+        if (r0->dpt >= 0x038628u && r0->dpt < 0x038628u + WS_PLANE_STRIDE) base = 0x038628u;
+        else if (r0->dpt >= 0x02B3ECu && r0->dpt < 0x02B3ECu + WS_PLANE_STRIDE) base = 0x02B3ECu;
+        else continue;
+        if (base != disp_base) continue;                 /* displayed buffer only */
+
+        int masked  = (r0->mask != 0u);
+        int restore = (!masked && r0->src >= 0x045000u && r0->src < 0x054000u);  /* bg-restore */
+        uint32_t off = r0->dpt - base;
+        int orow = (int)(off / WS_ROWSTRIDE), xbyte = (int)(off % WS_ROWSTRIDE);
+        int wpx  = r0->w * 16;
+        int srow = r0->w * 2 + r0->smod, mrow = r0->w * 2 + r0->mmod;
+        int xbit = ((xbyte - coarse + WS_ROWSTRIDE) % WS_ROWSTRIDE) * 8 + r0->shift;
+        int wx0  = cam16 + xbit;                          /* absolute world X of the sprite */
+
+        for (int py = 0; py < r0->h; py++) {
+            int sy = pf_top + orow + py;
+            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+            const uint32_t *pal = s_scan[sy].palette;
+            for (int px = 0; px < wpx; px++) {
+                int wx = wx0 + px;
+                if (wx < 0 || wx >= WS_LAYER_W) continue;
+                if (restore) continue;                               /* skip bg-restore */
+                if (masked) {
+                    uint32_t ma = r0->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
+                    if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
+                }
+                int ci = 0;
+                for (int p = 0; p < np; p++) {
+                    uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
+                    if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
+                }
+                s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0xFFFFFFu);   /* set opaque */
+            }
+        }
+    }
+}
+
 static void native_render_wide_objects(uint32_t *out, int ow, int margin,
                                         int cam, int pf_top, int pf_bot)
 {
@@ -611,6 +696,20 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
                     np, masked?"MASK":"OPAQUE", r0->w, r0->h, r0->dpt, base, orow, xbyte,
                     xbit, xbit + x_off + scroll1, r0->shift, r0->con0, r0->src, r0->mask);
 
+        static int dbgn = 0;
+        if (getenv("WS_DBG") && masked && dbgn < 3) {
+            dbgn++;
+            int hist[32] = {0};
+            for (int py = 0; py < r0->h; py++)
+              for (int px = 0; px < wpx; px++) {
+                uint32_t ma = r0->mask + (uint32_t)py*mrow + (uint32_t)(px>>3);
+                if (ma+1u>=RT_MEM_SIZE || !((M[ma]>>(7-(px&7)))&1u)) continue;
+                int ci=0; for (int p=0;p<np;p++){uint32_t sa=rec[g0+p].src+(uint32_t)py*srow+(uint32_t)(px>>3); if(sa+1u<RT_MEM_SIZE&&((M[sa]>>(7-(px&7)))&1u))ci|=(1<<p);} hist[ci&0x1F]++;
+              }
+            fprintf(stderr,"[WS_CI] obj sfx=%d sy=%d  indices:", xbit+x_off+scroll1, pf_top+orow);
+            for(int i=0;i<32;i++) if(hist[i]) fprintf(stderr," %d:%dx(pal=%06X)", i, hist[i], s_scan[pf_top+orow+r0->h/2].palette[i]&0xFFFFFF);
+            fprintf(stderr,"\n");
+        }
         for (int py = 0; py < r0->h; py++) {
             int sy = pf_top + orow + py;
             if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
@@ -627,7 +726,8 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
                     if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
                 }
                 int x = margin + xbit + px + x_off + scroll1;
-                if (x >= 0 && x < ow) row[x] = pal[ci & 0x1Fu];
+                if (x < 0 || x >= ow) continue;
+                row[x] = pal[ci & 0x1Fu];
             }
         }
     }
