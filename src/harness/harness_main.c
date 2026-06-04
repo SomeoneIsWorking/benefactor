@@ -761,17 +761,31 @@ int main(int argc, char **argv)
             unsigned maxf = 1500; sscanf(line, "%*s %u", &maxf);
             int ow2 = hw_output_width();
             int hit = -1;
+            unsigned thresh = 0; sscanf(line, "%*s %*u %u", &thresh);  /* optional min-px to count as diverge */
             for (unsigned f = 0; f < maxf; f++) {
                 STEP_PC();
                 const uint32_t *van = hw_get_framebuffer();
                 const uint32_t *nat = hw_get_output_framebuffer();
+                /* Restrict to vanilla's DISPLAYED content window: columns that are all-black
+                 * across the playfield are the DIW border (or the widescreen extension) — there
+                 * is no vanilla ground truth there, so comparing them is meaningless (the check
+                 * would just flag the native extension). Only compare columns vanilla draws. */
+                int colhas[FB_W];
+                for (int x = 0; x < FB_W; x++) {
+                    colhas[x] = 0;
+                    for (int y = 13; y < 201; y++)
+                        if ((van[y*FB_W+x] & 0xFFFFFF) != 0) { colhas[x] = 1; break; }
+                }
                 int nd = 0, bx0 = 9999, by0 = 9999, bx1 = -1, by1 = -1;
                 for (int y = 13; y < 237; y++)
-                    for (int x = 24; x < 328; x++)
+                    for (int x = 24; x < 328; x++) {
+                        if (!colhas[x]) continue;
                         if ((van[y*FB_W+x] & 0xFFFFFF) != (nat[y*ow2+x] & 0xFFFFFF)) {
                             nd++;
                             if (x<bx0)bx0=x; if (x>bx1)bx1=x; if (y<by0)by0=y; if (y>by1)by1=y;
                         }
+                    }
+                if ((unsigned)nd <= thresh) nd = 0;
                 if (nd > 0) {
                     hit = (int)f;
                     printf("[wsdiff] FIRST DIVERGE at frame %u: %d px, bbox x[%d..%d] y[%d..%d] cam=$%04X\n",
