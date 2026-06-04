@@ -46,6 +46,26 @@ static inline uint32_t amiga_to_argb(uint16_t c)
 /* ── Functions provided by hw_blitter.c ───────────────────────────────────── */
 void hw_do_blit(void);
 
+/* Per-frame capture of OBJECT sprite blits (for the native widescreen renderer).
+ * The engine draws every object as blitter copies into the playfield pages; we
+ * capture those blits as the engine issues them, then re-draw the sprites natively
+ * into the wide buffer (native_render_wide_bg). One record per plane-blit; a sprite
+ * is 5 consecutive records whose dest steps by the plane stride. con0 bit USEB
+ * ($0400) → cookie-cut (src=bpt, mask=apt); else opaque copy (src=apt). */
+typedef struct {
+    uint32_t src;     /* gfx source plane ptr (apt opaque / bpt masked)         */
+    uint32_t mask;    /* mask plane ptr (masked only; 0 = opaque)               */
+    uint32_t dpt;     /* dest plane ptr (in a playfield page)                   */
+    int      w, h;    /* width in words, height in lines                        */
+    int16_t  smod;    /* source-plane modulo (bytes)                            */
+    int16_t  mmod;    /* mask modulo (bytes; masked only)                       */
+    int      shift;   /* ASH fine x-shift (con0>>12)                            */
+    uint16_t con0;
+} BlitRec;
+void           hw_blit_capture_reset(void);   /* clear, start a fresh frame      */
+int            hw_blit_capture_count(void);
+const BlitRec *hw_blit_capture_recs(void);
+
 /* ── Functions provided by hw_audio.c ─────────────────────────────────────── */
 void hw_audio_trigger(int ch);          /* AUDxDAT write (one-shot kick)        */
 void hw_audio_dma_kick(int ch);         /* AUDxLEN write — start DMA stream     */
