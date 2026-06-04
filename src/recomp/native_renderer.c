@@ -430,21 +430,67 @@ void native_render_frame(void)
 #define WS_TILEMAP  0x000552A0u
 #define WS_TILEROW  0xF4u            /* tilemap row stride (bytes) = 122 columns */
 #define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
-/* Two world-indexed layers (see native_objlayer_update):
- *  s_objlayer  — DYNAMIC objects (player/enemies/items, src $06xxxx/$01xxxx); fresh each
- *                frame (they move; persisting would ghost under scroll).
- *  s_decolayer — STATIC decorations (box, torch, src $054000-$060000 work buffer); PERSISTS
- *                across frames (drawn once at setup/column-cross, never moves → no ghost). */
-static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];    /* dynamic, cleared each frame  */
-static uint32_t s_decolayer[HW_DISPLAY_H][WS_LAYER_W];   /* decorations, persistent      */
-static int      s_objlayer_init = 0;
+/* s_objlayer holds the per-frame PROJECTION of the page display-list (decorations under
+ * objects), in world coords (absolute world X, screen Y). Rebuilt each frame from s_pg. */
+static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
+
+/* Per-group diagnostics, filled every frame by native_objlayer_update so the harness
+ * `blits` command can expose WHY each captured blit was drawn/skipped (the CAUSE), not
+ * just the pixel-diff result. */
+typedef struct {
+    uint32_t src, dpt, mask;
+    int      w, h, np, con0;
+    int      wx0, sy0, wpx;
+    char     cls;     /* 'D'eco 'O'bj 'R'estore                                */
+    char     drop;    /* 0=drawn, 'b'=unknown buffer, 'B'=not displayed buffer */
+} WsBlitDiag;
+static WsBlitDiag s_blitdiag[512];
+static int        s_blitdiag_n = 0;
+static int        s_diag_prev_n = 0;        /* s_prev count seen by the last layer update   */
+static uint32_t   s_diag_disp_base = 0, s_diag_bplpt0 = 0;
+
+/* Page display-list: the engine's playfield page is content that DRAW blits add and
+ * background-restore blits remove. We mirror it as a list of live page-sprites keyed by
+ * their page address (camera-independent), re-projected to the screen every frame from the
+ * live BPL pointer. This is what lets a once-drawn overlay (the GET READY banner, drawn ~16
+ * frames before the gameplay copper is even up) survive until its restore erases it — the
+ * old 1-frame capture replay lost it the moment the screen wasn't a renderable playfield. */
+typedef struct {
+    uint32_t base;            /* double-buffer page this sprite lives in        */
+    uint32_t dpt;             /* plane-0 dest pointer (page address)            */
+    uint32_t src[5], mask;    /* gfx source per plane; mask plane (0 = opaque)  */
+    int      np, w, h, shift, smod, mmod;
+    int      deco;            /* 1 = static decoration (baked bg; restore can't erase it) */
+} PgSprite;
+#define PG_MAX 512
+static PgSprite s_pg[PG_MAX];
+static int      s_pgn = 0;
+static long     s_pg_adds = 0, s_pg_removes = 0;   /* cumulative, REPL-readable */
+static long     s_objup_runs = 0, s_objup_nonzero = 0;  /* update calls; calls that saw n>0 */
+void native_pglist_stats(long *adds, long *removes) { *adds = s_pg_adds; *removes = s_pg_removes; }
+void native_objup_stats(long *runs, long *nonzero) { *runs = s_objup_runs; *nonzero = s_objup_nonzero; }
+int native_pglist_dump(uint32_t *base, uint32_t *dpt, uint32_t *src0, int *w, int *h, int max)
+{
+    int n = s_pgn < max ? s_pgn : max;
+    for (int k = 0; k < n; k++) {
+        base[k]=s_pg[k].base; dpt[k]=s_pg[k].dpt; src0[k]=s_pg[k].src[0];
+        w[k]=s_pg[k].w; h[k]=s_pg[k].h;
+    }
+    return s_pgn;
+}
+int native_blitdiag(const WsBlitDiag **out) { *out = s_blitdiag; return s_blitdiag_n; }
+/* expose the page display-list for the REPL `pglist` inspector */
+int native_pglist_dump(uint32_t *base, uint32_t *dpt, uint32_t *src0, int *w, int *h, int max);
+void native_blitdiag_ctx(int *prev_n, uint32_t *disp_base, uint32_t *bplpt0)
+{ *prev_n = s_diag_prev_n; *disp_base = s_diag_disp_base; *bplpt0 = s_diag_bplpt0; }
 #define WS_GFXTAB   0x005A539Eu
 #define WS_CAMERA   0x0057FDBAu
 #define WS_EDGE_LO  0x0057FE8Cu
 #define WS_EDGE_HI  0x0057FE8Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
-static void native_objlayer_update(int cam, int pf_top, int pf_bot);
+static void native_objlayer_ingest(void);
+static void native_objlayer_project(int cam16, int pf_top, int pf_bot);
 
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
@@ -453,6 +499,9 @@ static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
 
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
+    /* Ingest captured blits EVERY frame (even during the intro/transition, before the
+     * gameplay copper is up) so once-drawn overlays survive in the page display-list. */
+    native_objlayer_ingest();
     if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only (margin 0 = compare-at-352) */
     const uint8_t *M = g_mem;
     if (!M || WS_GFXTAB + 4u >= RT_MEM_SIZE) return;
@@ -484,12 +533,18 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     int pf_top = -1;
     for (int y = 0; y < HW_DISPLAY_H; y++)
         if (((s_scan[y].bplcon0 >> 12) & 7) >= 5 && !((s_scan[y].bplcon0 >> 10) & 1)) { pf_top = y; break; }
+    int pf_bot = 0;
+    if (pf_top >= 0) {
+        pf_bot = pf_top + 16 * 16;
+        for (int a = 0; a < s_nanchors; a++)
+            if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot)
+                pf_bot = s_anchors[a].first_line;
+        if (pf_bot > HW_DISPLAY_H) pf_bot = HW_DISPLAY_H;
+    }
+
     if (pf_top < 0) return;
-    int pf_bot = pf_top + 16 * 16;
-    for (int a = 0; a < s_nanchors; a++)
-        if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot)
-            pf_bot = s_anchors[a].first_line;
-    if (pf_bot > HW_DISPLAY_H) pf_bot = HW_DISPLAY_H;
+    /* Project the live page display-list (ingested above, every frame) into the object layer. */
+    native_objlayer_project(cam16, pf_top, pf_bot);
 
     if (getenv("WS_DBG")) {
         int scroll1 = s_scan[pf_top].bplcon1 & 0xF;
@@ -504,9 +559,6 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                 ((cam & 15) == (15 - scroll1)) ? "OK" : "*** MISMATCH ***",
                 cam16, bp0, DDF_TO_X(s_scan[pf_top].ddfstrt), pf_top, pf_bot);
     }
-
-    /* Replay this frame's captured object/decoration blits into the persistent world layer. */
-    native_objlayer_update(cam, pf_top, pf_bot);
 
     for (int y = pf_top; y < pf_bot; y++) {
         int dy = y - pf_top;
@@ -543,11 +595,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                     ci |= (1 << p);
             row[x] = pal[ci & 0x1Fu];
 
-            /* Composite the world layers on top of the bg tile: decorations first
-             * (persistent), then dynamic objects. */
+            /* Composite the page display-list (decorations + objects, projected into
+             * s_objlayer with decorations under objects) on top of the bg tile. */
             if (worldX >= 0 && worldX < WS_LAYER_W) {
-                uint32_t d = s_decolayer[y][worldX];
-                if (d & 0xFF000000u) row[x] = d;
                 uint32_t o = s_objlayer[y][worldX];
                 if (o & 0xFF000000u) row[x] = o;
             }
@@ -564,26 +614,47 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 #define WS_PLANE_STRIDE 0x2A0Cu
 #define WS_ROWSTRIDE    46            /* playfield page row stride (bytes) = $2e */
 
-/* Persistent world-indexed object/decoration layer. The engine draws every object AND
- * the static decorations (box, torch) as blits into the page; we replay those blits into
- * this layer in WORLD coordinates (indexed by absolute world X, fixed scanline y): sprite
- * draws SET a pixel, background-restore blits CLEAR it (alpha 0). It persists across frames
- * so column-cross/once-drawn decorations stay, while dynamic objects erase+redraw — exactly
- * mirroring the engine's own draw/restore. Composited over the native tilemap bg. */
+/* Page display-list model. The engine's playfield page is built by DRAW blits (objects,
+ * the GET READY banner) and torn down by background-RESTORE blits. We mirror it as a list
+ * of live page-sprites (s_pg), keyed by their page address — camera-independent — and
+ * re-project the whole list to the screen every frame from the live BPL pointer. Static
+ * decorations (box, torch) are baked into the saved bg, so a restore must NOT remove them;
+ * those keep living in the persistent world-pixel s_decolayer exactly as before. */
 
-/* Process this frame's captured blits into the world layer (called before the bg pass). */
-static void native_objlayer_update(int cam, int pf_top, int pf_bot)
+/* plane-0 page rectangle of a sprite/restore in page-relative (row, byte-col) space. */
+static void pg_rect(uint32_t base, uint32_t dpt, int w, int h,
+                    int *r0, int *c0, int *r1, int *c1)
 {
-    const uint8_t *M = g_mem;
+    int off = (int)(dpt - base);
+    *r0 = off / WS_ROWSTRIDE; *r1 = *r0 + h;
+    *c0 = off % WS_ROWSTRIDE; *c1 = *c0 + w * 2;
+}
+static int pg_overlap(const PgSprite *s, uint32_t base, uint32_t dpt, int w, int h)
+{
+    if (s->base != base) return 0;
+    int ar0,ac0,ar1,ac1, br0,bc0,br1,bc1;
+    pg_rect(s->base, s->dpt, s->w, s->h, &ar0,&ac0,&ar1,&ac1);
+    pg_rect(base,    dpt,    w,    h,    &br0,&bc0,&br1,&bc1);
+    return !(ar1 <= br0 || br1 <= ar0 || ac1 <= bc0 || bc1 <= ac0);
+}
+
+/* Ingest this frame's captured blits into the page display-list. GEOMETRY-FREE, so it can
+ * (and must) run on EVERY present — even during the copper transition before the gameplay
+ * playfield exists. The GET READY banner is drawn ~16 frames before the gameplay copper
+ * comes up; the old code gated the whole update behind the gameplay-copper check, so the
+ * banner was wiped from the 1-frame capture long before it could be displayed. Restore
+ * blits remove the (non-decoration) sprites they overwrite; object/decoration draws are
+ * added or refreshed in place. Keyed by page address → camera-independent. */
+static void native_objlayer_ingest(void)
+{
     int n = hw_blit_capture_count();
     const BlitRec *rec = hw_blit_capture_recs();
-    if (!M) return;
-    /* Dynamic layer fresh each frame; decoration layer persists (init once). */
-    memset(s_objlayer, 0, sizeof s_objlayer);
-    if (!s_objlayer_init) { memset(s_decolayer, 0, sizeof s_decolayer); s_objlayer_init = 1; }
-
-    int cam16 = ((cam + 15) & ~15);
-    uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+    if (!g_mem) return;
+    s_diag_prev_n = n;
+    s_diag_bplpt0 = (s_nanchors >= 1) ? s_anchors[0].ptr[0] : 0u;
+    s_diag_disp_base = (s_diag_bplpt0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+    s_blitdiag_n = 0;
+    s_objup_runs++; if (n > 0) s_objup_nonzero++;
 
     int i = 0;
     while (i < n) {
@@ -594,48 +665,80 @@ static void native_objlayer_update(int cam, int pf_top, int pf_bot)
         const BlitRec *r0 = &rec[g0];
         i += np;
 
+        WsBlitDiag *dg = (s_blitdiag_n < (int)(sizeof s_blitdiag / sizeof s_blitdiag[0]))
+                         ? &s_blitdiag[s_blitdiag_n++] : NULL;
+        if (dg) { *dg = (WsBlitDiag){0}; dg->src=r0->src; dg->dpt=r0->dpt; dg->mask=r0->mask;
+                  dg->w=r0->w; dg->h=r0->h; dg->np=np; dg->con0=r0->con0; }
+
         uint32_t base;
         if (r0->dpt >= 0x038628u && r0->dpt < 0x038628u + WS_PLANE_STRIDE) base = 0x038628u;
         else if (r0->dpt >= 0x02B3ECu && r0->dpt < 0x02B3ECu + WS_PLANE_STRIDE) base = 0x02B3ECu;
-        else continue;
-        if (base != disp_base) continue;                 /* displayed buffer only */
+        else { if (dg) dg->drop = 'b'; continue; }
+
+        /* Skip pure fills (no A/B source channel, e.g. the full-page clear con0=$0100): they
+         * are page background prep, not sprites — projecting one paints a giant rectangle. */
+        if (!((r0->con0 >> 11) & 1) && !((r0->con0 >> 10) & 1)) { if (dg) dg->drop = 'f'; continue; }
 
         int masked  = (r0->mask != 0u);
         int restore = (!masked && r0->src >= 0x045000u && r0->src < 0x054000u);  /* bg-restore */
-        /* Decorations (box, torch) source from the $054000-$060000 work buffer and are
-         * STATIC — route them to the persistent layer; everything else is dynamic. */
-        int deco    = (r0->src >= 0x054000u && r0->src < 0x060000u);
-        uint32_t (*layer)[WS_LAYER_W] = deco ? s_decolayer : s_objlayer;
-        /* Position derived from the DISPLAYED BPL pointer (frame-locked), symmetric in
-         * both axes: delta = dpt - bplpt0; row = floor(delta/stride), x-byte = delta%stride.
-         * (Using the page base instead — as before — drops the displayed-top-row offset and
-         * places objects ~2px too low.) */
-        int32_t delta = (int32_t)(r0->dpt - s_anchors[0].ptr[0]);
-        int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE) : -(((-delta) + WS_ROWSTRIDE - 1) / WS_ROWSTRIDE);
-        int xrel = (int)(delta - orow * WS_ROWSTRIDE);    /* 0..stride-1 */
-        int wpx  = r0->w * 16;
-        int srow = r0->w * 2 + r0->smod, mrow = r0->w * 2 + r0->mmod;
-        int xbit = xrel * 8 + r0->shift;
-        int wx0  = cam16 + xbit;                          /* absolute world X of the sprite */
+        int deco    = (r0->src >= 0x054000u && r0->src < 0x060000u);             /* baked-in   */
+        if (dg) dg->cls = deco ? 'D' : (restore ? 'R' : 'O');
 
-        for (int py = 0; py < r0->h; py++) {
-            int sy = pf_top + orow + py;
-            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-            const uint32_t *pal = s_scan[sy].palette;
-            for (int px = 0; px < wpx; px++) {
-                int wx = wx0 + px;
-                if (wx < 0 || wx >= WS_LAYER_W) continue;
-                if (restore) continue;                               /* skip bg-restore */
-                if (masked) {
-                    uint32_t ma = r0->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
-                    if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
+        if (restore) {                            /* remove the (non-deco) sprites it overwrites */
+            for (int k = 0; k < s_pgn; )
+                if (!s_pg[k].deco && pg_overlap(&s_pg[k], base, r0->dpt, r0->w, r0->h))
+                    { s_pg[k] = s_pg[--s_pgn]; s_pg_removes++; }
+                else k++;
+            continue;
+        }
+        /* object/banner/decoration: add, or refresh an entry already at this page address. */
+        PgSprite *ps = NULL;
+        for (int k = 0; k < s_pgn; k++)
+            if (s_pg[k].base == base && s_pg[k].dpt == r0->dpt) { ps = &s_pg[k]; break; }
+        if (!ps && s_pgn < PG_MAX) { ps = &s_pg[s_pgn++]; s_pg_adds++; }
+        if (ps) {
+            ps->base=base; ps->dpt=r0->dpt; ps->mask=r0->mask; ps->np=np; ps->deco=deco;
+            ps->w=r0->w; ps->h=r0->h; ps->shift=r0->shift; ps->smod=r0->smod; ps->mmod=r0->mmod;
+            for (int p = 0; p < np; p++) ps->src[p] = rec[g0 + p].src;
+        }
+    }
+}
+
+/* Project the displayed buffer's live page-list into s_objlayer (decorations first, then
+ * objects on top), using the live BPL pointer + camera. Requires a renderable playfield. */
+static void native_objlayer_project(int cam16, int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    if (s_nanchors < 1) return;
+    uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+    memset(s_objlayer, 0, sizeof s_objlayer);
+    for (int pass = 1; pass >= 0; pass--) {            /* pass 1 = decorations, pass 0 = objects */
+        for (int k = 0; k < s_pgn; k++) {
+            const PgSprite *ps = &s_pg[k];
+            if (ps->base != disp_base || ps->deco != pass) continue;
+            int32_t delta = (int32_t)(ps->dpt - s_anchors[0].ptr[0]);
+            int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE)
+                                    : -(((-delta) + WS_ROWSTRIDE - 1) / WS_ROWSTRIDE);
+            int xrel = (int)(delta - orow * WS_ROWSTRIDE);
+            int wpx = ps->w * 16, srow = ps->w * 2 + ps->smod, mrow = ps->w * 2 + ps->mmod;
+            int masked = (ps->mask != 0u), wx0 = cam16 + xrel * 8 + ps->shift;
+            for (int py = 0; py < ps->h; py++) {
+                int sy = pf_top + orow + py;
+                if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+                const uint32_t *pal = s_scan[sy].palette;
+                for (int px = 0; px < wpx; px++) {
+                    int wx = wx0 + px; if (wx < 0 || wx >= WS_LAYER_W) continue;
+                    if (masked) {
+                        uint32_t ma = ps->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
+                        if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
+                    }
+                    int ci = 0;
+                    for (int p = 0; p < ps->np; p++) {
+                        uint32_t sa = ps->src[p] + (uint32_t)py * srow + (uint32_t)(px >> 3);
+                        if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
+                    }
+                    s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0xFFFFFFu);
                 }
-                int ci = 0;
-                for (int p = 0; p < np; p++) {
-                    uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
-                    if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
-                }
-                layer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0xFFFFFFu);   /* set opaque */
             }
         }
     }
