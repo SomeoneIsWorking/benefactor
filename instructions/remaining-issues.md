@@ -38,13 +38,20 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    help (no non-empty capture exists before GET READY ends — tried + reverted). NEXT:
    find/hook the setup queue-build path (likely shared with issue #1).
 
-3. **GET READY / GAME OVER banners invisible.** OPEN. Art spec fully RE'd & VERIFIED
-   (cookie-cut, DATA=`$A49A` MASK=`$BDCC`, w16 h43 bmod=-2 afwm=FFFF alwm=0000, plane
-   stride `$50A`, camera-relative SCREEN position; routine `$578974`, four banner
-   variants `578860/57889C/5788DE/57892E`). BLOCKER: one-shot draw lifetime — it persists
-   in the page until cleared; native needs a "banner active" state flag (not yet located)
-   to know when to draw the overlay. NEXT: find the GET-READY/GAME-OVER state flag, draw
-   the captured banner centered while active.
+3. **GET READY / GAME OVER banners.** FIXED (2026-06-05). Box + teleport animation + text
+   composite as a centered top UI overlay (`native_wsbanner_overlay`), drawn while the
+   banner is active (lifetime via the objwalk latch). Art spec: cookie-cut, DATA=`$A49A`
+   MASK=`$BDCC`, w16 h43 bmod=-2 afwm=FFFF alwm=0000, plane stride `$50A`; routine
+   `$578974`, variants `578860/57889C/5788DE/57892E`. KEY FIX: the box is blitted with a
+   **10px blitter A-shift** (BLTCON0 `$AFCA` → ASH nibble `$A`=10); the anim (`$09F0`,
+   ASH 0) and text (`$57892E`, a CPU byte-writer, no shift) are NOT. We draw the box at
+   its calibrated visual left, so the children (placed by their page-offset delta from the
+   box dest) must subtract the box A-shift — else they land 10px right (the figure sat low
+   in the circle, needing an ugly rectangular "hole fill" bandaid to hide the gap). With
+   the shift applied: anim fills the circle hole itself (no fill, no circle-bg blit),
+   verified dx=0/dy=0 cross-correlation + 99.87% bannercmp vs vanilla. The A-shift is read
+   from the box con0 immediate (`$5789A6`), not hardcoded. REPL: `bpos` prints the
+   captured offsets + derived placement.
 
 4. **Decorations (torches) culled where vanilla culls them.** OPEN. Decoration sprites
    inherit the engine's 320px clip instead of showing in the wide margins. NEXT: capture

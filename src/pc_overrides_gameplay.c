@@ -21,6 +21,8 @@ int g_modern_controls = 0;
 
 extern uint32_t hw_get_cop1lc(void);   /* for GO_TRACE diagnostics */
 
+long g_diag_objwalk = 0, g_diag_objdraw = 0, g_diag_char = 0;  /* per-frame call counts */
+
 /* ── $578C3E — end-of-level handler ──────────────────────────────────────────
  * Reached once a level ends. A level ends two ways, both of which set bit15 of
  * $10AC(a5) (tested by $5771C0/$579532) and route here:
@@ -332,6 +334,7 @@ int native_wschar_get(int i, int *x, int *y, int *w, int *h,
 
 void native_char_capture(M68KCtx *ctx)
 {
+    g_diag_char++;
     int      worldX = (int16_t)(uint16_t)ctx->D[0];
     int      worldY = (int16_t)(uint16_t)ctx->D[1];
     uint32_t d5     = ctx->D[5];
@@ -375,26 +378,68 @@ void native_char_capture(M68KCtx *ctx)
 typedef struct { int x, y; uint32_t dbase, mbase; int valid, black; } WsPlayer;
 static WsPlayer s_wsplayer_done;
 
-/* $57D79A — object-list walker entry. Promote at START: the per-object/char captures
- * ($57D8D0/$57D3F4) are dispatched via the rt_jump trampoline and run AFTER this
- * function returns (in the outer rt_call loop), so they accumulate into the build
- * lists THROUGH the frame; we promote the previous frame's fully-built lists here and
- * start fresh. (Promote-at-END does NOT work — the captures haven't happened yet when
- * the super-call returns.) */
+/* GET READY / GAME OVER banner overlay state (set by native_banner_capture). */
+static int  s_banner_active     = 0;  /* set on draw, cleared when the walker resumes    */
+static int  s_banner_row        = 80; /* page row (= screen row offset below pf_top)     */
+static int  s_banner_ttl        = 0;  /* safety cap (frames)                            */
+static int  s_banner_fresh      = 0;  /* first present after draw latches the objwalk #  */
+static long s_banner_objwalk_at = 0;  /* objwalk count at end of the banner setup frame  */
+
+void native_ws_diag(long *ow, long *od, long *ch)
+{ *ow = g_diag_objwalk; *od = g_diag_objdraw; *ch = g_diag_char; }
+
+/* $57D79A — object-list walker entry. CLEAR the in-progress build lists at the start
+ * of each walk (the per-object/char captures $57D8D0/$57D3F4 are dispatched via the
+ * rt_jump trampoline AFTER this returns, so they repopulate the lists through the
+ * walk). The promote (build → renderer-facing `*_done`) happens once per PRESENT in
+ * native_ws_promote(), NOT here.
+ *
+ * WHY promote-at-present, not promote-at-objwalk: during GET READY / GAME OVER the
+ * engine builds the object/char queues ONCE (objwalk runs a single time at setup),
+ * then PAUSES the walker while the executors re-blit the static queue every frame.
+ * Promoting at the NEXT objwalk therefore never fired (there is no next objwalk
+ * during the pause), so the setup frame's captures (objects, the teleport animation,
+ * GET READY text — all via $57D3F4/$57D8D0) were never shown, and after a restart the
+ * renderer showed the PREVIOUS level's stale `*_done`. Promoting every present makes
+ * `*_done` always reflect the latest build, and — because the clear is at objwalk
+ * (rebuild), not present — the build PERSISTS across the paused frames, exactly
+ * mirroring the engine's static queue + per-frame executor. */
 void native_objwalk(M68KCtx *ctx)
+{
+    g_diag_objwalk++;
+    s_wsobj_n  = 0;       /* start a fresh build; the dispatched builders repopulate */
+    s_wschar_n = 0;
+    gfn_gpl_57D79A(ctx);
+}
+
+/* Promote the in-progress build lists to the renderer-facing `*_done` lists. Called
+ * once per present (native_render_frame), AFTER the game thread has parked (so the
+ * builds for this frame are complete). Also drives the banner lifetime: the banner
+ * persists while the object walker is FROZEN (the GET-READY/GAME-OVER pause) and
+ * clears once the walker advances again (gameplay resumed → the page banner is wiped
+ * by the scroll). The very first present after the draw latches the walker count at
+ * end-of-setup so the same-frame setup objwalk doesn't immediately clear it. */
+void native_wsbanner_clear_children(void);   /* defined in the banner section below */
+
+void native_ws_promote(void)
 {
     memcpy(s_wsobj_done, s_wsobj, sizeof(WsObj) * (size_t)s_wsobj_n);
     s_wsobj_done_n = s_wsobj_n;
-    s_wsobj_n = 0;
     memcpy(s_wschar_done, s_wschar, sizeof(WsChar) * (size_t)s_wschar_n);
     s_wschar_done_n = s_wschar_n;
-    s_wschar_n = 0;
-    gfn_gpl_57D79A(ctx);
+
+    if (s_banner_active) {
+        if (s_banner_fresh) { s_banner_objwalk_at = g_diag_objwalk; s_banner_fresh = 0; }
+        else if (g_diag_objwalk > s_banner_objwalk_at) s_banner_active = 0; /* resumed */
+        if (--s_banner_ttl <= 0) s_banner_active = 0;                       /* safety  */
+        if (!s_banner_active) native_wsbanner_clear_children();
+    }
 }
 
 /* $57D8D0 — per-object draw choke point. Capture unclipped, then super-call. */
 void native_objdraw_capture(M68KCtx *ctx)
 {
+    g_diag_objdraw++;
     int      worldX = (int16_t)(uint16_t)ctx->D[0];
     int      worldY = (int16_t)(uint16_t)ctx->D[1];
     uint32_t obj    = ctx->A[1];
@@ -495,3 +540,123 @@ void native_player_capture(M68KCtx *ctx)
 
     gfn_gpl_57A666(ctx);
 }
+
+/* ── Native GET READY / GAME OVER BANNER capture for widescreen ($578974) ──────
+ * The banner is one FIXED graphic blitted ONCE into the playfield page during the
+ * level-intro / death setup, then it PERSISTS in the page (the engine pauses — no
+ * blits — while it's shown) until gameplay resumes and the scroll redraws over it.
+ * The native wide renderer rebuilds the playfield from the tilemap and IGNORES the
+ * page, so the banner was invisible. We capture it at $578974 and the renderer
+ * composites it as a screen-fixed UI overlay while it's "active".
+ *
+ * RE (disasm of $578974, verified against BLIT_LOG fn=578974, all 4 banner variants
+ * 578860/57889C/5788DE/57892E share this one art-blit):
+ *   DATA (B chan) = $A49A, plane stride $50A (= h*rowstride, B HW auto-advance);
+ *   MASK (A chan) = $BDCC, single plane reused for all 5 (re-pointed each iter);
+ *   con0=$AFCA (cookie-cut, minterm $CA, A=mask gates), w=16 words / displayed
+ *   rowstride/2 = 15 words = 240px (afwm=FFFF alwm=0000 kills word16), h=43,
+ *   rowstride = w*2+bmod = 32-2 = 30 (amod=bmod=-2).
+ *   Screen position is camera-relative (UI, fixed): page byte-off =
+ *   (camera>>4 + 3)*2 + MR16($5A1DB8); the +3-tile column cancels the BPL coarse so
+ *   it's screen-fixed. Vertical row = MR16($5A1DB8)/$2e (=$E60/46=80) page rows
+ *   below the displayed top. Captured here; the renderer centers it horizontally in
+ *   the (possibly wide) output and places it at pf_top + banner_row vertically.
+ *
+ * LIFETIME: set active on the draw; the renderer keeps drawing it while the engine
+ * is paused (no playfield redraw). native_objwalk clears it the first ACTIVE
+ * gameplay frame (when it captures >=1 real object → the engine's scroll has wiped
+ * the page banner). A frame-count safety cap bounds a 0-object level. */
+#define WS_BANNER_DATA   0x0A49Au
+#define WS_BANNER_MASK   0x0BDCCu
+#define WS_BANNER_PSTRIDE 0x50Au   /* DATA plane stride (B auto-advance = h*rowstride) */
+#define WS_BANNER_ROWS    43
+#define WS_BANNER_RS      30       /* row stride bytes (w*2 + bmod = 32-2)             */
+#define WS_BANNER_WW      15       /* displayed width words (rowstride/2) = 240px      */
+
+
+/* Box position is page-relative ($578974): byte-off = (cam>>4 + 3)*2 + MR16($5A1DB8).
+ * The teleport anim ($578B94) and text ($57892E from $578860) are at the SAME camera
+ * coarse + their own table offsets, so their page-offset DELTA from the box is
+ * camera-independent — the renderer places them relative to the (centered) box via
+ * that delta. */
+static int  s_banner_rel = 0;        /* box page-relative byte offset                 */
+/* The box art is blitted with a non-zero blitter A-shift (BLTCON0 ASH nibble): the
+ * engine's box ($578974) uses con0 $AFCA → ASH=$A=10, so the box appears 10px right of
+ * its byte-aligned dest. The anim ($578B94 con0 $09F0, ASH=0) and text ($57892E, a CPU
+ * byte-writer, no shift) are placed at their unshifted dests. Our renderer draws the box
+ * at its calibrated VISUAL left, so the children — positioned by their page DELTA from
+ * the box dest — must subtract the box's A-shift to land in the same place vanilla shows
+ * them. Captured from the box con0 immediate so it tracks the engine, not a magic 10. */
+static int  s_banner_ash = 0;        /* box blit A-shift (px); children subtract it     */
+/* teleport animation ($578B94): a 32x28 opaque 5-plane sprite drawn into the box's
+ * right circle; the frame cycles (anim list at a5-$6418). */
+static int      s_tel_active = 0;
+static uint32_t s_tel_src    = 0;    /* current frame gfx base                        */
+static int      s_tel_rel    = 0;    /* page-relative byte offset                     */
+/* banner TEXT ($57892E font, called from $578860 GET READY / $57889C GAME OVER): an
+ * 8px column-major font at $5A0E00 (glyph row stride $56), drawn in colour 16. */
+static int      s_txt_active = 0;
+static uint32_t s_txt_str    = 0;    /* ASCII string (NUL-terminated)                 */
+static int      s_txt_rel    = 0;    /* page-relative byte offset                     */
+
+void native_wsbanner_clear_children(void) { s_tel_active = 0; s_txt_active = 0; }
+
+int native_wsbanner_get(int *row, int *rel, uint32_t *data, uint32_t *mask,
+                        int *pstride, int *rs, int *ww, int *rows)
+{
+    if (!s_banner_active) return 0;
+    *row = s_banner_row; *rel = s_banner_rel;
+    *data = WS_BANNER_DATA; *mask = WS_BANNER_MASK;
+    *pstride = WS_BANNER_PSTRIDE; *rs = WS_BANNER_RS;
+    *ww = WS_BANNER_WW; *rows = WS_BANNER_ROWS;
+    return 1;
+}
+int native_wstelanim_get(uint32_t *src, int *rel, int *w, int *h)
+{
+    if (!s_banner_active || !s_tel_active) return 0;
+    *src = s_tel_src; *rel = s_tel_rel; *w = 2; *h = 28;
+    return 1;
+}
+int native_wstext_get(uint32_t *str, int *rel)
+{
+    if (!s_banner_active || !s_txt_active) return 0;
+    *str = s_txt_str; *rel = s_txt_rel;
+    return 1;
+}
+int native_wsbanner_ash(void) { return s_banner_ash; }
+
+static int banner_cam_tile(M68KCtx *ctx) { return (int)(int16_t)(uint16_t)MR16(0x57FDBAu) >> 4; }
+
+void native_banner_capture(M68KCtx *ctx)      /* $578974 — box */
+{
+    int rel = (banner_cam_tile(ctx) + 3) * 2 + (int)(uint16_t)MR16(0x5A1DB8u);
+    s_banner_rel    = rel;
+    s_banner_row    = rel / 0x2E;                  /* box screen row below displayed top */
+    s_banner_ash    = (MR16(0x5789A6u) >> 12) & 0xF; /* box con0 ($AFCA) A-shift = 10px   */
+    s_banner_active = 1;
+    s_banner_fresh  = 1;                            /* latch objwalk# at next present  */
+    s_banner_ttl    = 1200;                         /* ~20s cap; cleared earlier on resume */
+    gfn_gpl_578974(ctx);
+}
+
+void native_telanim_capture(M68KCtx *ctx)     /* $578B94 — teleport animation */
+{
+    uint32_t a1 = MR32(GP_A5 - 0x6418u);           /* current frame ptr (this frame's gfx) */
+    s_tel_src    = (uint32_t)(uint16_t)MR16(a1) + 0xC2D6u;
+    s_tel_rel    = (banner_cam_tile(ctx) + 16) * 2 + (int)(uint16_t)MR16(0x5A1DCAu);
+    s_tel_active = 1;
+    gfn_gpl_578B94(ctx);
+}
+
+/* GET READY ($578860, string a5-$6584) and GAME OVER ($57889C, string a5-$6542):
+ * the string is `[posword][ASCII...]`; the engine adds posword to the text dst. */
+static void banner_text_capture(M68KCtx *ctx, uint32_t strbase, void (*super)(M68KCtx*))
+{
+    uint16_t pos = MR16(strbase);                  /* position word prefix            */
+    s_txt_str    = strbase + 2;
+    s_txt_rel    = banner_cam_tile(ctx) * 2 + (int)(uint16_t)MR16(0x5A1DEEu) + (int)pos;
+    s_txt_active = 1;
+    super(ctx);
+}
+void native_getready_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x6584u, gfn_gpl_578860); }
+void native_gameover_text_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x6542u, gfn_gpl_57889C); }

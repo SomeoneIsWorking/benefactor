@@ -812,6 +812,31 @@ int main(int argc, char **argv)
             }
             if (hit < 0) printf("[wsdiff] no divergence in %u frames (all match)\n", maxf);
         }
+        else if (!strcmp(cmd, "bannercmp")) {  /* bannercmp [x0 y0 x1 y1] — diff native(s_out) vs
+                                                  vanilla(s_fb) in a REGION (default = the GET READY
+                                                  banner box), reporting per-pixel mismatches with
+                                                  van/nat colours, to drive the banner to 100% match.
+                                                  Needs BENEFACTOR_WS_CMP=1 (native renders at 352). */
+            extern const uint32_t *hw_get_framebuffer(void);
+            extern const uint32_t *hw_get_output_framebuffer(void);
+            int x0=44, y0=88, x1=296, y1=140;
+            sscanf(line, "%*s %d %d %d %d", &x0, &y0, &x1, &y1);
+            int ow2 = hw_output_width();
+            const uint32_t *van = hw_get_framebuffer();
+            const uint32_t *nat = hw_get_output_framebuffer();
+            int nd = 0, tot = 0, shown = 0;
+            for (int y = y0; y < y1; y++)
+                for (int x = x0; x < x1; x++) {
+                    tot++;
+                    uint32_t v = van[y*FB_W+x]&0xFFFFFF, q = nat[y*ow2+x]&0xFFFFFF;
+                    if (v != q) {
+                        nd++;
+                        if (shown < 16) { printf("   (%d,%d) van=%06X nat=%06X\n", x, y, v, q); shown++; }
+                    }
+                }
+            printf("[bannercmp] region x[%d..%d] y[%d..%d]: %d/%d px differ (%.2f%% match)\n",
+                   x0, x1, y0, y1, nd, tot, 100.0 * (tot - nd) / (tot ? tot : 1));
+        }
         else if (!strcmp(cmd, "blitlog")) {  /* blitlog [minw] — dump EVERY blit of the last stepped frame
                                                 with its capture decision (REPL replacement for BLIT_LOG).
                                                 reason: C=captured u=dest-off p=not-in-pages g=gfx-too-high
@@ -859,7 +884,48 @@ int main(int argc, char **argv)
                    hw_get_cop1lc(), native_wsobj_count(), native_wschar_count(),
                    have_p ? "yes" : "no");
             if (have_p) printf(" (x=%d y=%d black=%d)", px, py, pblack);
+            { extern void native_ws_diag(long*,long*,long*); long ow=0,od=0,ch=0;
+              native_ws_diag(&ow,&od,&ch);
+              printf("  [diag objwalk=%ld objdraw=%ld char=%ld]", ow, od, ch); }
             printf("\n");
+        }
+        else if (!strcmp(cmd, "bpos")) {  /* bpos — print banner box/anim/text captured page offsets +
+                                             derived box-relative (row,col px) placement, vs the box mask's
+                                             right-circle hole, to align the teleport anim/text. */
+            extern uint8_t *g_mem;
+            extern int native_wsbanner_get(int*,int*,uint32_t*,uint32_t*,int*,int*,int*,int*);
+            extern int native_wstelanim_get(uint32_t*,int*,int*,int*);
+            extern int native_wstext_get(uint32_t*,int*);
+            int row,brel,ps,rs,ww,rows; uint32_t bdata,bmask;
+            if (!native_wsbanner_get(&row,&brel,&bdata,&bmask,&ps,&rs,&ww,&rows)) {
+                printf("[bpos] banner not active\n");
+            } else {
+                const int PRS = 46;
+                int cam = (int)(int16_t)(((uint16_t)g_mem[0x57FDBA]<<8)|g_mem[0x57FDBB]);
+                printf("[bpos] cam=%d  brel=%d  box row=%d  ww=%d(%dpx) rows=%d\n",
+                       cam, brel, row, ww, ww*16, rows);
+                uint32_t tsrc; int trel,tw,th;
+                if (native_wstelanim_get(&tsrc,&trel,&tw,&th)) {
+                    int d=trel-brel, dr=(d>=0)?d/PRS:-(((-d)+PRS-1)/PRS), dc=d-dr*PRS;
+                    printf("[bpos] anim: trel=%d delta=%d -> row+%d col=%dpx (w=%dpx h=%d) src=$%X\n",
+                           trel,d,dr,dc*8,tw*16,th,tsrc);
+                }
+                uint32_t str; int xrel;
+                if (native_wstext_get(&str,&xrel)) {
+                    int d=xrel-brel, dr=(d>=0)?d/PRS:-(((-d)+PRS-1)/PRS), dc=d-dr*PRS;
+                    printf("[bpos] text: xrel=%d delta=%d -> row+%d col=%dpx str=$%X\n",
+                           xrel,d,dr,dc*8,str);
+                }
+                /* right-circle hole bounds from the mask (cols 120..ww*16) */
+                int hlo=9999,hhi=-1,rlo=9999,rhi=-1;
+                for (int r=0;r<rows;r++) for (int c=120;c<ww*16;c++){
+                    int wo=c>>4,bit=15-(c&15);
+                    uint32_t a=bmask+(uint32_t)r*rs+(uint32_t)wo*2;
+                    uint16_t v=((uint16_t)g_mem[a]<<8)|g_mem[a+1];
+                    if(!((v>>bit)&1)){ if(c<hlo)hlo=c; if(c>hhi)hhi=c; if(r<rlo)rlo=r; if(r>rhi)rhi=r; }
+                }
+                printf("[bpos] right hole: cols %d..%d  rows %d..%d\n",hlo,hhi,rlo,rhi);
+            }
         }
         else if (!strcmp(cmd, "pal")) {   /* pal — print the live 32-entry ARGB palette (g_state.palette) */
             printf("[crepl] palette (ARGB):\n");
