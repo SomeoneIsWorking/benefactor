@@ -13,7 +13,8 @@
  * calls are decoded the same way (D0[7:0]=disk-1, D0[31:8]=byte offset,
  * D1=length, D2=dest) and serviced by disk_boot_load().
  */
-#include "hw_private.h"   /* g_mem, RT_MEM_SIZE */
+#include "rt.h"   /* g_mem, RT_MEM_SIZE — NOT hw_private.h, which drags in SDL and is
+                   * unnecessary here (the dumpbanks regen tool must build without SDL). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

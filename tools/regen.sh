@@ -36,9 +36,11 @@ done
 export TMPDIR="$PWD/scratch/tmp"; mkdir -p "$TMPDIR"
 SCR=scratch/regen; mkdir -p "$SCR" "$GEN"
 
-SDL_CFLAGS=$(sdl2-config --cflags 2>/dev/null || pkg-config --cflags sdl2 2>/dev/null || echo "")
 echo "[regen] building bootstrap dumper"
-cc -O2 -I src $SDL_CFLAGS \
+# No SDL needed: disk_boot.c includes rt.h (not hw_private.h), so the dumper builds
+# standalone. (Previously this relied on sdl2-config/pkg-config finding SDL, which
+# breaks on macOS/Homebrew when neither is on PATH.)
+cc -O2 -I src \
    tools/dump_banks.c src/recomp/overlay_load.c src/recomp/disk_boot.c \
    -o "$SCR/dumpbanks"
 
