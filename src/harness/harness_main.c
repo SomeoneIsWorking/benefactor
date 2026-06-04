@@ -899,14 +899,15 @@ int main(int argc, char **argv)
             int cam = g_mem ? (int)(int16_t)(((uint16_t)g_mem[0x57FDBA]<<8)|g_mem[0x57FDBB]) : 0;
             { extern int g_ws_view_left, g_ws_view_w;
               printf("[wsobjs] view_left=%d view_w=%d (worldX=view_left+screenx)\n", g_ws_view_left, g_ws_view_w); }
-            printf("[wsobjs] cam=%d  %d objs:\n", cam, native_wsobj_count());
-            for (int i=0;i<native_wsobj_count();i++){ int x,y,w,h; uint32_t s,m;
-                native_wsobj_get(i,&x,&y,&w,&h,&s,&m);
+            int nobj = native_wsobj_count(), nchr = native_wschar_count();
+            printf("[wsobjs] cam=%d  %d objs:\n", cam, nobj);
+            for (int i=0;i<nobj;i++){ int x,y,w,h; uint32_t s,m;
+                if (!native_wsobj_get(i,&x,&y,&w,&h,&s,&m)) continue;
                 printf("  obj%2d x=%5d y=%4d screenX=%5d w=%d h=%d src=$%06X\n",i,x,y,x-cam,w*16,h,s); }
-            printf("[wsobjs] %d chars:\n", native_wschar_count());
-            for (int i=0;i<native_wschar_count();i++){ int x,y,w,h,rsd; uint32_t d,mk;
-                native_wschar_get(i,&x,&y,&w,&h,&d,&mk,&rsd);
-                printf("  chr%2d x=%5d y=%4d screenX=%5d w=%d h=%d\n",i,x,y,x-cam,w,h); }
+            printf("[wsobjs] %d chars:\n", nchr);
+            for (int i=0;i<nchr;i++){ int x,y,w,h,rsd; uint32_t d,mk;
+                if (!native_wschar_get(i,&x,&y,&w,&h,&d,&mk,&rsd)) continue;
+                printf("  chr%2d x=%5d y=%4d screenX=%5d w=%d h=%d data=$%06X\n",i,x,y,x-cam,w,h,d); }
         }
         else if (!strcmp(cmd, "bpos")) {  /* bpos — print banner box/anim/text captured page offsets +
                                              derived box-relative (row,col px) placement, vs the box mask's
