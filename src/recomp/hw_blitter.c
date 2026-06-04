@@ -25,14 +25,26 @@ static inline uint32_t _bplptr_from(int hi_reg, int lo_reg)
     return (((uint32_t)s_regs[hi_reg >> 1] << 16) | s_regs[lo_reg >> 1]) & 0xFFFFFF;
 }
 
-/* ── Object-blit capture (consumed by native_render_wide_bg) ───────────────── */
+/* ── Object-blit capture (consumed by native_render_wide_bg) ───────────────────
+ * Double-buffered with a 1-FRAME DELAY: the engine blits this frame's objects into
+ * the BACK page, which only becomes the displayed (front) page NEXT frame — while the
+ * renderer's bg (and s_fb) shows the current front page = LAST frame's objects. So the
+ * renderer replays the PREVIOUS frame's capture (s_prev), which lives in the now-
+ * displayed buffer; the current frame fills s_blitcap, promoted to s_prev at reset. */
 #define BLIT_CAP_MAX 768
-static BlitRec s_blitcap[BLIT_CAP_MAX];
+static BlitRec s_blitcap[BLIT_CAP_MAX];   /* current frame, being filled */
 static int     s_blitcap_n  = 0;
-static int     s_blitcap_on = 1;   /* always capture; cheap, reset each frame */
-void           hw_blit_capture_reset(void) { s_blitcap_n = 0; }
-int            hw_blit_capture_count(void) { return s_blitcap_n; }
-const BlitRec *hw_blit_capture_recs(void)  { return s_blitcap; }
+static BlitRec s_prev[BLIT_CAP_MAX];      /* previous frame, replayed by the renderer */
+static int     s_prev_n     = 0;
+static int     s_blitcap_on = 1;
+void hw_blit_capture_reset(void)          /* end of frame: promote current → prev */
+{
+    memcpy(s_prev, s_blitcap, sizeof(BlitRec) * (size_t)s_blitcap_n);
+    s_prev_n = s_blitcap_n;
+    s_blitcap_n = 0;
+}
+int            hw_blit_capture_count(void) { return s_prev_n; }
+const BlitRec *hw_blit_capture_recs(void)  { return s_prev; }
 
 /* OCS register offsets (local copies of hw.c defines) */
 #define _BLTCON0  0x040
@@ -267,7 +279,11 @@ void hw_do_blit(void)
     {
         int usea = (bltcon0 >> 11) & 1, useb = (bltcon0 >> 10) & 1, used = (bltcon0 >> 8) & 1;
         uint32_t gsrc = useb ? bpt : apt;            /* gfx source: B if masked, else A */
-        int dest_in_pages = (dpt >= 0x020000u && dpt < 0x040000u);
+        /* Playfield double-buffer pages: $2B3EC (5 planes to ~$36xxx) and $38628 (5
+         * planes to ~$43xxx, stepping by the plane stride $2A0C). Must cover all 5
+         * planes of both buffers (else sprites lose bitplanes → wrong colours) but stop
+         * below the bg save-buffer ($045000+), which is page↔save shuffle, not sprites. */
+        int dest_in_pages = (dpt >= 0x028000u && dpt < 0x044000u);
         if (s_blitcap_on && used && dest_in_pages && gsrc < 0x400000u
             && s_blitcap_n < BLIT_CAP_MAX) {
             BlitRec *r = &s_blitcap[s_blitcap_n++];
@@ -290,8 +306,8 @@ void hw_do_blit(void)
     if (getenv("BLIT_LOG")) {
         static FILE *bl = NULL; static long n = 0;
         if (!bl) bl = fopen("logs/blit_log.txt", "w");
-        if (bl) { fprintf(bl, "%ld apt=%06X bpt=%06X cpt=%06X dpt=%06X w=%d h=%d con0=%04X\n",
-                          n++, apt, bpt, cpt, dpt, width_words, height, bltcon0); fflush(bl); }
+        if (bl) { fprintf(bl, "%ld apt=%06X bpt=%06X cpt=%06X dpt=%06X w=%d h=%d con0=%04X con1=%04X amod=%d bmod=%d cmod=%d dmod=%d\n",
+                          n++, apt, bpt, cpt, dpt, width_words, height, bltcon0, bltcon1, amod, bmod, cmod, dmod); fflush(bl); }
     }
 
     /* GP_BLIT_TRACE: log destination regions of gameplay blits (diagnostic). */

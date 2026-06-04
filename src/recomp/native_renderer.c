@@ -547,7 +547,14 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
     const ScanState *pst = &s_scan[pf_top];
     int x_off   = DDF_TO_X(pst->ddfstrt);
     int scroll1 = pst->bplcon1 & 0xF;
-    int coarse  = ((((cam + 15) >> 4) * 2) % WS_ROWSTRIDE);  /* displayed left edge (page byte) */
+    /* The engine draws each object into BOTH double-buffer pages (at different page
+     * offsets, since the buffers are at different scroll states). s_fb shows only the
+     * DISPLAYED buffer (the one the copper BPL pointer points at), so draw only that
+     * buffer's object blits — otherwise every object is drawn twice at two positions. */
+    uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+    /* Displayed-left horizontal byte WITHIN the page row, from the same BPL pointer the
+     * bg uses (frame-locked) — NOT cam arithmetic, which drifts vs the bg coarse. */
+    int coarse  = (int)((s_anchors[0].ptr[0] - disp_base) % WS_ROWSTRIDE);
 
     /* Dedup: the engine draws each object into BOTH double-buffer pages, so every
      * sprite appears ~twice. Draw each unique (screen-x, row, w, h) once. */
@@ -567,12 +574,13 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
         if (r0->dpt >= 0x038628u && r0->dpt < 0x038628u + WS_PLANE_STRIDE) base = 0x038628u;
         else if (r0->dpt >= 0x02B3ECu && r0->dpt < 0x02B3ECu + WS_PLANE_STRIDE) base = 0x02B3ECu;
         else continue;
+        if (base != disp_base) continue;                /* only the displayed buffer */
         int masked = (r0->mask != 0u);
-        /* Opaque blits sourcing the bg-save buffer ($04xxxx) are background RESTORES
-         * (the engine erasing old sprites); we redraw bg fresh, so skip them — drawing
-         * them paints stale save-buffer rectangles (the "green blocks"). Real object
-         * gfx lives at $06xxxx. */
-        if (!masked && r0->src < 0x060000u) continue;
+        /* Opaque blits sourcing the bg-SAVE buffer ($045000-$053000) are background
+         * RESTORES (the engine erasing old sprites); we redraw bg fresh, so skip them
+         * — drawing them paints stale save-buffer rectangles (the "green blocks"). Real
+         * opaque OBJECTS (e.g. the metal box) source from elsewhere and must be drawn. */
+        if (!masked && r0->src >= 0x045000u && r0->src < 0x054000u) continue;
 
         uint32_t off = r0->dpt - base;                  /* row*46 + xbyte */
         int orow = (int)(off / WS_ROWSTRIDE);
