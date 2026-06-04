@@ -21,10 +21,12 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    were a door + a boulder). They go through an UNHOOKED walker path — likely the
    `$57D81C` multi-tile branch (a CPU `move.w` copy, NOT a blitter blit → absent from
    BLIT_LOG and the `$57D8D0`/`$57D3F4` choke captures) and/or the same setup
-   queue-build path as issue #2. NEXT: RE the `$57D81C` path + how the object queue is
-   built; capture worldX/Y/gfx pre-clip and draw natively. NOTE: object src-range
-   classification is PER-LEVEL (L1 gfx in `$05xxxx`, L9 in `$06xxxx`) — classify by
-   ROUTINE, never by magic src range.
+   queue-build path as issue #2. SHARES the root cause of #4: the char/list-B draw paths
+   are gated by a per-object camera cull in the walker `$57D79A` (unlike `$57D8D0` list-A
+   which we capture pre-clip). NEXT: hook the walker's per-object point before the cull;
+   capture worldX/Y/gfx for ALL objects (on+off screen) and draw natively — one fix covers
+   marry men + torches + teleporter (#4). NOTE: object src-range classification is PER-LEVEL
+   (L1 gfx in `$05xxxx`, L9 in `$06xxxx`) — classify by ROUTINE, never by magic src range.
 
 2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
    VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports
@@ -53,10 +55,24 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    from the box con0 immediate (`$5789A6`), not hardcoded. REPL: `bpos` prints the
    captured offsets + derived placement.
 
-4. **Decorations (torches) culled where vanilla culls them.** OPEN. Decoration sprites
-   inherit the engine's 320px clip instead of showing in the wide margins. NEXT: capture
-   them BEFORE the engine's camera clip (same pre-clip principle as the walker), draw
-   across the wide view.
+4. **Animated sprites culled at the vanilla 320 window (torches, teleporter, etc.).** OPEN.
+   ROOT CAUSE NAILED (2026-06-05, L9 repro: torch flame at worldX≈902). The torch is a
+   self-contained animated COOKIE-CUT sprite (rock+stick+flame, one blit `con0=4FCA
+   apt=$066C86 3x21`) drawn via `$57D3F4`; the wall's "lit" look is baked into the BG tiles
+   (stays). The sprite is captured into `s_wschar` ONLY while on-window: at cam 938 (torch
+   36px left of the window) it still draws & shows in the wide margin; by cam 981 (79px
+   left) the engine STOPS calling its draw → not captured → vanishes — even though it's at
+   wide-screen x≈225 (well inside a 960px view). So unlike `$57D8D0` (list-A: the engine
+   reaches the choke for off-screen objects too, writing a skip-descriptor INSIDE — we
+   capture at entry, pre-clip, so list-A shows in margins), the `$57D3F4` char path and the
+   list-B execs are GATED by a per-object camera cull UPSTREAM of the draw (in the walker
+   `$57D79A`/object handler). This is the SAME root cause as #1 (Marry Men) and #2.
+   FIX (one change covers torches + teleporter + marry men): hook the walker's per-object
+   point BEFORE its cull, capture every object's {worldX, worldY, gfx, mask, w, h, con0}
+   regardless of on/off-screen, draw natively across the wide view. Tools added: REPL
+   `wsobjs` (dump captured obj/char lists + screenX), `view_left` in `wsobjs`,
+   `BENEFACTOR_WIDESCREEN` now up to 960 (`HW_OUT_MAX`). NOTE: needs ≥640px to even observe
+   the cull — at 480 the sprite leaves the true wide edge before the cull triggers.
 
 5. **Vanilla (non-widescreen / 352) playfield EDGES show the tile-column render toggles.**
    OPEN. On real HW the display window (DIWSTRT/DIWSTOP) hides the partially-drawn edge
@@ -69,7 +85,20 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    to ~320 (defeats widescreen) — so apply it ONLY to the margin==0 / 352 path, never to
    the wide (margin>0) path. See [[widescreen-plan]] "DIW over-fetch clip" history.
 
+6. **Line-blitter graphics (chandelier chains) not rendered natively.** OPEN. The engine
+   draws chain/rope graphics with the blitter in LINE mode (con1 bit0); the emulated
+   blitter renders them (line+fill implemented in `hw_do_blit`, see
+   [[project_blitter_line_fill]]), but they go into the engine PAGE, which the native wide
+   renderer ignores → invisible in widescreen (visible as a diagonal line top-left in the
+   L9 960px view). Same family as #1/#4: page-only draw not captured. FIX: capture the
+   line-blit segments (endpoints/colour) before the page write and draw them natively, or
+   fold into the unified pre-cull capture.
+
 ### Widescreen — DONE / NOT-A-BUG (verified this push series)
+- **Pause menu / overlays Z-order** — FIXED (2026-06-05): the pause/level-select/toast
+  overlays were drawn into `s_fb` before the wide compose, so `native_render_wide_bg`
+  overpainted them. Now drawn into `s_out` AFTER compose, width-aware (`pc_overlay_set_dims`)
+  so they center/dim the full wide view.
 - Native tilemap background (per-level row stride), wide camera clamp/center.
 - **Wide camera is GREAT** (user-confirmed) — NOT an issue. The `wsdiff` edge-band
   exclusion (`WSDIFF_EDGE`=32px/side) exists because the COMPARE path (native@352 vs

@@ -889,6 +889,25 @@ int main(int argc, char **argv)
               printf("  [diag objwalk=%ld objdraw=%ld char=%ld]", ow, od, ch); }
             printf("\n");
         }
+        else if (!strcmp(cmd, "wsobjs")) {  /* wsobjs — dump captured widescreen object/char lists
+                                               (worldX/Y, w, h, src) + screenX, to track culling. */
+            extern uint8_t *g_mem;
+            extern int native_wsobj_count(void);
+            extern int native_wsobj_get(int,int*,int*,int*,int*,uint32_t*,uint32_t*);
+            extern int native_wschar_count(void);
+            extern int native_wschar_get(int,int*,int*,int*,int*,uint32_t*,uint32_t*,int*);
+            int cam = g_mem ? (int)(int16_t)(((uint16_t)g_mem[0x57FDBA]<<8)|g_mem[0x57FDBB]) : 0;
+            { extern int g_ws_view_left, g_ws_view_w;
+              printf("[wsobjs] view_left=%d view_w=%d (worldX=view_left+screenx)\n", g_ws_view_left, g_ws_view_w); }
+            printf("[wsobjs] cam=%d  %d objs:\n", cam, native_wsobj_count());
+            for (int i=0;i<native_wsobj_count();i++){ int x,y,w,h; uint32_t s,m;
+                native_wsobj_get(i,&x,&y,&w,&h,&s,&m);
+                printf("  obj%2d x=%5d y=%4d screenX=%5d w=%d h=%d src=$%06X\n",i,x,y,x-cam,w*16,h,s); }
+            printf("[wsobjs] %d chars:\n", native_wschar_count());
+            for (int i=0;i<native_wschar_count();i++){ int x,y,w,h,rsd; uint32_t d,mk;
+                native_wschar_get(i,&x,&y,&w,&h,&d,&mk,&rsd);
+                printf("  chr%2d x=%5d y=%4d screenX=%5d w=%d h=%d\n",i,x,y,x-cam,w,h); }
+        }
         else if (!strcmp(cmd, "bpos")) {  /* bpos — print banner box/anim/text captured page offsets +
                                              derived box-relative (row,col px) placement, vs the box mask's
                                              right-circle hole, to align the teleport anim/text. */
