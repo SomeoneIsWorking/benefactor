@@ -367,17 +367,20 @@ void native_char_capture(M68KCtx *ctx)
 }
 
 /* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask).
- * Double-buffered like the object/char lists (promoted+cleared at the once-per-frame
- * walker) so the player VANISHES on any frame the engine does NOT draw it ($57A666
- * not called) instead of ghosting a stale capture. NOTE: the damage BLINK is NOT a
- * skipped draw — the engine still draws the player every frame, just as a black
- * silhouette on alternate frames (the `black` field below). */
+ * Set DIRECTLY by native_player_capture and held until the next draw — the engine
+ * draws the player every frame during gameplay AND holds the last-drawn scene during
+ * GET READY (where the per-frame loop pauses), so "retain last" matches vanilla. The
+ * damage BLINK is NOT a skipped draw — the engine draws the player every frame, just
+ * as a black silhouette on alternate frames (the `black` field). */
 typedef struct { int x, y; uint32_t dbase, mbase; int valid, black; } WsPlayer;
-static WsPlayer s_wsplayer_build;   /* set by native_player_capture this frame   */
-static WsPlayer s_wsplayer_done;    /* promoted at the once-per-frame walker      */
+static WsPlayer s_wsplayer_done;
 
-/* $57D79A — object-list walker entry. Fires once per frame, before the per-object
- * draw calls. Promote the just-built lists to "done" and start fresh captures. */
+/* $57D79A — object-list walker entry. Promote at START: the per-object/char captures
+ * ($57D8D0/$57D3F4) are dispatched via the rt_jump trampoline and run AFTER this
+ * function returns (in the outer rt_call loop), so they accumulate into the build
+ * lists THROUGH the frame; we promote the previous frame's fully-built lists here and
+ * start fresh. (Promote-at-END does NOT work — the captures haven't happened yet when
+ * the super-call returns.) */
 void native_objwalk(M68KCtx *ctx)
 {
     memcpy(s_wsobj_done, s_wsobj, sizeof(WsObj) * (size_t)s_wsobj_n);
@@ -386,8 +389,6 @@ void native_objwalk(M68KCtx *ctx)
     memcpy(s_wschar_done, s_wschar, sizeof(WsChar) * (size_t)s_wschar_n);
     s_wschar_done_n = s_wschar_n;
     s_wschar_n = 0;
-    s_wsplayer_done = s_wsplayer_build;   /* invalid if $57A666 didn't fire → no draw */
-    s_wsplayer_build.valid = 0;
     gfn_gpl_57D79A(ctx);
 }
 
@@ -485,7 +486,7 @@ void native_player_capture(M68KCtx *ctx)
     int blink = (fbyte & 0x80) != 0;
     int black = blink && !((uint8_t)MR8(GP_A5 + 0x0F9Fu) & 4);
 
-    s_wsplayer_build = (WsPlayer){
+    s_wsplayer_done = (WsPlayer){
         wxleft, d2,
         0x19E02u + frameoff,                  /* B = DATA (5-plane, stride $2800) */
         0x52AA0u + frameoff,                  /* A = MASK (single plane)          */

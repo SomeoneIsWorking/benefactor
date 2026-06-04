@@ -69,6 +69,16 @@ destinations and lessons:
 
 ## Debugging Architecture (GDB-centric)
 
+**Trace via the REPL, NOT env-gated logs.** Do investigation/tracing through the
+interactive harness REPL (`./build/benefactor-harness ... Disk.*`) — add a REPL command
+(in `src/harness/harness_main.c`) that prints the state you need (counts, captures,
+pointers), drive to the scene, and read it live. Do NOT scatter `getenv("X_DBG")` +
+`fprintf`/`GLOBAL_LOG` debug logs through the engine/renderer to chase a bug; they're
+throwaway, noisy, and get committed by accident. A new inspection need → a new REPL
+command, the same way `pcwatch`/`pcread`/`pal`/`fbw` were added. (Reinforces the existing
+preference: use the REPL for step/inspect, avoid one-off env flags.) Pre-existing env
+traces below are the documented exceptions, not a pattern to extend.
+
 **No Python log analyzers.** All divergence diagnosis is done in GDB.
 
 - `harness_on_diverge(frame, reason)` in `harness_compare.c` — `noinline`, set a breakpoint here

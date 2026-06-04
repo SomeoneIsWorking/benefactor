@@ -849,6 +849,18 @@ int main(int argc, char **argv)
                        dc[k]?"DECO":"obj", base[k]==db?"(DISPLAYED)":"(back)");
             }
         }
+        else if (!strcmp(cmd, "wscap")) {  /* wscap — widescreen capture state: object/char counts + player */
+            extern int native_wsobj_count(void);
+            extern int native_wschar_count(void);
+            extern int native_wsplayer_get(int*,int*,uint32_t*,uint32_t*,int*);
+            int px, py, pblack; uint32_t pdb, pmb;
+            int have_p = native_wsplayer_get(&px, &py, &pdb, &pmb, &pblack);
+            printf("[wscap] cop1lc=$%06X  wsobj=%d wschar=%d  player=%s",
+                   hw_get_cop1lc(), native_wsobj_count(), native_wschar_count(),
+                   have_p ? "yes" : "no");
+            if (have_p) printf(" (x=%d y=%d black=%d)", px, py, pblack);
+            printf("\n");
+        }
         else if (!strcmp(cmd, "pal")) {   /* pal — print the live 32-entry ARGB palette (g_state.palette) */
             printf("[crepl] palette (ARGB):\n");
             for (int i = 0; i < 32; i += 8) {
