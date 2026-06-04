@@ -66,9 +66,16 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
 ## B. Other known native-port issues (pre-existing, see instructions/current-state.md)
 
-6. **Native hardware-SPRITE rendering unimplemented.** The gameover CONTINUE cursor
-   (hardware sprite 0) and any hardware-sprite graphic are missing — `native_render_frame`
-   has zero sprite-compositing code. (Distinct from the blitter object draws above.)
+6. **Native hardware-SPRITE rendering unimplemented (no CONFIRMED reachable use yet).**
+   `native_render_frame` has zero hardware-sprite (SPRxPT) compositing code — distinct
+   from the blitter object draws above. The previously-cited example (gameover CONTINUE
+   cursor = hardware sprite 0) is MOOT: the PC port intentionally bypasses the GAME OVER
+   SCREEN (vanilla = banner → game-over screen → CONTINUE → level card; the port drops
+   the screen and goes banner → level card directly, see [[project_gameover_transition]]),
+   so that cursor never appears. It's unknown whether any other currently-reachable screen
+   uses hardware sprites (gameplay copper has SPRxPT all 0). LOW priority / unverified
+   until a real hardware-sprite use is observed; audit the copper SPRxPT across screens
+   before building this.
 
 7. **Vestigial password field beside LEVEL SELECT** ("3MQLGPQLGP", renderer `$003DAA`,
    double-emitted). Cosmetic; needs the bitmap-draw routine or a recompiler-level fix.
