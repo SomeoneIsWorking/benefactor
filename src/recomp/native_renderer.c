@@ -616,9 +616,12 @@ static void native_objlayer_update(int cam, int pf_top, int pf_bot)
         int srow = r0->w * 2 + r0->smod, mrow = r0->w * 2 + r0->mmod;
         int xbit = ((xbyte - coarse + WS_ROWSTRIDE) % WS_ROWSTRIDE) * 8 + r0->shift;
         int wx0  = cam16 + xbit;                          /* absolute world X of the sprite */
+        static int odx=999, ody=0;
+        if (odx==999){ const char*e; odx=(e=getenv("BENEFACTOR_WS_ODX"))?atoi(e):0; ody=(e=getenv("BENEFACTOR_WS_ODY"))?atoi(e):0; }
+        wx0 += odx;
 
         for (int py = 0; py < r0->h; py++) {
-            int sy = pf_top + orow + py;
+            int sy = pf_top + orow + py + ody;
             if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
             const uint32_t *pal = s_scan[sy].palette;
             for (int px = 0; px < wpx; px++) {
