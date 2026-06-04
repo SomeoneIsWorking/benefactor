@@ -505,16 +505,59 @@ void native_blitdiag_ctx(int *prev_n, uint32_t *disp_base, uint32_t *bplpt0)
 static void native_objlayer_ingest(void);
 static void native_objlayer_project(int cam16, int pf_top, int pf_bot);
 
+/* Per-object draw params captured at the engine's $57D8D0 choke point (before its
+ * 352px camera-clip) — the faithful, camera-independent source of every gameplay
+ * object. See pc_overrides_gameplay.c / instructions/widescreen-plan.md "Phase 4". */
+extern int native_wsobj_count(void);
+extern int native_wsobj_get(int i, int *x, int *y, int *w, int *h,
+                            uint32_t *src, uint32_t *mod);
+
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
 static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
 { return ((uint32_t)m[a] << 24) | ((uint32_t)m[a+1] << 16) | ((uint32_t)m[a+2] << 8) | m[a+3]; }
 
+/* Build s_objlayer from the engine's captured per-object draw list (native_wsobj_*).
+ * Each object is a 5-plane plane-major sprite at absolute world (x, y): source word
+ * for plane p, row r, hword ω = src + (p*h + r)*w*2 + ω*2 (A-modulo is 0, so planes
+ * are tightly packed). Drawn at screen y = pf_top + worldY, absolute world x, with
+ * cookie-cut transparency (colour index 0 = see-through). The bg loop composites
+ * s_objlayer[y][worldX] over the tile background, sub-pixel-aligned via its own
+ * worldX mapping — so objects and terrain share one absolute world coordinate, no
+ * tuning constants. This REPLACES the blit-replay page display-list. */
+static void native_objlayer_from_capture(int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    memset(s_objlayer, 0, sizeof s_objlayer);
+    if (!M || getenv("WS_NOOBJ")) return;
+    int n = native_wsobj_count();
+    for (int i = 0; i < n; i++) {
+        int x, y, w, h; uint32_t src, mod;
+        if (!native_wsobj_get(i, &x, &y, &w, &h, &src, &mod)) continue;
+        if (w <= 0 || h <= 0 || w > 64 || h > 256) continue;
+        uint32_t plane_stride = (uint32_t)w * 2u * (uint32_t)h;   /* A-mod 0 => packed */
+        if (src < 0x1000u || src + plane_stride * 5u > RT_MEM_SIZE) continue;
+        int wpx = w * 16;
+        for (int r = 0; r < h; r++) {
+            int sy = pf_top + y + r;
+            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+            const uint32_t *pal = s_scan[sy].palette;
+            for (int c = 0; c < wpx; c++) {
+                int worldX = x + c;
+                if (worldX < 0 || worldX >= WS_LAYER_W) continue;
+                uint32_t base = src + (uint32_t)r * (uint32_t)w * 2u + (uint32_t)(c >> 4) * 2u;
+                int bit = 15 - (c & 15), ci = 0;
+                for (int p = 0; p < 5; p++)
+                    if ((gmem_r16(M, base + (uint32_t)p * plane_stride) >> bit) & 1u)
+                        ci |= (1 << p);
+                if (ci) s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+            }
+        }
+    }
+}
+
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
-    /* Ingest captured blits EVERY frame (even during the intro/transition, before the
-     * gameplay copper is up) so once-drawn overlays survive in the page display-list. */
-    native_objlayer_ingest();
     if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only (margin 0 = compare-at-352) */
     const uint8_t *M = g_mem;
     if (!M || WS_GFXTAB + 4u >= RT_MEM_SIZE) return;
@@ -556,8 +599,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     }
 
     if (pf_top < 0) return;
-    /* Project the live page display-list (ingested above, every frame) into the object layer. */
-    native_objlayer_project(cam16, pf_top, pf_bot);
+    /* Fill the object layer from the engine's captured per-object draw list. */
+    native_objlayer_from_capture(pf_top, pf_bot);
 
     if (getenv("WS_DBG")) {
         int scroll1 = s_scan[pf_top].bplcon1 & 0xF;
@@ -587,25 +630,16 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 
         int x_off   = DDF_TO_X(st->ddfstrt);
         int scroll1 = st->bplcon1 & 0xF;
-        /* Vanilla's displayed playfield is clipped to the data-fetch window: it decodes
-         * lx in [0, width_px) and leaves the rest as border (COLOR00). The native renderer
-         * MUST clip identically so wide=0 is pixel-identical to vanilla — outside the window
-         * the border (already copied from s_fb into `out`) is left untouched. (Margins for a
-         * wider view are a separate, later concern; correctness of the engine window first.) */
-        int fetch_words = (((int)st->ddfstop - (int)st->ddfstrt) >> 3) + 1;
-        if (fetch_words < 1) fetch_words = 1; if (fetch_words > 64) fetch_words = 64;
-        int width_px = fetch_words * 16;
 
-        /* ONE native renderer: the PC composes the playfield width from the level tilemap —
-         * the engine's bitplane/page is NOT used for display. */
+        /* ONE continuous native renderer: EVERY output pixel maps to an absolute world X
+         * (cam16 + bitplane index) and is decoded straight from the level tilemap — there
+         * is NO centre/margin split and NO clip to the engine's narrow data-fetch window
+         * (that clip is what created a seam at the centre/margin boundary). The only clip
+         * is the real level edge (mincol/maxcol = where the camera physically stops). The
+         * engine's bitplane/page is NOT used for the playfield. */
         for (int x = 0; x < ow; x++) {
             int lx = (x - margin) - x_off - scroll1;          /* engine bitplane bit index */
-            /* Clip the CENTER (the vanilla-mapped 352 region) to the engine's display window
-             * so wide=0 is identical to vanilla; the added side margins (x<margin or past it)
-             * extend the world for the wide view. */
-            int in_margin = (x < margin) || (x >= margin + HW_DISPLAY_W);
-            if (!in_margin && (lx < 0 || lx >= width_px)) continue;
-            int worldX = cam16 + lx;                          /* identical to engine mapping */
+            int worldX = cam16 + lx;                          /* absolute world X (one mapping) */
             if (worldX < 0) continue;
             int col = worldX >> 4;
             if (col < mincol || col >= maxcol) continue;
@@ -621,8 +655,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                     ci |= (1 << p);
             row[x] = pal[ci & 0x1Fu];
 
-            /* Composite the page display-list (decorations + objects, projected into
-             * s_objlayer with decorations under objects) on top of the bg tile. */
+            /* Composite the captured gameplay objects (s_objlayer, keyed by absolute
+             * world X — same coordinate as the tile bg) on top of the terrain. */
             if (worldX >= 0 && worldX < WS_LAYER_W) {
                 uint32_t o = s_objlayer[y][worldX];
                 if (o & 0xFF000000u) row[x] = o;
