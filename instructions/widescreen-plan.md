@@ -142,12 +142,26 @@ New harness REPL cmd `pal` prints the live 32-entry palette (committed). Referen
 + gameplay dump (`scratch/bin/gmem_gameplay.bin`, cam=961) + `scratch/screenshots/ws_*.png`
 are the verification harness — gate any render claim on a clean reference render.
 
-**→ NEXT: port to `native_renderer.c`** (C). Per visible world column `C = worldX>>4`
-(camera `$57FDBA`, clamp to `[$57FE8C-$90, $57FE8E-$100]`), per playfield row `r` 0..~13:
-`w = chip_r16($552A0 + r*$F4 + C*2)`; `gfx = chip_r32($5A539E + (w & 0xFFFE))`; decode the
-16×16×5bpp plane-major tile; place at `(C*16 - camera_x, playfield_top + r*16)` using the
-playfield-row `st->palette`. Fill the wide output margins (approach C: keep the engine's
-320 center for objects, native tiles in the L/R margins), then Phase 4 = native objects.
+**Phase 3 native wide background — DONE & working in-app (2026-06-04).** Implemented in
+`native_renderer.c::native_render_wide_bg(out, ow, margin)`, called from
+`hw.c::hw_compose_output` whenever the output is wider than 352 (gameplay only, gated on
+`s_cur_cop1lc==$003484`). It fills the L/R output margins (+ the engine's thin side borders)
+with native tiles decoded from the tilemap, keeping the engine's center playfield (objects/
+player) intact. Reads tilemap/gfx straight from `g_mem` (gfx >512KB, past the `chip_r16`
+window); reuses `s_scan[y].palette` (per-scanline copper palette built by `walk_copper`).
+Verified at `BENEFACTOR_WIDESCREEN=480` (`scratch/screenshots/ws_app.png`): cave extends
+seamlessly both sides, center keeps player/items/ladders, HUD centered, seams continuous.
+Default 352 path + harness `s_fb` compare path untouched (only `s_out` margins change).
+Seam alignment tunables (env, defaults work for L9): `BENEFACTOR_WS_ANCHOR` (4, s_out x of
+worldX==camera, rel. margin), `_PFL`/`_PFR` (4/340, engine playfield L/R x to seam up to),
+`_TOP`/`_ROWS` (12/14, playfield top line + row count).
+
+**→ NEXT (Phase 4): native objects/sprites in the margins.** The center has live objects
+(engine), but the margins only show terrain — enemies/pickups/player off the old 320 edge
+aren't drawn there. Native-draw them from the object tables (positions are simulated &
+live, camera-independent — see [[gameplay-engine-map]] object walker `$57D7BC`). Also widen
+the hardware-sprite clip. Then verify a 2nd world (per-level `$5A539E`/`$5D9xxx` stability)
+and any parallax/background 2nd layer.
 
 Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
 then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read
