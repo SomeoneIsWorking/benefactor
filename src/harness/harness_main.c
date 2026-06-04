@@ -727,6 +727,105 @@ int main(int argc, char **argv)
             printf("[wscmp] %u frames: total=%ld badframes=%d worst=%d@%d firstbad=%d\n",
                    frames, total, badframes, worst, worstf, firstbad);
         }
+        else if (!strcmp(cmd, "blits")) {  /* blits [minpx] — dump the world-layer blit groups the native
+                                              renderer processed last frame: class (Deco/Obj/Restore),
+                                              drop reason, computed world pos. Exposes WHY a blit drew/skipped.
+                                              minpx filters to groups >= that px-width (banner ~256). */
+            typedef struct { uint32_t src,dpt,mask; int w,h,np,con0,wx0,sy0,wpx; char cls,drop; } Dg;
+            extern int native_blitdiag(const Dg **out);
+            unsigned minpx = 0; sscanf(line, "%*s %u", &minpx);
+            const Dg *d; int nd = native_blitdiag(&d);
+            extern void native_blitdiag_ctx(int*,uint32_t*,uint32_t*);
+            int prev_n=0; uint32_t dispb=0, bp0=0; native_blitdiag_ctx(&prev_n,&dispb,&bp0);
+            printf("[blits] %d groups (minpx=%u)  s_prev_n=%d disp_base=%06X bplpt0=%06X  "
+                   "cls: D=deco O=obj R=restore  drop: b=unk-buf B=back-buf\n",
+                   nd, minpx, prev_n, dispb, bp0);
+            for (int k = 0; k < nd; k++) {
+                int px = d[k].w * 16;
+                if ((unsigned)px < minpx) continue;
+                printf("  src=%06X dpt=%06X msk=%06X np=%d %dx%d con0=%04X cls=%c%s",
+                       d[k].src, d[k].dpt, d[k].mask, d[k].np, px, d[k].h, d[k].con0,
+                       d[k].cls ? d[k].cls : '?',
+                       d[k].drop=='b' ? " DROP(unk-buf)" : d[k].drop=='B' ? " DROP(back-buf)" : "");
+                if (!d[k].drop) printf("  -> wx0=%d sy0=%d wpx=%d", d[k].wx0, d[k].sy0, d[k].wpx);
+                printf("\n");
+            }
+        }
+        else if (!strcmp(cmd, "wsdiff")) {  /* wsdiff [maxframes] — step frame-by-frame with the CURRENT
+                                               held input (fire/joy), comparing native@352 vs vanilla each
+                                               frame, and STOP at the first frame that diverges. Reports the
+                                               bbox + sample pixels and dumps that frame to logs/wsdiff_{van,nat}.bin
+                                               so the exact divergence can be root-caused. Needs BENEFACTOR_WS_CMP=1. */
+            extern const uint32_t *hw_get_framebuffer(void);
+            extern const uint32_t *hw_get_output_framebuffer(void);
+            unsigned maxf = 1500; sscanf(line, "%*s %u", &maxf);
+            int ow2 = hw_output_width();
+            int hit = -1;
+            for (unsigned f = 0; f < maxf; f++) {
+                STEP_PC();
+                const uint32_t *van = hw_get_framebuffer();
+                const uint32_t *nat = hw_get_output_framebuffer();
+                int nd = 0, bx0 = 9999, by0 = 9999, bx1 = -1, by1 = -1;
+                for (int y = 13; y < 237; y++)
+                    for (int x = 24; x < 328; x++)
+                        if ((van[y*FB_W+x] & 0xFFFFFF) != (nat[y*ow2+x] & 0xFFFFFF)) {
+                            nd++;
+                            if (x<bx0)bx0=x; if (x>bx1)bx1=x; if (y<by0)by0=y; if (y>by1)by1=y;
+                        }
+                if (nd > 0) {
+                    hit = (int)f;
+                    printf("[wsdiff] FIRST DIVERGE at frame %u: %d px, bbox x[%d..%d] y[%d..%d] cam=$%04X\n",
+                           f, nd, bx0, bx1, by0, by1, (g_mem[0x57FDBA]<<8)|g_mem[0x57FDBB]);
+                    int shown = 0;
+                    for (int y = by0; y <= by1 && shown < 8; y++)
+                        for (int x = bx0; x <= bx1 && shown < 8; x++) {
+                            uint32_t v=van[y*FB_W+x]&0xFFFFFF, q=nat[y*ow2+x]&0xFFFFFF;
+                            if (v!=q){ printf("   (%d,%d) van=%06X nat=%06X\n", x,y,v,q); shown++; }
+                        }
+                    FILE *a=fopen("logs/wsdiff_van.bin","wb");
+                    if(a){ for(int y=0;y<FB_H;y++)fwrite(van+y*FB_W,4,FB_W,a); fclose(a);}
+                    FILE *b=fopen("logs/wsdiff_nat.bin","wb");
+                    if(b){ for(int y=0;y<FB_H;y++)fwrite(nat+y*ow2,4,FB_W,b); fclose(b);}
+                    printf("[wsdiff] dumped diverging frame -> logs/wsdiff_{van,nat}.bin\n");
+                    break;
+                }
+            }
+            if (hit < 0) printf("[wsdiff] no divergence in %u frames (all match)\n", maxf);
+        }
+        else if (!strcmp(cmd, "blitlog")) {  /* blitlog [minw] — dump EVERY blit of the last stepped frame
+                                                with its capture decision (REPL replacement for BLIT_LOG).
+                                                reason: C=captured u=dest-off p=not-in-pages g=gfx-too-high
+                                                o=cap-off f=full. minw filters by width-in-words. */
+            typedef struct { uint32_t apt,bpt,cpt,dpt; uint16_t con0,con1; int w,h; char reason; } Lr;
+            extern int hw_blitlog_count(void); extern const Lr *hw_blitlog_recs(void);
+            unsigned minw = 0; sscanf(line, "%*s %u", &minw);
+            const Lr *L = hw_blitlog_recs(); int nL = hw_blitlog_count();
+            printf("[blitlog] %d blits last frame (minw=%u)\n", nL, minw);
+            for (int k = 0; k < nL; k++) {
+                if ((unsigned)L[k].w < minw) continue;
+                printf("  con0=%04X con1=%04X %dx%d apt=%06X bpt=%06X cpt=%06X dpt=%06X cap=%c\n",
+                       L[k].con0, L[k].con1, L[k].w, L[k].h, L[k].apt, L[k].bpt, L[k].cpt, L[k].dpt, L[k].reason);
+            }
+        }
+        else if (!strcmp(cmd, "pglist")) {  /* pglist [minw] — dump the native page display-list (live
+                                               page-sprites: objects + banner). disp_base shows which buffer
+                                               is currently projected. */
+            extern int native_pglist_dump(uint32_t*,uint32_t*,uint32_t*,int*,int*,int);
+            extern void native_blitdiag_ctx(int*,uint32_t*,uint32_t*);
+            unsigned minw=0; sscanf(line,"%*s %u",&minw);
+            uint32_t base[512],dpt[512],src0[512]; int w[512],h[512];
+            int n = native_pglist_dump(base,dpt,src0,w,h,512);
+            int pn; uint32_t db,bp; native_blitdiag_ctx(&pn,&db,&bp);
+            extern void native_pglist_stats(long*,long*); long adds=0,rems=0; native_pglist_stats(&adds,&rems);
+            extern void native_objup_stats(long*,long*); long runs=0,nz=0; native_objup_stats(&runs,&nz);
+            printf("[pglist] %d live sprites  disp_base=%06X bplpt0=%06X  cum_adds=%ld cum_removes=%ld "
+                   "objup_runs=%ld objup_nonzero=%ld\n", n, db, bp, adds, rems, runs, nz);
+            for (int k=0;k<n && k<512;k++) {
+                if ((unsigned)w[k]*16 < minw) continue;
+                printf("  base=%06X dpt=%06X src0=%06X %dx%d %s\n",
+                       base[k],dpt[k],src0[k],w[k]*16,h[k], base[k]==db?"(DISPLAYED)":"(back)");
+            }
+        }
         else if (!strcmp(cmd, "pal")) {   /* pal — print the live 32-entry ARGB palette (g_state.palette) */
             printf("[crepl] palette (ARGB):\n");
             for (int i = 0; i < 32; i += 8) {

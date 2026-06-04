@@ -37,11 +37,26 @@ static int     s_blitcap_n  = 0;
 static BlitRec s_prev[BLIT_CAP_MAX];      /* previous frame, replayed by the renderer */
 static int     s_prev_n     = 0;
 static int     s_blitcap_on = 1;
+
+/* REPL-readable per-frame log of EVERY blit + the capture decision/reason — the in-REPL
+ * replacement for the old BLIT_LOG env file, so divergences can be root-caused live (e.g.
+ * "why was this blit not captured?"). Double-buffered like s_blitcap so a STEP_PC leaves
+ * the just-rendered frame's log readable. reason: 'C'=captured, 'u'=dest-disabled,
+ * 'p'=dest-not-in-pages, 'g'=gfx-src-too-high, 'o'=capture-off, 'f'=buffer-full. */
+typedef struct { uint32_t apt,bpt,cpt,dpt; uint16_t con0,con1; int w,h; char reason; } BlitLogRec;
+static BlitLogRec s_blitlog[BLIT_CAP_MAX];      int s_blitlog_n = 0;
+static BlitLogRec s_blitlog_prev[BLIT_CAP_MAX]; int s_blitlog_prev_n = 0;
+int               hw_blitlog_count(void)        { return s_blitlog_prev_n; }
+const BlitLogRec *hw_blitlog_recs(void)         { return s_blitlog_prev; }
+
 void hw_blit_capture_reset(void)          /* end of frame: promote current → prev */
 {
     memcpy(s_prev, s_blitcap, sizeof(BlitRec) * (size_t)s_blitcap_n);
     s_prev_n = s_blitcap_n;
     s_blitcap_n = 0;
+    memcpy(s_blitlog_prev, s_blitlog, sizeof(BlitLogRec) * (size_t)s_blitlog_n);
+    s_blitlog_prev_n = s_blitlog_n;
+    s_blitlog_n = 0;
 }
 int            hw_blit_capture_count(void) { return s_prev_n; }
 const BlitRec *hw_blit_capture_recs(void)  { return s_prev; }
@@ -284,6 +299,13 @@ void hw_do_blit(void)
          * planes of both buffers (else sprites lose bitplanes → wrong colours) but stop
          * below the bg save-buffer ($045000+), which is page↔save shuffle, not sprites. */
         int dest_in_pages = (dpt >= 0x028000u && dpt < 0x044000u);
+        char why = !s_blitcap_on ? 'o' : !used ? 'u' : !dest_in_pages ? 'p'
+                 : !(gsrc < 0x400000u) ? 'g' : (s_blitcap_n >= BLIT_CAP_MAX) ? 'f' : 'C';
+        if (s_blitlog_n < BLIT_CAP_MAX) {
+            BlitLogRec *L = &s_blitlog[s_blitlog_n++];
+            L->apt=apt; L->bpt=bpt; L->cpt=cpt; L->dpt=dpt; L->con0=bltcon0; L->con1=bltcon1;
+            L->w=width_words; L->h=height; L->reason=why;
+        }
         if (s_blitcap_on && used && dest_in_pages && gsrc < 0x400000u
             && s_blitcap_n < BLIT_CAP_MAX) {
             BlitRec *r = &s_blitcap[s_blitcap_n++];
