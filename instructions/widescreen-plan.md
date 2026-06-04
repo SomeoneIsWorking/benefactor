@@ -268,11 +268,65 @@ off `0x5D0+addr`); live dump `scratch/bin/gm_obj.bin` (cam=881, playerX=1056, le
     (native_renderer.c) cookie-cuts it into `s_objlayer` at absolute world X. ⚠️ the table
     addresses MUST be `A5 + disp` (let the compiler add) — hand hex-arithmetic of them was
     the bug that made the player "fly all over" (wrong table base → garbage frameoff/xoff).
-- **TODO remaining routines:** `57A88A`/`57D282` (opaque `con0=09F0` object loops),
-  `57D6C4`/`57D688`/`57DB16` (cookie-cut object loops), `578974` (GET READY banner, 5 blits),
-  `578B94` (low-mem src → HUD/text?), pause menu. Each: find the per-sprite pre-clip point,
-  capture `{src, mask, worldX, worldY, w, h, mode}` unclipped, draw natively. Player first
-  (highest value, simplest position source = the player block).
+### Phase 4 — COMPLETE sprite-routine MAP (2026-06-04, verified via BLIT_LOG grouped by fn=)
+
+The remaining widescreen issues (Marry Men / banners / decorations / damage-blink invisible)
+all trace to this: `native_render_wide_bg` rebuilds the playfield from the tilemap and IGNORES
+the engine's page, so anything only-in-the-page that I don't separately CAPTURE is lost. Full
+map of every gameplay sprite-draw routine (`BLIT_LOG=1`, classify by `fn=`/`con0`/`apt` src):
+
+| fn | con0 | what | src (apt) | captured? |
+|----|------|------|-----------|-----------|
+| `57C79E` | 09F0 | BG TILE scroll-draw | tilegfx | N/A — native tilemap |
+| `57DB5E` | 09F0 | **list-A** object exec (opaque) | $06xxxx | ✓ via `$57D8D0` |
+| `57D6C4` | 0FCA | small cookie-cut chars | $06xxxx | ✓ via `$57D3F4` |
+| `57D688` | XFCA | walkers/enemies (cookie-cut) | $06xxxx | ✓ via `$57D3F4` |
+| `57A666` | 8FCA | PLAYER | $19E02 | ✓ via `$57A666` |
+| `57D282` | 09F0 | **bg-RESTORE** under small chars | $04/$05xxxx | SKIP (native redraws bg) |
+| `57A88A` | 09F0 | **bg-RESTORE** under player-size | $04/$05xxxx | SKIP |
+| `57DB16` | 09F0 | **list-B** object exec (opaque, w1 h4) | $06xxxx | ✗ NOT captured |
+| `57DA40` | 09F0 | **list-B** object exec (opaque, w1 h4) | $06xxxx | ✗ NOT captured |
+| `57DA88` | 09F0 | list-B small | $06xxxx | ✗ |
+| `578974` | AFCA | GET READY banner (one-shot, 5 blits) | $A49A | ✗ (see below) |
+| `578B94` | 09F0 | HUD/text (low-mem src, 8 blits) | low | ✗ (HUD is centered, low pri) |
+
+**bg-restore vs real object = the apt (A=src) high byte.** Opaque (`con0=09F0`, D=A): src
+`$04/$05xxxx` = the bg-SAVE buffer (the engine restores old bg before redrawing a sprite —
+SKIP, we redraw bg fresh); src `$06xxxx` = real object gfx (DRAW). amod=$42 (=66) on the
+restores (full page row stride), amod=0 on the $06 object draws.
+
+**Marry Men (the invisible rescued creatures) = list-B** (`57DB16`/`57DA40`, src `$06xxxx`),
+which I don't capture → invisible everywhere (center too). list-B is built by the object
+WALKER `$57D79A` (= my `native_objwalk` override!): it walks the `$1162(a5)` object list, sets
+queue ptrs a3=`$5A3B6C` a6=`$5A3F86` a4=`$5A43A0`, dispatches each object `jmp (a1,d2)`; the
+handler computes draw values and the walker builds the list-B descriptors (with a `bmi $57D81C`
+special multi-tile path at $57D7C6). The pre-clip per-object choke for list-B is INSIDE this
+walker's body (not a separate registered fn like `$57D8D0`/`$57D3F4`) — capturing it needs
+either hooking the walker's per-object build point or a finer override. NOT yet done.
+
+**GET READY / GAME OVER banners (`578974` etc.)** — full art spec VERIFIED: cookie-cut
+`con0=$AFCA`, **DATA(B)=$A49A, MASK(A)=$BDCC** (single mask, all 5 planes), w=16 h=43 BMOD=-2,
+afwm=FFFF **alwm=0000** → eff width rowstride/2=15 words, plane stride h*(w*2+bmod)=$50A. Dest
+camera-relative → FIXED SCREEN pos (UI). Y row offset = `MR16($5A1DB8)` (=$E60) into page
+(/$2e=46 → row ~80). FOUR banner routines `578860/57889C/5788DE/57892E` (GET READY / GAME OVER
+/ etc.), state-machine dispatched, drawn ONCE (not per-frame). THE OPEN PROBLEM = lifetime:
+one-shot draw persists in the page until scrolled over; native ignores the page so needs an
+explicit "draw overlay while banner active" signal (a GET-READY/GAME-OVER state flag — not yet
+located). The OLD page-display-list architecture (s_pg) handled this and was superseded; bring
+back a minimal screen-overlay lifetime for banners, gated on the real state flag.
+
+**Decorations (torches) culled where vanilla culls** — captured but inherit the engine's 352
+clip; move their capture before the clip (same pre-clip principle as the walker).
+
+**Damage-blink** — candidate cause: `native_wsplayer_*` is NOT cleared per frame (objects/chars
+ARE, via `native_objwalk`), so if the engine SKIPS the player draw ($57A666) on blink-off
+frames, the native render keeps a stale ghost → no blink. Fix = give the player the same
+per-frame promote/clear as objects. (Pending: confirm blink = skipped draw vs palette flash.)
+
+- **TODO remaining routines (each: find pre-clip point, capture `{src,mask,worldX,worldY,w,h,
+  mode}` unclipped, draw natively):** list-B (`57DB16`/`57DA40`, the Marry Men) via the
+  `$57D79A` walker's per-object build; banners (`578974`+state flag); decoration pre-clip;
+  player per-frame clear (blink).
 
 Resolved the 2D layout empirically with the running harness (`--level 9` + `rungame`,
 then `joy 0 0 0 1` to scroll right + `pcread 552A0-56400` to log tilemap reads; the read

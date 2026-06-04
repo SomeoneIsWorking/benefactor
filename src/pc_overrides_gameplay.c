@@ -366,6 +366,15 @@ void native_char_capture(M68KCtx *ctx)
     gfn_gpl_57D3F4(ctx);
 }
 
+/* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask).
+ * Double-buffered like the object/char lists so the player VANISHES on any frame
+ * the engine does NOT draw it ($57A666 not called) — e.g. the damage-invincibility
+ * BLINK and the death/hide states toggle the player draw off on alternate frames.
+ * Without this the stale capture would keep ghosting the player every frame. */
+typedef struct { int x, y; uint32_t dbase, mbase; int valid; } WsPlayer;
+static WsPlayer s_wsplayer_build;   /* set by native_player_capture this frame   */
+static WsPlayer s_wsplayer_done;    /* promoted at the once-per-frame walker      */
+
 /* $57D79A — object-list walker entry. Fires once per frame, before the per-object
  * draw calls. Promote the just-built lists to "done" and start fresh captures. */
 void native_objwalk(M68KCtx *ctx)
@@ -376,6 +385,8 @@ void native_objwalk(M68KCtx *ctx)
     memcpy(s_wschar_done, s_wschar, sizeof(WsChar) * (size_t)s_wschar_n);
     s_wschar_done_n = s_wschar_n;
     s_wschar_n = 0;
+    s_wsplayer_done = s_wsplayer_build;   /* invalid if $57A666 didn't fire → no draw */
+    s_wsplayer_build.valid = 0;
     gfn_gpl_57D79A(ctx);
 }
 
@@ -425,9 +436,9 @@ void native_objdraw_capture(M68KCtx *ctx)
  *     B channel (DATA)  = $19E02 + frameoff, 5-plane (plane stride $2800),
  *                         row stride $28, word0 only (BLTALWM=$0000 kills word1).
  *   NOTE: the plan's earlier note had A/B reversed — the channels above are the
- *   verified ones (minterm $CA => A=mask). See widescreen-plan.md "Phase 4". */
-typedef struct { int x, y; uint32_t dbase, mbase; int valid; } WsPlayer;
-static WsPlayer s_wsplayer_done;
+ *   verified ones (minterm $CA => A=mask). See widescreen-plan.md "Phase 4".
+ *   (WsPlayer/s_wsplayer_* are declared above native_objwalk for the per-frame
+ *   promote/clear that makes the player vanish on undrawn frames — the blink.) */
 
 int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase)
 {
@@ -462,7 +473,7 @@ void native_player_capture(M68KCtx *ctx)
     d2 += (int16_t)(uint16_t)MR16(GP_A5 + 0x253Eu + animidx);
     if (d2 < 0) d2 = 0;
 
-    s_wsplayer_done = (WsPlayer){
+    s_wsplayer_build = (WsPlayer){
         wxleft, d2,
         0x19E02u + frameoff,                  /* B = DATA (5-plane, stride $2800) */
         0x52AA0u + frameoff,                  /* A = MASK (single plane)          */
