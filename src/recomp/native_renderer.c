@@ -439,7 +439,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     if (!M || WS_GFXTAB + 4u >= RT_MEM_SIZE) return;
 
     int cam    = (int)gmem_r16(M, WS_CAMERA);
-    int cam16  = cam & ~15;                              /* coarse (tile-aligned) world X */
+    /* The scroll routine stores camera = d2-16 but points the bitplanes with d2, so the
+     * displayed left column is (camera+16)>>4 — hence the +16 here (NOT camera&~15). */
+    int cam16  = ((cam + 16) & ~15);                     /* world X of the displayed left col */
     int cmin   = (int)gmem_r16(M, WS_EDGE_LO) - 0x90;
     int cmax   = (int)gmem_r16(M, WS_EDGE_HI) - 0x100;
     int mincol = (cmin < 0 ? 0 : cmin) >> 4;
@@ -448,10 +450,30 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     /* Playfield vertical extent = the scanline span of the FIRST BPL anchor (the
      * scrolling buffer pointers); the next anchor begins the HUD. Both are derived by
      * walk_copper. tilemap row 0 maps to the playfield's first scanline (no vert scroll). */
-    if (s_nanchors < 1) return;
-    int pf_top = s_anchors[0].first_line;
-    int pf_bot = (s_nanchors >= 2) ? s_anchors[1].first_line : pf_top + 16 * 16;
+    /* Playfield top = first scanline the scrolling 5-plane buffer actually displays
+     * (the first BPL anchor can fire at the top border before the playfield). Bottom =
+     * the next BPL anchor below it (the HUD re-points the pointers there). */
+    int pf_top = -1;
+    for (int y = 0; y < HW_DISPLAY_H; y++)
+        if (((s_scan[y].bplcon0 >> 12) & 7) >= 5 && !((s_scan[y].bplcon0 >> 10) & 1)) { pf_top = y; break; }
+    if (pf_top < 0) return;
+    int pf_bot = pf_top + 16 * 16;
+    for (int a = 0; a < s_nanchors; a++)
+        if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot)
+            pf_bot = s_anchors[a].first_line;
     if (pf_bot > HW_DISPLAY_H) pf_bot = HW_DISPLAY_H;
+
+    if (getenv("WS_DBG")) {
+        int first5 = -1;
+        for (int y = 0; y < HW_DISPLAY_H; y++)
+            if (((s_scan[y].bplcon0 >> 12) & 7) >= 5 && !((s_scan[y].bplcon0 >> 10) & 1)) { first5 = y; break; }
+        fprintf(stderr, "[WS_DBG] cam=%d cam16=%d nanchors=%d anchor0.first=%d anchor1.first=%d first_bpu5=%d "
+                "x_off=%d scroll1=%d ddfstrt=%X ddfstop=%X\n",
+                cam, cam16, s_nanchors, s_anchors[0].first_line,
+                (s_nanchors>=2?s_anchors[1].first_line:-1), first5,
+                DDF_TO_X(s_scan[pf_top].ddfstrt), s_scan[pf_top].bplcon1 & 0xF,
+                s_scan[pf_top].ddfstrt, s_scan[pf_top].ddfstop);
+    }
 
     for (int y = pf_top; y < pf_bot; y++) {
         int dy = y - pf_top;
@@ -513,7 +535,7 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
     const ScanState *pst = &s_scan[pf_top];
     int x_off   = DDF_TO_X(pst->ddfstrt);
     int scroll1 = pst->bplcon1 & 0xF;
-    int coarse  = ((cam >> 4) * 2) % WS_ROWSTRIDE;     /* displayed left edge (page byte) */
+    int coarse  = ((((cam + 16) >> 4) * 2) % WS_ROWSTRIDE);  /* displayed left edge (page byte) */
 
     int i = 0;
     while (i < n) {
