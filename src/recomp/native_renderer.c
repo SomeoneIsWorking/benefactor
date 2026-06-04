@@ -537,6 +537,10 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
     int scroll1 = pst->bplcon1 & 0xF;
     int coarse  = ((((cam + 16) >> 4) * 2) % WS_ROWSTRIDE);  /* displayed left edge (page byte) */
 
+    /* Dedup: the engine draws each object into BOTH double-buffer pages, so every
+     * sprite appears ~twice. Draw each unique (screen-x, row, w, h) once. */
+    struct { int x, y, w, h; } seen[256]; int nseen = 0;
+
     int i = 0;
     while (i < n) {
         int g0 = i, np = 1;
@@ -551,14 +555,32 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
         if (r0->dpt >= 0x038628u && r0->dpt < 0x038628u + WS_PLANE_STRIDE) base = 0x038628u;
         else if (r0->dpt >= 0x02B3ECu && r0->dpt < 0x02B3ECu + WS_PLANE_STRIDE) base = 0x02B3ECu;
         else continue;
+        int masked = (r0->mask != 0u);
+        /* Opaque blits sourcing the bg-save buffer ($04xxxx) are background RESTORES
+         * (the engine erasing old sprites); we redraw bg fresh, so skip them — drawing
+         * them paints stale save-buffer rectangles (the "green blocks"). Real object
+         * gfx lives at $06xxxx. */
+        if (!masked && r0->src < 0x060000u) continue;
+
         uint32_t off = r0->dpt - base;                  /* row*46 + xbyte */
         int orow = (int)(off / WS_ROWSTRIDE);
         int xbyte = (int)(off % WS_ROWSTRIDE);
-        int masked = (r0->mask != 0u);
         int wpx  = r0->w * 16;
         int srow = r0->w * 2 + r0->smod;                /* source plane row stride */
         int mrow = r0->w * 2 + r0->mmod;
         int xbit = ((xbyte - coarse + WS_ROWSTRIDE) % WS_ROWSTRIDE) * 8 + r0->shift;
+
+        int dup = 0;
+        for (int s = 0; s < nseen; s++)
+            if (seen[s].x == xbit && seen[s].y == orow && seen[s].w == r0->w && seen[s].h == r0->h) { dup = 1; break; }
+        if (dup) continue;
+        if (nseen < 256) { seen[nseen].x = xbit; seen[nseen].y = orow; seen[nseen].w = r0->w; seen[nseen].h = r0->h; nseen++; }
+
+        if (getenv("WS_DBG"))
+            fprintf(stderr, "[WS_OBJ] np=%d %s w=%d h=%d dpt=%06X base=%06X row=%d xbyte=%d "
+                    "xbit=%d -> sfx=%d shift=%d con0=%04X src=%06X mask=%06X\n",
+                    np, masked?"MASK":"OPAQUE", r0->w, r0->h, r0->dpt, base, orow, xbyte,
+                    xbit, xbit + x_off + scroll1, r0->shift, r0->con0, r0->src, r0->mask);
 
         for (int py = 0; py < r0->h; py++) {
             int sy = pf_top + orow + py;
