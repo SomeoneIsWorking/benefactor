@@ -318,10 +318,19 @@ back a minimal screen-overlay lifetime for banners, gated on the real state flag
 **Decorations (torches) culled where vanilla culls** — captured but inherit the engine's 352
 clip; move their capture before the clip (same pre-clip principle as the walker).
 
-**Damage-blink** — candidate cause: `native_wsplayer_*` is NOT cleared per frame (objects/chars
-ARE, via `native_objwalk`), so if the engine SKIPS the player draw ($57A666) on blink-off
-frames, the native render keeps a stale ghost → no blink. Fix = give the player the same
-per-frame promote/clear as objects. (Pending: confirm blink = skipped draw vs palette flash.)
+**Damage-blink — DONE & PORTED (2026-06-04).** The blink is NOT a skipped draw and NOT a
+palette flash — the engine draws the player EVERY frame, alternating normal and a solid BLACK
+silhouette (user: "turns all black and normal"). RE of `$57A666`: `d4` = player state word
+`$57FEBE`; if flag byte `$57FEBF` bit7 set (invincible, sets on damage, clears when the counter
+hits 0 at `$57A6A8 bclr #7`), the draw takes the NORMAL cookie-cut path (`$57A73E`, con0 minterm
+`$CA`) only when bit2 of the invincibility counter `$f9f(a5)`=`$57FDB1` is set, else the BLACK
+path `$57A7E6` (con0 minterm `$0A`, fills the mask silhouette with colour 0). The counter
+decrements each frame, so bit2 gives 4 frames normal / 4 frames black. Repro: level 4, hold
+right → fall → fall damage. PORTED: `native_player_capture` computes `black = (fbyte&0x80) &&
+!(MR8($57FDB1)&4)`; `native_wsplayer_compose` fills the mask with colour 0 (pal[0]) when black.
+Verified in-app (scratch/screenshots/pfx13.png = black silhouette, pfx norm = green). NB the
+player capture is double-buffered (promoted at `native_objwalk`) so the blink lags 1 frame like
+the object capture — imperceptible. (The earlier "skipped draw → stale ghost" guess was WRONG.)
 
 - **TODO remaining routines (each: find pre-clip point, capture `{src,mask,worldX,worldY,w,h,
   mode}` unclipped, draw natively):** list-B (`57DB16`/`57DA40`, the Marry Men) via the
