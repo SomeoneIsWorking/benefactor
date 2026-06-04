@@ -552,22 +552,24 @@ int hw_present_frame(void)
     hw_execute_copper();
     native_render_frame();  /* walks copper list from chip RAM, renders s_fb[] */
 
-    /* PC-native overlays (post-composit): the level-select panel goes here
-     * so it stacks on top of whatever the engine just drew. */
-    { extern void pc_level_select_overlay(uint32_t *fb);
-      pc_level_select_overlay(s_fb); }
-    /* Pause menu — last, so it stacks above everything including the level
-     * select. */
-    { extern void pc_pause_menu_overlay(uint32_t *fb);
-      pc_pause_menu_overlay(s_fb); }
-    /* Save/load toast — topmost, so feedback is visible over any overlay. */
-    { extern void pc_toast_overlay(uint32_t *fb);
-      pc_toast_overlay(s_fb); }
-
     /* Harness snap is taken by the caller (pc.c) AFTER the timer interrupt,
      * to match PUAE's ordering where VBlank fires after copper and before snap. */
 
     hw_compose_output();   /* 352 content -> wide output (pillarbox margins) */
+
+    /* PC-native overlays — drawn into the FINAL composited output (s_out) AFTER the wide
+     * playfield, so they stack on top of everything (the wide renderer would otherwise
+     * overpaint them) and span the full widescreen width. Level-select first, then the
+     * pause menu above it, then the save/load toast topmost. */
+    { extern void pc_overlay_set_dims(int, int);
+      extern void pc_level_select_overlay(uint32_t *fb);
+      extern void pc_pause_menu_overlay(uint32_t *fb);
+      extern void pc_toast_overlay(uint32_t *fb);
+      pc_overlay_set_dims(s_hw_out_w, HW_DISPLAY_H);
+      pc_level_select_overlay(s_out);
+      pc_pause_menu_overlay(s_out);
+      pc_toast_overlay(s_out);
+      pc_overlay_set_dims(HW_DISPLAY_W, HW_DISPLAY_H);   /* restore default */ }
 
     if (!s_headless) {
         SDL_UpdateTexture(s_texture, NULL, s_out, s_hw_out_w * 4);

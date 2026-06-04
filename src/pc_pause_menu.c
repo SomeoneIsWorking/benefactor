@@ -148,9 +148,11 @@ void pc_pause_menu_overlay(uint32_t *fb)
 {
     if (!s_paused) return;
 
-    /* Dim the background by overlaying ~50%-black across the whole frame.
-     * Cheap "modal" feel without needing a separate compositor pass. */
-    for (int i = 0; i < FB_W * FB_H; i++) {
+    /* Dim the background by overlaying ~50%-black across the whole frame. Use the live
+     * overlay target size (the wide output), so the dim spans the full widescreen view. */
+    extern int pc_overlay_w(void), pc_overlay_h(void);
+    const int ow = pc_overlay_w(), oh = pc_overlay_h();
+    for (int i = 0; i < ow * oh; i++) {
         uint32_t p = fb[i];
         uint32_t r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
         r >>= 1; g >>= 1; b >>= 1;
@@ -160,8 +162,8 @@ void pc_pause_menu_overlay(uint32_t *fb)
     /* Panel — sized for the longest option label "EXIT TO MAIN MENU" (17ch). */
     const int pw = 160;
     const int ph = 86;
-    const int px = (FB_W - pw) / 2;
-    const int py = (FB_H - ph) / 2;
+    const int px = (ow - pw) / 2;
+    const int py = (oh - ph) / 2;
     pc_fill_rect(fb, px, py, pw, ph, 0xFF101830);
     pc_fill_rect(fb, px,             py,            pw, 1, 0xFFFFD040);
     pc_fill_rect(fb, px,             py + ph - 1,   pw, 1, 0xFFFFD040);

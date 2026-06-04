@@ -91,10 +91,19 @@ static int glyph_idx(char c)
 #define FB_W 352
 #define FB_H 282
 
+/* Overlays draw into the final composited OUTPUT surface (s_out), whose width is the
+ * widescreen output width (>= FB_W). The drawing primitives + centering use this live
+ * target size so the panels span/center on the full wide view, not the 352 page. Set
+ * by hw_present_frame via pc_overlay_set_dims before each overlay pass. */
+static int s_draw_w = FB_W, s_draw_h = FB_H;
+void pc_overlay_set_dims(int w, int h) { s_draw_w = (w > 0) ? w : FB_W; s_draw_h = (h > 0) ? h : FB_H; }
+int  pc_overlay_w(void) { return s_draw_w; }
+int  pc_overlay_h(void) { return s_draw_h; }
+
 static void put_pixel(uint32_t *fb, int x, int y, uint32_t argb)
 {
-    if (x < 0 || x >= FB_W || y < 0 || y >= FB_H) return;
-    fb[y * FB_W + x] = argb;
+    if (x < 0 || x >= s_draw_w || y < 0 || y >= s_draw_h) return;
+    fb[y * s_draw_w + x] = argb;
 }
 
 /* Exposed for pc_overrides_title.c (the native title menu). */
@@ -104,10 +113,10 @@ int  pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t
 static void fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb)
 {
     for (int y = y0; y < y0 + h; y++) {
-        if (y < 0 || y >= FB_H) continue;
+        if (y < 0 || y >= s_draw_h) continue;
         for (int x = x0; x < x0 + w; x++) {
-            if (x < 0 || x >= FB_W) continue;
-            fb[y * FB_W + x] = argb;
+            if (x < 0 || x >= s_draw_w) continue;
+            fb[y * s_draw_w + x] = argb;
         }
     }
 }
@@ -167,7 +176,7 @@ void pc_toast_overlay(uint32_t *fb)
     int tlen = (int)strlen(s_toast) * 6;         /* 6px / glyph at scale 1 */
     int pad  = 8, ph = 16;
     int pw   = tlen + pad * 2;
-    int px   = (FB_W - pw) / 2;
+    int px   = (s_draw_w - pw) / 2;
     int py   = 14;
     fill_rect(fb, px,          py,          pw, ph, 0xFF101830);
     fill_rect(fb, px,          py,          pw, 1,  s_toast_accent);
@@ -194,8 +203,8 @@ void pc_level_select_overlay(uint32_t *fb)
     const int pw = 280;
     const int row_h = 11;
     const int ph = 36 + liw_count * row_h + 18;   /* header + rows + footer */
-    const int px = (FB_W - pw) / 2;
-    const int py = (FB_H - ph) / 2;
+    const int px = (s_draw_w - pw) / 2;
+    const int py = (s_draw_h - ph) / 2;
 
     /* Background + border. */
     fill_rect(fb, px, py, pw, ph, 0xFF101830);
