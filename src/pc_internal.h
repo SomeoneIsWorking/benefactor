@@ -83,8 +83,9 @@ void native_char_capture      (M68KCtx *ctx);   /* $57D3F4 — capture cookie-cu
 int  native_wsobj_count(void);
 int  native_wsobj_get(int i, int *x, int *y, int *w, int *h,
                       uint32_t *src, uint32_t *mod);
-/* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask). */
-int  native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase);
+/* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask).
+ * black=1 on a damage-blink black-silhouette frame (fill the mask with colour 0). */
+int  native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black);
 /* Captured cookie-cut characters (walkers/enemies) drawn via $57D3F4/$57D6C4.
  * 5-plane DATA (plane stride h*rowstride) + 1-plane MASK, both row stride rowstride. */
 int  native_wschar_count(void);

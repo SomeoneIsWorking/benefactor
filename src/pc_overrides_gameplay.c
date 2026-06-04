@@ -367,11 +367,12 @@ void native_char_capture(M68KCtx *ctx)
 }
 
 /* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask).
- * Double-buffered like the object/char lists so the player VANISHES on any frame
- * the engine does NOT draw it ($57A666 not called) — e.g. the damage-invincibility
- * BLINK and the death/hide states toggle the player draw off on alternate frames.
- * Without this the stale capture would keep ghosting the player every frame. */
-typedef struct { int x, y; uint32_t dbase, mbase; int valid; } WsPlayer;
+ * Double-buffered like the object/char lists (promoted+cleared at the once-per-frame
+ * walker) so the player VANISHES on any frame the engine does NOT draw it ($57A666
+ * not called) instead of ghosting a stale capture. NOTE: the damage BLINK is NOT a
+ * skipped draw — the engine still draws the player every frame, just as a black
+ * silhouette on alternate frames (the `black` field below). */
+typedef struct { int x, y; uint32_t dbase, mbase; int valid, black; } WsPlayer;
 static WsPlayer s_wsplayer_build;   /* set by native_player_capture this frame   */
 static WsPlayer s_wsplayer_done;    /* promoted at the once-per-frame walker      */
 
@@ -440,11 +441,12 @@ void native_objdraw_capture(M68KCtx *ctx)
  *   (WsPlayer/s_wsplayer_* are declared above native_objwalk for the per-frame
  *   promote/clear that makes the player vanish on undrawn frames — the blink.) */
 
-int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase)
+int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black)
 {
     if (!s_wsplayer_done.valid) return 0;
     *x = s_wsplayer_done.x; *y = s_wsplayer_done.y;
     *dbase = s_wsplayer_done.dbase; *mbase = s_wsplayer_done.mbase;
+    *black = s_wsplayer_done.black;
     return 1;
 }
 
@@ -473,11 +475,21 @@ void native_player_capture(M68KCtx *ctx)
     d2 += (int16_t)(uint16_t)MR16(GP_A5 + 0x253Eu + animidx);
     if (d2 < 0) d2 = 0;
 
+    /* Damage-invincibility BLINK ($57A666): when the player block's flag byte
+     * $57FEBF ($10AD) bit7 is set (invincible), the engine draws the player NORMAL
+     * only when bit2 of the invincibility counter $f9f(a5) ($57FDB1) is set, else it
+     * takes the black-silhouette path $57A7E6 (con0 minterm $0A) — so the player
+     * flickers 4 frames green / 4 frames solid black. Replicate: mark this frame
+     * black when invincible and (counter & 4)==0; the compose then fills the mask
+     * silhouette with colour 0. (fbyte = MR8($10AD) already read above.) */
+    int blink = (fbyte & 0x80) != 0;
+    int black = blink && !((uint8_t)MR8(GP_A5 + 0x0F9Fu) & 4);
+
     s_wsplayer_build = (WsPlayer){
         wxleft, d2,
         0x19E02u + frameoff,                  /* B = DATA (5-plane, stride $2800) */
         0x52AA0u + frameoff,                  /* A = MASK (single plane)          */
-        1
+        1, black
     };
 
     gfn_gpl_57A666(ctx);

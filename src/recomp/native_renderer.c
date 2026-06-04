@@ -512,7 +512,7 @@ static void native_objlayer_project(int cam16, int pf_top, int pf_bot);
 extern int native_wsobj_count(void);
 extern int native_wsobj_get(int i, int *x, int *y, int *w, int *h,
                             uint32_t *src, uint32_t *mod);
-extern int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase);
+extern int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black);
 extern int native_wschar_count(void);
 extern int native_wschar_get(int i, int *x, int *y, int *w, int *h,
                              uint32_t *data, uint32_t *mask, int *rowstride);
@@ -571,9 +571,9 @@ static void native_objlayer_from_capture(int pf_top, int pf_bot)
 static void native_wsplayer_compose(int pf_top, int pf_bot)
 {
     const uint8_t *M = g_mem;
-    int x, y; uint32_t dbase, mbase;
+    int x, y, black; uint32_t dbase, mbase;
     if (!M || getenv("WS_NOOBJ")) return;
-    if (!native_wsplayer_get(&x, &y, &dbase, &mbase)) return;
+    if (!native_wsplayer_get(&x, &y, &dbase, &mbase, &black)) return;
     if (dbase + WS_PLR_DATA_PSTRIDE * 4u + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) return;
     if (mbase + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) return;
     for (int r = 0; r < 16; r++) {
@@ -590,9 +590,12 @@ static void native_wsplayer_compose(int pf_top, int pf_bot)
             if (!((mw >> bit) & 1u)) continue;           /* cookie-cut: mask gates */
             int worldX = x + c;
             if (worldX < 0 || worldX >= WS_LAYER_W) continue;
+            /* Damage-blink black frame: the engine fills the mask silhouette with
+             * colour 0 ($57A7E6); else the normal 5-plane data colour. */
             int ci = 0;
-            for (int p = 0; p < 5; p++)
-                if ((dw[p] >> bit) & 1u) ci |= (1 << p);
+            if (!black)
+                for (int p = 0; p < 5; p++)
+                    if ((dw[p] >> bit) & 1u) ci |= (1 << p);
             s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
         }
     }
