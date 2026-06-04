@@ -245,20 +245,29 @@ off `0x5D0+addr`); live dump `scratch/bin/gm_obj.bin` (cam=881, playerX=1056, le
 
 #### Per-routine RE progress
 
-- **`$57A666` = PLAYER draw (DONE RE, not yet ported).** Reads player block `$10a6(a5)`
-  (`$57FEB8`): `movem.w (a4),d1-d4` → d1=worldX, d2=worldY, d3=facing/anim idx, d4=state.
-  Screen pos written to `$f94`/`$f96(a5)`. Clip: `d0=worldX-$fa8(a5)` (camera); `cmpi.w #$150`
-  → cull if off-screen. **Player is camera-centered so it is NEVER in the margins** — it's
-  invisible today only because the native renderer neither reads the page nor captures this
-  blit. Sprite (cookie-cut, `BLTCON0=$XFCA`, ASH=worldX&15):
-  - **gfx (A ch) = `$52AA0` + frameoff**, A-modulo $24, **plane stride $280** (auto-advance).
-  - **mask (B ch) = `$19E02` + frameoff**, **plane stride $2800** (manual `lea $2800(a0)`).
-  - frameoff: `d3 = $2286(a5)[d3]` (+$14 if facing bit `$7(a4)` bit1 set); a0/a2 += d3.
-  - dest = `$67e(a5)`(page B) + `$5A1D18[worldY*2]` + worldX>>3; plane stride $2A0C.
-  - size `$402` → w=2 (32px), h=16. 5 planes.
-  - NOTE gfx and mask have DIFFERENT plane strides ($280 vs $2800) — get this right or the
-    player decodes to garbage. Verify the decode standalone (decode $52AA0/$19E02 to ASCII)
-    BEFORE wiring, the same way the bg tile decode was verified.
+- **`$57A666` = PLAYER draw — DONE & PORTED (2026-06-04).** Reads player block `$10a6(a5)`
+  (`$57FEB8`): `movem.w (a4),d1-d4` → d1=worldX, d2=worldY, d3=anim idx, d4=state. Clip:
+  `d0=worldX-$fa8(a5)` (camera); `cmpi.w #$150` → cull if off-screen. **Player is
+  camera-centered so it is NEVER in the margins** — it was invisible only because the native
+  renderer neither reads the page nor captured this blit. Sprite (cookie-cut, `BLTCON0=$XFCA`
+  = minterm `$CA`, `D = A?B:C`, ASH=worldX&15):
+  - **A ch = MASK = `$52AA0` + frameoff**, single plane reused for all 5 planes (internal
+    row stride `$28`); `BLTALWM=$0000` → word1 killed → sprite is **16px wide**.
+  - **B ch = DATA = `$19E02` + frameoff**, 5-plane, **plane stride `$2800`** (manual
+    `lea $2800(a0)`), row stride `$28`, word0.
+  - **CORRECTION:** an earlier note here had A/B reversed (it called `$52AA0` the gfx). The
+    minterm `$CA` cookie-cut means **A = mask, B = data**, and the `movem.l a0/a2-a3,(BLTBPTH)`
+    confirms B=`$19E02`(data), A=`$52AA0`(mask). Verified by `scratch/ws_player.py` decoding
+    several poses to clean ASCII characters.
+  - frameoff = `MR16($2286(a5) + animidx)` (+$14 if `$7(a4)`=`$57FEBF` bit1 set). xoff =
+    `s16(MR16($23E2(a5)+animidx))` (neg+2 if state bit1); gfx left X = worldX-8+xoff. yoff =
+    `s16(MR16($253E(a5)+animidx))`; top row = clamp(worldY,$D8)-8+yoff, floored 0.
+  - size `$402` → w=2 words (read), h=16; final displayed sprite = 16px × 16, 5bpp.
+  - **PORTED:** `native_player_capture` (`$57A666`, pc_overrides_gameplay.c) captures
+    `{wxleft, wytop, dbase, mbase}` then super-calls; `native_wsplayer_compose`
+    (native_renderer.c) cookie-cuts it into `s_objlayer` at absolute world X. ⚠️ the table
+    addresses MUST be `A5 + disp` (let the compiler add) — hand hex-arithmetic of them was
+    the bug that made the player "fly all over" (wrong table base → garbage frameoff/xoff).
 - **TODO remaining routines:** `57A88A`/`57D282` (opaque `con0=09F0` object loops),
   `57D6C4`/`57D688`/`57DB16` (cookie-cut object loops), `578974` (GET READY banner, 5 blits),
   `578B94` (low-mem src → HUD/text?), pause menu. Each: find the per-sprite pre-clip point,
