@@ -282,8 +282,15 @@ offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed runn
 **TILEMAP — complete spec (everything needed to render natively):**
 - **Base `$552A0`** (fixed work-buffer addr; per-level CONTENTS, stable address). Live
   bytes match the L9 savestate exactly.
-- **ROW-MAJOR. Row stride `$F4` = 244 bytes = 122 columns/row.** Map height ≈ **14–16
-  playfield rows** (rows 0–13 terrain, ~14–16 solid floor, row 17+ = out of playfield).
+- **ROW-MAJOR. Row stride is PER-LEVEL — do NOT hardcode `$F4`.** `$F4`=244B (122 cols)
+  is LEVEL 9's stride; narrow levels are smaller (L1/L2 = **64B = 32 cols**). Hardcoding
+  `$F4` made every non-L9 level decode the wrong rows → a whole wrong level (worst on
+  narrow levels). **Read it at runtime from the row-offset/phase table `$57F4BC`:
+  `entry[k].d2adj = k * rowstride` ({d2adj.w, a3adj.w} × 16), so `rowstride =
+  abs(MR16($57F4BC + 4))`** (entry[1].d2adj). Confirmed by disasm of the tile-draw loop
+  `$57C850` (`add.w (a0,d3),d2` steps the tilemap index by the phase table) and by dumping
+  `$57F4BC` on L1 vs L9 (64 vs 244). Map height ≈ **14–16 playfield rows** (rows 0–13
+  terrain, ~14–16 solid floor, row 17+ = out of playfield).
 - **Index: `word @ $552A0 + row*$F4 + col*2`**, where **`col = worldX>>4` ABSOLUTELY**
   (col N covers world px [N*16, N*16+16); verified: camera_tile 56 + 21-col lead → col 78).
 - **Entry word**: low byte `& $FE` selects the tile; high byte = collision/layer ATTR
@@ -292,8 +299,18 @@ offsets decode cleanly as (row,col)). The scroll/redraw `$57C72A` confirmed runn
   = `$5D902A + ((word & $FE)/4) * $A0`. (`$5A539E` table + `$5D902A` gfx base both
   STABLE addrs, per-level data.) Each tile = **`$A0`=160 bytes, PLANE-MAJOR: 5 planes ×
   16 rows × 1 word** (16×16px, 5bpp).
-- **Camera** = `word @ $57FDBA` (= a5+$0fa8, a5=$57EE12). **Level edges** =
-  `[$57FE8C - $90, $57FE8E - $100]` (a5+$107a/$107c); L9 = `[0, 1392]`.
+- **Camera** = `word @ $57FDBA` (= a5+$0fa8, a5=$57EE12), **SIGNED** (can be negative near
+  the left edge, e.g. -16 on L1). It is stored as `$fa8 = d2 - $10`, where `d2` is the
+  value the engine clamps to `[$107a-$90, $107c-$100]`. So the **clamped displayed-left
+  world X = `$57FDBA + 16`** (= d2). A negative `$57FDBA` is NOT an unclamped camera —
+  it's the clamped 0 minus the engine's fixed 16 offset; always use `+16`. **Level edges**
+  = `[$57FE8C - $90, $57FE8E - $100]` (a5+$107a/$107c); L9 = `[0, 1392]`, L1 = `[0, 160]`.
+- **Wide camera (implemented in `native_render_wide_bg`, margin>0 path):** worldX maps 1:1
+  to output x. If `level_w <= ow` → CENTER the level (symmetric black margins); else FOLLOW
+  the player (`eng_left - (ow-320)/2`) clamped to `[level_lo, level_hi-ow]` so the view never
+  reveals past an edge. Reading the tilemap by absolute worldX means no page coarse/fine
+  hysteresis → no tearing; smooth scroll is the camera's fine bits. The margin==0 COMPARE
+  path keeps the old engine-aligned mapping (cam16/x_off/scroll1) so `wsdiff` stays valid.
 - **Palette**: from the copper list (native_renderer already parses COLORxx).
 
 **→ Native wide renderer (decode now FULLY VERIFIED — see the 2026-06-04 cracked spec
