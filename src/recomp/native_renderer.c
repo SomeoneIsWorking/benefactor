@@ -461,7 +461,9 @@ typedef struct {
     uint32_t src[5], mask;    /* gfx source per plane; mask plane (0 = opaque)  */
     int      np, w, h, shift, smod, mmod;
     int      deco;            /* 1 = static decoration (baked bg; restore can't erase it) */
+    int      pj_wx0, pj_sy0;  /* last projected world-X / screen-Y (diagnostics)          */
 } PgSprite;
+static int s_diag_cam16 = 0;
 #define PG_MAX 512
 static PgSprite s_pg[PG_MAX];
 static int      s_pgn = 0;
@@ -475,6 +477,16 @@ int native_pglist_dump(uint32_t *base, uint32_t *dpt, uint32_t *src0, int *w, in
     for (int k = 0; k < n; k++) {
         base[k]=s_pg[k].base; dpt[k]=s_pg[k].dpt; src0[k]=s_pg[k].src[0];
         w[k]=s_pg[k].w; h[k]=s_pg[k].h;
+    }
+    return s_pgn;
+}
+/* extended dump: projected screen X (wx0-cam16), screen Y, mask, shift, np, deco */
+int native_pglist_dump2(int *sx, int *sy, uint32_t *mask, int *shift, int *np, int *deco, int max)
+{
+    int n = s_pgn < max ? s_pgn : max;
+    for (int k = 0; k < n; k++) {
+        sx[k]=s_pg[k].pj_wx0 - s_diag_cam16; sy[k]=s_pg[k].pj_sy0;
+        mask[k]=s_pg[k].mask; shift[k]=s_pg[k].shift; np[k]=s_pg[k].np; deco[k]=s_pg[k].deco;
     }
     return s_pgn;
 }
@@ -712,9 +724,10 @@ static void native_objlayer_project(int cam16, int pf_top, int pf_bot)
     if (s_nanchors < 1) return;
     uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
     memset(s_objlayer, 0, sizeof s_objlayer);
+    s_diag_cam16 = cam16;
     for (int pass = 1; pass >= 0; pass--) {            /* pass 1 = decorations, pass 0 = objects */
         for (int k = 0; k < s_pgn; k++) {
-            const PgSprite *ps = &s_pg[k];
+            PgSprite *ps = &s_pg[k];
             if (ps->base != disp_base || ps->deco != pass) continue;
             int32_t delta = (int32_t)(ps->dpt - s_anchors[0].ptr[0]);
             int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE)
@@ -722,11 +735,17 @@ static void native_objlayer_project(int cam16, int pf_top, int pf_bot)
             int xrel = (int)(delta - orow * WS_ROWSTRIDE);
             int wpx = ps->w * 16, srow = ps->w * 2 + ps->smod, mrow = ps->w * 2 + ps->mmod;
             int masked = (ps->mask != 0u), wx0 = cam16 + xrel * 8 + ps->shift;
+            /* The OCS barrel-shifter shifts the source right by `shift` within the fixed w
+             * dest words; the rightmost `shift` source columns are shifted past the last
+             * word and dropped. Draw only those columns (drawing all wpx paints `shift`
+             * phantom columns at the right edge). */
+            int draww = wpx - ps->shift;
+            ps->pj_wx0 = wx0; ps->pj_sy0 = pf_top + orow;
             for (int py = 0; py < ps->h; py++) {
                 int sy = pf_top + orow + py;
                 if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
                 const uint32_t *pal = s_scan[sy].palette;
-                for (int px = 0; px < wpx; px++) {
+                for (int px = 0; px < draww; px++) {
                     int wx = wx0 + px; if (wx < 0 || wx >= WS_LAYER_W) continue;
                     if (masked) {
                         uint32_t ma = ps->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
