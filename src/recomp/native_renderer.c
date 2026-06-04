@@ -587,11 +587,24 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 
         int x_off   = DDF_TO_X(st->ddfstrt);
         int scroll1 = st->bplcon1 & 0xF;
+        /* Vanilla's displayed playfield is clipped to the data-fetch window: it decodes
+         * lx in [0, width_px) and leaves the rest as border (COLOR00). The native renderer
+         * MUST clip identically so wide=0 is pixel-identical to vanilla — outside the window
+         * the border (already copied from s_fb into `out`) is left untouched. (Margins for a
+         * wider view are a separate, later concern; correctness of the engine window first.) */
+        int fetch_words = (((int)st->ddfstop - (int)st->ddfstrt) >> 3) + 1;
+        if (fetch_words < 1) fetch_words = 1; if (fetch_words > 64) fetch_words = 64;
+        int width_px = fetch_words * 16;
 
-        /* ONE native renderer: the PC composes the ENTIRE playfield width from the level
-         * tilemap — the engine's bitplane/page is NOT used for display. */
+        /* ONE native renderer: the PC composes the playfield width from the level tilemap —
+         * the engine's bitplane/page is NOT used for display. */
         for (int x = 0; x < ow; x++) {
             int lx = (x - margin) - x_off - scroll1;          /* engine bitplane bit index */
+            /* Clip the CENTER (the vanilla-mapped 352 region) to the engine's display window
+             * so wide=0 is identical to vanilla; the added side margins (x<margin or past it)
+             * extend the world for the wide view. */
+            int in_margin = (x < margin) || (x >= margin + HW_DISPLAY_W);
+            if (!in_margin && (lx < 0 || lx >= width_px)) continue;
             int worldX = cam16 + lx;                          /* identical to engine mapping */
             if (worldX < 0) continue;
             int col = worldX >> 4;
