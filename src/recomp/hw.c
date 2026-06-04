@@ -206,8 +206,13 @@ static void hw_compose_output(void)
         memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
         for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = 0xFF000000u;
     }
-    if (ow > HW_DISPLAY_W)
-        native_render_wide_bg(s_out, ow, margin);   /* fill margins w/ native tiles */
+    /* BENEFACTOR_WS_CMP: render the native playfield into s_out even at 352 (margin 0),
+     * so it can be diffed against the vanilla engine bitplane render (s_fb) frame-by-frame
+     * as a correctness gate. */
+    static int cmp = -1;
+    if (cmp < 0) cmp = getenv("BENEFACTOR_WS_CMP") ? 1 : 0;
+    if (ow > HW_DISPLAY_W || cmp)
+        native_render_wide_bg(s_out, ow, margin);   /* native playfield (full width) */
     hw_blit_capture_reset();   /* start a fresh object-blit capture for the next frame */
 }
 void hw_execute_copper(void);

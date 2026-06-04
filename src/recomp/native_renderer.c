@@ -434,14 +434,23 @@ static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
 
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
-    if (margin <= 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;  /* gameplay only */
+    if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only (margin 0 = compare-at-352) */
     const uint8_t *M = g_mem;
     if (!M || WS_GFXTAB + 4u >= RT_MEM_SIZE) return;
 
     int cam    = (int)gmem_r16(M, WS_CAMERA);
-    /* The scroll routine stores camera = d2-16 but points the bitplanes with d2, so the
-     * displayed left column is (camera+16)>>4 — hence the +16 here (NOT camera&~15). */
-    int cam16  = ((cam + 16) & ~15);                     /* world X of the displayed left col */
+    /* World X of the displayed left coarse column. Deriving it from cam arithmetic is
+     * direction-asymmetric (the engine's coarse update is hysteretic — verified: a cam
+     * formula tears the bg for one frame at boundaries while scrolling LEFT). Instead read
+     * the coarse straight from the copper BPL pointer the engine displays — frame-locked
+     * and correct in both directions. ptr = page_base + col*2 (page is full level width). */
+    int cam16;
+    {
+        if (s_nanchors < 1) return;
+        uint32_t bp0 = s_anchors[0].ptr[0];
+        uint32_t pbase = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+        cam16 = (int)((bp0 - pbase) / 2u) * 16;
+    }
     int cmin   = (int)gmem_r16(M, WS_EDGE_LO) - 0x90;
     int cmax   = (int)gmem_r16(M, WS_EDGE_HI) - 0x100;
     int mincol = (cmin < 0 ? 0 : cmin) >> 4;
@@ -464,15 +473,17 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     if (pf_bot > HW_DISPLAY_H) pf_bot = HW_DISPLAY_H;
 
     if (getenv("WS_DBG")) {
-        int first5 = -1;
-        for (int y = 0; y < HW_DISPLAY_H; y++)
-            if (((s_scan[y].bplcon0 >> 12) & 7) >= 5 && !((s_scan[y].bplcon0 >> 10) & 1)) { first5 = y; break; }
-        fprintf(stderr, "[WS_DBG] cam=%d cam16=%d nanchors=%d anchor0.first=%d anchor1.first=%d first_bpu5=%d "
-                "x_off=%d scroll1=%d ddfstrt=%X ddfstop=%X\n",
-                cam, cam16, s_nanchors, s_anchors[0].first_line,
-                (s_nanchors>=2?s_anchors[1].first_line:-1), first5,
-                DDF_TO_X(s_scan[pf_top].ddfstrt), s_scan[pf_top].bplcon1 & 0xF,
-                s_scan[pf_top].ddfstrt, s_scan[pf_top].ddfstop);
+        int scroll1 = s_scan[pf_top].bplcon1 & 0xF;
+        /* Consistency: the engine's displayed fine scroll (copper bplcon1) must equal
+         * 15-(cam&15) if my camera source matches the displayed frame. A mismatch during
+         * scroll = cam ($57FDBA) is out of sync with the copper that produced s_fb. Also
+         * compare cam-coarse vs the BPL-ptr coarse the copper actually points at. */
+        uint32_t bp0 = s_anchors[0].ptr[0];
+        fprintf(stderr, "[WS_DBG] cam=%d cam&15=%d  copper_scroll1=%d  15-(cam&15)=%d  %s   "
+                "cam16=%d bplpt0=%06X x_off=%d pf_top=%d pf_bot=%d\n",
+                cam, cam & 15, scroll1, 15 - (cam & 15),
+                ((cam & 15) == (15 - scroll1)) ? "OK" : "*** MISMATCH ***",
+                cam16, bp0, DDF_TO_X(s_scan[pf_top].ddfstrt), pf_top, pf_bot);
     }
 
     for (int y = pf_top; y < pf_bot; y++) {
@@ -513,7 +524,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
         }
     }
 
-    native_render_wide_objects(out, ow, margin, cam, pf_top, pf_bot);
+    if (!getenv("BENEFACTOR_WS_NOOBJ"))
+        native_render_wide_objects(out, ow, margin, cam, pf_top, pf_bot);
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.
@@ -535,7 +547,7 @@ static void native_render_wide_objects(uint32_t *out, int ow, int margin,
     const ScanState *pst = &s_scan[pf_top];
     int x_off   = DDF_TO_X(pst->ddfstrt);
     int scroll1 = pst->bplcon1 & 0xF;
-    int coarse  = ((((cam + 16) >> 4) * 2) % WS_ROWSTRIDE);  /* displayed left edge (page byte) */
+    int coarse  = ((((cam + 15) >> 4) * 2) % WS_ROWSTRIDE);  /* displayed left edge (page byte) */
 
     /* Dedup: the engine draws each object into BOTH double-buffer pages, so every
      * sprite appears ~twice. Draw each unique (screen-x, row, w, h) once. */

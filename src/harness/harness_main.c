@@ -675,6 +675,58 @@ int main(int argc, char **argv)
                 printf("\n");
             }
         }
+        else if (!strcmp(cmd, "wscmp")) {  /* wscmp [frames] — per-frame diff native(s_out) vs vanilla(s_fb)
+                                              while scrolling right then left. Needs BENEFACTOR_WS_CMP=1. */
+            extern const uint32_t *hw_get_framebuffer(void);
+            extern const uint32_t *hw_get_output_framebuffer(void);
+            unsigned frames = 500; sscanf(line, "%*s %u", &frames);
+            int ow2 = hw_output_width();
+            long total = 0; int worst = 0, worstf = -1, firstbad = -1, badframes = 0;
+            static uint32_t wv[FB_W * FB_H], wn[FB_W * FB_H];   /* worst-frame snapshots */
+            for (unsigned f = 0; f < frames; f++) {
+                unsigned ph = f % 300;                 /* right 100, left 100, still 100 */
+                ju = jd = jl = jr = 0;
+                if (ph < 100) jr = 1; else if (ph < 200) jl = 1;
+                STEP_PC();
+                const uint32_t *van = hw_get_framebuffer();
+                const uint32_t *nat = hw_get_output_framebuffer();
+                int nd = 0, bx0 = 9999, by0 = 9999, bx1 = -1, by1 = -1;
+                for (int y = 13; y < 237; y++)
+                    for (int x = 24; x < 328; x++)
+                        if ((van[y * FB_W + x] & 0xFFFFFF) != (nat[y * ow2 + x] & 0xFFFFFF)) {
+                            nd++;
+                            if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+                            if (y < by0) by0 = y; if (y > by1) by1 = y;
+                        }
+                total += nd;
+                if (nd > 0) { badframes++; if (firstbad < 0) firstbad = (int)f; }
+                if (nd > worst) {
+                    worst = nd; worstf = (int)f;
+                    memcpy(wv, van, sizeof wv);
+                    for (int y = 0; y < FB_H; y++) memcpy(wn + y*FB_W, nat + y*ow2, FB_W*4);
+                }
+                /* CAUSE: for the first few bad frames, print where + sample pixels (van vs nat). */
+                if (nd > 0 && badframes <= 6) {
+                    printf("[wscmp] frame %u cam=$%04X: %d px diff, bbox x[%d..%d] y[%d..%d]; samples:",
+                           f, (g_mem[0x57FDBA] << 8) | g_mem[0x57FDBB], nd, bx0, bx1, by0, by1);
+                    int shown = 0;
+                    for (int y = 13; y < 237 && shown < 6; y++)
+                        for (int x = 24; x < 328 && shown < 6; x++) {
+                            uint32_t v = van[y*FB_W+x]&0xFFFFFF, q = nat[y*ow2+x]&0xFFFFFF;
+                            if (v != q) { printf(" (%d,%d van=%06X nat=%06X)", x, y, v, q); shown++; }
+                        }
+                    printf("\n");
+                }
+            }
+            ju = jd = jl = jr = 0;
+            if (worstf >= 0) {
+                FILE *a = fopen("logs/wscmp_van.bin","wb"); if (a){fwrite(wv,4,FB_W*FB_H,a);fclose(a);}
+                FILE *b = fopen("logs/wscmp_nat.bin","wb"); if (b){fwrite(wn,4,FB_W*FB_H,b);fclose(b);}
+                printf("[wscmp] wrote worst frame %d -> logs/wscmp_{van,nat}.bin (%dx%d)\n", worstf, FB_W, FB_H);
+            }
+            printf("[wscmp] %u frames: total=%ld badframes=%d worst=%d@%d firstbad=%d\n",
+                   frames, total, badframes, worst, worstf, firstbad);
+        }
         else if (!strcmp(cmd, "pal")) {   /* pal — print the live 32-entry ARGB palette (g_state.palette) */
             printf("[crepl] palette (ARGB):\n");
             for (int i = 0; i < 32; i += 8) {
