@@ -1,5 +1,4 @@
 """Instruction translator (Translator) and function emitter for the Benefactor recompiler."""
-import os
 import re
 from capstone.m68k import *
 
@@ -816,14 +815,12 @@ class Translator:
 def _find_patterns(insns):
     """Pre-scan instruction list to detect high-level patterns.
 
-    Returns three dicts/sets:
+    Returns two dicts/sets:
       skip_insns : set[addr]        — addresses to not emit at all
-      pre_label  : dict[addr->str]  — text to emit before the label at addr
       override   : dict[addr->str]  — emit this string instead of translation
                                       (None means emit nothing)
     """
     skip_insns = set()
-    pre_label  = {}
     override   = {}
 
     n = len(insns)
@@ -954,75 +951,12 @@ def _find_patterns(insns):
                 i += 2
                 continue
 
-        # ── DBRA / DBF loop → C for loop ─────────────────────────────────
-        # COSMETIC ONLY: folds a simple dbra countdown into a C for-loop for
-        # readability. The default DBcc emitter (translate(), goto-based) is
-        # always correct, so folding is OPT-IN via RECOMP_FOLD_LOOPS=1. It is
-        # off by default because a folded C for-loop can only be entered at its
-        # head — when loops partially overlap or a forward branch lands in a
-        # folded body, the braces desync and the output won't compile (seen in
-        # the gameplay engine's $59Dxxx/$59Exxx functions).
-        # Conditions for conversion:
-        #   • target label is inside this function
-        #   • loop body has no branch instructions (simple linear body)
-        #   • target label is only referenced by this single DBRA (safe goto→for)
-        if os.environ.get('RECOMP_FOLD_LOOPS') and m in ('dbra', 'dbf'):
-            target = get_target(insn)
-            if target and target in addr_to_idx:
-                start_idx = addr_to_idx[target]
-                body      = insns[start_idx:i]
-                BRANCH_MNEMS = frozenset({
-                    'bra','beq','bne','blt','bgt','ble','bge','bcc','bcs',
-                    'bhi','bls','bvc','bvs','bmi','bpl','bsr','jsr','jmp',
-                    'rts','rte','dbra','dbf','dbcc',
-                })
-                body_clean = not any(mnem0(b) in BRANCH_MNEMS or mnem0(b).startswith('db')
-                                     for b in body)
-                # Ensure only this DBRA targets the label
-                only_ref = (all_targets_by_source.get(target, []) == [i])
-                # The loop body must have NO other branch targets — otherwise a
-                # goto/branch from outside would jump into the C for-loop scope,
-                # producing mismatched braces (a folded C for-loop can only be
-                # entered at its top). Check every body insn after the head.
-                no_inner_target = not any(b.address in all_targets_by_source
-                                          for b in body[1:])
-                # Also: no branch target inside the function may lie strictly
-                # between the loop head and the dbra from OUTSIDE this range, and
-                # no source outside the loop range may branch into the body. A
-                # folded C for-loop can only be safely entered at its head; any
-                # other entry (or a fold that partially overlaps another fold)
-                # corrupts brace nesting. Require the loop body to be a maximal
-                # straight-line region whose only referenced label is the head.
-                lo_addr, hi_addr = target, insn.address
-                safe_range = True
-                for tgt_addr, srcs in all_targets_by_source.items():
-                    if lo_addr < tgt_addr <= hi_addr:
-                        safe_range = False; break   # label inside body (besides head)
-                    if tgt_addr == lo_addr and srcs != [i]:
-                        safe_range = False; break   # head entered from elsewhere too
-                if body_clean and only_ref and no_inner_target and safe_range:
-                    dn_reg = reg_name(insn.operands[0].reg)
-                    count  = None
-                    if start_idx > 0:
-                        pi = insns[start_idx - 1]
-                        if (mnem0(pi) == 'moveq'
-                                and len(pi.operands) >= 2
-                                and reg_name(pi.operands[1].reg) == dn_reg
-                                and pi.address not in skip_insns
-                                and pi.address not in override):
-                            v = pi.operands[0].imm & 0xFF
-                            if v >= 0x80:
-                                v -= 0x100
-                            count = v
-                            skip_insns.add(pi.address)
-                    lv = f'_l{target:x}'
-                    init = str(count) if count is not None else f'(int16_t)(uint16_t)ctx->{dn_reg}'
-                    pre_label[target] = f'for (int {lv} = {init}; {lv} >= 0; {lv}--) {{'
-                    override[insn.address] = '}'
+        # DBcc loops are emitted by the default goto-based translator (always
+        # correct). No C-for-loop folding pass — one path, no flags.
 
         i += 1
 
-    return skip_insns, pre_label, override
+    return skip_insns, override
 
 
 # ---------------------------------------------------------------------------
@@ -1063,7 +997,7 @@ def emit_func(c, addr, insns, translator, cname=None):
     branch_targets &= insn_addrs
     translator.cur_insn_addrs = insn_addrs
 
-    skip_insns, pre_label, override = _find_patterns(insns)
+    skip_insns, override = _find_patterns(insns)
 
     # ── Savestate-resumable functions ────────────────────────────────────────
     # A function in RESUMABLE_FNS has its per-frame BEAM-WAIT loops (listed in
@@ -1094,17 +1028,12 @@ def emit_func(c, addr, insns, translator, cname=None):
         a = insn.address
 
         if a in skip_insns:
-            # A pattern-folded instruction can still be a branch/dbra target
-            # (e.g. the head of an inner copy loop re-entered by an outer dbra).
-            # Emit its label before skipping so the goto resolves; control then
-            # falls into the folded construct, which re-runs the inner loop.
+            # A pattern-suppressed instruction (2nd half of a HW-wait fold) can
+            # still be a branch target — emit its label before skipping so the
+            # goto resolves.
             if a in branch_targets:
                 w(f'\nL_{a:06X}: ;\n')
             continue
-
-        # Emit for-loop opener / other pre-label text before the label line.
-        if a in pre_label:
-            w(f'  {pre_label[a]}\n')
 
         if a in branch_targets:
             w(f'\nL_{a:06X}:\n')
