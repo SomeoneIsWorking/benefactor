@@ -628,6 +628,27 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     int mincol = (cmin < 0 ? 0 : cmin) >> 4;
     int maxcol = (cmax + 320) >> 4;                      /* last valid level column */
 
+    /* Wide camera (the margin>0 = real-widescreen path). The view must stay CLAMPED to
+     * the level's world bounds (never reveal void past an edge) and, when the level is
+     * NARROWER than the view, the level is CENTERED (equal black margins) — both per the
+     * user. worldX maps 1:1 to output x (worldX = view_left + x); the tilemap, objects and
+     * player are all keyed by absolute worldX so they track automatically, and smooth
+     * scroll comes from the signed camera's fine bits (no page coarse/fine hysteresis since
+     * we read the tilemap directly). The margin==0 COMPARE path keeps the exact
+     * engine-aligned mapping in the loop below so wsdiff stays a valid pixel check. */
+    int eng_left = cam + 16;                              /* engine's displayed left world X */
+    int level_lo = mincol * 16;
+    int level_hi = maxcol * 16;
+    int level_w  = level_hi - level_lo;
+    int view_left;
+    if (level_w <= ow)
+        view_left = level_lo - (ow - level_w) / 2;        /* center the narrow level */
+    else {
+        view_left = eng_left - (ow - 320) / 2;            /* follow player, extend both sides */
+        if (view_left < level_lo)      view_left = level_lo;
+        if (view_left > level_hi - ow) view_left = level_hi - ow;
+    }
+
     /* Playfield vertical extent = the scanline span of the FIRST BPL anchor (the
      * scrolling buffer pointers); the next anchor begins the HUD. Both are derived by
      * walk_copper. tilemap row 0 maps to the playfield's first scanline (no vert scroll). */
@@ -688,8 +709,13 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
          * is the real level edge (mincol/maxcol = where the camera physically stops). The
          * engine's bitplane/page is NOT used for the playfield. */
         for (int x = 0; x < ow; x++) {
-            int lx = (x - margin) - x_off - scroll1;          /* engine bitplane bit index */
-            int worldX = cam16 + lx;                          /* absolute world X (one mapping) */
+            int worldX;
+            if (margin > 0) {
+                worldX = view_left + x;                       /* wide: 1:1, centered/clamped */
+            } else {
+                int lx = (x - margin) - x_off - scroll1;      /* compare: engine bitplane index */
+                worldX = cam16 + lx;                          /* engine-aligned mapping */
+            }
             if (worldX < 0) continue;
             int col = worldX >> 4;
             if (col < mincol || col >= maxcol) continue;
