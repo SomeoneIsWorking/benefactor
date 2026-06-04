@@ -55,7 +55,32 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    from the box con0 immediate (`$5789A6`), not hardcoded. REPL: `bpos` prints the
    captured offsets + derived placement.
 
-4. **`$06xxxx` objects culled ~3 tiles past the window (torches, teleporter, enemies).** OPEN.
+4. **`$06xxxx` objects culled ~3 tiles past the window (torches, teleporter, enemies).**
+   **FIXED — list-A path (2026-06-05).** The cull is a per-object camera-window test in the
+   object-list WALKER. Two override-widened windows (margin 0 at default 352 → vanilla;
+   `(out_w-320)/2` per side in widescreen):
+   - **`$57D7BC` → `native_objstep`** (pc_overrides_gameplay.c): re-implements one walker
+     iteration ($57D7BC..$57D812), widening the MAIN cull ($30/$170). `native_objwalk`
+     ($57D79A) now ports the setup then `rt_jump($57D7BC)` so the override catches obj 1.
+   - **`$57D8B4` → `native_objstep_b`**: the walker routes objects with a non-zero anim
+     nibble (`and.w -$c(a1),d2; bne $57D8B4`) to a SECOND, separate window ($30/**$1b0**).
+     The $06xxxx ANIMATED objects (torches/teleporter/enemies) go through HERE — this is
+     why widening only $57D804 wasn't enough; static $05xxxx decorations (anim=0 → $57D7BC
+     path) already persisted. Widen $1b0 the same way. (The RE below missed this second
+     cull; found by tracing the torch's dispatch path — it never reached the $57D804 cull.)
+   VERIFIED (L9, 960px): torch (worldX 912: $060xxx tall + $067xxx base + $05BCB4 deco) now
+   stays in `wsobjs` at cam 961 (the exact frame it dropped before) out to cam 1043
+   (screenX −131); 26 objs vs 22 pre-fix. Also verified at 640px. REGRESSION: at default 352
+   the `wsobjs` capture is byte-IDENTICAL to the pre-fix build (diffed). Wide screenshot:
+   `scratch/screenshots/ws_torch_fixed_cam961.png`. Mechanism: $57D7BC/$57D8B4 overrides
+   leave the Amiga stack exactly as the recompiled fall-through (one a0 pushed → DISPATCH
+   $57D816/$57D8CA which push a2-a4; SKIP $57D8A8/$57D8F2 pop a0). The recompiled handlers,
+   $57D816/$57D8CA dispatch and $57D8D0 draw are UNCHANGED.
+   STILL OPEN: the MULTI-TILE path ($57D81C twin cull `cmpi.w #$150` at $57D826) — that's
+   issue #1 (Marry Men), a separate change; not needed for the list-A torch/teleporter/enemy
+   fix (none of the L9 torch objects take the multi-tile branch — verified).
+
+   --- original RE (kept for reference) ---
    ROOT CAUSE NAILED to a single camera pixel (2026-06-05, L9, BENEFACTOR_WIDESCREEN=960).
    Held right, dumped every frame f70..f140 + its `wsobjs` list; user pinpointed the torch
    present at f92, gone at f93 (cam 960→961, ONE pixel). Diff of the two object lists: the

@@ -388,6 +388,25 @@ static long s_banner_objwalk_at = 0;  /* objwalk count at end of the banner setu
 void native_ws_diag(long *ow, long *od, long *ch)
 { *ow = g_diag_objwalk; *od = g_diag_objdraw; *ch = g_diag_char; }
 
+/* Per-side widescreen object-cull margin (px). The wide camera (native_render_wide_bg)
+ * extends the view by (output_width - 320)/2 each side, so the object-list walker's
+ * camera-window culls must widen by the same amount for off-screen objects to dispatch
+ * and reach the $57D8D0 capture.
+ *
+ * The margin must be 0 at the default (non-wide) width so the culls are byte-identical
+ * to vanilla. The wide playfield render (native_render_wide_bg in hw_compose_output) is
+ * ONLY invoked when the output is WIDER than HW_DISPLAY_W (=352, the engine fb width);
+ * at exactly 352 the engine's own 320px render is shown and NOTHING is widened. So gate
+ * on `ow > HW_DISPLAY_W`: 0 otherwise. (Using 320 as the zero-point — NOT 352 — would
+ * widen by 16px at the default 352 width, capturing off-screen objects vanilla culls.) */
+static int ws_objcull_margin(void)
+{
+    int ow = hw_output_width();
+    if (ow <= HW_DISPLAY_W) return 0;       /* default / non-wide: vanilla culls */
+    int m = (ow - 320) / 2;                 /* match the wide camera's per-side extent */
+    return m < 0 ? 0 : m;
+}
+
 /* $57D79A — object-list walker entry. CLEAR the in-progress build lists at the start
  * of each walk (the per-object/char captures $57D8D0/$57D3F4 are dispatched via the
  * rt_jump trampoline AFTER this returns, so they repopulate the lists through the
@@ -409,7 +428,142 @@ void native_objwalk(M68KCtx *ctx)
     g_diag_objwalk++;
     s_wsobj_n  = 0;       /* start a fresh build; the dispatched builders repopulate */
     s_wschar_n = 0;
-    gfn_gpl_57D79A(ctx);
+
+    /* Faithful port of the $57D79A SETUP (instructions $57D79A..$57D7B6), then jump to
+     * the loop top $57D7BC so the per-object override native_objstep ($57D7BC) catches
+     * the FIRST object. (The recompiled gfn_gpl_57D79A inline-falls-through to $57D7BC,
+     * so calling it would bypass the override on iteration 1.) */
+    uint32_t a5 = ctx->A[5];
+    MW32(a5 + 30944u, 0x5a27dcu);          /* move.l #$5a27dc, $78e0(a5)  */
+    ctx->A[0] = a5 + 5798u;                /* lea $16a6(a5), a0  (anim/aux table)  */
+    ctx->A[2] = a5 + 4450u;                /* lea $1162(a5), a2  (object-ptr list) */
+    ctx->A[3] = 0x5a3b6cu;                 /* lea $5a3b6c, a3                      */
+    ctx->A[4] = 0x5a43a0u;                 /* lea $5a43a0, a4                      */
+    ctx->A[6] = 0x5a3f86u;                 /* lea $5a3f86, a6                      */
+
+    rt_jump(ctx, 0x57D7BCu);
+    return;
+}
+
+/* ── Widescreen per-object loop step — override of $57D7BC ────────────────────
+ * Re-implements ONE iteration of the object-list walker's body ($57D7BC..$57D812),
+ * faithfully ported from gfn_gpl_57D79A in src/generated/game_gpl_0.c, with the
+ * camera-window CULL ($57D804..$57D812) WIDENED for widescreen so off-screen objects
+ * in the wide margins still dispatch their handlers and reach the $57D8D0 draw choke
+ * (where native_objdraw_capture records them). At default width (margin==0) the window
+ * is byte-identical to the original ($30 left, $170 width) → vanilla behavior unchanged.
+ *
+ * The walker + handlers + draw routine are one flat rt_jump trampoline loop, so EVERY
+ * object iteration re-enters $57D7BC → this override fires once per object. It must
+ * leave the Amiga stack (ctx->A[7]) exactly as the recompiled fall-through would:
+ *   - DISPATCH ($57D816): one a0 pushed (from $57D7CC) — $57D816 then pushes a2-a4.
+ *   - SKIP     ($57D8A8): one a0 pushed — $57D8A8 pops it (a2-a4 were never pushed).
+ *   - zero-aux continue : pop a0 ($57D7EA), advance, jump back to $57D7BC ourselves.
+ *   - exit     ($57DA28): nothing pushed.
+ * The widened window is the ONLY deviation from the recompiled body. */
+void native_objstep(M68KCtx *ctx)
+{
+    /* 57D7BC: tst.l (a2); 57D7BE: beq $57DA28  (object-ptr list null-terminated) */
+    if (MR32(ctx->A[2]) == 0) { rt_jump(ctx, 0x57DA28u); return; }
+
+    /* 57D7C2: movea.l (a2)+, a1 */
+    ctx->A[1] = MR32(ctx->A[2]);
+    ctx->A[2] += 4;
+
+    /* 57D7C4: move.w (a1), d2; 57D7C6: bmi $57D81C  (high-bit => multi-tile path) */
+    uint16_t d2w = MR16(ctx->A[1]);
+    ctx->D[2] = (ctx->D[2] & 0xFFFF0000u) | d2w;
+    if ((int16_t)d2w < 0) { rt_jump(ctx, 0x57D81Cu); return; }
+
+    /* 57D7CA: adda.w d2, a1 */
+    ctx->A[1] += RT_SX16(d2w);
+
+    /* 57D7CC: move.l a0, -(a7)  (push a0 — popped by $57D8D0/$57D8A8/$57D7EA) */
+    ctx->A[7] -= 4u;
+    MW32(ctx->A[7], ctx->A[0]);
+
+    /* 57D7CE: tst.b -1(a1); 57D7D2: bpl $57D7DC  (if minus, bump anim timer) */
+    if ((int8_t)MR8(ctx->A[1] - 1u) < 0) {
+        /* 57D7D4: addi.l #$20, $78e0(a5) */
+        MW32(ctx->A[5] + 30944u, MR32(ctx->A[5] + 30944u) + 0x20u);
+    }
+
+    /* 57D7DC: tst.w (a0)+; 57D7DE: bne $57D7F2  (NOTE: a0 advances by 2) */
+    uint16_t aux = MR16(ctx->A[0]);
+    ctx->A[0] += 2;
+    if (aux == 0) {
+        /* zero-aux: write the no-blit sentinel and continue to the next object.
+         * 57D7E0: move.l #$ffffffff, (a4)+ ; 57D7E6: move.w #$3, (a4)+ */
+        MW32(ctx->A[4], 0xffffffffu); ctx->A[4] += 4;
+        MW16(ctx->A[4], 0x3u);        ctx->A[4] += 2;
+        /* 57D7EA: movea.l (a7)+, a0 ; 57D7EC: lea $20(a0), a0 ; 57D7F0: bra $57D7BC */
+        ctx->A[0] = MR32(ctx->A[7]); ctx->A[7] += 4;
+        ctx->A[0] += 32u;
+        rt_jump(ctx, 0x57D7BCu);
+        return;
+    }
+
+    /* 57D7F2: moveq #$3f, d2 ; 57D7F4: and.w -$c(a1), d2 ; 57D7F8: bne $57D8B4 */
+    uint16_t d2m = (uint16_t)(0x3Fu & MR16(ctx->A[1] - 12u));
+    ctx->D[2] = (ctx->D[2] & 0xFFFF0000u) | d2m;
+    if (d2m != 0) { rt_jump(ctx, 0x57D8B4u); return; }
+
+    /* 57D7FC: btst #6, -$2(a1) ; 57D802: bne $57D816  (bit6 fast-path bypasses cull) */
+    if (MR8(ctx->A[1] - 2u) & (1u << 6)) { rt_jump(ctx, 0x57D816u); return; }
+
+    /* 57D804..57D812: the per-object camera-window CULL.
+     *   worldX = (a0)  [a0 already advanced past the aux word at $57D7DC]
+     *   d1 = (uint16)(worldX + LEFT - cam); dispatch iff d1 <= WIDTH (else skip).
+     * Original: LEFT=$30 (48), WIDTH=$170 (368) => screenX in [-48, +320].
+     * Widescreen: widen by the per-side margin so objects across the wide view reach
+     * the $57D8D0 capture. margin = (out_w - 320)/2 (the same reference the wide camera
+     * uses: native_render_wide_bg extends (ow-320)/2 each side). At margin==0 this is
+     * byte-identical to the original. */
+    uint16_t worldX = MR16(ctx->A[0]);
+    int      cam    = (uint16_t)MR16(0x57FDBAu);
+    int      margin = ws_objcull_margin();
+    uint16_t left  = (uint16_t)(0x30u  + (unsigned)margin);
+    uint16_t width = (uint16_t)(0x170u + 2u * (unsigned)margin);
+    uint16_t d1 = (uint16_t)(worldX + left - (uint16_t)cam);
+    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | d1;
+    if (d1 > width) { rt_jump(ctx, 0x57D8A8u); return; }   /* 57D812: bhi $57D8A8 (skip) */
+
+    /* fall-through: DISPATCH at $57D816 (it pushes a2-a4 then jmp (a1)) */
+    rt_jump(ctx, 0x57D816u);
+    return;
+}
+
+/* ── Widescreen ANIMATED-object cull — override of $57D8B4 ────────────────────
+ * The walker routes objects with a non-zero anim-state nibble (-$c(a1), the
+ * `and.w -$c(a1),d2; bne $57D8B4` branch in $57D7BC) to a SECOND camera-window
+ * test at $57D8B4 (constants $30 / $1b0) — separate from the main $57D804 cull
+ * (constants $30 / $170). $06xxxx animated objects (torches/teleporter/enemies)
+ * go through HERE, which is why they popped out in the margins while the static
+ * $05xxxx decorations (anim=0 → main path) persisted. Re-implement it natively
+ * ($57D8B4..$57D8C8) with the SAME widening as native_objstep. margin==0 (default
+ * 352) keeps the original $1b0 window → vanilla unchanged.
+ *   $57D8B4: tst.w -$2(a1); bpl $57D8CA  (flag >= 0 => dispatch unconditionally)
+ *   $57D8BA..$57D8C8: d1 = (uint16)(auxX + $30 - cam); skip ($57D8F2) iff d1 > $1b0.
+ * Stack: arrives with one a0 pushed (from $57D7CC). $57D8CA pushes a2-a4 then jmp;
+ * $57D8F2 pops a0. We leave the stack as the recompiled fall-through would. */
+void native_objstep_b(M68KCtx *ctx)
+{
+    /* 57D8B4: tst.w -$2(a1); 57D8B8: bpl $57D8CA (dispatch unconditionally) */
+    if ((int16_t)MR16(ctx->A[1] - 2u) >= 0) { rt_jump(ctx, 0x57D8CAu); return; }
+
+    /* 57D8BA..57D8C8: widened camera-window test */
+    uint16_t auxX  = MR16(ctx->A[0]);
+    int      cam   = (uint16_t)MR16(0x57FDBAu);
+    int      margin = ws_objcull_margin();
+    uint16_t left  = (uint16_t)(0x30u  + (unsigned)margin);
+    uint16_t width = (uint16_t)(0x1b0u + 2u * (unsigned)margin);
+    uint16_t d1 = (uint16_t)(auxX + left - (uint16_t)cam);
+    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | d1;
+    if (d1 > width) { rt_jump(ctx, 0x57D8F2u); return; }   /* 57D8C8: bhi $57D8F2 (skip) */
+
+    /* fall-through: DISPATCH at $57D8CA (pushes a2-a4 then jmp (a1)) */
+    rt_jump(ctx, 0x57D8CAu);
+    return;
 }
 
 /* Promote the in-progress build lists to the renderer-facing `*_done` lists. Called

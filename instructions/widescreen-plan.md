@@ -315,8 +315,20 @@ explicit "draw overlay while banner active" signal (a GET-READY/GAME-OVER state 
 located). The OLD page-display-list architecture (s_pg) handled this and was superseded; bring
 back a minimal screen-overlay lifetime for banners, gated on the real state flag.
 
-**Decorations (torches) culled where vanilla culls** — captured but inherit the engine's 352
-clip; move their capture before the clip (same pre-clip principle as the walker).
+**Decorations (torches) culled where vanilla culls — FIXED (2026-06-05, list-A).** The cull is
+a per-object camera-window test in the WALKER, in TWO places (the RE first found only one):
+- `$57D804..$57D812` (main, $30/$170) — most objects. Widened in override `native_objstep`
+  ($57D7BC). `native_objwalk` ($57D79A) now ports the 6-instr setup then `rt_jump($57D7BC)`
+  so the override catches the first object (the recomp $57D79A inline-falls-through to $57D7BC).
+- `$57D8B4..$57D8C8` (animated, $30/**$1b0**) — objects with a non-zero anim nibble go here via
+  `and.w -$c(a1),d2; bne $57D8B4`. The **$06xxxx torches/teleporter/enemies take THIS path**;
+  widening only the main cull left them popping out. Widened in override `native_objstep_b`.
+Both widen by `(out_w-320)/2` per side, **0 at the default 352** (gated `ow>HW_DISPLAY_W`) → the
+352 `wsobjs` capture is byte-identical to pre-fix (verified by diff). Each override leaves the
+Amiga stack exactly as the recomp fall-through (one a0 pushed; DISPATCH $57D816/$57D8CA push
+a2-a4, SKIP $57D8A8/$57D8F2 pop a0); recomp handlers + $57D8D0 draw unchanged. Verified L9 960px:
+torch at worldX 912 stays out to screenX −131 (was culled at −49). Multi-tile path ($57D826
+`cmpi.w #$150`) is still narrow → issue #1 (Marry Men), separate.
 
 **Damage-blink — DONE & PORTED (2026-06-04).** The blink is NOT a skipped draw and NOT a
 palette flash — the engine draws the player EVERY frame, alternating normal and a solid BLACK

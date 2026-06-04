@@ -119,6 +119,16 @@ void pc_register_overrides(void)
      * before its 352px camera-clip) so the native renderer can draw objects across
      * the full wide view. Both super-call the recomp body → vanilla unaffected. */
     rt_register_override_gp(0x0057D79Au, native_objwalk);
+    /* Per-object loop step ($57D7BC): re-implements one walker iteration with a WIDENED
+     * camera cull so $06xxxx objects (torches/teleporter/enemies) in the wide margins
+     * still dispatch and reach the $57D8D0 capture (issue #4). margin==0 (default 352)
+     * keeps the original $30/$170 window → vanilla unchanged. */
+    rt_register_override_gp(0x0057D7BCu, native_objstep);
+    /* Animated-object cull ($57D8B4): the walker routes objects with a non-zero anim
+     * nibble to a SEPARATE camera window ($30/$1b0) — this is where $06xxxx torches/
+     * teleporter/enemies were culled (static $05xxxx decorations use the $57D7BC path).
+     * Widen it the same way. */
+    rt_register_override_gp(0x0057D8B4u, native_objstep_b);
     rt_register_override_gp(0x0057D8D0u, native_objdraw_capture);
     /* The player is drawn by its own routine ($57A666), not the object loop. */
     rt_register_override_gp(0x0057A666u, native_player_capture);
