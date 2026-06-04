@@ -51,6 +51,17 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    them BEFORE the engine's camera clip (same pre-clip principle as the walker), draw
    across the wide view.
 
+5. **Vanilla (non-widescreen / 352) playfield EDGES show the tile-column render toggles.**
+   OPEN. On real HW the display window (DIWSTRT/DIWSTOP) hides the partially-drawn edge
+   columns the engine over-fetches for smooth scroll (columns popping visible/invisible
+   at the left/right edge). Our native renderer extends the view too far at the edges and
+   shows those column toggles → the playfield edge looks wrong in the default 352 path
+   (and the `wsdiff` margin==0 compare path). This is the VANILLA rendering, NOT the wide
+   camera (which is correct). FIX: clip the 352 playfield decode to the proper DIW. NOTE:
+   a DIW clip was implemented then REVERTED earlier because it pulled the WIDE view back
+   to ~320 (defeats widescreen) — so apply it ONLY to the margin==0 / 352 path, never to
+   the wide (margin>0) path. See [[widescreen-plan]] "DIW over-fetch clip" history.
+
 ### Widescreen — DONE / NOT-A-BUG (verified this push series)
 - Native tilemap background (per-level row stride), wide camera clamp/center.
 - **Wide camera is GREAT** (user-confirmed) — NOT an issue. The `wsdiff` edge-band
