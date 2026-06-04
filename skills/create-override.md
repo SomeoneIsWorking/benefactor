@@ -4,11 +4,21 @@ Add a native C override for a Benefactor M68K recompiled function. Use when: a r
 
 > **Self-evolution:** If you extend or build a tool that changes this skill's procedure, update this file in the same step.
 
+## Boundary: override vs recompiler (read first)
+The recompiler only does FAITHFUL translation of the binary. Touch it ONLY for a
+recompiler **bug** (mistranslated instruction) or a **missed dispatch target**.
+**Every change to game BEHAVIOR is an override** — including changing a constant that
+lives in generated code (widen a window, alter logic for a PC-native feature). Emitting a
+different value than the ROM holds is mistranslation and breaks the oracle diff. Override
+instead (super-call + adjust, or re-implement the loop natively). Full rule:
+`instructions/create-override.md`.
+
 ## When to Use
 - A recompiled function produces wrong output (wrong D0, wrong addresses).
 - A function runs an infinite hardware-wait loop (VHPOSR, BLTSIZE, etc.).
 - A function needs to rebuild copper list entries the recompiler misses.
 - The recompiler generates bad C (e.g., wrong An-dest flag handling).
+- You need different *behavior* for a PC-native feature (widescreen window widening, etc.).
 
 ## File: `src/pc.c`
 
