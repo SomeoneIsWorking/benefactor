@@ -208,6 +208,7 @@ static void hw_compose_output(void)
     }
     if (ow > HW_DISPLAY_W)
         native_render_wide_bg(s_out, ow, margin);   /* fill margins w/ native tiles */
+    hw_blit_capture_reset();   /* start a fresh object-blit capture for the next frame */
 }
 void hw_execute_copper(void);
 

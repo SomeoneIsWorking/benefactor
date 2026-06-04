@@ -424,6 +424,9 @@ void native_render_frame(void)
 #define WS_EDGE_HI  0x0057FE8Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
+static void native_render_wide_objects(uint32_t *out, int ow, int margin,
+                                       int cam, int pf_top, int pf_bot);
+
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
 static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
@@ -485,6 +488,74 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                 if ((gmem_r16(M, gfx + (uint32_t)p * 32u + (uint32_t)ty * 2u) >> (15 - tx)) & 1u)
                     ci |= (1 << p);
             row[x] = pal[ci & 0x1Fu];
+        }
+    }
+
+    native_render_wide_objects(out, ow, margin, cam, pf_top, pf_bot);
+}
+
+/* Re-draw the engine's captured object sprite blits natively into the wide buffer.
+ * Each object is 5 plane-blits (dest steps by the plane stride $2A0C); position is
+ * recovered from the dest's offset within its double-buffer page vs the scroll
+ * coarse offset, mapped into the same screen coordinate the tile bg uses. Opaque
+ * blits (con0 $09F0, D=A) copy all pixels; cookie-cut blits (minterm $CA) draw only
+ * where the shared mask plane is set (transparency). */
+#define WS_PLANE_STRIDE 0x2A0Cu
+#define WS_ROWSTRIDE    46            /* playfield page row stride (bytes) = $2e */
+static void native_render_wide_objects(uint32_t *out, int ow, int margin,
+                                        int cam, int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    int n = hw_blit_capture_count();
+    const BlitRec *rec = hw_blit_capture_recs();
+    if (n <= 0 || !M) return;
+
+    const ScanState *pst = &s_scan[pf_top];
+    int x_off   = DDF_TO_X(pst->ddfstrt);
+    int scroll1 = pst->bplcon1 & 0xF;
+    int coarse  = ((cam >> 4) * 2) % WS_ROWSTRIDE;     /* displayed left edge (page byte) */
+
+    int i = 0;
+    while (i < n) {
+        int g0 = i, np = 1;
+        while (i + np < n && np < 5
+               && rec[i + np].dpt == rec[i + np - 1].dpt + WS_PLANE_STRIDE
+               && rec[i + np].w == rec[g0].w && rec[i + np].h == rec[g0].h)
+            np++;
+        const BlitRec *r0 = &rec[g0];
+        i += np;
+
+        uint32_t base;                                  /* plane-0 page origin */
+        if (r0->dpt >= 0x038628u && r0->dpt < 0x038628u + WS_PLANE_STRIDE) base = 0x038628u;
+        else if (r0->dpt >= 0x02B3ECu && r0->dpt < 0x02B3ECu + WS_PLANE_STRIDE) base = 0x02B3ECu;
+        else continue;
+        uint32_t off = r0->dpt - base;                  /* row*46 + xbyte */
+        int orow = (int)(off / WS_ROWSTRIDE);
+        int xbyte = (int)(off % WS_ROWSTRIDE);
+        int masked = (r0->mask != 0u);
+        int wpx  = r0->w * 16;
+        int srow = r0->w * 2 + r0->smod;                /* source plane row stride */
+        int mrow = r0->w * 2 + r0->mmod;
+        int xbit = ((xbyte - coarse + WS_ROWSTRIDE) % WS_ROWSTRIDE) * 8 + r0->shift;
+
+        for (int py = 0; py < r0->h; py++) {
+            int sy = pf_top + orow + py;
+            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+            const uint32_t *pal = s_scan[sy].palette;
+            uint32_t *row = out + (size_t)sy * ow;
+            for (int px = 0; px < wpx; px++) {
+                if (masked) {
+                    uint32_t ma = r0->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
+                    if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
+                }
+                int ci = 0;
+                for (int p = 0; p < np; p++) {
+                    uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
+                    if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
+                }
+                int x = margin + xbit + px + x_off + scroll1;
+                if (x >= 0 && x < ow) row[x] = pal[ci & 0x1Fu];
+            }
         }
     }
 }

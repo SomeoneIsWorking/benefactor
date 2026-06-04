@@ -25,6 +25,15 @@ static inline uint32_t _bplptr_from(int hi_reg, int lo_reg)
     return (((uint32_t)s_regs[hi_reg >> 1] << 16) | s_regs[lo_reg >> 1]) & 0xFFFFFF;
 }
 
+/* ── Object-blit capture (consumed by native_render_wide_bg) ───────────────── */
+#define BLIT_CAP_MAX 768
+static BlitRec s_blitcap[BLIT_CAP_MAX];
+static int     s_blitcap_n  = 0;
+static int     s_blitcap_on = 1;   /* always capture; cheap, reset each frame */
+void           hw_blit_capture_reset(void) { s_blitcap_n = 0; }
+int            hw_blit_capture_count(void) { return s_blitcap_n; }
+const BlitRec *hw_blit_capture_recs(void)  { return s_blitcap; }
+
 /* OCS register offsets (local copies of hw.c defines) */
 #define _BLTCON0  0x040
 #define _BLTCON1  0x042
@@ -250,6 +259,29 @@ void hw_do_blit(void)
     int16_t bmod = (int16_t)s_regs[_BLTBMOD >> 1];
     int16_t cmod = (int16_t)s_regs[_BLTCMOD >> 1];
     int16_t dmod = (int16_t)s_regs[_BLTDMOD >> 1];
+
+    /* ── Object-blit capture for the native widescreen renderer ──────────────
+     * Record blits that draw object sprites into the playfield pages so the wide
+     * renderer can re-draw them itself. Object gfx lives low ($0xxxxx); the tile
+     * scroll sources from the high tile-gfx region ($5Exxxx) — exclude those. */
+    {
+        int usea = (bltcon0 >> 11) & 1, useb = (bltcon0 >> 10) & 1, used = (bltcon0 >> 8) & 1;
+        uint32_t gsrc = useb ? bpt : apt;            /* gfx source: B if masked, else A */
+        int dest_in_pages = (dpt >= 0x020000u && dpt < 0x040000u);
+        if (s_blitcap_on && used && dest_in_pages && gsrc < 0x400000u
+            && s_blitcap_n < BLIT_CAP_MAX) {
+            BlitRec *r = &s_blitcap[s_blitcap_n++];
+            r->src   = gsrc;
+            r->mask  = (useb && usea) ? apt : 0u;    /* cookie-cut mask = A channel */
+            r->dpt   = dpt;
+            r->w     = width_words;
+            r->h     = height;
+            r->smod  = useb ? bmod : amod;
+            r->mmod  = amod;
+            r->shift = (bltcon0 >> 12) & 0xF;
+            r->con0  = bltcon0;
+        }
+    }
 
     /* BLIT_LOG: append every blit (source/dest/dims) to logs/blit_log.txt so we
      * can see the full set of graphics PC actually blits during gameplay and
