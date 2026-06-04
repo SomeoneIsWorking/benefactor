@@ -444,8 +444,6 @@ static int      s_objlayer_init = 0;
 #define WS_EDGE_HI  0x0057FE8Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
-static void native_render_wide_objects(uint32_t *out, int ow, int margin,
-                                       int cam, int pf_top, int pf_bot);
 static void native_objlayer_update(int cam, int pf_top, int pf_bot);
 
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
@@ -555,7 +553,6 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
             }
         }
     }
-    (void)native_render_wide_objects;
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.
@@ -644,105 +641,3 @@ static void native_objlayer_update(int cam, int pf_top, int pf_bot)
     }
 }
 
-static void native_render_wide_objects(uint32_t *out, int ow, int margin,
-                                        int cam, int pf_top, int pf_bot)
-{
-    const uint8_t *M = g_mem;
-    int n = hw_blit_capture_count();
-    const BlitRec *rec = hw_blit_capture_recs();
-    if (n <= 0 || !M) return;
-
-    const ScanState *pst = &s_scan[pf_top];
-    int x_off   = DDF_TO_X(pst->ddfstrt);
-    int scroll1 = pst->bplcon1 & 0xF;
-    /* The engine draws each object into BOTH double-buffer pages (at different page
-     * offsets, since the buffers are at different scroll states). s_fb shows only the
-     * DISPLAYED buffer (the one the copper BPL pointer points at), so draw only that
-     * buffer's object blits — otherwise every object is drawn twice at two positions. */
-    uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
-    /* Displayed-left horizontal byte WITHIN the page row, from the same BPL pointer the
-     * bg uses (frame-locked) — NOT cam arithmetic, which drifts vs the bg coarse. */
-    int coarse  = (int)((s_anchors[0].ptr[0] - disp_base) % WS_ROWSTRIDE);
-
-    /* Dedup: the engine draws each object into BOTH double-buffer pages, so every
-     * sprite appears ~twice. Draw each unique (screen-x, row, w, h) once. */
-    struct { int x, y, w, h; } seen[256]; int nseen = 0;
-
-    int i = 0;
-    while (i < n) {
-        int g0 = i, np = 1;
-        while (i + np < n && np < 5
-               && rec[i + np].dpt == rec[i + np - 1].dpt + WS_PLANE_STRIDE
-               && rec[i + np].w == rec[g0].w && rec[i + np].h == rec[g0].h)
-            np++;
-        const BlitRec *r0 = &rec[g0];
-        i += np;
-
-        uint32_t base;                                  /* plane-0 page origin */
-        if (r0->dpt >= 0x038628u && r0->dpt < 0x038628u + WS_PLANE_STRIDE) base = 0x038628u;
-        else if (r0->dpt >= 0x02B3ECu && r0->dpt < 0x02B3ECu + WS_PLANE_STRIDE) base = 0x02B3ECu;
-        else continue;
-        if (base != disp_base) continue;                /* only the displayed buffer */
-        int masked = (r0->mask != 0u);
-        /* Opaque blits sourcing the bg-SAVE buffer ($045000-$053000) are background
-         * RESTORES (the engine erasing old sprites); we redraw bg fresh, so skip them
-         * — drawing them paints stale save-buffer rectangles (the "green blocks"). Real
-         * opaque OBJECTS (e.g. the metal box) source from elsewhere and must be drawn. */
-        if (!masked && r0->src >= 0x045000u && r0->src < 0x054000u) continue;
-
-        uint32_t off = r0->dpt - base;                  /* row*46 + xbyte */
-        int orow = (int)(off / WS_ROWSTRIDE);
-        int xbyte = (int)(off % WS_ROWSTRIDE);
-        int wpx  = r0->w * 16;
-        int srow = r0->w * 2 + r0->smod;                /* source plane row stride */
-        int mrow = r0->w * 2 + r0->mmod;
-        int xbit = ((xbyte - coarse + WS_ROWSTRIDE) % WS_ROWSTRIDE) * 8 + r0->shift;
-
-        int dup = 0;
-        for (int s = 0; s < nseen; s++)
-            if (seen[s].x == xbit && seen[s].y == orow && seen[s].w == r0->w && seen[s].h == r0->h) { dup = 1; break; }
-        if (dup) continue;
-        if (nseen < 256) { seen[nseen].x = xbit; seen[nseen].y = orow; seen[nseen].w = r0->w; seen[nseen].h = r0->h; nseen++; }
-
-        if (getenv("WS_DBG"))
-            fprintf(stderr, "[WS_OBJ] np=%d %s w=%d h=%d dpt=%06X base=%06X row=%d xbyte=%d "
-                    "xbit=%d -> sfx=%d shift=%d con0=%04X src=%06X mask=%06X\n",
-                    np, masked?"MASK":"OPAQUE", r0->w, r0->h, r0->dpt, base, orow, xbyte,
-                    xbit, xbit + x_off + scroll1, r0->shift, r0->con0, r0->src, r0->mask);
-
-        static int dbgn = 0;
-        if (getenv("WS_DBG") && masked && dbgn < 3) {
-            dbgn++;
-            int hist[32] = {0};
-            for (int py = 0; py < r0->h; py++)
-              for (int px = 0; px < wpx; px++) {
-                uint32_t ma = r0->mask + (uint32_t)py*mrow + (uint32_t)(px>>3);
-                if (ma+1u>=RT_MEM_SIZE || !((M[ma]>>(7-(px&7)))&1u)) continue;
-                int ci=0; for (int p=0;p<np;p++){uint32_t sa=rec[g0+p].src+(uint32_t)py*srow+(uint32_t)(px>>3); if(sa+1u<RT_MEM_SIZE&&((M[sa]>>(7-(px&7)))&1u))ci|=(1<<p);} hist[ci&0x1F]++;
-              }
-            fprintf(stderr,"[WS_CI] obj sfx=%d sy=%d  indices:", xbit+x_off+scroll1, pf_top+orow);
-            for(int i=0;i<32;i++) if(hist[i]) fprintf(stderr," %d:%dx(pal=%06X)", i, hist[i], s_scan[pf_top+orow+r0->h/2].palette[i]&0xFFFFFF);
-            fprintf(stderr,"\n");
-        }
-        for (int py = 0; py < r0->h; py++) {
-            int sy = pf_top + orow + py;
-            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-            const uint32_t *pal = s_scan[sy].palette;
-            uint32_t *row = out + (size_t)sy * ow;
-            for (int px = 0; px < wpx; px++) {
-                if (masked) {
-                    uint32_t ma = r0->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
-                    if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
-                }
-                int ci = 0;
-                for (int p = 0; p < np; p++) {
-                    uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
-                    if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
-                }
-                int x = margin + xbit + px + x_off + scroll1;
-                if (x < 0 || x >= ow) continue;
-                row[x] = pal[ci & 0x1Fu];
-            }
-        }
-    }
-}
