@@ -587,7 +587,6 @@ static void native_objlayer_update(int cam, int pf_top, int pf_bot)
 
     int cam16 = ((cam + 15) & ~15);
     uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
-    int coarse = (int)((s_anchors[0].ptr[0] - disp_base) % WS_ROWSTRIDE);
 
     int i = 0;
     while (i < n) {
