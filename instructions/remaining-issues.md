@@ -77,8 +77,25 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    is byte-identical at f92 vs f93 — the object STAYS in the list, the walker still iterates
    it; only its handler skips the `$57D8D0` draw when `screenX>>4 < -3`. So the cull is in
    the `$06xxxx` object HANDLER (dispatched `jmp (a1,d2)`), upstream of `$57D8D0`, before its
-   draw jump. NEXT: identify the torch object's handler (find the `$1162` entry whose struct
-   worldX=912) and the shared/per-type cull. Tools added: REPL `wsobjs` (obj/char lists +
+   draw jump.
+   **CULL LOCATED (2026-06-05) — it's a SHARED window test in the walker `$57D79A`, not
+   per-handler.** At `$57D804`: `move.w (a0),d1` (object worldX) → `addi.w #$30,d1` (+48) →
+   `sub.w $57FDBA,d1` (−camera) → `cmpi.w #$170,d1` (vs 368) → `bhi $57D8A8` (UNSIGNED > 368 →
+   skip, don't `jmp (a1)` the handler). So an object dispatches only when `screenX ∈
+   [-$30, $170-$30]` = `[-48, +320]`. Verified to the pixel: torch worldX 912 — f92 cam 960 →
+   912+48−960=0 ≤368 drawn; f93 cam 961 → −1 = 65535 >368 skipped. The `$57D81C` multi-tile
+   path has the twin `cmpi.w #$150` at `$57D826`. ($05xxxx decorations come through a
+   different path with no such test, which is why they persist.)
+   **FIX:** widen `$30` (left margin) and `$170` (window width) so the engine dispatches
+   objects across the wide view; they reach `$57D8D0`, where we capture at ENTRY, while
+   `$57D8D0`'s own internal clip writes skip-descriptors for off-page parts → the engine's
+   page blit can't overflow. e.g. for a 960px view (320 margin/side): `$30`→`$140` (320),
+   `$170`→`$3C0` (960). CAVEAT: the walker is recompiled (constants are C literals in the
+   generated walker, NOT read from g_mem) and the generated code can't be hand-edited
+   (regenerated at build). So apply via EITHER a native re-implementation of the walker's
+   per-object visibility/dispatch loop, OR a targeted recompiler emit of these two immediates
+   from a widescreen constant. Do NOT multi-pass the walker (it has per-frame side effects:
+   queue build, anim/timer advance `$78e0(a5)`). Tools added: REPL `wsobjs` (obj/char lists +
    screenX + data src),
    `view_left` in `wsobjs`, `BENEFACTOR_WIDESCREEN` up to 960 (`HW_OUT_MAX`). NOTE: needs
    ≥640px to observe — at 480 the sprite leaves the true wide edge before the cull triggers.
