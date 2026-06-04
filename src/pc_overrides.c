@@ -126,6 +126,19 @@ void pc_register_overrides(void)
      * (executor $57D6C4) — a separate path from the $57D8D0 object loop. Capture
      * each at entry (D0/D1/D5/A1) before its camera-clip; super-call the body. */
     rt_register_override_gp(0x0057D3F4u, native_char_capture);
+    /* GET READY / GAME OVER banner: the native wide renderer ignores the engine page,
+     * so the banner (drawn there) was invisible. Capture each of its three elements so
+     * the renderer can composite them as a centered top UI overlay: the box ($578974),
+     * the teleport animation ($578B94), and the text ($578860 GET READY / $57889C GAME
+     * OVER, rendered by the $57892E font). */
+    { extern void native_banner_capture(M68KCtx *ctx);
+      extern void native_telanim_capture(M68KCtx *ctx);
+      extern void native_getready_capture(M68KCtx *ctx);
+      extern void native_gameover_text_capture(M68KCtx *ctx);
+      rt_register_override_gp(0x00578974u, native_banner_capture);
+      rt_register_override_gp(0x00578B94u, native_telanim_capture);
+      rt_register_override_gp(0x00578860u, native_getready_capture);
+      rt_register_override_gp(0x0057889Cu, native_gameover_text_capture); }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled

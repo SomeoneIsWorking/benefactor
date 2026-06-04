@@ -309,6 +309,13 @@ static inline uint32_t decode_dpf(int x, const uint32_t bplpt[4],
 /* ── Main entry point ───────────────────────────────────────────────── */
 void native_render_frame(void)
 {
+    /* Promote the widescreen object/char captures (built by the game thread this
+     * frame) to the renderer-facing lists, once per present. Done here — not at the
+     * object-walker — so the GET-READY/GAME-OVER frames (where the walker pauses but
+     * the engine keeps re-blitting a static queue) still show their objects, the
+     * teleport animation, and the banner text. See native_ws_promote(). */
+    { extern void native_ws_promote(void); native_ws_promote(); }
+
     /* Select the chip-RAM source (delayed snapshot under the blitter-latency
      * model, else live) BEFORE walking the copper, so the copper list/pointers
      * and the bitplane pixel data are read from the same delayed view. */
@@ -516,6 +523,11 @@ extern int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase,
 extern int native_wschar_count(void);
 extern int native_wschar_get(int i, int *x, int *y, int *w, int *h,
                              uint32_t *data, uint32_t *mask, int *rowstride);
+extern int native_wsbanner_get(int *row, int *rel, uint32_t *data, uint32_t *mask,
+                               int *pstride, int *rs, int *ww, int *rows);
+extern int native_wstelanim_get(uint32_t *src, int *rel, int *w, int *h);
+extern int native_wstext_get(uint32_t *str, int *rel);
+extern int native_wsbanner_ash(void);
 
 static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
@@ -649,6 +661,129 @@ static void native_wschar_compose(int pf_top, int pf_bot)
             }
         }
     }
+}
+
+/* Composite the GET READY / GAME OVER banner as a CENTERED top UI overlay drawn
+ * straight into `out` (after the playfield + objects, so nothing draws over it). Three
+ * captured elements (pc_overrides_gameplay.c): the box ($578974, cookie-cut), the
+ * teleport animation ($578B94, opaque 5-plane sprite in the box's right circle), and
+ * the text ($578860/$57889C, an 8px column-major font in colour 16). The anim and text
+ * are placed relative to the box via their page-offset DELTA from the box (camera
+ * cancels), decomposed into (row, col) at the page row stride (46 bytes). The box is
+ * horizontally centered in the (possibly wide) output; everything else hangs off it. */
+#define WS_PAGE_RS 46                          /* playfield page row stride (bytes)     */
+#define WS_TEL_PSTRIDE 0x0A80u                 /* teleport-anim plane stride            */
+#define WS_FONT_BASE 0x5A0E00u                 /* banner font (column-major, 8px)       */
+#define WS_FONT_RS   0x56u                     /* font glyph row stride                 */
+
+/* The banner is screen-fixed UI, drawn directly into `out` ON TOP of everything (after
+ * the playfield/objects) so nothing covers it. Its base X is the VANILLA screen
+ * position `box_worldX - cam` (the object-coordinate that overlays the vanilla engine
+ * render EXACTLY — verifiable to 100% with `bannercmp`) for the 352 compare; for a wide
+ * output it is CENTERED. (NB: the playfield bg uses cam16 from the BPL pointer, which
+ * differs from the object camera `cam`=$57FDBA by the known few-px alignment bug, so the
+ * banner is anchored on `cam` to match vanilla, not on the bg.) The anim/text hang off
+ * the box by their page-offset deltas. */
+static void wsbanner_put(uint32_t *out, int ow, int sy, int ox, uint32_t argb)
+{
+    if (sy >= 0 && sy < HW_DISPLAY_H && ox >= 0 && ox < ow)
+        out[(size_t)sy * ow + ox] = argb;
+}
+static void native_wsbanner_overlay(uint32_t *out, int ow, int cam, int pf_top)
+{
+    const uint8_t *M = g_mem;
+    int row, brel, pstride, rs, ww, rows; uint32_t data, mask;
+    if (!M || getenv("WS_NOBANNER")) return;
+    if (!native_wsbanner_get(&row, &brel, &data, &mask, &pstride, &rs, &ww, &rows)) return;
+    int wpx = ww * 16;
+    int box_worldX = ((cam >> 4) + 3) * 16;
+    int bx0 = (ow > HW_DISPLAY_W) ? (ow - wpx) / 2     /* wide: centered                  */
+                                  : box_worldX - cam - 1; /* 352 compare: vanilla screen (object-coord → s_fb pixel is -1) */
+    int boy = pf_top + row;
+    /* The box art is blitted with a 10px A-shift; the anim/text are not (see
+     * native_wsbanner_ash). We draw the box at its calibrated visual left bx0, so the
+     * children — placed by their page DELTA from the box dest — subtract that shift. */
+    int box_ash = native_wsbanner_ash();
+
+    /* ── box (cookie-cut: mask gates which pixels are box; clear pixels = transparent,
+     *    incl. the right-circle hole the teleport animation draws into below) ── */
+    if (data + (uint32_t)pstride * 4u + (uint32_t)(rows - 1) * (uint32_t)rs
+              + (uint32_t)ww * 2u < RT_MEM_SIZE &&
+        mask + (uint32_t)(rows - 1) * (uint32_t)rs + (uint32_t)ww * 2u < RT_MEM_SIZE) {
+        for (int r = 0; r < rows; r++) {
+            int sy = boy + r;
+            if (sy < 0 || sy >= HW_DISPLAY_H) continue;
+            const uint32_t *pal = s_scan[sy].palette;
+            for (int c = 0; c < wpx; c++) {
+                int wo = c >> 4, bit = 15 - (c & 15);
+                uint32_t roff = (uint32_t)r * (uint32_t)rs + (uint32_t)wo * 2u;
+                if ((gmem_r16(M, mask + roff) >> bit) & 1u) {
+                    int ci = 0;
+                    for (int p = 0; p < 5; p++)
+                        if ((gmem_r16(M, data + (uint32_t)p * (uint32_t)pstride + roff) >> bit) & 1u)
+                            ci |= (1 << p);
+                    wsbanner_put(out, ow, sy, bx0 + c, pal[ci & 0x1Fu]);
+                }
+            }
+        }
+    }
+
+    /* ── teleport animation: opaque 32x28 4-plane sprite (packed src rows) ── */
+    { uint32_t tsrc; int trel, tw, th;
+      if (native_wstelanim_get(&tsrc, &trel, &tw, &th)) {
+        int delta = trel - brel;
+        int drow  = (delta >= 0) ? delta / WS_PAGE_RS : -(((-delta) + WS_PAGE_RS - 1) / WS_PAGE_RS);
+        int dcol  = delta - drow * WS_PAGE_RS;
+        int txx = bx0 + dcol * 8 - box_ash, tsy0 = boy + drow, twpx = tw * 16;
+        uint32_t trs = (uint32_t)tw * 2u;             /* source rows PACKED (amod=0)   */
+        if (tsrc + WS_TEL_PSTRIDE * 4u + (uint32_t)(th - 1) * trs + (uint32_t)tw * 2u
+                < RT_MEM_SIZE) {
+            for (int r = 0; r < th; r++) {
+                int sy = tsy0 + r;
+                if (sy < 0 || sy >= HW_DISPLAY_H) continue;
+                const uint32_t *pal = s_scan[sy].palette;
+                for (int c = 0; c < twpx; c++) {
+                    int wo = c >> 4, bit = 15 - (c & 15);
+                    uint32_t roff = (uint32_t)r * trs + (uint32_t)wo * 2u;
+                    int ci = 0;
+                    for (int p = 0; p < 4; p++)         /* anim is 4 planes (moveq #3,d6) */
+                        if ((gmem_r16(M, tsrc + (uint32_t)p * WS_TEL_PSTRIDE + roff) >> bit) & 1u)
+                            ci |= (1 << p);
+                    /* The engine blits only planes 0-3; the circle background has plane 4
+                     * SET, so the displayed colour is ci|16 (verified: page index = src+16). */
+                    wsbanner_put(out, ow, sy, txx + c, pal[(ci | 16) & 0x1Fu]);   /* opaque */
+                }
+            }
+        }
+      } }
+
+    /* ── text: 8px column-major font ($5A0E00), colour 16, one char per 8px ── */
+    { uint32_t str; int xrel;
+      if (native_wstext_get(&str, &xrel)) {
+        int delta = xrel - brel;
+        int drow  = (delta >= 0) ? delta / WS_PAGE_RS : -(((-delta) + WS_PAGE_RS - 1) / WS_PAGE_RS);
+        int dcol  = delta - drow * WS_PAGE_RS;
+        int txx = bx0 + dcol * 8 - box_ash, tsy0 = boy + drow;
+        for (int k = 0; k < 40; k++) {
+            uint32_t ca = str + (uint32_t)k;
+            if (ca >= RT_MEM_SIZE) break;
+            uint8_t ch = M[ca];
+            if (ch == 0) break;
+            if (ch < 0x20) continue;
+            uint32_t glyph = WS_FONT_BASE + (uint32_t)(ch - 0x20);
+            for (int r = 0; r < 16; r++) {
+                int sy = tsy0 + r;
+                if (sy < 0 || sy >= HW_DISPLAY_H) continue;
+                uint32_t ga = glyph + (uint32_t)r * WS_FONT_RS;
+                if (ga >= RT_MEM_SIZE) continue;
+                uint8_t gb = M[ga];
+                if (!gb) continue;
+                const uint32_t *pal = s_scan[sy].palette;
+                for (int px = 0; px < 8; px++)
+                    if ((gb >> (7 - px)) & 1u) wsbanner_put(out, ow, sy, txx + k * 8 + px, pal[16]);
+            }
+        }
+      } }
 }
 
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
@@ -796,6 +931,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
             }
         }
     }
+
+    /* Banner (GET READY / GAME OVER) — screen-fixed UI on top of everything. */
+    native_wsbanner_overlay(out, ow, cam, pf_top);
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.
