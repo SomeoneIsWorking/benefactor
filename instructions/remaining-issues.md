@@ -16,8 +16,9 @@ tilemap + per-routine sprite captures, ignoring the engine page. Anything drawn 
 into the page by a path we DON'T capture is invisible. Full routine map +
 verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
-1. **Marry Men (rescued creatures) invisible.** **FIXED (2026-06-05).** The Marry Man = the
-   short red-shirt figure inside the **cage** (grey
+1. **Marry Men (rescued creatures) invisible.** **MOSTLY FIXED (2026-06-05)** — they now
+   render (cleanly, no ghosts/outline) in the central view; remaining: margin cull (see end).
+   The Marry Man = the short red-shirt figure inside the **cage** (grey
    two-pillar cell with a cross on the right pillar), NOT the teleporter (the green figure in
    the bottom-left grey structure is the PLAYER — do not chase him). On L1 the cage sits at
    ~worldX 67, page dpt `$02C338`. CONFIRMED VIA ABLATION (REPL `blitskip <fn>` drops every
@@ -50,8 +51,31 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
      (`ow>352`) or the WS_CMP gate, so default 352 is byte-untouched. VERIFIED (L1, 960px):
      marry man now renders in the cage; pre-fix vs post-fix wide frame diff = 49px in ONE 16×9
      region (his figure) and nothing else → no enemy/object doubling, dedup correct. worldX
-     ≈63-79 (cage ~67). Scroll-tracking is by construction (identical formula to the proven bg
-     + object projection). `scratch/screenshots/mm_full.png`. Diagnostic tools
+     ≈63-79 (cage ~67). `scratch/screenshots/mm_full.png`.
+   - FOLLOW-UP FIXES (2026-06-05, after user testing): the first cut re-drew sprites the
+     other passes already draw (walker/key/mushrooms ghosted) and had a red outline.
+     - **Dedup by gfx IDENTITY (src ptr), not mask/position.** The mask-based dedup let
+       ANIMATED captured sprites through (their derived capture-mask ≠ the blit's apt, and
+       both change per anim frame) → ghosts. The blit's SRC ptr == the captured sprite's
+       data (verified: walker blit src=$064ADA == its captured `chr` data=$064ADA), and is
+       WRAP-INDEPENDENT. Dedup blit.src against wsobj/wschar/player gfx, position as a
+       secondary anim-skew catch. Result: 0 missed-char draws on L9 (all captured), 1 on L1
+       (the marry man). REPL `wsmc` lists what the pass drew (NOT an env log).
+     - **Red blinking outline = colour-0 drawn opaque.** Cookie-cut colour 0 must be
+       TRANSPARENT (`if (ci)`, like native_objlayer_from_capture); drawing it as pal[0]
+       painted the silhouette in COLOR0 (dark red in the cave palette).
+     - **Wrap to the opposite screen side** (page is a 368px CIRCULAR buffer → dpt→world is
+       only correct mod 368): guard `delta>=0` and `orow` within the playfield, so a
+       wrapped/off-screen image isn't drawn as a phantom on the far side.
+   - STILL OPEN (marry men): they are CULLED in the wide margins the same way the torches
+     were (#4) — but via their own char draw path (drawn per-frame from the main loop
+     $5770F8 → $57D6C4, NOT the object walker $57D79A, so the #4 walker-cull widening does
+     NOT cover them). When the wide camera scrolls a marry man into the margin the engine
+     stops blitting him → not in the blit-capture → can't be drawn. Needs his char-path cull
+     found + widened (same shape as #4). He renders correctly in the central view meanwhile.
+   - Scroll-tracking + wrap guard are logically derived (couldn't drive the camera to scroll
+     in-harness to empirically test); projection formula is identical to the proven bg/object
+     projection. Diagnostic tools
      added: REPL `blitskip <fn>` (ablate a routine's blits), `vren` (faithful `hw_render_frame`
      of current g_mem — note: that legacy renderer is now mostly dead/black, not a usable oracle;
      use PUAE).

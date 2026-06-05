@@ -681,9 +681,24 @@ static void native_wschar_compose(int pf_top, int pf_bot)
  * missed char. Drawn AFTER the other captures (no memset) so it only ADDS. Camera-
  * relative, so it covers the normal view + scroll margin (where these chars live);
  * the wide-margin pre-clip path stays the $57D8D0/$57D3F4 captures. */
+/* Last frame's missed-char draws, for the REPL `wsmc` inspector (so we never need an
+ * env-gated log to see what this pass added — the project debugs via the REPL). */
+typedef struct { int x, y, w, h; uint32_t src, mask; } WsMc;
+#define WSMC_MAX 32
+static WsMc s_wsmc[WSMC_MAX];
+static int  s_wsmc_n = 0;
+int native_wsmc_count(void) { return s_wsmc_n; }
+int native_wsmc_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint32_t *mask)
+{
+    if (i < 0 || i >= s_wsmc_n) return 0;
+    *x = s_wsmc[i].x; *y = s_wsmc[i].y; *w = s_wsmc[i].w; *h = s_wsmc[i].h;
+    *src = s_wsmc[i].src; *mask = s_wsmc[i].mask; return 1;
+}
+
 static void native_wsmissedchar_compose(int pf_top, int pf_bot, int cam16)
 {
     const uint8_t *M = g_mem;
+    s_wsmc_n = 0;
     if (!M || getenv("WS_NOOBJ") || s_nanchors < 1) return;
     uint32_t bp0 = s_anchors[0].ptr[0];
     uint32_t disp_base = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
@@ -691,10 +706,16 @@ static void native_wsmissedchar_compose(int pf_top, int pf_bot, int cam16)
     const BlitRec *rec = hw_blit_capture_recs();
     int n = hw_blit_capture_count();
 
-    /* gfx-identity dedup set: masks of every char the $57D3F4 builder captured + the
-     * player's mask (both are drawn by their own compose pass already). */
-    int nch = native_wschar_count();
-    int px0, py0, pw, ph, pblack; uint32_t pdb, pmb;
+    /* The other passes (list-A objects, $57D3F4 chars, player) already drew their
+     * sprites at the builder-captured world position. We must NOT re-draw those — only
+     * the genuinely UNCAPTURED ones (the Marry Men). We dedup by POSITION, which is the
+     * one identity stable across ANIMATION: a sprite's gfx/mask pointer changes every
+     * anim frame (so the old mask-based dedup let animated walkers slip through and
+     * ghost), but its world position does not. So a blit landing within a sprite's
+     * footprint of an already-captured sprite IS that sprite — skip it. */
+    int nch  = native_wschar_count();
+    int nobj = native_wsobj_count();
+    int px0, py0, pblack; uint32_t pdb, pmb;
     int have_player = native_wsplayer_get(&px0, &py0, &pdb, &pmb, &pblack);
 
     int i = 0;
@@ -710,14 +731,6 @@ static void native_wsmissedchar_compose(int pf_top, int pf_bot, int cam16)
         if (r0->w <= 0 || r0->h <= 0 || r0->w > 64 || r0->h > 256) continue;
         if (r0->dpt < disp_base || r0->dpt >= disp_base + WS_PLANE_STRIDE) continue;  /* displayed buffer */
 
-        int dup = 0;                                   /* already drawn by another pass? */
-        if (have_player && r0->mask == pmb) dup = 1;
-        for (int k = 0; !dup && k < nch; k++) {
-            int x, y, w, h, rs; uint32_t d, m;
-            if (native_wschar_get(k, &x, &y, &w, &h, &d, &m, &rs) && m == r0->mask) dup = 1;
-        }
-        if (dup) continue;
-
         /* camera-independent page->world projection (mirrors native_objlayer_project). */
         int32_t delta = (int32_t)(r0->dpt - bp0);
         int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE)
@@ -727,6 +740,42 @@ static void native_wsmissedchar_compose(int pf_top, int pf_bot, int cam16)
         int srow = r0->w * 2 + r0->smod, mrow = r0->w * 2 + r0->mmod;
         int draww = r0->w * 16 - r0->shift;
         if (srow <= 0 || mrow <= 0) continue;
+
+        /* WRAP guard. The page is a 368px circular buffer: a sprite whose dest sits
+         * before the displayed top-left (delta<0) or projects to a row outside the
+         * playfield is a wrap/stale image of an off-screen sprite — drawing it puts a
+         * phantom on the far side of the screen. Only the genuinely on-screen image
+         * (delta>=0, row within the playfield) is real. */
+        if (delta < 0) continue;
+        if (orow + r0->h <= 0 || orow >= (pf_bot - pf_top)) continue;
+
+        /* DEDUP. Primary key = gfx IDENTITY (the blit's source gfx pointer), which the
+         * other passes also store. This is WRAP-INDEPENDENT: the engine page is a 368px
+         * circular scroll buffer, so the dpt->world projection above is only correct
+         * mod 368 and can wrap a sprite to the far side at some scroll values — a
+         * position-only dedup then misses it and ghosts. The gfx pointer is the same no
+         * matter where the sprite sits, so matching it reliably identifies an already-
+         * drawn sprite (verified: a $57D3F4 walker's blit src == its captured data, even
+         * when its derived mask did not). POSITION is a secondary catch for the 1-frame
+         * anim skew (gfx ptr advanced a frame between capture and blit). */
+        const int DTOLX = 24, DTOLY = 10;
+        int dup = 0;
+        if (have_player && (r0->src == pdb || (abs(wx0 - px0) <= DTOLX && abs(orow - py0) <= DTOLY)))
+            dup = 1;
+        for (int k = 0; !dup && k < nobj; k++) {
+            int x, y, w, h; uint32_t s, m;
+            if (native_wsobj_get(k, &x, &y, &w, &h, &s, &m)
+                && (r0->src == s || (abs(wx0 - x) <= DTOLX && abs(orow - y) <= DTOLY))) dup = 1;
+        }
+        for (int k = 0; !dup && k < nch; k++) {
+            int x, y, w, h, rs; uint32_t d, m;
+            if (native_wschar_get(k, &x, &y, &w, &h, &d, &m, &rs)
+                && (r0->src == d || (abs(wx0 - x) <= DTOLX && abs(orow - y) <= DTOLY))) dup = 1;
+        }
+        if (dup) continue;
+
+        if (s_wsmc_n < WSMC_MAX)
+            s_wsmc[s_wsmc_n++] = (WsMc){ wx0, orow, r0->w, r0->h, r0->src, r0->mask };
 
         for (int py = 0; py < r0->h; py++) {
             int sy = pf_top + orow + py;
@@ -742,7 +791,10 @@ static void native_wsmissedchar_compose(int pf_top, int pf_bot, int cam16)
                     uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
                     if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
                 }
-                s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+                /* colour 0 = transparent (let the bg show), like native_objlayer_from_capture.
+                 * Drawing it as opaque pal[0] painted the sprite's mask silhouette in COLOR0
+                 * (dark red in the cave palette) — the spurious blinking red outline. */
+                if (ci) s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
             }
         }
     }
