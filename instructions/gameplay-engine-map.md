@@ -273,6 +273,10 @@ for the native wide renderer (and avoids the per-level magic-src-range trap).
 - **Double-buffer skew:** the queue is built into the BACK buffer, so a descriptor's dst is
   usually in the OTHER page than the displayed `bp0`. Project relative to the descriptor's
   own page base + the displayed coarse-scroll offset (see `native_wsstatic_compose`).
+- **A 4th draw system — LINE-mode chains** (chandelier ropes): routine `$57DD42` draws a
+  per-frame segment list at `$5ABB5E` (`{x0,y0,x1,y1}` world coords) via the OCS blitter LINE
+  mode, into the page. Page-only ⇒ invisible in the wide view; RE'd + port spec in
+  [[remaining-issues]] #6 (not yet ported — needs the chandelier chamber to verify).
 
 ### The static-object compositor `$57B0B4` — internals (RE'd 2026-06-05)
 

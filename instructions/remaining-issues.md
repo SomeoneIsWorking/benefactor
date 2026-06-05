@@ -201,14 +201,23 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    to ~320 (defeats widescreen) — so apply it ONLY to the margin==0 / 352 path, never to
    the wide (margin>0) path. See [[widescreen-plan]] "DIW over-fetch clip" history.
 
-6. **Line-blitter graphics (chandelier chains) not rendered natively.** OPEN. The engine
-   draws chain/rope graphics with the blitter in LINE mode (con1 bit0); the emulated
-   blitter renders them (line+fill implemented in `hw_do_blit`, see
-   [[project_blitter_line_fill]]), but they go into the engine PAGE, which the native wide
-   renderer ignores → invisible in widescreen (visible as a diagonal line top-left in the
-   L9 960px view). Same family as #1/#4: page-only draw not captured. FIX: capture the
-   line-blit segments (endpoints/colour) before the page write and draw them natively, or
-   fold into the unified pre-cull capture.
+6. **Line-blitter graphics (chandelier chains) not rendered natively.** OPEN (RE'd
+   2026-06-05; port-ready, but unverifiable in-harness — needs the chandelier chamber,
+   which the player can't be reliably driven to). The engine draws chain/rope graphics with
+   the blitter in LINE mode; `hw_do_blit` renders them ([[project_blitter_line_fill]]) into
+   the engine PAGE, which the native wide renderer ignores → invisible in widescreen.
+   **DRAW SUBSYSTEM RE'd:** routine `$57DD42` (gpl bank): `a0=$5ABB5E` = a per-frame line-
+   SEGMENT list = a `$544e`-marked word, then a `count` word, then `count × {x0,y0,x1,y1}`
+   in **WORLD coords** (s16); `a1=$5A1D18` row→page table, `d6=$67e(a5)` page base. Loop
+   `$57DD92` per segment: sort endpoints, dx=`$2A0C`-strided per plane, set BLTCON1 LINE mode
+   (`$42(a6)`), BLTADAT=`$FFFF8000`, AMOD/BMOD=`$2e`; executor tail `$57DE3C` issues the
+   octant line blit per plane (the `ori.l #$f00000,d0` on a later plane sets the colour bits).
+   `$5ABB5E` is EMPTY (count=0, `FFFF` marker) until the chandelier is active (verified on L31
+   start) → it's a dynamic per-frame buffer, NOT static level data. **PORT (when worth it):**
+   read `$5ABB5E` live each frame (marker/count/segments), draw each `{x0,y0,x1,y1}` natively
+   (Bresenham) at world coords across the wide view — clean endpoints, NO page-wrap. OPEN: the
+   exact line COLOUR (which plane(s) the line writes; the per-plane `$57DE3C` loop). Same
+   "draw from a clean per-frame list" shape as the Marry Men (`native_wsmm_compose`).
 
 ### Widescreen — DONE / NOT-A-BUG (verified this push series)
 - **Pause menu / overlays Z-order** — FIXED (2026-06-05): the pause/level-select/toast
