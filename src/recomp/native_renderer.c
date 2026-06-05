@@ -697,19 +697,61 @@ static void native_wschar_compose(int pf_top, int pf_bot)
 #define WS_STATIC_QUEUE 0x5A39ECu
 #define WS_STATIC_DESC  24
 
-/* native_wsstatic_compose: per-frame inspector count of what this pass drew (REPL). */
-static int s_wsstatic_drawn = 0;
-static int s_wsstatic_scanned = 0;
+/* native_wsstatic_compose: per-frame inspector counts (REPL `wsstatic`). */
+static int s_wsstatic_drawn = 0;       /* descriptors drawn from the live queue */
+static int s_wsstatic_scanned = 0;     /* descriptors in the queue this frame   */
+static int s_wsstatic_cached = 0;      /* distance-culled objects redrawn from cache */
 static uint32_t s_wsstatic_dbg_bp0 = 0, s_wsstatic_dbg_first = 0;
 int native_wsstatic_drawn(void) { return s_wsstatic_drawn; }
 int native_wsstatic_scanned(void) { return s_wsstatic_scanned; }
+int native_wsstatic_cached(void) { return s_wsstatic_cached; }
 uint32_t native_wsstatic_dbg_bp0(void) { return s_wsstatic_dbg_bp0; }
 uint32_t native_wsstatic_dbg_first(void) { return s_wsstatic_dbg_first; }
+
+/* Decode one cookie-cut static sprite (mask 1-plane gates; data 5-plane, plane stride
+ * h*rs; colour 0 transparent) into s_objlayer at absolute world (wx0, worldY). */
+static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
+                           int wx0, int worldY, int h, int rs, uint32_t data, uint32_t mask)
+{
+    int ww = rs / 2; if (ww < 1) ww = 1;             /* BLTALWM=0 kills the spillover word */
+    int wpx = ww * 16;
+    uint32_t pstride = (uint32_t)h * (uint32_t)rs;
+    if (data + pstride * 4u + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) return;
+    if (mask + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) return;
+    for (int py = 0; py < h; py++) {
+        int sy = pf_top + worldY + py;
+        if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+        const uint32_t *pal = s_scan[sy].palette;
+        for (int c = 0; c < wpx; c++) {
+            int wo = c >> 4, bit = 15 - (c & 15);
+            uint32_t rowoff = (uint32_t)py * (uint32_t)rs + (uint32_t)wo * 2u;
+            if (!((gmem_r16(M, mask + rowoff) >> bit) & 1u)) continue;  /* cookie-cut */
+            int wx = wx0 + c;
+            if (wx < 0 || wx >= WS_LAYER_W) continue;
+            int ci = 0;
+            for (int p = 0; p < 5; p++)
+                if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
+                    ci |= (1 << p);
+            if (ci) s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+        }
+    }
+}
+
+/* Persistence cache (see the LIMITATION note above): the engine only builds a $5A39EC
+ * descriptor while the object is within ~the 320px window, and the 368px page can't hold
+ * the wide margin, so a caged Marry Man scrolled into the margin would vanish. We cache
+ * each static object's gfx + ABSOLUTE world position while it's in view and keep drawing
+ * it once distance-culled; an object that disappears while still INSIDE the engine window
+ * is treated as removed (rescued/picked up) and dropped. Cache cleared on level change. */
+typedef struct { int wx, wy, h, rs; uint32_t data, mask; int valid, age; } WsScObj;
+#define WS_SC_MAX 24
+static WsScObj s_sc[WS_SC_MAX];
+static int s_sc_sig = -1;
 
 static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
 {
     const uint8_t *M = g_mem;
-    s_wsstatic_drawn = 0; s_wsstatic_scanned = 0;
+    s_wsstatic_drawn = 0; s_wsstatic_scanned = 0; s_wsstatic_cached = 0;
     if (!M || getenv("WS_NOOBJ") || s_nanchors < 1) return;
     uint32_t bp0 = s_anchors[0].ptr[0];
     s_wsstatic_dbg_bp0 = bp0; s_wsstatic_dbg_first = gmem_r32(M, WS_STATIC_QUEUE + 0x10u);
@@ -721,6 +763,11 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
      * exact; while scrolling it can be a few px off (the known edge-camera skew). */
     uint32_t disp_buf = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
     int scroll_off = (int)((int32_t)bp0 - (int32_t)disp_buf);
+
+    /* Level-change clear (level-edge signature a5+$107a/$107c = $57FE8C/$57FE8E). */
+    int sig = (int)(((uint32_t)gmem_r16(M, 0x57FE8Cu) << 16) | gmem_r16(M, 0x57FE8Eu));
+    if (sig != s_sc_sig) { memset(s_sc, 0, sizeof s_sc); s_sc_sig = sig; }
+    for (int i = 0; i < WS_SC_MAX; i++) if (s_sc[i].valid) s_sc[i].age++;
 
     /* Walk the object-only queue $5A39EC. Each 24-byte descriptor (the layout the
      * executor $57D6C4 reads with a6=$dff000): +0 data(B,5-plane), +4 mask(A,1-plane,
@@ -742,46 +789,38 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
         if (w <= 0 || h <= 0 || w > 64 || h > 256) continue;
         int rs = w * 2 + bmod;                           /* packed row stride (rows overlap) */
         if (rs <= 0) continue;
-        int ww = rs / 2; if (ww < 1) ww = 1;             /* displayed words: BLTALWM=0 kills the spillover */
-        int wpx = ww * 16;
-        uint32_t pstride = (uint32_t)h * (uint32_t)rs;   /* B-channel per-plane auto-advance */
-        if (data + pstride * 4u + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) continue;
-        if (mask + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) continue;
 
-        /* dst -> on-screen base. worldY = page row (Y never scrolls/wraps). worldX from
-         * the dst byte column is correct IN-VIEW but ambiguous mod the 368px circular
-         * page, so resolve the wrap with the builder's TRUE worldX (paired by worldY). */
+        /* dst -> on-screen base. worldY = page row (Y never scrolls). worldX from the dst
+         * byte column is correct IN-VIEW (ambiguous mod the 368px page only when wrapped). */
         uint32_t desc_buf = (dpt >= 0x038628u) ? 0x038628u : 0x02B3ECu;
         if (dpt < desc_buf || dpt >= desc_buf + WS_PLANE_STRIDE) continue;
         int32_t delta = (int32_t)(dpt - desc_buf) - scroll_off;
-        int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE)
-                                : -(((-delta) + WS_ROWSTRIDE - 1) / WS_ROWSTRIDE);
-        int xrel = (int)(delta - orow * WS_ROWSTRIDE);
-        int wx0  = cam16 + xrel * 8 + shift;             /* visual left of source bit 0 */
-        int worldY = orow;
+        if (delta < 0) continue;                         /* wrapped/off the displayed page */
+        int worldY = delta / WS_ROWSTRIDE;
+        int xrel = (int)(delta - worldY * WS_ROWSTRIDE);
+        int wx0  = cam16 + xrel * 8 + shift;             /* ABSOLUTE world X of source bit 0 */
         if (worldY + h <= 0 || worldY >= (pf_bot - pf_top)) continue;
 
-        if (delta < 0) continue;                         /* wrapped/off the displayed page → skip phantom */
-
         s_wsstatic_drawn++;
-        for (int py = 0; py < h; py++) {
-            int sy = pf_top + worldY + py;
-            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-            const uint32_t *pal = s_scan[sy].palette;
-            for (int c = 0; c < wpx; c++) {
-                int wo = c >> 4, bit = 15 - (c & 15);
-                uint32_t rowoff = (uint32_t)py * (uint32_t)rs + (uint32_t)wo * 2u;
-                if (!((gmem_r16(M, mask + rowoff) >> bit) & 1u)) continue;  /* cookie-cut */
-                int wx = wx0 + c;
-                if (wx < 0 || wx >= WS_LAYER_W) continue;
-                int ci = 0;
-                for (int p = 0; p < 5; p++)
-                    if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
-                        ci |= (1 << p);
-                /* colour 0 = transparent (let the bg show through the cookie-cut). */
-                if (ci) s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
-            }
-        }
+        ws_draw_static(M, pf_top, pf_bot, wx0, worldY, h, rs, data, mask);
+
+        /* Upsert into the persistence cache (match by absolute position; static objects
+         * don't move, so this refreshes the same slot every frame they're in view). */
+        int slot = -1;
+        for (int i = 0; i < WS_SC_MAX; i++)
+            if (s_sc[i].valid && abs(s_sc[i].wx - wx0) <= 12 && abs(s_sc[i].wy - worldY) <= 6) { slot = i; break; }
+        if (slot < 0) for (int i = 0; i < WS_SC_MAX; i++) if (!s_sc[i].valid) { slot = i; break; }
+        if (slot >= 0) s_sc[slot] = (WsScObj){ wx0, worldY, h, rs, data, mask, 1, 0 };
+    }
+
+    /* Redraw distance-culled cache entries (age>0 = not in this frame's queue). An entry
+     * absent but still well INSIDE the engine window was removed (rescued) → drop it. */
+    int rm_lo = cam16, rm_hi = cam16 + 304;
+    for (int i = 0; i < WS_SC_MAX; i++) {
+        if (!s_sc[i].valid || s_sc[i].age == 0) continue;        /* age==0 = just drawn from queue */
+        if (s_sc[i].wx >= rm_lo && s_sc[i].wx <= rm_hi && s_sc[i].age > 4) { s_sc[i].valid = 0; continue; }
+        ws_draw_static(M, pf_top, pf_bot, s_sc[i].wx, s_sc[i].wy, s_sc[i].h, s_sc[i].rs, s_sc[i].data, s_sc[i].mask);
+        s_wsstatic_cached++;
     }
 }
 

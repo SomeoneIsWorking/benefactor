@@ -609,10 +609,11 @@ int main(int argc, char **argv)
              * $5A39EC last frame, + the displayed bp0 and the first descriptor's dst. */
             extern int native_wsstatic_drawn(void);
             extern int native_wsstatic_scanned(void);
+            extern int native_wsstatic_cached(void);
             extern uint32_t native_wsstatic_dbg_bp0(void);
             extern uint32_t native_wsstatic_dbg_first(void);
-            printf("[wsstatic] queue $5A39EC scanned=%d drawn=%d bp0=$%06X firstdst=$%06X\n",
-                   native_wsstatic_scanned(), native_wsstatic_drawn(),
+            printf("[wsstatic] queue $5A39EC scanned=%d drawn=%d  cached(culled-redrawn)=%d  bp0=$%06X firstdst=$%06X\n",
+                   native_wsstatic_scanned(), native_wsstatic_drawn(), native_wsstatic_cached(),
                    native_wsstatic_dbg_bp0(), native_wsstatic_dbg_first());
         }
         else if (!strcmp(cmd, "blitskip")) {  /* blitskip <fn-hex|0> — DIAGNOSTIC: drop every blit issued
