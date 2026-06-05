@@ -764,30 +764,6 @@ int main(int argc, char **argv)
             printf("[wscmp] %u frames: total=%ld badframes=%d worst=%d@%d firstbad=%d\n",
                    frames, total, badframes, worst, worstf, firstbad);
         }
-        else if (!strcmp(cmd, "blits")) {  /* blits [minpx] — dump the world-layer blit groups the native
-                                              renderer processed last frame: class (Deco/Obj/Restore),
-                                              drop reason, computed world pos. Exposes WHY a blit drew/skipped.
-                                              minpx filters to groups >= that px-width (banner ~256). */
-            typedef struct { uint32_t src,dpt,mask; int w,h,np,con0,wx0,sy0,wpx; char cls,drop; } Dg;
-            extern int native_blitdiag(const Dg **out);
-            unsigned minpx = 0; sscanf(line, "%*s %u", &minpx);
-            const Dg *d; int nd = native_blitdiag(&d);
-            extern void native_blitdiag_ctx(int*,uint32_t*,uint32_t*);
-            int prev_n=0; uint32_t dispb=0, bp0=0; native_blitdiag_ctx(&prev_n,&dispb,&bp0);
-            printf("[blits] %d groups (minpx=%u)  s_prev_n=%d disp_base=%06X bplpt0=%06X  "
-                   "cls: D=deco O=obj R=restore  drop: b=unk-buf B=back-buf\n",
-                   nd, minpx, prev_n, dispb, bp0);
-            for (int k = 0; k < nd; k++) {
-                int px = d[k].w * 16;
-                if ((unsigned)px < minpx) continue;
-                printf("  src=%06X dpt=%06X msk=%06X np=%d %dx%d con0=%04X cls=%c%s",
-                       d[k].src, d[k].dpt, d[k].mask, d[k].np, px, d[k].h, d[k].con0,
-                       d[k].cls ? d[k].cls : '?',
-                       d[k].drop=='b' ? " DROP(unk-buf)" : d[k].drop=='B' ? " DROP(back-buf)" : "");
-                if (!d[k].drop) printf("  -> wx0=%d sy0=%d wpx=%d", d[k].wx0, d[k].sy0, d[k].wpx);
-                printf("\n");
-            }
-        }
         else if (!strcmp(cmd, "wsdiff")) {  /* wsdiff [maxframes] — step frame-by-frame with the CURRENT
                                                held input (fire/joy), comparing native@352 vs vanilla each
                                                frame, and STOP at the first frame that diverges. Reports the
@@ -887,28 +863,6 @@ int main(int argc, char **argv)
                 if ((unsigned)L[k].w < minw) continue;
                 printf("  con0=%04X con1=%04X %dx%d apt=%06X bpt=%06X cpt=%06X dpt=%06X cap=%c\n",
                        L[k].con0, L[k].con1, L[k].w, L[k].h, L[k].apt, L[k].bpt, L[k].cpt, L[k].dpt, L[k].reason);
-            }
-        }
-        else if (!strcmp(cmd, "pglist")) {  /* pglist [minw] — dump the native page display-list (live
-                                               page-sprites: objects + banner). disp_base shows which buffer
-                                               is currently projected. */
-            extern int native_pglist_dump(uint32_t*,uint32_t*,uint32_t*,int*,int*,int);
-            extern void native_blitdiag_ctx(int*,uint32_t*,uint32_t*);
-            unsigned minw=0; sscanf(line,"%*s %u",&minw);
-            uint32_t base[512],dpt[512],src0[512],mask[512]; int w[512],h[512],sx[512],sy[512],shf[512],np[512],dc[512];
-            int n = native_pglist_dump(base,dpt,src0,w,h,512);
-            extern int native_pglist_dump2(int*,int*,uint32_t*,int*,int*,int*,int);
-            native_pglist_dump2(sx,sy,mask,shf,np,dc,512);
-            int pn; uint32_t db,bp; native_blitdiag_ctx(&pn,&db,&bp);
-            extern void native_pglist_stats(long*,long*); long adds=0,rems=0; native_pglist_stats(&adds,&rems);
-            extern void native_objup_stats(long*,long*); long runs=0,nz=0; native_objup_stats(&runs,&nz);
-            printf("[pglist] %d live sprites  disp_base=%06X bplpt0=%06X  cum_adds=%ld cum_removes=%ld "
-                   "objup_runs=%ld objup_nonzero=%ld\n", n, db, bp, adds, rems, runs, nz);
-            for (int k=0;k<n && k<512;k++) {
-                if ((unsigned)w[k]*16 < minw) continue;
-                printf("  base=%06X dpt=%06X src0=%06X %dx%d sx=%d sy=%d msk=%06X shf=%d np=%d %s %s\n",
-                       base[k],dpt[k],src0[k],w[k]*16,h[k], sx[k],sy[k],mask[k],shf[k],np[k],
-                       dc[k]?"DECO":"obj", base[k]==db?"(DISPLAYED)":"(back)");
             }
         }
         else if (!strcmp(cmd, "wscap")) {  /* wscap — widescreen capture state: object/char counts + player */

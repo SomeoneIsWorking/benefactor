@@ -439,80 +439,39 @@ void native_render_frame(void)
 #define WS_PHASETAB 0x0057F4BCu      /* row-offset/phase table; entry[1].d2adj = row stride */
 #define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
 int g_ws_view_left = 0, g_ws_view_w = 0;   /* last wide-render view mapping (worldX = view_left + x) */
-/* s_objlayer holds the per-frame PROJECTION of the page display-list (decorations under
- * objects), in world coords (absolute world X, screen Y). Rebuilt each frame from s_pg. */
+/* ============================================================================
+ * WIDESCREEN GAMEPLAY SPRITE/OBJECT PIPELINE
+ *
+ * native_render_wide_bg() composes the whole gameplay frame natively across the wide
+ * output: the tilemap background (decoded by absolute world X) + every sprite category,
+ * drawn into a shared world-space object layer (s_objlayer: absolute world X, screen Y),
+ * then blitted to the output for the visible window. We do NOT read the engine's 368px
+ * page (it can't hold a wide view); each sprite category is captured at its engine choke
+ * point (camera-INDEPENDENT, before the engine's own clip) or resolved from level data,
+ * then drawn at its true world position. The capture overrides live in
+ * pc_overrides_gameplay.c; the compose passes are below. Categories:
+ *
+ *   list-A objects  $57D8D0  capture native_objdraw_capture  -> native_wsobj_compose
+ *                            (platforms, pickups, ladders, box; walker cull widened #4)
+ *   characters      $57D3F4  capture native_char_capture     -> native_wschar_compose
+ *                            (walkers, enemies, FREED marry men)
+ *   player          $57A666  capture native_player_capture   -> native_wsplayer_compose
+ *   static objects  $5A4562  (resolved from level data)      -> native_wsstatic_compose
+ *                            (caged Marry Men + queue $5A39EC objects; live anim, no cull)
+ *   banner          $578974+ capture native_banner_capture   -> native_wsbanner_overlay
+ *                            (GET READY / GAME OVER, drawn last as a centered UI overlay)
+ *
+ * (A superseded "page display-list" that reverse-projected raw blits — s_pg / *_ingest /
+ * *_project — was removed; it could not represent the wide margins and is not the model.)
+ * ============================================================================ */
 static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
 
-/* Per-group diagnostics, filled every frame by native_objlayer_update so the harness
- * `blits` command can expose WHY each captured blit was drawn/skipped (the CAUSE), not
- * just the pixel-diff result. */
-typedef struct {
-    uint32_t src, dpt, mask;
-    int      w, h, np, con0;
-    int      wx0, sy0, wpx;
-    char     cls;     /* 'D'eco 'O'bj 'R'estore                                */
-    char     drop;    /* 0=drawn, 'b'=unknown buffer, 'B'=not displayed buffer */
-} WsBlitDiag;
-static WsBlitDiag s_blitdiag[512];
-static int        s_blitdiag_n = 0;
-static int        s_diag_prev_n = 0;        /* s_prev count seen by the last layer update   */
-static uint32_t   s_diag_disp_base = 0, s_diag_bplpt0 = 0;
-
-/* Page display-list: the engine's playfield page is content that DRAW blits add and
- * background-restore blits remove. We mirror it as a list of live page-sprites keyed by
- * their page address (camera-independent), re-projected to the screen every frame from the
- * live BPL pointer. This is what lets a once-drawn overlay (the GET READY banner, drawn ~16
- * frames before the gameplay copper is even up) survive until its restore erases it — the
- * old 1-frame capture replay lost it the moment the screen wasn't a renderable playfield. */
-typedef struct {
-    uint32_t base;            /* double-buffer page this sprite lives in        */
-    uint32_t dpt;             /* plane-0 dest pointer (page address)            */
-    uint32_t src[5], mask;    /* gfx source per plane; mask plane (0 = opaque)  */
-    int      np, w, h, shift, smod, mmod;
-    int      deco;            /* 1 = static decoration (baked bg; restore can't erase it) */
-    int      pfill[5];        /* per plane: -1 = read src[p]; 0/1 = constant fill (no A/B src) */
-    int      pj_wx0, pj_sy0;  /* last projected world-X / screen-Y (diagnostics)          */
-} PgSprite;
-static int s_diag_cam16 = 0;
-#define PG_MAX 512
-static PgSprite s_pg[PG_MAX];
-static int      s_pgn = 0;
-static long     s_pg_adds = 0, s_pg_removes = 0;   /* cumulative, REPL-readable */
-static long     s_objup_runs = 0, s_objup_nonzero = 0;  /* update calls; calls that saw n>0 */
-void native_pglist_stats(long *adds, long *removes) { *adds = s_pg_adds; *removes = s_pg_removes; }
-void native_objup_stats(long *runs, long *nonzero) { *runs = s_objup_runs; *nonzero = s_objup_nonzero; }
-int native_pglist_dump(uint32_t *base, uint32_t *dpt, uint32_t *src0, int *w, int *h, int max)
-{
-    int n = s_pgn < max ? s_pgn : max;
-    for (int k = 0; k < n; k++) {
-        base[k]=s_pg[k].base; dpt[k]=s_pg[k].dpt; src0[k]=s_pg[k].src[0];
-        w[k]=s_pg[k].w; h[k]=s_pg[k].h;
-    }
-    return s_pgn;
-}
-/* extended dump: projected screen X (wx0-cam16), screen Y, mask, shift, np, deco */
-int native_pglist_dump2(int *sx, int *sy, uint32_t *mask, int *shift, int *np, int *deco, int max)
-{
-    int n = s_pgn < max ? s_pgn : max;
-    for (int k = 0; k < n; k++) {
-        sx[k]=s_pg[k].pj_wx0 - s_diag_cam16; sy[k]=s_pg[k].pj_sy0;
-        mask[k]=s_pg[k].mask; shift[k]=s_pg[k].shift; np[k]=s_pg[k].np; deco[k]=s_pg[k].deco;
-    }
-    return s_pgn;
-}
-int native_blitdiag(const WsBlitDiag **out) { *out = s_blitdiag; return s_blitdiag_n; }
-/* expose the page display-list for the REPL `pglist` inspector */
-int native_pglist_dump(uint32_t *base, uint32_t *dpt, uint32_t *src0, int *w, int *h, int max);
-void native_blitdiag_ctx(int *prev_n, uint32_t *disp_base, uint32_t *bplpt0)
-{ *prev_n = s_diag_prev_n; *disp_base = s_diag_disp_base; *bplpt0 = s_diag_bplpt0; }
 #define WS_GFXTAB   0x005A539Eu
 #define WS_CAMERA   0x0057FDBAu
 #define WS_EDGE_LO  0x0057FE8Cu
 #define WS_EDGE_HI  0x0057FE8Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
-static void native_objlayer_ingest(void);
-static void native_objlayer_project(int cam16, int pf_top, int pf_bot);
 
 /* Per-object draw params captured at the engine's $57D8D0 choke point (before its
  * 352px camera-clip) — the faithful, camera-independent source of every gameplay
@@ -543,7 +502,7 @@ static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
  * s_objlayer[y][worldX] over the tile background, sub-pixel-aligned via its own
  * worldX mapping — so objects and terrain share one absolute world coordinate, no
  * tuning constants. This REPLACES the blit-replay page display-list. */
-static void native_objlayer_from_capture(int pf_top, int pf_bot)
+static void native_wsobj_compose(int pf_top, int pf_bot)
 {
     const uint8_t *M = g_mem;
     memset(s_objlayer, 0, sizeof s_objlayer);
@@ -1062,7 +1021,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     if (pf_top < 0) return;
     /* Fill the object layer from the engine's captured per-object draw list, then
      * composite the player (drawn by its own routine $57A666, not the object loop). */
-    native_objlayer_from_capture(pf_top, pf_bot);
+    native_wsobj_compose(pf_top, pf_bot);
     native_wschar_compose(pf_top, pf_bot);
     native_wsplayer_compose(pf_top, pf_bot);
     native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
@@ -1146,149 +1105,4 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
  * where the shared mask plane is set (transparency). */
 /* WS_PLANE_STRIDE / WS_ROWSTRIDE defined above (near native_wsstatic_compose). */
 
-/* Page display-list model. The engine's playfield page is built by DRAW blits (objects,
- * the GET READY banner) and torn down by background-RESTORE blits. We mirror it as a list
- * of live page-sprites (s_pg), keyed by their page address — camera-independent — and
- * re-project the whole list to the screen every frame from the live BPL pointer. Static
- * decorations (box, torch) are baked into the saved bg, so a restore must NOT remove them;
- * those keep living in the persistent world-pixel s_decolayer exactly as before. */
-
-/* plane-0 page rectangle of a sprite/restore in page-relative (row, byte-col) space. */
-static void pg_rect(uint32_t base, uint32_t dpt, int w, int h,
-                    int *r0, int *c0, int *r1, int *c1)
-{
-    int off = (int)(dpt - base);
-    *r0 = off / WS_ROWSTRIDE; *r1 = *r0 + h;
-    *c0 = off % WS_ROWSTRIDE; *c1 = *c0 + w * 2;
-}
-static int pg_overlap(const PgSprite *s, uint32_t base, uint32_t dpt, int w, int h)
-{
-    if (s->base != base) return 0;
-    int ar0,ac0,ar1,ac1, br0,bc0,br1,bc1;
-    pg_rect(s->base, s->dpt, s->w, s->h, &ar0,&ac0,&ar1,&ac1);
-    pg_rect(base,    dpt,    w,    h,    &br0,&bc0,&br1,&bc1);
-    return !(ar1 <= br0 || br1 <= ar0 || ac1 <= bc0 || bc1 <= ac0);
-}
-
-/* Ingest this frame's captured blits into the page display-list. GEOMETRY-FREE, so it can
- * (and must) run on EVERY present — even during the copper transition before the gameplay
- * playfield exists. The GET READY banner is drawn ~16 frames before the gameplay copper
- * comes up; the old code gated the whole update behind the gameplay-copper check, so the
- * banner was wiped from the 1-frame capture long before it could be displayed. Restore
- * blits remove the (non-decoration) sprites they overwrite; object/decoration draws are
- * added or refreshed in place. Keyed by page address → camera-independent. */
-static void native_objlayer_ingest(void)
-{
-    int n = hw_blit_capture_count();
-    const BlitRec *rec = hw_blit_capture_recs();
-    if (!g_mem) return;
-    s_diag_prev_n = n;
-    s_diag_bplpt0 = (s_nanchors >= 1) ? s_anchors[0].ptr[0] : 0u;
-    s_diag_disp_base = (s_diag_bplpt0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
-    s_blitdiag_n = 0;
-    s_objup_runs++; if (n > 0) s_objup_nonzero++;
-
-    int i = 0;
-    while (i < n) {
-        int g0 = i, np = 1;
-        while (i + np < n && np < 5
-               && rec[i + np].dpt == rec[i + np - 1].dpt + WS_PLANE_STRIDE
-               && rec[i + np].w == rec[g0].w && rec[i + np].h == rec[g0].h) np++;
-        const BlitRec *r0 = &rec[g0];
-        i += np;
-
-        WsBlitDiag *dg = (s_blitdiag_n < (int)(sizeof s_blitdiag / sizeof s_blitdiag[0]))
-                         ? &s_blitdiag[s_blitdiag_n++] : NULL;
-        if (dg) { *dg = (WsBlitDiag){0}; dg->src=r0->src; dg->dpt=r0->dpt; dg->mask=r0->mask;
-                  dg->w=r0->w; dg->h=r0->h; dg->np=np; dg->con0=r0->con0; }
-
-        uint32_t base;
-        if (r0->dpt >= 0x038628u && r0->dpt < 0x038628u + WS_PLANE_STRIDE) base = 0x038628u;
-        else if (r0->dpt >= 0x02B3ECu && r0->dpt < 0x02B3ECu + WS_PLANE_STRIDE) base = 0x02B3ECu;
-        else { if (dg) dg->drop = 'b'; continue; }
-
-        /* Skip pure fills (no A/B source channel, e.g. the full-page clear con0=$0100): they
-         * are page background prep, not sprites — projecting one paints a giant rectangle. */
-        if (!((r0->con0 >> 11) & 1) && !((r0->con0 >> 10) & 1)) { if (dg) dg->drop = 'f'; continue; }
-
-        int masked  = (r0->mask != 0u);
-        int restore = (!masked && r0->src >= 0x045000u && r0->src < 0x054000u);  /* bg-restore */
-        int deco    = (r0->src >= 0x054000u && r0->src < 0x060000u);             /* baked-in   */
-        if (dg) dg->cls = deco ? 'D' : (restore ? 'R' : 'O');
-
-        if (restore) {                            /* remove the (non-deco) sprites it overwrites */
-            for (int k = 0; k < s_pgn; )
-                if (!s_pg[k].deco && pg_overlap(&s_pg[k], base, r0->dpt, r0->w, r0->h))
-                    { s_pg[k] = s_pg[--s_pgn]; s_pg_removes++; }
-                else k++;
-            continue;
-        }
-        /* object/banner/decoration: add, or refresh an entry already at this page address. */
-        PgSprite *ps = NULL;
-        for (int k = 0; k < s_pgn; k++)
-            if (s_pg[k].base == base && s_pg[k].dpt == r0->dpt) { ps = &s_pg[k]; break; }
-        if (!ps && s_pgn < PG_MAX) { ps = &s_pg[s_pgn++]; s_pg_adds++; }
-        if (ps) {
-            ps->base=base; ps->dpt=r0->dpt; ps->mask=r0->mask; ps->np=np; ps->deco=deco;
-            ps->w=r0->w; ps->h=r0->h; ps->shift=r0->shift; ps->smod=r0->smod; ps->mmod=r0->mmod;
-            for (int p = 0; p < np; p++) {
-                ps->src[p] = rec[g0 + p].src;
-                /* A plane with no A/B source channel is a constant fill (minterm output for
-                 * all-zero inputs = con0 bit0), e.g. a "set this plane to 1 everywhere" used
-                 * to push a sprite into the bright COLOR16-31 range. Reading it as gfx would
-                 * corrupt that plane's bit. */
-                uint16_t c = rec[g0 + p].con0;
-                ps->pfill[p] = (((c >> 11) & 1) || ((c >> 10) & 1)) ? -1 : (int)(c & 1);
-            }
-        }
-    }
-}
-
-/* Project the displayed buffer's live page-list into s_objlayer (decorations first, then
- * objects on top), using the live BPL pointer + camera. Requires a renderable playfield. */
-static void native_objlayer_project(int cam16, int pf_top, int pf_bot)
-{
-    const uint8_t *M = g_mem;
-    if (s_nanchors < 1) return;
-    uint32_t disp_base = (s_anchors[0].ptr[0] >= 0x038628u) ? 0x038628u : 0x02B3ECu;
-    memset(s_objlayer, 0, sizeof s_objlayer);
-    s_diag_cam16 = cam16;
-    for (int pass = 1; pass >= 0; pass--) {            /* pass 1 = decorations, pass 0 = objects */
-        for (int k = 0; k < s_pgn; k++) {
-            PgSprite *ps = &s_pg[k];
-            if (ps->base != disp_base || ps->deco != pass) continue;
-            int32_t delta = (int32_t)(ps->dpt - s_anchors[0].ptr[0]);
-            int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE)
-                                    : -(((-delta) + WS_ROWSTRIDE - 1) / WS_ROWSTRIDE);
-            int xrel = (int)(delta - orow * WS_ROWSTRIDE);
-            int wpx = ps->w * 16, srow = ps->w * 2 + ps->smod, mrow = ps->w * 2 + ps->mmod;
-            int masked = (ps->mask != 0u), wx0 = cam16 + xrel * 8 + ps->shift;
-            /* The OCS barrel-shifter shifts the source right by `shift` within the fixed w
-             * dest words; the rightmost `shift` source columns are shifted past the last
-             * word and dropped. Draw only those columns (drawing all wpx paints `shift`
-             * phantom columns at the right edge). */
-            int draww = wpx - ps->shift;
-            ps->pj_wx0 = wx0; ps->pj_sy0 = pf_top + orow;
-            for (int py = 0; py < ps->h; py++) {
-                int sy = pf_top + orow + py;
-                if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-                const uint32_t *pal = s_scan[sy].palette;
-                for (int px = 0; px < draww; px++) {
-                    int wx = wx0 + px; if (wx < 0 || wx >= WS_LAYER_W) continue;
-                    if (masked) {
-                        uint32_t ma = ps->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
-                        if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
-                    }
-                    int ci = 0;
-                    for (int p = 0; p < ps->np; p++) {
-                        if (ps->pfill[p] >= 0) { if (ps->pfill[p]) ci |= (1 << p); continue; }
-                        uint32_t sa = ps->src[p] + (uint32_t)py * srow + (uint32_t)(px >> 3);
-                        if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
-                    }
-                    s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0xFFFFFFu);
-                }
-            }
-        }
-    }
-}
 
