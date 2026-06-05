@@ -16,8 +16,9 @@ tilemap + per-routine sprite captures, ignoring the engine page. Anything drawn 
 into the page by a path we DON'T capture is invisible. Full routine map +
 verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
-1. **Marry Men (rescued creatures) invisible.** **FIXED (2026-06-05, proper builder/queue
-   capture).** The caged Marry Man = the short red-shirt figure inside the **cage** (grey
+1. **Marry Men (rescued creatures) invisible.** **MOSTLY FIXED (2026-06-05).** Render, don't
+   duplicate, correct colour IN VIEW; remaining: off-view "blind" variant (see OPEN below).
+   The caged Marry Man = the short red-shirt figure inside the **cage** (grey
    two-pillar cell with a cross on the right pillar), NOT the teleporter (the green figure in
    the bottom-left grey structure is the PLAYER — do not chase him).
 
@@ -41,55 +42,39 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    - The **FREED/walking** marry man (cage opened) becomes a NORMAL `$05xxxx` character in the
      `$10e6(a5)` char list, drawn per-frame via `$57D3F4` → ALREADY captured & rendered.
 
-   **FIX (`native_wsstatic_compose` in native_renderer.c + `native_staticobj_capture`
-   `$57B0EE` override).** Walk the object-only queue `$5A39EC`, decode each cookie-cut
-   descriptor (mask 1-plane gates, data 5-plane plane-stride `h*rs`, transparent colour-0),
-   place at the dst-projected world position. The builder override captures each record's TRUE
-   worldX/worldY (clean, pre-cull) so the renderer can pair by worldY and snap a genuine 368px
-   page-wrap to the true position. Double-buffer skew handled by projecting against the
-   descriptor's OWN page base + the displayed coarse-scroll offset (the queue is built into the
-   BACK buffer, so dst is usually in the other page than bp0). Runs only for wide output
-   (`ow>352`) → default 352 byte-untouched. VERIFIED (L1, 960px,
-   `scratch/screenshots/mm_crop960.png`): marry man renders cleanly in the cage, NO red
-   outline, NO ghosting; one figure only. L9: queue empty there → pass inert (drawn=0), no
-   doubling. REPL: `wsstatic` (= old `wsmc`) reports records-captured / queue scanned / drawn.
+   **ARCHITECTURE (`native_wsstatic_compose`, native_renderer.c).** The `$5A4562` placement
+   list is Marry-Men-ONLY (records: +0 type[0=end], +2 worldX, +4 worldY, +$a LIVE anim cursor,
+   +$c cached handler ptr ==`$57C13A`; stride 64). Each Marry Man is drawn EXACTLY ONCE, paired
+   to the engine's per-frame queue `$5A39EC` by **worldY** (the page row from dst — it never
+   scrolls/wraps, so the match is EXACT; pairing by X was the bug that caused scroll-dependent
+   DUPLICATION, since dst→X is only correct mod the 368px page):
+   - **in view** (a queue descriptor matches its row) → drawn from that descriptor = the engine's
+     EXACT resolved gfx (correct frame AND variant — see the variant note below). Source of truth.
+   - **off view** (no descriptor; engine culls at `$57b4dc` `[cam,cam+$160]`, and the 368px page
+     can't hold the wide margin) → drawn from the placement record, natively resolving the LIVE
+     animation frame: `frame=MR16($5d5a(a5)+cursor)` → `gfx=$4a72(a5)+frame*8` →
+     `{data_off+$EEFA, mask_off+$12E7E, yoff, BLTSIZE}`, cookie-cut, BMOD=-2, left=worldX-8,
+     top=clamp(worldY,$D7)+yoff. Verified numerically (L1 cursor $46→frame 50→data=$010052).
+   An unmatched queue descriptor (far-side page wrap) is DROPPED, never drawn (no phantom). No
+   X-dedup, no learned offset, no persistence cache. Runs only for `ow>352` (default 352 untouched).
+
+   **OPEN — off-view "blind" (gray) variant (RE not finished; do NOT hack).** The Marry Man has
+   two variants: painted/RED (record type bit7 clear → sub-handler $57BA74 → build `$57B19E` →
+   `$4a72` gfx) and blind/GRAY (type bit7 set → sub-handler $57BBF8 → build **`$57B856`**, a
+   TERRAIN-gfx path using tables `$5a5d9c`/`$55ba(a5)`/`$5042(a5)`/`$5a211c`). The native off-view
+   resolver only does the RED path, so an off-view BLIND Marry Man renders red. IN VIEW it is
+   correct (queue gfx is the engine's exact variant). To finish: RE `$57B856` so the blind gfx is
+   resolved from the record off-view too. Do NOT substitute a learned delta / frozen cache /
+   second source (all tried, all rejected — see [[feedback_no_hacks_re_first]]).
 
    **FALSIFIED prior claims (do NOT re-chase):**
    - ~~"drawn by a non-$57D3F4 BUILDER feeding $57D6C4 ($57D5AA/$57D6F2)"~~ — he's an OBJECT
      built by `$57B0B4` into queue `$5A39EC`; `$57D5AA`/`$57D6C4` are the queue EXECUTORS.
-   - ~~`native_wsmissedchar_compose` page-blit reverse-projection (`hw_blit_capture`)~~ —
-     DELETED. It re-drew EVERY page blit → ghosting (needed gfx-identity dedup), reverse-
-     projected the 368px circular page → opposite-side wrap phantoms, and painted colour-0
-     opaque → the blinking red outline. This was the rejected `s_pg` architecture re-added;
-     the symptoms the user reported ("walker/key ghost", "duplicate on the other side", "red
-     outline") were ALL artifacts of it. Replaced by the builder/queue capture above.
-
-   **Margin cull — FIXED PROPERLY via live record resolution (2026-06-05).** The engine only
-   builds a `$5A39EC` descriptor while the object is within `[cam, cam+$160]` (the cull at
-   `$57b4dc`), and the 368px page can't hold a 960px view, so a caged Marry Man scrolled into
-   the wide margin (or one never yet approached) had no descriptor → vanished. (An earlier
-   persistence-cache attempt was a BANDAID: it froze the cached frame, so the animation stopped
-   off-screen, and it could never show a never-approached Marry Man — both correctly called out.)
-   FIX (`native_wsmm_compose` in native_renderer.c): resolve each Marry Man DIRECTLY from his
-   placement record every frame and draw natively across the full wide view, independent of the
-   engine's draw cull. RE of the compositor `$57B0B4`/handler `$57C13A`/build `$57B19E..$57B558`:
-   - records at `$5A4562` (stride 64): +0 type (0=end), +2 worldX, +4 worldY, +$a LIVE anim
-     cursor (the per-record loop advances+writes it back for EVERY record BEFORE the cull, so it
-     ticks even off-screen), +$c cached draw-handler ptr (==`$57C13A` ⇒ Marry Man).
-   - frame = `MR16($5d5a(a5) + cursor)`; gfx entry = `$4a72(a5) + frame*8` → {data_off, mask_off,
-     yoff, BLTSIZE}; data = data_off+`$EEFA`, mask = mask_off+`$12E7E`; cookie-cut, BMOD=-2;
-     left = worldX-8, top = clamp(worldY,$D7)+yoff. VERIFIED numerically on L1 (cursor $46 →
-     frame 50 → data=$010052 mask=$0131F6 size=$0242) and in-app on L5 (960px): walking right,
-     `wsstatic` shows the queue drain (scanned 2→0) while `marrymen` stays 3 (incl. one at worldX
-     642 never approached), the cursor advances 86→92→98 (live anim), all 3 render across the
-     view (`scratch/screenshots/l5mm_v.png`). Queue-walk dedups Marry Men by position; default
-     352 untouched. REPL `wsstatic` reports scanned/drawn/marrymen.
-   NOT an issue (verified): the `$5A4562` list is Marry-Men-ONLY — on L5 records [0..2] are the
-   3 marry men (handler `$57C13A`), records [3..4] have invalid handler ptrs (`$00350008`) i.e.
-   they are not drawable objects, just trailing data. The real DECORATIONS (torches/teleporter/
-   enemies, `$06xxxx`) go through the object WALKER → `$57D8D0` path, whose cull was widened and
-   whose animation is captured in #4 — they are already handled. So no further static-object
-   handler port is needed for the visible gameplay sprites.
+   - ~~`native_wsmissedchar_compose` page-blit reverse-projection~~, ~~persistence cache~~,
+     ~~`$57B0EE` builder hook~~, ~~learned variant offset~~ — ALL removed; all were hacks that
+     produced ghosting / frozen anim / wrap phantoms / DUPLICATION. See [[feedback_no_hacks_re_first]].
+   The real DECORATIONS (torches/teleporter/enemies, `$06xxxx`) go through the object WALKER →
+   `$57D8D0` path (cull widened + anim captured in #4) — already handled, not part of this list.
 
 2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
    VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports

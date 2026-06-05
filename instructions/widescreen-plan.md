@@ -303,10 +303,12 @@ coords) processed per-frame by the object compositor **`$57B0B4`** (per-record r
 played by executor **`$57D6C4`** (via `$57D56C`). His gfx is `$01xxxx` (shared low-mem creature
 pool), so the `$05xxxx` char builder `$57D3F4` never sees him. The FREED/walking marry man
 becomes a normal `$05xxxx` char (`$10e6(a5)` list → `$57D3F4`) and is already captured. FIX:
-`native_wsstatic_compose` walks `$5A39EC` + `native_staticobj_capture` (`$57B0EE`) captures the
-true worldX/worldY; see remaining-issues.md #1. (The page-blit reverse-projection
-`native_wsmissedchar_compose` that briefly "fixed" this was the rejected `s_pg` approach and is
-DELETED — it caused the ghosting/red-outline/opposite-side phantoms.)
+`native_wsstatic_compose` draws each Marry Man once — in view from the engine's exact `$5A39EC`
+descriptor (paired by worldY; correct frame + gray/red variant), off view by natively replaying
+the RED `$4a72` resolution. See remaining-issues.md #1 (incl. the OPEN off-view blind variant,
+`$57B856`, to RE — do not hack). Several earlier attempts here were HACKS that got reverted (page-
+blit reverse-projection `native_wsmissedchar_compose`/`s_pg`; persistence cache; `$57B0EE` builder
+hook; learned variant offset) — see [[feedback-no-hacks-re-first]].
 
 **GET READY / GAME OVER banners (`578974` etc.)** — full art spec VERIFIED: cookie-cut
 `con0=$AFCA`, **DATA(B)=$A49A, MASK(A)=$BDCC** (single mask, all 5 planes), w=16 h=43 BMOD=-2,
