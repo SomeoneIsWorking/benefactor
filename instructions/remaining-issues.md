@@ -59,13 +59,18 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    X-dedup, no learned offset, no persistence cache. Runs only for `ow>352` (default 352 untouched).
 
    **OPEN — off-view "blind" (gray) variant (RE not finished; do NOT hack).** The Marry Man has
-   two variants: painted/RED (record type bit7 clear → sub-handler $57BA74 → build `$57B19E` →
-   `$4a72` gfx) and blind/GRAY (type bit7 set → sub-handler $57BBF8 → build **`$57B856`**, a
-   TERRAIN-gfx path using tables `$5a5d9c`/`$55ba(a5)`/`$5042(a5)`/`$5a211c`). The native off-view
-   resolver only does the RED path, so an off-view BLIND Marry Man renders red. IN VIEW it is
-   correct (queue gfx is the engine's exact variant). To finish: RE `$57B856` so the blind gfx is
-   resolved from the record off-view too. Do NOT substitute a learned delta / frozen cache /
-   second source (all tried, all rejected — see [[feedback_no_hacks_re_first]]).
+   two variants, selected by record **type bit7**: painted/RED (clear → sub-handler `$57BA74` →
+   build `$57B19E` → `$4a72` gfx) and blind/GRAY (set, e.g. type=$82 → sub-handler `$57BBF8` →
+   build **`$57B856`**, a TERRAIN-gfx path using `$5a5d9c`/`$55ba(a5)`/`$5042(a5)`/`$5a211c`).
+   DECODED (user L9 savestate): the blind sprite is the SAME SHAPE as red, recoloured into the
+   gray palette band (colour indices ~$18–$1D vs red's ~$11–$18), and its gfx is exactly
+   **red + $4C38** (BOTH data $010052→$014C8A and mask $0131F6→$017E2E) — i.e. a parallel gray
+   sprite sheet $4C38 after the red one. The native off-view resolver only does the RED path, so
+   an off-view BLIND Marry Man renders RED; IN VIEW it is correct (the queue carries the engine's
+   exact gray gfx). To FINISH PROPERLY: RE `$57B856`'s gfx resolution so the blind data/mask are
+   derived from the record off-view (replay of its index math does NOT yet reproduce $014C8A, so
+   it isn't understood). Do NOT hardcode the $4C38 offset (magic constant) or re-learn the delta
+   from the queue (both are the hacks already rejected — see [[feedback_no_hacks_re_first]]).
 
    **FALSIFIED prior claims (do NOT re-chase):**
    - ~~"drawn by a non-$57D3F4 BUILDER feeding $57D6C4 ($57D5AA/$57D6F2)"~~ — he's an OBJECT
