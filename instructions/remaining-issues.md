@@ -16,8 +16,8 @@ tilemap + per-routine sprite captures, ignoring the engine page. Anything drawn 
 into the page by a path we DON'T capture is invisible. Full routine map +
 verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
-1. **Marry Men (rescued creatures) invisible.** OPEN — **ROOT CAUSE NAILED (2026-06-05),
-   fix not yet built.** The Marry Man = the short red-shirt figure inside the **cage** (grey
+1. **Marry Men (rescued creatures) invisible.** **FIXED (2026-06-05).** The Marry Man = the
+   short red-shirt figure inside the **cage** (grey
    two-pillar cell with a cross on the right pillar), NOT the teleporter (the green figure in
    the bottom-left grey structure is the PLAYER — do not chase him). On L1 the cage sits at
    ~worldX 67, page dpt `$02C338`. CONFIRMED VIA ABLATION (REPL `blitskip <fn>` drops every
@@ -38,11 +38,20 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
      the queue not registers). PAGE dpt is camera-INDEPENDENT (page = full level width), so
      dpt→worldX/worldY is derivable (page base `$02B3EC`/`$038628`, row stride `$2E`=46 → L1
      marry man dpt `$02C338` decodes to worldY≈85, worldX≈48+ASH, matches the cage).
-   - NEXT (fix): capture the marry-man char at the blit (the one place every plane resolves)
-     — record plane-0 `{dpt→world, data, mask, w, h, ASH, bmod}` for `fn=57D6C4` chars the
-     `$57D3F4` builder didn't capture (his data `$01xxxx` vs the builder's `$05xxxx`), dedup the
-     5 planes, and draw via the wide CHAR compositor (`native_wschar_compose`). Same
-     capture-and-replay model as `$57D8D0`/`$57D3F4`; no engine-page reading. Diagnostic tools
+   - FIX (`native_wsmissedchar_compose` in native_renderer.c, called from
+     `native_render_wide_bg` after the other captures): his blit is ALREADY recorded in the
+     blit-capture (`hw_blit_capture`, con0=AFCA passes the filter). We project the cookie-cut
+     char blits the OTHER capture systems don't draw, into `s_objlayer`, using the SAME
+     camera-independent page→world projection the (dead) `s_pg` list used
+     (`worldX = cam16 + xrel*8 + ASH`, `xrel = (dpt - displayed_BPL_ptr) % rowstride`). DEDUP
+     is by gfx IDENTITY — skip any blit whose MASK ptr matches a `$57D3F4`-captured char or the
+     player (already drawn by their own pass) — NEVER by src RANGE (which is per-level). Opaque
+     (list-A) and bg-restore blits are excluded (mask==0). Runs only for wide output
+     (`ow>352`) or the WS_CMP gate, so default 352 is byte-untouched. VERIFIED (L1, 960px):
+     marry man now renders in the cage; pre-fix vs post-fix wide frame diff = 49px in ONE 16×9
+     region (his figure) and nothing else → no enemy/object doubling, dedup correct. worldX
+     ≈63-79 (cage ~67). Scroll-tracking is by construction (identical formula to the proven bg
+     + object projection). `scratch/screenshots/mm_full.png`. Diagnostic tools
      added: REPL `blitskip <fn>` (ablate a routine's blits), `vren` (faithful `hw_render_frame`
      of current g_mem — note: that legacy renderer is now mostly dead/black, not a usable oracle;
      use PUAE).
