@@ -698,9 +698,9 @@ static void native_wschar_compose(int pf_top, int pf_bot)
 #define WS_STATIC_DESC  24
 
 /* native_wsstatic_compose: per-frame inspector counts (REPL `wsstatic`). */
-static int s_wsstatic_drawn = 0;       /* descriptors drawn from the live queue */
+static int s_wsstatic_drawn = 0;       /* non-Marry-Man descriptors drawn from the queue */
 static int s_wsstatic_scanned = 0;     /* descriptors in the queue this frame   */
-static int s_wsstatic_cached = 0;      /* distance-culled objects redrawn from cache */
+static int s_wsstatic_cached = 0;      /* Marry Men resolved+drawn from placement records */
 static uint32_t s_wsstatic_dbg_bp0 = 0, s_wsstatic_dbg_first = 0;
 int native_wsstatic_drawn(void) { return s_wsstatic_drawn; }
 int native_wsstatic_scanned(void) { return s_wsstatic_scanned; }
@@ -737,16 +737,63 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
     }
 }
 
-/* Persistence cache (see the LIMITATION note above): the engine only builds a $5A39EC
- * descriptor while the object is within ~the 320px window, and the 368px page can't hold
- * the wide margin, so a caged Marry Man scrolled into the margin would vanish. We cache
- * each static object's gfx + ABSOLUTE world position while it's in view and keep drawing
- * it once distance-culled; an object that disappears while still INSIDE the engine window
- * is treated as removed (rescued/picked up) and dropped. Cache cleared on level change. */
-typedef struct { int wx, wy, h, rs; uint32_t data, mask; int valid, age; } WsScObj;
-#define WS_SC_MAX 24
-static WsScObj s_sc[WS_SC_MAX];
-static int s_sc_sig = -1;
+/* PROPER live resolution of the caged "Marry Men" from their PLACEMENT RECORDS — drawn
+ * across the full wide view, with LIVE animation, independent of the engine's draw cull.
+ * RE (disasm of the object compositor $57B0B4 / draw handler $57C13A / build $57B19E..
+ * $57B558, verified numerically against L1 record [0]):
+ *   - Placement records: base $5A4562, stride 64. +0 type (0=end), +2 worldX, +4 worldY,
+ *     +$a LIVE anim cursor (the engine advances it for EVERY record each frame, in the
+ *     per-record loop BEFORE the draw cull — so it ticks even off-screen), +$c cached draw
+ *     handler ptr (== $57C13A identifies a Marry Man).
+ *   - frame index = MR16($5d5a(a5) + cursor)              [the $57C13A anim table]
+ *   - gfx entry   = $4a72(a5) + frame*8 → {data_off, mask_off, yoff, BLTSIZE}
+ *   - data = data_off + $EEFA,  mask = mask_off + $12E7E   (cookie-cut, BMOD=-2)
+ *   - sprite left = worldX-8 (the $57b50e subq #8 + ASH=(worldX-8)&15), top = clamp(worldY,
+ *     $D7)+yoff. Verified: L1 cursor $46 → frame 50 → data=$010052 mask=$0131F6 size=$0242.
+ * This replaces the earlier persistence-cache BANDAID (which froze the animation and could
+ * not show a never-approached Marry Man). The engine still page-culls its own draw at
+ * $57b4dc [cam,cam+$160]; we ignore that and draw from the record across the wide view. */
+#define WS_REC_BASE   0x5A4562u
+#define WS_REC_STRIDE 64
+#define WS_MM_HANDLER 0x57C13Au
+#define WS_GFX_TABLE  0x4A72u          /* a5-relative: $583884 */
+#define WS_ANIM_TABLE 0x5D5Au          /* a5-relative: $584B6C ($57C13A anim) */
+#define WS_GFX_DATA_ADD 0xEEFAu
+#define WS_GFX_MASK_ADD 0x12E7Eu
+
+static int native_wsmm_compose(const uint8_t *M, int pf_top, int pf_bot,
+                               int *mmx, int *mmy, int maxn)
+{
+    uint32_t a5 = 0x57EE12u;
+    uint32_t gtab = a5 + WS_GFX_TABLE, anim = a5 + WS_ANIM_TABLE;
+    int n = 0;
+    for (int k = 0; k < 64; k++) {
+        uint32_t rec = WS_REC_BASE + (uint32_t)k * WS_REC_STRIDE;
+        if (rec + 0x10u > RT_MEM_SIZE) break;
+        int type = gmem_r16(M, rec);
+        if (type == 0) break;                               /* end of placement list */
+        if (gmem_r32(M, rec + 0x0Cu) != WS_MM_HANDLER) continue;   /* not a Marry Man */
+        int worldX = (int16_t)gmem_r16(M, rec + 2u);
+        int worldY = (int16_t)gmem_r16(M, rec + 4u);
+        uint16_t cursor = gmem_r16(M, rec + 0x0Au);         /* LIVE anim cursor */
+        if (anim + cursor + 2u > RT_MEM_SIZE) continue;
+        int frame = gmem_r16(M, anim + cursor);
+        uint32_t e = gtab + (uint32_t)frame * 8u;
+        if (e + 8u > RT_MEM_SIZE) continue;
+        uint32_t data = (gmem_r16(M, e) + WS_GFX_DATA_ADD) & 0xFFFFFFu;
+        uint32_t mask = (gmem_r16(M, e + 2u) + WS_GFX_MASK_ADD) & 0xFFFFFFu;
+        int yoff = (int16_t)gmem_r16(M, e + 4u);
+        uint16_t bsz = gmem_r16(M, e + 6u);
+        int w = bsz & 0x3F, h = bsz >> 6;
+        if (w <= 0 || h <= 0 || w > 64 || h > 256) continue;
+        int rs = w * 2 - 2; if (rs <= 0) continue;          /* BMOD = -2 */
+        if (worldY > 0xD7) worldY = 0xD7;                   /* engine clamps d2 to $D7 */
+        int left = worldX - 8, top = worldY + yoff;
+        ws_draw_static(M, pf_top, pf_bot, left, top, h, rs, data, mask);
+        if (mmx && n < maxn) { mmx[n] = worldX; mmy[n] = top; n++; }
+    }
+    return n;
+}
 
 static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
 {
@@ -755,6 +802,14 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
     if (!M || getenv("WS_NOOBJ") || s_nanchors < 1) return;
     uint32_t bp0 = s_anchors[0].ptr[0];
     s_wsstatic_dbg_bp0 = bp0; s_wsstatic_dbg_first = gmem_r32(M, WS_STATIC_QUEUE + 0x10u);
+
+    /* Marry Men: resolved+drawn natively from their placement records (live anim, full
+     * width). s_wsstatic_cached counts them. Collect their world positions to dedup the
+     * queue walk below (the engine ALSO has them in the queue while they are in view). */
+    int mmx[16], mmy[16];
+    int nmm = native_wsmm_compose(M, pf_top, pf_bot, mmx, mmy, 16);
+    s_wsstatic_cached = nmm;
+
     /* The object queue is built into the BACK buffer, so a descriptor's dst is usually
      * in the OTHER page than the displayed bp0 (1-frame double-buffer skew). Project
      * relative to the descriptor's OWN buffer base, shifted by the displayed page's
@@ -764,15 +819,11 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
     uint32_t disp_buf = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
     int scroll_off = (int)((int32_t)bp0 - (int32_t)disp_buf);
 
-    /* Level-change clear (level-edge signature a5+$107a/$107c = $57FE8C/$57FE8E). */
-    int sig = (int)(((uint32_t)gmem_r16(M, 0x57FE8Cu) << 16) | gmem_r16(M, 0x57FE8Eu));
-    if (sig != s_sc_sig) { memset(s_sc, 0, sizeof s_sc); s_sc_sig = sig; }
-    for (int i = 0; i < WS_SC_MAX; i++) if (s_sc[i].valid) s_sc[i].age++;
-
-    /* Walk the object-only queue $5A39EC. Each 24-byte descriptor (the layout the
-     * executor $57D6C4 reads with a6=$dff000): +0 data(B,5-plane), +4 mask(A,1-plane,
-     * cookie-cut), +8 con0/con1, +C BLTAMOD/BLTDMOD (== BLTBMOD for these), +10 dst,
-     * +14 BLTALWM.w, +16 BLTSIZE.w (==0 terminates). data/mask plane stride = h*rs. */
+    /* Walk the object-only queue $5A39EC for the OTHER static objects (decorations etc.;
+     * Marry Men are handled above). Each 24-byte descriptor (the layout the executor
+     * $57D6C4 reads with a6=$dff000): +0 data(B,5-plane), +4 mask(A,1-plane, cookie-cut),
+     * +8 con0/con1, +C BLTAMOD/BLTDMOD (== BLTBMOD for these), +10 dst, +14 BLTALWM.w,
+     * +16 BLTSIZE.w (==0 terminates). data/mask plane stride = h*rs. */
     for (int gi = 0; gi < 48; gi++) {
         uint32_t q = WS_STATIC_QUEUE + (uint32_t)gi * WS_STATIC_DESC;
         if (q + WS_STATIC_DESC > RT_MEM_SIZE) break;
@@ -790,8 +841,6 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
         int rs = w * 2 + bmod;                           /* packed row stride (rows overlap) */
         if (rs <= 0) continue;
 
-        /* dst -> on-screen base. worldY = page row (Y never scrolls). worldX from the dst
-         * byte column is correct IN-VIEW (ambiguous mod the 368px page only when wrapped). */
         uint32_t desc_buf = (dpt >= 0x038628u) ? 0x038628u : 0x02B3ECu;
         if (dpt < desc_buf || dpt >= desc_buf + WS_PLANE_STRIDE) continue;
         int32_t delta = (int32_t)(dpt - desc_buf) - scroll_off;
@@ -801,26 +850,15 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
         int wx0  = cam16 + xrel * 8 + shift;             /* ABSOLUTE world X of source bit 0 */
         if (worldY + h <= 0 || worldY >= (pf_bot - pf_top)) continue;
 
+        /* Dedup: skip a queue descriptor that is a Marry Man already drawn from its record
+         * (match by position; the record draw is the live/authoritative one). */
+        int isdup = 0;
+        for (int i = 0; i < nmm; i++)
+            if (abs(mmx[i] - 8 - wx0) <= 12 && abs(mmy[i] - worldY) <= 6) { isdup = 1; break; }
+        if (isdup) continue;
+
         s_wsstatic_drawn++;
         ws_draw_static(M, pf_top, pf_bot, wx0, worldY, h, rs, data, mask);
-
-        /* Upsert into the persistence cache (match by absolute position; static objects
-         * don't move, so this refreshes the same slot every frame they're in view). */
-        int slot = -1;
-        for (int i = 0; i < WS_SC_MAX; i++)
-            if (s_sc[i].valid && abs(s_sc[i].wx - wx0) <= 12 && abs(s_sc[i].wy - worldY) <= 6) { slot = i; break; }
-        if (slot < 0) for (int i = 0; i < WS_SC_MAX; i++) if (!s_sc[i].valid) { slot = i; break; }
-        if (slot >= 0) s_sc[slot] = (WsScObj){ wx0, worldY, h, rs, data, mask, 1, 0 };
-    }
-
-    /* Redraw distance-culled cache entries (age>0 = not in this frame's queue). An entry
-     * absent but still well INSIDE the engine window was removed (rescued) → drop it. */
-    int rm_lo = cam16, rm_hi = cam16 + 304;
-    for (int i = 0; i < WS_SC_MAX; i++) {
-        if (!s_sc[i].valid || s_sc[i].age == 0) continue;        /* age==0 = just drawn from queue */
-        if (s_sc[i].wx >= rm_lo && s_sc[i].wx <= rm_hi && s_sc[i].age > 4) { s_sc[i].valid = 0; continue; }
-        ws_draw_static(M, pf_top, pf_bot, s_sc[i].wx, s_sc[i].wy, s_sc[i].h, s_sc[i].rs, s_sc[i].data, s_sc[i].mask);
-        s_wsstatic_cached++;
     }
 }
 

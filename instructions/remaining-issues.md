@@ -64,29 +64,31 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
      the symptoms the user reported ("walker/key ghost", "duplicate on the other side", "red
      outline") were ALL artifacts of it. Replaced by the builder/queue capture above.
 
-   **Margin cull — MOSTLY FIXED via persistence (2026-06-05).** The engine only builds a
-   `$5A39EC` descriptor while the object is within ~the 320px window, and the 368px page can't
-   hold a 960px view, so a caged Marry Man scrolled into the wide margin lost its descriptor →
-   vanished (the user's "walk right on L5, the two marry men cull one-by-one"). FIX (the
-   persistence cache `s_sc` in `native_wsstatic_compose`): cache each static object's gfx +
-   ABSOLUTE world position while it's in the queue (in view); once it's distance-culled (gone
-   from the queue but its worldX is outside the engine's `[cam, cam+304]` window) keep drawing
-   it from the cache at its true world position; if it vanishes while still INSIDE that window
-   it was rescued/removed → drop it (4-frame grace). Cache cleared on level change (level-edge
-   signature `$57FE8C/$57FE8E`). VERIFIED L5 (960px): walking right, `wsstatic` shows the queue
-   drain (scanned 2→1→0) while `cached` rises (0→1→3) and the marry men stay drawn; A/B with the
-   redraw gated = 129px (the cached objects, next to the cage), `scratch/screenshots/
-   l5_persist_diff.png`. REPL `wsstatic` reports scanned/drawn/cached.
-   STILL OPEN (lesser): a marry man you have NEVER approached (never entered the engine window,
-   so never cached — e.g. the L3 objects at worldX 546 sitting in the far margin at level start)
-   still won't show, because his gfx is only available from the queue. Full coverage needs the
-   gfx resolved from the placement record `$5A4562` (stride 64: +0 type, +2 worldX, +4 worldY,
-   + gfx-selection fields) via the compositor's gfx/collision tables (`$5A5D9C`/`$5042(a5)`/
-   `$55BA(a5)`, finalised around `$57B2B8`) — a substantial port of the collision-aware
-   compositor `$57B0B4`, verifiable by reproducing L1 record [0]'s known descriptor
-   (data=$010052/mask=$0131F6/size=$0242). NOTE: a `$57B0EE` builder hook for the true coords
-   was tried and REMOVED (double-emitted → fired inconsistently, captured garbage); read
-   `$5A4562` directly if porting this.
+   **Margin cull — FIXED PROPERLY via live record resolution (2026-06-05).** The engine only
+   builds a `$5A39EC` descriptor while the object is within `[cam, cam+$160]` (the cull at
+   `$57b4dc`), and the 368px page can't hold a 960px view, so a caged Marry Man scrolled into
+   the wide margin (or one never yet approached) had no descriptor → vanished. (An earlier
+   persistence-cache attempt was a BANDAID: it froze the cached frame, so the animation stopped
+   off-screen, and it could never show a never-approached Marry Man — both correctly called out.)
+   FIX (`native_wsmm_compose` in native_renderer.c): resolve each Marry Man DIRECTLY from his
+   placement record every frame and draw natively across the full wide view, independent of the
+   engine's draw cull. RE of the compositor `$57B0B4`/handler `$57C13A`/build `$57B19E..$57B558`:
+   - records at `$5A4562` (stride 64): +0 type (0=end), +2 worldX, +4 worldY, +$a LIVE anim
+     cursor (the per-record loop advances+writes it back for EVERY record BEFORE the cull, so it
+     ticks even off-screen), +$c cached draw-handler ptr (==`$57C13A` ⇒ Marry Man).
+   - frame = `MR16($5d5a(a5) + cursor)`; gfx entry = `$4a72(a5) + frame*8` → {data_off, mask_off,
+     yoff, BLTSIZE}; data = data_off+`$EEFA`, mask = mask_off+`$12E7E`; cookie-cut, BMOD=-2;
+     left = worldX-8, top = clamp(worldY,$D7)+yoff. VERIFIED numerically on L1 (cursor $46 →
+     frame 50 → data=$010052 mask=$0131F6 size=$0242) and in-app on L5 (960px): walking right,
+     `wsstatic` shows the queue drain (scanned 2→0) while `marrymen` stays 3 (incl. one at worldX
+     642 never approached), the cursor advances 86→92→98 (live anim), all 3 render across the
+     view (`scratch/screenshots/l5mm_v.png`). Queue-walk dedups Marry Men by position; default
+     352 untouched. REPL `wsstatic` reports scanned/drawn/marrymen.
+   STILL OPEN (lesser, non-Marry-Man): other static-placement decorations (records with a
+   DIFFERENT draw handler, e.g. `$57C16E` → `$5e1c(a5)` anim table) are still drawn only from
+   the in-view queue, so they cull in the wide margin. Same RE shape — add their handler's
+   anim-table address to `native_wsmm_compose` (the gfx table `$4a72(a5)` + `$EEFA`/`$12E7E`
+   adds are shared on this branch); only `$57C13A` (Marry Men) is ported so far.
 
 2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
    VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports

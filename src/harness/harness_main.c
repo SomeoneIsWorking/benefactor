@@ -612,7 +612,7 @@ int main(int argc, char **argv)
             extern int native_wsstatic_cached(void);
             extern uint32_t native_wsstatic_dbg_bp0(void);
             extern uint32_t native_wsstatic_dbg_first(void);
-            printf("[wsstatic] queue $5A39EC scanned=%d drawn=%d  cached(culled-redrawn)=%d  bp0=$%06X firstdst=$%06X\n",
+            printf("[wsstatic] queue $5A39EC scanned=%d drawn=%d  marrymen(from-records,live)=%d  bp0=$%06X firstdst=$%06X\n",
                    native_wsstatic_scanned(), native_wsstatic_drawn(), native_wsstatic_cached(),
                    native_wsstatic_dbg_bp0(), native_wsstatic_dbg_first());
         }
