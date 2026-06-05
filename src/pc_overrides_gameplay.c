@@ -408,12 +408,25 @@ void native_ws_diag(long *ow, long *od, long *ch)
  * at exactly 352 the engine's own 320px render is shown and NOTHING is widened. So gate
  * on `ow > HW_DISPLAY_W`: 0 otherwise. (Using 320 as the zero-point — NOT 352 — would
  * widen by 16px at the default 352 width, capturing off-screen objects vanilla culls.) */
-static int ws_objcull_margin(void)
+/* Returns 1 if an object at world X `worldX` should be CULLED (not dispatched/drawn).
+ *  - default 352: the original engine window vs the vanilla camera ($57FDBA): the object's
+ *    `worldX + origLeft - cam` must be within [0, origWidth]  → byte-identical to vanilla.
+ *  - wide output: the CLAMPED VIEW bounds [view_left, view_left+ow] (+ object-width pad),
+ *    using the SAME ws_view_left() the renderer uses. This is the fix for "culled because the
+ *    cull tracked the vanilla camera while the wide view was clamped at a level edge": the
+ *    window now tracks what's actually on screen, so an object in the wide view never culls. */
+static int ws_obj_cull_skip(uint16_t worldX, uint16_t cam, uint16_t origLeft, uint16_t origWidth)
 {
     int ow = hw_output_width();
-    if (ow <= HW_DISPLAY_W) return 0;       /* default / non-wide: vanilla culls */
-    int m = (ow - 320) / 2;                 /* match the wide camera's per-side extent */
-    return m < 0 ? 0 : m;
+    if (ow <= HW_DISPLAY_W) {                /* default / non-wide: vanilla window on the camera */
+        uint16_t d1 = (uint16_t)(worldX + origLeft - cam);
+        return d1 > origWidth;
+    }
+    extern int ws_view_left(int ow);
+    int vl  = ws_view_left(ow);
+    int PAD = 48;                            /* object-width slop so edge sprites still dispatch */
+    int rel = (int)(int16_t)worldX - (vl - PAD);
+    return rel < 0 || rel > ow + 2 * PAD;
 }
 
 /* $57D79A — object-list walker entry. CLEAR the in-progress build lists at the start
@@ -529,13 +542,9 @@ void native_objstep(M68KCtx *ctx)
      * uses: native_render_wide_bg extends (ow-320)/2 each side). At margin==0 this is
      * byte-identical to the original. */
     uint16_t worldX = MR16(ctx->A[0]);
-    int      cam    = (uint16_t)MR16(0x57FDBAu);
-    int      margin = ws_objcull_margin();
-    uint16_t left  = (uint16_t)(0x30u  + (unsigned)margin);
-    uint16_t width = (uint16_t)(0x170u + 2u * (unsigned)margin);
-    uint16_t d1 = (uint16_t)(worldX + left - (uint16_t)cam);
-    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | d1;
-    if (d1 > width) { rt_jump(ctx, 0x57D8A8u); return; }   /* 57D812: bhi $57D8A8 (skip) */
+    uint16_t cam    = (uint16_t)MR16(0x57FDBAu);
+    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(worldX + 0x30u - cam); /* original d1 for downstream */
+    if (ws_obj_cull_skip(worldX, cam, 0x30u, 0x170u)) { rt_jump(ctx, 0x57D8A8u); return; } /* 57D812: skip */
 
     /* fall-through: DISPATCH at $57D816 (it pushes a2-a4 then jmp (a1)) */
     rt_jump(ctx, 0x57D816u);
@@ -560,15 +569,11 @@ void native_objstep_b(M68KCtx *ctx)
     /* 57D8B4: tst.w -$2(a1); 57D8B8: bpl $57D8CA (dispatch unconditionally) */
     if ((int16_t)MR16(ctx->A[1] - 2u) >= 0) { rt_jump(ctx, 0x57D8CAu); return; }
 
-    /* 57D8BA..57D8C8: widened camera-window test */
-    uint16_t auxX  = MR16(ctx->A[0]);
-    int      cam   = (uint16_t)MR16(0x57FDBAu);
-    int      margin = ws_objcull_margin();
-    uint16_t left  = (uint16_t)(0x30u  + (unsigned)margin);
-    uint16_t width = (uint16_t)(0x1b0u + 2u * (unsigned)margin);
-    uint16_t d1 = (uint16_t)(auxX + left - (uint16_t)cam);
-    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | d1;
-    if (d1 > width) { rt_jump(ctx, 0x57D8F2u); return; }   /* 57D8C8: bhi $57D8F2 (skip) */
+    /* 57D8BA..57D8C8: camera-window test (view-tracking for wide; vanilla $1b0 at 352) */
+    uint16_t auxX = MR16(ctx->A[0]);
+    uint16_t cam  = (uint16_t)MR16(0x57FDBAu);
+    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(auxX + 0x30u - cam); /* original d1 for downstream */
+    if (ws_obj_cull_skip(auxX, cam, 0x30u, 0x1b0u)) { rt_jump(ctx, 0x57D8F2u); return; } /* 57D8C8: skip */
 
     /* fall-through: DISPATCH at $57D8CA (pushes a2-a4 then jmp (a1)) */
     rt_jump(ctx, 0x57D8CAu);
