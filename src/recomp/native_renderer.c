@@ -472,7 +472,6 @@ static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
 #define WS_EDGE_HI  0x0057FE8Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
-
 /* Per-object draw params captured at the engine's $57D8D0 choke point (before its
  * 352px camera-clip) — the faithful, camera-independent source of every gameplay
  * object. See pc_overrides_gameplay.c / instructions/widescreen-plan.md "Phase 4". */
@@ -493,6 +492,27 @@ static inline uint16_t gmem_r16(const uint8_t *m, uint32_t a)
 { return (uint16_t)((m[a] << 8) | m[a + 1]); }
 static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
 { return ((uint32_t)m[a] << 24) | ((uint32_t)m[a+1] << 16) | ((uint32_t)m[a+2] << 8) | m[a+3]; }
+
+/* The wide view's clamped world-left for output width `ow` — the SINGLE SOURCE of the
+ * wide-camera mapping (worldX = view_left + screen_x). Used by both the renderer
+ * (native_render_wide_bg) and the object-cull overrides (native_objstep[_b]) so the cull
+ * window can never drift from what's actually on screen. Narrow level → centered; else
+ * follow the engine camera, clamped to the level edges. */
+int ws_view_left(int ow)
+{
+    const uint8_t *M = g_mem;
+    int cam      = M ? (int16_t)gmem_r16(M, WS_CAMERA) : 0;
+    int cmin     = (M ? (int)gmem_r16(M, WS_EDGE_LO) : 0x90) - 0x90;
+    int cmax     = (M ? (int)gmem_r16(M, WS_EDGE_HI) : 0x100) - 0x100;
+    int level_lo = ((cmin < 0 ? 0 : cmin) >> 4) * 16;
+    int level_hi = ((cmax + 320) >> 4) * 16;
+    int level_w  = level_hi - level_lo;
+    if (level_w <= ow) return level_lo - (ow - level_w) / 2;   /* center narrow level */
+    int vl = (cam + 16) - (ow - 320) / 2;                      /* follow player */
+    if (vl < level_lo)      vl = level_lo;
+    if (vl > level_hi - ow) vl = level_hi - ow;
+    return vl;
+}
 
 /* Build s_objlayer from the engine's captured per-object draw list (native_wsobj_*).
  * Each object is a 5-plane plane-major sprite at absolute world (x, y): source word
@@ -962,18 +982,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
      * scroll comes from the signed camera's fine bits (no page coarse/fine hysteresis since
      * we read the tilemap directly). The margin==0 COMPARE path keeps the exact
      * engine-aligned mapping in the loop below so wsdiff stays a valid pixel check. */
-    int eng_left = cam + 16;                              /* engine's displayed left world X */
-    int level_lo = mincol * 16;
-    int level_hi = maxcol * 16;
-    int level_w  = level_hi - level_lo;
-    int view_left;
-    if (level_w <= ow)
-        view_left = level_lo - (ow - level_w) / 2;        /* center the narrow level */
-    else {
-        view_left = eng_left - (ow - 320) / 2;            /* follow player, extend both sides */
-        if (view_left < level_lo)      view_left = level_lo;
-        if (view_left > level_hi - ow) view_left = level_hi - ow;
-    }
+    (void)cam; (void)mincol; (void)maxcol;
+    int view_left = ws_view_left(ow);                     /* shared with the object-cull overrides */
 
     { extern int g_ws_view_left, g_ws_view_w; g_ws_view_left = view_left; g_ws_view_w = ow; }
 
@@ -999,8 +1009,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     /* Fill the object layer from the engine's captured per-object draw list, then
      * composite the player (drawn by its own routine $57A666, not the object loop). */
     native_wsobj_compose(pf_top, pf_bot);
-    native_wschar_compose(pf_top, pf_bot);
-    native_wsplayer_compose(pf_top, pf_bot);
+    native_wsplayer_compose(pf_top, pf_bot);          /* player UNDER characters... */
+    native_wschar_compose(pf_top, pf_bot);            /* ...so enemies render OVER the player (vanilla Z-order) */
     native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
 
     if (getenv("WS_DBG")) {
