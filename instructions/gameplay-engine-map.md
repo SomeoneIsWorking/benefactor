@@ -251,12 +251,14 @@ for the native wide renderer (and avoids the per-level magic-src-range trap).
 |--------|--------------------|-------|----------|------|--------------|
 | **list-A objects** | object walker `$57D79A`→`$57D7BC`, choke `$57D8D0` | — | `$57DB34`/`$57DB5E` | platforms, pickups, ladders, box ($06xxxx) | `native_objdraw_capture` (`$57D8D0`, clean d0/d1) |
 | **characters** | char loop `$57D3C2` (a2=`$10e6(a5)` list), per-type handler `jmp (a1,d0.w)` → builder `$57D3F4` | `$1032(a5)`(=`$5A371C`) + `$1036(a5)` | `$57D5AA` / `$57D6C4` (via `$57D56C`) | player-size walkers, enemies, FREED marry men ($05xxxx) | `native_char_capture` (`$57D3F4`, clean d0/d1/d5/a1) |
-| **static-placement objects** | object compositor `$57B0B4` (a0=`$5A4562` records, per-record re-entry `$57B0EE`, common build `$57B19E`) | `$5A39EC` (+`$5A371C`) | `$57D6C4` (via `$57D56C`) | CAGED marry men + level deco ($01xxxx etc.) | `native_wsstatic_compose` (walk `$5A39EC`) + `native_staticobj_capture` (`$57B0EE`, clean worldX/Y) |
+| **static-placement objects** | object compositor `$57B0B4` (a0=`$5A4562` records, per-record re-entry `$57B0EE`, common build `$57B19E`) | `$5A39EC` (+`$5A371C`) | `$57D6C4` (via `$57D56C`) | CAGED marry men (only) | `native_wsstatic_compose`→`native_wsmm_compose` (resolve from `$5A4562` records LIVE, no engine hook) |
 
 - **The PLAYER** is its own path (`$57A666`, not in any list) — `native_player_capture`.
-- **`$5A4562` placement record** = 6 words: `+0 type`, `+2 worldX`, `+4 worldY`, `+6..` aux
-  (`$57B0B4` caches a resolved handler ptr into later slots — `+2/+4` stay clean). type=0
-  ends the list; type<0 = multi-tile path.
+- **`$5A4562` placement record** = stride **64 bytes** (NOT 6 words — the compositor uses the
+  later slots as per-object scratch). `+0 type` (0=end), `+2 worldX`, `+4 worldY`, `+$a LIVE
+  anim cursor`, `+$c cached draw-handler ptr` (== `$57C13A` ⇒ a Marry Man). On L5 the list is
+  records [0..2] = 3 marry men; [3..4] hold invalid handler ptrs (trailing data, not drawn).
+  This list is Marry-Men-only; other gameplay sprites come through the other two systems.
 - **`$57D6C4`/`$57D5AA` executor descriptor** (24 bytes, a6=`$dff000` so a5=BLTSIZE): `+0`
   data(B,5-plane), `+4` mask(A,1-plane, cookie-cut), `+8` con0/con1 (ASH=con0>>12), `+C`
   BLTAMOD/BLTDMOD (==BLTBMOD here), `+10` dst, `+14` BLTALWM.w, `+16` BLTSIZE.w (==0 ends).
@@ -271,6 +273,71 @@ for the native wide renderer (and avoids the per-level magic-src-range trap).
 - **Double-buffer skew:** the queue is built into the BACK buffer, so a descriptor's dst is
   usually in the OTHER page than the displayed `bp0`. Project relative to the descriptor's
   own page base + the displayed coarse-scroll offset (see `native_wsstatic_compose`).
+
+### The static-object compositor `$57B0B4` — internals (RE'd 2026-06-05)
+
+A per-frame routine that walks the `$5A4562` placement list and, for each object, runs its
+per-type animation + a terrain-collision update, then resolves the blit descriptor and
+appends it to the draw queues. This is the engine's own object renderer for the
+static-placement class (currently just the caged Marry Men). Verified by disasm of
+`logs/savestate.bin` + numeric replay against L1 record [0].
+
+- **Entry `$57B07C`** (setup): `a0=$5A4562` (records), `a2=$5A39EC` (queue B out), `a4=$5A1D18`
+  (row→page-offset table), `$1032(a5)=$5A371C` (queue A out, reset), `a6=$5A371C` initial,
+  reads `$57FEB4`. Then per-record loop re-entry **`$57B0EE`** (`movem.w (a0)+,d0-d5` at
+  `$57B0FC`): `d0=type, d1=worldX, d2=worldY, d3..d5=anim/aux`.
+- **Per-type dispatch:** `d0&$f` + flags (`$1094/$1095(a5)`) select the draw handler, cached
+  into the record at `+$c` (`move.l #$57c16e/$57c13a,(a0)`); `jmp (a1)` at `$57B19C` runs it.
+  Handlers: `$57C13A` (Marry Man; anim table `$5d5a(a5)`), `$57C16E`/`$57C194`/`$57C1B8`
+  (anim tables `$5e1c`/`$5a72`/`$5ae4(a5)`), `$57C364`, `$57C5CA`. Each: `frame =
+  MR16(animtab(a5)+cursor)`, advance `cursor`(d5) by 2 (wrap to 0 at a <0 sentinel), then
+  `jmp -$3c74(a5)` = `$57B19E` (common build).
+- **Anim is DRAW-driven but camera-independent:** the loop processes EVERY record each frame
+  and writes `d0-d5` (incl. the advanced cursor) back to the record at `$57B45C`
+  (`movem.w d0-d5,(a0)`) — which is BEFORE the draw cull. So the anim cursor ticks even for
+  off-screen objects (this is why reading it live gives correct off-screen animation).
+- **Common build `$57B19E`→`$57B2B8`:** a dirty-rect / per-pixel terrain-collision pass
+  (tables `$5a5d9c`/`$5a8c7e`/`$5a211c`, the `$57b330` loop) — NOT yet fully RE'd; it gates
+  redraw + does object↔terrain collision. Then the descriptor build:
+- **Cull `$57B4DC`:** `worldX ∈ [$fa8(a5), $fa8(a5)+$160]` (= `[cam, cam+352]`); outside → skip
+  (`$57B5DC`). THIS is the engine's per-object draw cull (the wide renderer ignores it and
+  resolves from records instead — the 368px page can't hold a wide view anyway).
+- **Gfx resolution `$57B4F6`:** `entry = $4a72(a5) + (frame [+$55 if !d4.bit1]) * 8` → 4 words
+  `{data_off, mask_off, yoff, BLTSIZE}`; `data = data_off+$EEFA`, `mask = mask_off+$12E7E`,
+  `ASH=(worldX-8)&15`, BMOD=-2. (The `$4a72(a5)` table is non-uniform — always look up, never
+  formula.) dst = `$5A1D18[clamp(worldY,$D7)+yoff] + (worldX-8)/8 + pageBase`.
+- **Queue write `$57B546`:** 6 longs to `a2`(=$5A39EC): data, mask, con0/con1, `$FFFE002A`
+  (mod), dst, `$0000`/BLTSIZE; plus `dst, $2A, BLTSIZE` to `a3`(=$1032(a5) region). Played by
+  the executor `$57D56C` → `$57D5AA` (queue `$5A371C`) then `$57D6C4` (queue `$5A39EC`).
+- **NATIVE OWNERSHIP:** `native_wsmm_compose` (native_renderer.c) replays exactly the
+  `$57C13A` resolution (cursor→frame→`$4a72` table→data/mask) from each record every frame and
+  draws across the full wide view, ignoring the `$57B4DC` cull → live anim + no margin cull.
+  The collision/dirty-rect pass and the other handlers' anim tables are understood but not
+  ported (not needed for the visible Marry Men).
+
+### The character loop `$57D3C2` + queue executor `$57D56C` (RE'd 2026-06-05)
+
+The CHARACTER system (walkers, enemies, freed Marry Men — gfx `$05xxxx`) is a sibling of the
+static-object compositor; both feed the same two draw queues, played by one executor.
+
+- **Char-draw entry `$57D3A4`:** `a0=$12e6(a5)` (anim aux), `a2=$10e6(a5)` (the char-pointer
+  list), `a4=$5A1D18` (row→page table), `a3=$1036(a5)` & `a6=$1032(a5)` (the two queue write
+  ptrs, shared with `$57B0B4`). Falls into the loop:
+- **Loop `$57D3C2`:** `cmpi.l #$58692c,(a2)` → a SKIP sentinel (`$57D53E`: step past it,
+  `a6+=$18`, continue); `tst.l (a2)` zero → end (`$57D54C`: store `a3→$1036(a5)`, rts);
+  else `movea.l (a2)+,a1` (char struct), `move.w (a1)+,d0` (per-type handler offset),
+  `jmp (a1,d0.w)` → the char's type handler, which computes draw values and tail-jumps to the
+  builder `$57D3F4` (captured by `native_char_capture`, clean d0=worldX/d1=worldY/d5=anim/a1).
+- **Builder `$57D3F4`:** clips to `[cam, cam+$180]`, builds a 6-long descriptor into `(a6)+`
+  (queue A = `$5A371C`-based) and a short record into `(a3)+`; loops back to `$57D3C2`.
+- **Two-queue executor `$57D56C`** (called once per frame from the main loop, NOT the char
+  loop): plays queue A `$5A371C` via `$57D5AA`, then queue B `$5A39EC` via `$57D6C4` — both
+  descriptor players that wait-blitter (`btst d4,(a6)`), stream {data,mask,con0,mod,dst} and
+  trigger BLTSIZE per 5-plane sprite (24-byte descriptors, see above). So BOTH the char
+  builder (`$57D3F4`) and the static-object compositor (`$57B0B4`) append to these queues each
+  frame, and `$57D56C` blits them all into the page. (The native wide renderer bypasses the
+  queues entirely — it captures/resolves each system at its builder and draws from world
+  coords; the queues + executor are the engine's own page path.)
 
 ## Low chip-RAM state map (in-progress)
 
