@@ -136,6 +136,14 @@ void pc_register_overrides(void)
      * (executor $57D6C4) — a separate path from the $57D8D0 object loop. Capture
      * each at entry (D0/D1/D5/A1) before its camera-clip; super-call the body. */
     rt_register_override_gp(0x0057D3F4u, native_char_capture);
+    /* Static-placement OBJECTS (caged Marry Men / rescue creatures + level sprites)
+     * are built per-frame by the object compositor $57B0B4 from placement records at
+     * $5A4562 into the object-only queue $5A39EC (executor $57D6C4) — never seen by
+     * $57D3F4/$57D8D0. Capture each record's TRUE world coords at the per-record loop
+     * re-entry $57B0EE (super-call) so the wide renderer can draw them at the true
+     * position with no page-wrap projection. */
+    { extern void native_staticobj_capture(M68KCtx *ctx);
+      rt_register_override_gp(0x0057B0EEu, native_staticobj_capture); }
     /* GET READY / GAME OVER banner: the native wide renderer ignores the engine page,
      * so the banner (drawn there) was invisible. Capture each of its three elements so
      * the renderer can composite them as a centered top UI overlay: the box ($578974),

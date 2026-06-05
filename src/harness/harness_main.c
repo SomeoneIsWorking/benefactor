@@ -603,16 +603,23 @@ int main(int argc, char **argv)
             g_native_render_delay = saved_delay;
             printf("[crepl] rendered current g_mem to framebuffer (delay bypassed)\n");
         }
-        else if (!strcmp(cmd, "wsmc")) {  /* wsmc — list the sprites native_wsmissedchar_compose drew last
-                                              frame (the uncaptured chars, e.g. Marry Men). 0 = clean dedup. */
-            extern int native_wsmc_count(void);
-            extern int native_wsmc_get(int,int*,int*,int*,int*,uint32_t*,uint32_t*);
-            extern int g_ws_view_left;
-            int m = native_wsmc_count();
-            printf("[wsmc] %d uncaptured-char draws (view_left=%d):\n", m, g_ws_view_left);
-            for (int i = 0; i < m; i++) { int x,y,w,h; uint32_t s,mk;
-                if (native_wsmc_get(i,&x,&y,&w,&h,&s,&mk))
-                    printf("  [%d] worldX=%d worldY=%d %dx%d src=$%06X mask=$%06X\n",i,x,y,w*16,h,s,mk); }
+        else if (!strcmp(cmd, "wsmc") || !strcmp(cmd, "wsstatic")) {
+            /* wsstatic — static-placement OBJECTS (caged Marry Men + level sprites):
+             * the builder-captured TRUE world coords ($57B0EE) + how many the renderer
+             * drew last frame from queue $5A39EC. */
+            extern int native_wsstatic_count(void);
+            extern int native_wsstatic_get(int,int*,int*,int*);
+            extern int native_wsstatic_drawn(void);
+            extern int native_wsstatic_scanned(void);
+            extern uint32_t native_wsstatic_dbg_bp0(void);
+            extern uint32_t native_wsstatic_dbg_first(void);
+            int m = native_wsstatic_count();
+            printf("[wsstatic] %d records captured; queue scanned=%d drawn=%d bp0=$%06X firstdst=$%06X\n",
+                   m, native_wsstatic_scanned(), native_wsstatic_drawn(),
+                   native_wsstatic_dbg_bp0(), native_wsstatic_dbg_first());
+            for (int i = 0; i < m; i++) { int x,y,t;
+                if (native_wsstatic_get(i,&x,&y,&t))
+                    printf("  [%d] worldX=%d worldY=%d type=$%04X\n",i,x,y,(unsigned)(t&0xFFFF)); }
         }
         else if (!strcmp(cmd, "blitskip")) {  /* blitskip <fn-hex|0> — DIAGNOSTIC: drop every blit issued
                                                  by routine <fn> (g_rt_last_call), to confirm which fn draws
