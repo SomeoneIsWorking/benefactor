@@ -251,7 +251,7 @@ for the native wide renderer (and avoids the per-level magic-src-range trap).
 |--------|--------------------|-------|----------|------|--------------|
 | **list-A objects** | object walker `$57D79A`→`$57D7BC`, choke `$57D8D0` | — | `$57DB34`/`$57DB5E` | platforms, pickups, ladders, box ($06xxxx) | `native_objdraw_capture` (`$57D8D0`, clean d0/d1) |
 | **characters** | char loop `$57D3C2` (a2=`$10e6(a5)` list), per-type handler `jmp (a1,d0.w)` → builder `$57D3F4` | `$1032(a5)`(=`$5A371C`) + `$1036(a5)` | `$57D5AA` / `$57D6C4` (via `$57D56C`) | player-size walkers, enemies, FREED marry men ($05xxxx) | `native_char_capture` (`$57D3F4`, clean d0/d1/d5/a1) |
-| **static-placement objects** | object compositor `$57B0B4` (a0=`$5A4562` records, per-record re-entry `$57B0EE`, common build `$57B19E`) | `$5A39EC` (+`$5A371C`) | `$57D6C4` (via `$57D56C`) | CAGED marry men (only) | `native_wsstatic_compose`→`native_wsmm_compose` (resolve from `$5A4562` records LIVE, no engine hook) |
+| **static-placement objects** | object compositor `$57B0B4` (a0=`$5A4562` records, per-record re-entry `$57B0EE`, common build `$57B19E`) | `$5A39EC` (+`$5A371C`) | `$57D6C4` (via `$57D56C`) | CAGED marry men (only) | `native_wsstatic_compose` (per record: in-view→queue `$5A39EC` exact gfx, paired by worldY; off-view→native `$4a72` resolver) |
 
 - **The PLAYER** is its own path (`$57A666`, not in any list) — `native_player_capture`.
 - **`$5A4562` placement record** = stride **64 bytes** (NOT 6 words — the compositor uses the
@@ -313,11 +313,13 @@ static-placement class (currently just the caged Marry Men). Verified by disasm 
 - **Queue write `$57B546`:** 6 longs to `a2`(=$5A39EC): data, mask, con0/con1, `$FFFE002A`
   (mod), dst, `$0000`/BLTSIZE; plus `dst, $2A, BLTSIZE` to `a3`(=$1032(a5) region). Played by
   the executor `$57D56C` → `$57D5AA` (queue `$5A371C`) then `$57D6C4` (queue `$5A39EC`).
-- **NATIVE OWNERSHIP:** `native_wsmm_compose` (native_renderer.c) replays exactly the
-  `$57C13A` resolution (cursor→frame→`$4a72` table→data/mask) from each record every frame and
-  draws across the full wide view, ignoring the `$57B4DC` cull → live anim + no margin cull.
-  The collision/dirty-rect pass and the other handlers' anim tables are understood but not
-  ported (not needed for the visible Marry Men).
+- **NATIVE OWNERSHIP:** `native_wsstatic_compose` (native_renderer.c) draws each Marry Man once
+  — in view from the engine's exact `$5A39EC` descriptor (correct frame + variant), off view by
+  natively replaying the RED `$57C13A` resolution (cursor→frame→`$4a72`→data/mask) across the
+  full wide view (ignores the `$57B4DC` cull) → live anim + no margin cull, no duplication.
+  STILL OPEN: the BLIND/gray variant's off-view resolution is the terrain-gfx path `$57B856`
+  (type bit7 → sub-handler `$57BBF8`), NOT yet RE'd — off-view blind shows red until ported.
+  Do NOT hack it (no learned delta / cache / second source — see [[feedback-no-hacks-re-first]]).
 
 ### The character loop `$57D3C2` + queue executor `$57D56C` (RE'd 2026-06-05)
 
