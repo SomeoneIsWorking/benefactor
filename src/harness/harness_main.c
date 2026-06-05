@@ -605,21 +605,15 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(cmd, "wsmc") || !strcmp(cmd, "wsstatic")) {
             /* wsstatic — static-placement OBJECTS (caged Marry Men + level sprites):
-             * the builder-captured TRUE world coords ($57B0EE) + how many the renderer
-             * drew last frame from queue $5A39EC. */
-            extern int native_wsstatic_count(void);
-            extern int native_wsstatic_get(int,int*,int*,int*);
+             * how many descriptors the renderer scanned/drew from the object-only queue
+             * $5A39EC last frame, + the displayed bp0 and the first descriptor's dst. */
             extern int native_wsstatic_drawn(void);
             extern int native_wsstatic_scanned(void);
             extern uint32_t native_wsstatic_dbg_bp0(void);
             extern uint32_t native_wsstatic_dbg_first(void);
-            int m = native_wsstatic_count();
-            printf("[wsstatic] %d records captured; queue scanned=%d drawn=%d bp0=$%06X firstdst=$%06X\n",
-                   m, native_wsstatic_scanned(), native_wsstatic_drawn(),
+            printf("[wsstatic] queue $5A39EC scanned=%d drawn=%d bp0=$%06X firstdst=$%06X\n",
+                   native_wsstatic_scanned(), native_wsstatic_drawn(),
                    native_wsstatic_dbg_bp0(), native_wsstatic_dbg_first());
-            for (int i = 0; i < m; i++) { int x,y,t;
-                if (native_wsstatic_get(i,&x,&y,&t))
-                    printf("  [%d] worldX=%d worldY=%d type=$%04X\n",i,x,y,(unsigned)(t&0xFFFF)); }
         }
         else if (!strcmp(cmd, "blitskip")) {  /* blitskip <fn-hex|0> — DIAGNOSTIC: drop every blit issued
                                                  by routine <fn> (g_rt_last_call), to confirm which fn draws

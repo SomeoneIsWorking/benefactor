@@ -369,51 +369,14 @@ void native_char_capture(M68KCtx *ctx)
     gfn_gpl_57D3F4(ctx);
 }
 
-/* ── Static-placement OBJECT capture for widescreen ($57B0EE) ──────────────────
- * The caged "Marry Men" (rescue creatures) and similar level-placed sprites are NOT
- * characters or list-A objects: they are placement records at $5A4562 (clean world
- * coords) processed per-frame by the object compositor $57B0B4, whose per-record loop
- * re-enters $57B0EE. Each record builds a cookie-cut blit descriptor into the
- * object-only queue $5A39EC (executor $57D6C4). The char builder $57D3F4 and the
- * list-A choke $57D8D0 never see them, so the wide renderer (which ignores the engine
- * page) lost them. RE: logs/savestate.bin + scratch/bin/caged_l1.bin, disasm
- * tools/disasm2.py — record [0] on L1 = the marry man (worldX=66, worldY=85), its
- * descriptor (data=$010052, mask=$0131F6, con0=$AFCA, BLTSIZE=$0242) at $5A39EC[0].
- *
- * We capture each record's TRUE worldX/worldY HERE (clean, before the engine's page
- * cull) so native_wsstatic_compose can pair it with the queue descriptor (by worldY)
- * and resolve the 368px page-wrap that a dst->X reverse-projection cannot. This
- * REPLACES the deleted hw_blit_capture page-projection pass (which re-drew every page
- * blit → ghosting/dedup, projected the circular page → wrap phantoms, and painted
- * colour-0 opaque → a red outline). Record fields: +0 type.w, +2 worldX.w, +4
- * worldY.w; a0 == $5A4562 marks the first record of the frame (clear the build).
- * Build promoted to *_done in native_ws_promote() (same as the char/obj captures). */
-typedef struct { int x, y, type; } WsStatic;
-#define WS_STATIC_MAX 128
-static WsStatic s_wsstatic[WS_STATIC_MAX];
-static int      s_wsstatic_n = 0;
-static WsStatic s_wsstatic_done[WS_STATIC_MAX];
-static int      s_wsstatic_done_n = 0;
-
-int native_wsstatic_count(void) { return s_wsstatic_done_n; }
-int native_wsstatic_get(int i, int *x, int *y, int *type)
-{
-    if (i < 0 || i >= s_wsstatic_done_n) return 0;
-    *x = s_wsstatic_done[i].x; *y = s_wsstatic_done[i].y; *type = s_wsstatic_done[i].type;
-    return 1;
-}
-
-void native_staticobj_capture(M68KCtx *ctx)
-{
-    uint32_t a0 = ctx->A[0];
-    if (a0 == 0x5A4562u) s_wsstatic_n = 0;     /* first record of this frame's pass */
-    int type   = (int16_t)(uint16_t)MR16(a0 + 0u);
-    int worldX = (int16_t)(uint16_t)MR16(a0 + 2u);
-    int worldY = (int16_t)(uint16_t)MR16(a0 + 4u);
-    if (type != 0 && s_wsstatic_n < WS_STATIC_MAX)
-        s_wsstatic[s_wsstatic_n++] = (WsStatic){ worldX, worldY, type };
-    gfn_gpl_57B0EE(ctx);
-}
+/* NOTE: the caged "Marry Men" / static-placement objects are drawn by
+ * native_wsstatic_compose (native_renderer.c) walking the object-only queue $5A39EC
+ * directly — no override needed here. (An earlier $57B0EE builder hook to capture the
+ * placement records' TRUE world coords was removed: $57B0EE is double-emitted, so the
+ * override fired inconsistently and captured garbage; the renderer's dst-projection is
+ * the reliable path for in-view objects. The placement list is at $5A4562, stride 64:
+ * +0 type, +2 worldX, +4 worldY — read it directly if margin-coverage of culled objects
+ * is ever ported; see instructions/remaining-issues.md #1.) */
 
 /* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask).
  * Set DIRECTLY by native_player_capture and held until the next draw — the engine
@@ -627,8 +590,6 @@ void native_ws_promote(void)
     s_wsobj_done_n = s_wsobj_n;
     memcpy(s_wschar_done, s_wschar, sizeof(WsChar) * (size_t)s_wschar_n);
     s_wschar_done_n = s_wschar_n;
-    memcpy(s_wsstatic_done, s_wsstatic, sizeof(WsStatic) * (size_t)s_wsstatic_n);
-    s_wsstatic_done_n = s_wsstatic_n;
 
     if (s_banner_active) {
         if (s_banner_fresh) { s_banner_objwalk_at = g_diag_objwalk; s_banner_fresh = 0; }

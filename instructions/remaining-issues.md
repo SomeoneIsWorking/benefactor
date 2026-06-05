@@ -64,10 +64,25 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
      the symptoms the user reported ("walker/key ghost", "duplicate on the other side", "red
      outline") were ALL artifacts of it. Replaced by the builder/queue capture above.
 
-   STILL OPEN (minor): on a SCROLLING level a queue-`$5A39EC` object can still wrap into the
-   margin if the builder override doesn't fire that frame (the `$57B0EE` hook is double-emitted
-   — it reliably fires on some levels, not others; L1 relies on the dst-projection fallback).
-   Not observed to misbehave on L1/L9; same margin-cull family as #4.
+   **STILL OPEN — margin cull (the user's "marry men are still culled").** The engine only
+   builds a `$5A39EC` descriptor when the object is within ~the 320px window, and the page is
+   only 368px wide, so an object scrolled into the WIDE margin (e.g. L3 has caged objects at
+   worldX 546, ~226px into the right margin at the start camera) has NO descriptor → not drawn.
+   This is the SAME page-size limit as #4 but for the static path, and CANNOT be fixed by
+   widening a cull constant (the 368px page physically can't hold a 960px view). The proper fix
+   = resolve the gfx (data/mask/size/con0) from the placement record `$5A4562` (stride 64: +0
+   type, +2 worldX, +4 worldY, + gfx-selection fields) via the object compositor's gfx/collision
+   tables (`$5A5D9C`/`$5A8C7E`/`$5042(a5)`/`$55BA(a5)`, finalised around `$57B2B8`), then draw
+   every placement record natively across the wide view — a substantial port of the
+   collision-aware compositor `$57B0B4` (the gfx resolution is entangled with per-pixel
+   collision). VERIFIABLE without driving: port it, run L1, check it reproduces record [0]'s
+   known descriptor (data=$010052/mask=$0131F6/size=$0242). NOTE: a `$57B0EE` builder hook to
+   capture the records' true coords was tried and REMOVED — `$57B0EE` is double-emitted so the
+   override fired inconsistently and captured garbage (128 identical records on L3). Read
+   `$5A4562` directly (stride 64) instead. A lighter partial (persist a sprite's gfx after it's
+   been in view, redraw when distance-culled) would stop "scroll PAST a marry man and he
+   vanishes" but would NOT show never-approached far-margin objects — so it doesn't cover the
+   start-of-L3 case; the compositor gfx-resolution port is the real fix.
 
 2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
    VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports
