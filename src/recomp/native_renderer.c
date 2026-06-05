@@ -677,14 +677,20 @@ static void native_wschar_compose(int pf_top, int pf_bot)
  * per-frame CHARACTER builder $57D3F4 never sees them (the freed/walking marry man IS a
  * normal $05xxxx char and IS captured there) — that is why widescreen lost them.
  *
- * We capture TRUE worldX/worldY at the builder ($57B0FC, native_staticobj_capture in
- * pc_overrides_gameplay.c) and the gfx/mask/size from the queue-$5A39EC descriptor the
- * SAME object produced (paired by worldY = dst row, which never wraps), then draw the
- * cookie-cut sprite natively at the absolute world position — exactly like the player /
- * char / list-A passes. No dst->worldX reverse-projection (the page is a 368px circular
- * buffer, so that wraps/ghosts in the margins — the old, deleted hw_blit_capture pass),
- * no all-blits dedup, no opaque colour-0 outline. Queue $5A39EC is object-only (the char
- * builder writes a separate queue), so there is no per-frame-sprite ghosting. */
+ * We walk that object-only queue $5A39EC directly and draw each cookie-cut descriptor
+ * (mask 1-plane gates, data 5-plane plane-stride h*rs, transparent colour-0) at the
+ * dst-projected world position — exactly like the player / char / list-A passes. No
+ * hw_blit_capture page reverse-projection (the old, deleted native_wsmissedchar_compose
+ * re-drew every page blit → ghosting/dedup, projected the 368px circular page → wrap
+ * phantoms, drew colour-0 opaque → red outline). Queue $5A39EC is object-only (the char
+ * builder writes a separate queue), so there is no per-frame-sprite ghosting.
+ *
+ * LIMITATION (open): the engine only builds a descriptor when the object is within ~the
+ * 320px window, and the page is only 368px wide, so an object scrolled into the WIDE
+ * margin has no descriptor → not drawn there (the caged Marry Men still "cull" in the
+ * far margin, same family as remaining-issues #4). Full margin coverage needs the gfx
+ * resolved from the placement record $5A4562 (stride 64) via the compositor's gfx/
+ * collision tables — a larger port, not yet done. */
 /* The static-object queue base (executor $57D6C4 plays it; built by $57B0B4). Fixed
  * literal in the gameplay bank ($57D5C6 / $57B0CC: lea $5a39ec,a0/a2). 24-byte
  * descriptors, terminated by a zero BLTSIZE word. */
@@ -700,10 +706,6 @@ int native_wsstatic_scanned(void) { return s_wsstatic_scanned; }
 uint32_t native_wsstatic_dbg_bp0(void) { return s_wsstatic_dbg_bp0; }
 uint32_t native_wsstatic_dbg_first(void) { return s_wsstatic_dbg_first; }
 
-/* Builder-captured TRUE world coords (pc_overrides_gameplay.c $57B0EE hook). */
-extern int native_wsstatic_count(void);
-extern int native_wsstatic_get(int i, int *x, int *y, int *type);
-
 static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
 {
     const uint8_t *M = g_mem;
@@ -711,7 +713,6 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
     if (!M || getenv("WS_NOOBJ") || s_nanchors < 1) return;
     uint32_t bp0 = s_anchors[0].ptr[0];
     s_wsstatic_dbg_bp0 = bp0; s_wsstatic_dbg_first = gmem_r32(M, WS_STATIC_QUEUE + 0x10u);
-    int nstatic = native_wsstatic_count();
     /* The object queue is built into the BACK buffer, so a descriptor's dst is usually
      * in the OTHER page than the displayed bp0 (1-frame double-buffer skew). Project
      * relative to the descriptor's OWN buffer base, shifted by the displayed page's
@@ -760,23 +761,7 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
         int worldY = orow;
         if (worldY + h <= 0 || worldY >= (pf_bot - pf_top)) continue;
 
-        int matched = 0, truex = 0;
-        for (int k = 0; k < nstatic; k++) {
-            int sx, sy, st;
-            if (native_wsstatic_get(k, &sx, &sy, &st) && abs(sy - worldY) <= 2
-                && (!matched || abs(sx - wx0) < abs(truex - wx0))) { truex = sx; matched = 1; }
-        }
-        /* Resolve the 368px page-wrap with the builder's TRUE worldX, but ONLY when the
-         * dst-projection differs from it by a near-multiple of 368 (a genuine wrap) —
-         * otherwise a wrong worldY-pairing could yank an in-view sprite. The small
-         * gfx-internal offset (truex - wx0 within ±184) leaves the loops as no-ops. */
-        if (matched) {
-            int m = (((truex - wx0) % 368) + 368) % 368;
-            if (m <= 32 || m >= 336) {
-                while (wx0 - truex >  184) wx0 -= 368;
-                while (truex - wx0 > 184) wx0 += 368;
-            }
-        } else if (delta < 0) continue;                  /* no ground truth + wrapped → skip phantom */
+        if (delta < 0) continue;                         /* wrapped/off the displayed page → skip phantom */
 
         s_wsstatic_drawn++;
         for (int py = 0; py < h; py++) {
