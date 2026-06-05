@@ -84,11 +84,12 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
      642 never approached), the cursor advances 86→92→98 (live anim), all 3 render across the
      view (`scratch/screenshots/l5mm_v.png`). Queue-walk dedups Marry Men by position; default
      352 untouched. REPL `wsstatic` reports scanned/drawn/marrymen.
-   STILL OPEN (lesser, non-Marry-Man): other static-placement decorations (records with a
-   DIFFERENT draw handler, e.g. `$57C16E` → `$5e1c(a5)` anim table) are still drawn only from
-   the in-view queue, so they cull in the wide margin. Same RE shape — add their handler's
-   anim-table address to `native_wsmm_compose` (the gfx table `$4a72(a5)` + `$EEFA`/`$12E7E`
-   adds are shared on this branch); only `$57C13A` (Marry Men) is ported so far.
+   NOT an issue (verified): the `$5A4562` list is Marry-Men-ONLY — on L5 records [0..2] are the
+   3 marry men (handler `$57C13A`), records [3..4] have invalid handler ptrs (`$00350008`) i.e.
+   they are not drawable objects, just trailing data. The real DECORATIONS (torches/teleporter/
+   enemies, `$06xxxx`) go through the object WALKER → `$57D8D0` path, whose cull was widened and
+   whose animation is captured in #4 — they are already handled. So no further static-object
+   handler port is needed for the visible gameplay sprites.
 
 2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
    VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports
