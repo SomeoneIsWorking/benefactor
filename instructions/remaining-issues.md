@@ -64,25 +64,29 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
      the symptoms the user reported ("walker/key ghost", "duplicate on the other side", "red
      outline") were ALL artifacts of it. Replaced by the builder/queue capture above.
 
-   **STILL OPEN — margin cull (the user's "marry men are still culled").** The engine only
-   builds a `$5A39EC` descriptor when the object is within ~the 320px window, and the page is
-   only 368px wide, so an object scrolled into the WIDE margin (e.g. L3 has caged objects at
-   worldX 546, ~226px into the right margin at the start camera) has NO descriptor → not drawn.
-   This is the SAME page-size limit as #4 but for the static path, and CANNOT be fixed by
-   widening a cull constant (the 368px page physically can't hold a 960px view). The proper fix
-   = resolve the gfx (data/mask/size/con0) from the placement record `$5A4562` (stride 64: +0
-   type, +2 worldX, +4 worldY, + gfx-selection fields) via the object compositor's gfx/collision
-   tables (`$5A5D9C`/`$5A8C7E`/`$5042(a5)`/`$55BA(a5)`, finalised around `$57B2B8`), then draw
-   every placement record natively across the wide view — a substantial port of the
-   collision-aware compositor `$57B0B4` (the gfx resolution is entangled with per-pixel
-   collision). VERIFIABLE without driving: port it, run L1, check it reproduces record [0]'s
-   known descriptor (data=$010052/mask=$0131F6/size=$0242). NOTE: a `$57B0EE` builder hook to
-   capture the records' true coords was tried and REMOVED — `$57B0EE` is double-emitted so the
-   override fired inconsistently and captured garbage (128 identical records on L3). Read
-   `$5A4562` directly (stride 64) instead. A lighter partial (persist a sprite's gfx after it's
-   been in view, redraw when distance-culled) would stop "scroll PAST a marry man and he
-   vanishes" but would NOT show never-approached far-margin objects — so it doesn't cover the
-   start-of-L3 case; the compositor gfx-resolution port is the real fix.
+   **Margin cull — MOSTLY FIXED via persistence (2026-06-05).** The engine only builds a
+   `$5A39EC` descriptor while the object is within ~the 320px window, and the 368px page can't
+   hold a 960px view, so a caged Marry Man scrolled into the wide margin lost its descriptor →
+   vanished (the user's "walk right on L5, the two marry men cull one-by-one"). FIX (the
+   persistence cache `s_sc` in `native_wsstatic_compose`): cache each static object's gfx +
+   ABSOLUTE world position while it's in the queue (in view); once it's distance-culled (gone
+   from the queue but its worldX is outside the engine's `[cam, cam+304]` window) keep drawing
+   it from the cache at its true world position; if it vanishes while still INSIDE that window
+   it was rescued/removed → drop it (4-frame grace). Cache cleared on level change (level-edge
+   signature `$57FE8C/$57FE8E`). VERIFIED L5 (960px): walking right, `wsstatic` shows the queue
+   drain (scanned 2→1→0) while `cached` rises (0→1→3) and the marry men stay drawn; A/B with the
+   redraw gated = 129px (the cached objects, next to the cage), `scratch/screenshots/
+   l5_persist_diff.png`. REPL `wsstatic` reports scanned/drawn/cached.
+   STILL OPEN (lesser): a marry man you have NEVER approached (never entered the engine window,
+   so never cached — e.g. the L3 objects at worldX 546 sitting in the far margin at level start)
+   still won't show, because his gfx is only available from the queue. Full coverage needs the
+   gfx resolved from the placement record `$5A4562` (stride 64: +0 type, +2 worldX, +4 worldY,
+   + gfx-selection fields) via the compositor's gfx/collision tables (`$5A5D9C`/`$5042(a5)`/
+   `$55BA(a5)`, finalised around `$57B2B8`) — a substantial port of the collision-aware
+   compositor `$57B0B4`, verifiable by reproducing L1 record [0]'s known descriptor
+   (data=$010052/mask=$0131F6/size=$0242). NOTE: a `$57B0EE` builder hook for the true coords
+   was tried and REMOVED (double-emitted → fired inconsistently, captured garbage); read
+   `$5A4562` directly if porting this.
 
 2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
    VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports
