@@ -667,133 +667,133 @@ static void native_wschar_compose(int pf_top, int pf_bot)
 #define WS_PLANE_STRIDE 0x2A0Cu      /* page bitplane stride (dest step per plane)   */
 #define WS_ROWSTRIDE    46           /* playfield page row stride (bytes) = $2e      */
 
-/* Composite cookie-cut CHARACTERS that the $57D3F4 builder capture MISSES — most
- * notably the caged "Marry Men" (rescued creatures). They are drawn by the same
- * executor $57D6C4 as the captured walkers/enemies, but built by a DIFFERENT builder
- * (their gfx lives in a separate pool), so $57D3F4 never sees them → they were
- * invisible in widescreen (issue #1). Rather than chase each builder, we read the
- * blits the engine actually issued (hw_blit_capture, which already records EVERY page
- * sprite) and project the cookie-cut ones the other capture systems don't already
- * draw, into s_objlayer — the SAME camera-independent page->world projection the dead
- * s_pg list used (worldX = cam16 + xrel*8 + ASH). Dedup is by gfx IDENTITY (mask ptr),
- * never a src RANGE (which is per-level): a blit whose mask matches a $57D3F4 char or
- * the player is already drawn elsewhere — skip it; everything else cookie-cut is a
- * missed char. Drawn AFTER the other captures (no memset) so it only ADDS. Camera-
- * relative, so it covers the normal view + scroll margin (where these chars live);
- * the wide-margin pre-clip path stays the $57D8D0/$57D3F4 captures. */
-/* Last frame's missed-char draws, for the REPL `wsmc` inspector (so we never need an
- * env-gated log to see what this pass added — the project debugs via the REPL). */
-typedef struct { int x, y, w, h; uint32_t src, mask; } WsMc;
-#define WSMC_MAX 32
-static WsMc s_wsmc[WSMC_MAX];
-static int  s_wsmc_n = 0;
-int native_wsmc_count(void) { return s_wsmc_n; }
-int native_wsmc_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint32_t *mask)
-{
-    if (i < 0 || i >= s_wsmc_n) return 0;
-    *x = s_wsmc[i].x; *y = s_wsmc[i].y; *w = s_wsmc[i].w; *h = s_wsmc[i].h;
-    *src = s_wsmc[i].src; *mask = s_wsmc[i].mask; return 1;
-}
+/* Composite the static-placement OBJECTS (the caged "Marry Men" / rescue creatures and
+ * similar level decorations) that the $57D8D0 list-A and $57D3F4 char captures DON'T
+ * cover. RE (logs/savestate.bin L1 + scratch/bin/caged_l1.bin, disasm tools/disasm2.py):
+ * these are NOT characters — they are placement records at $5A4562 (clean world coords:
+ * worldX=rec+2, worldY=rec+4), processed per-frame by the heavyweight object compositor
+ * $57B0B4 (per-record re-entry at $57B0FC), which builds a cookie-cut blit descriptor
+ * into queue $5A39EC (data/mask/con0/BLTSIZE/dst/BMOD), played by executor $57D6C4. The
+ * per-frame CHARACTER builder $57D3F4 never sees them (the freed/walking marry man IS a
+ * normal $05xxxx char and IS captured there) — that is why widescreen lost them.
+ *
+ * We capture TRUE worldX/worldY at the builder ($57B0FC, native_staticobj_capture in
+ * pc_overrides_gameplay.c) and the gfx/mask/size from the queue-$5A39EC descriptor the
+ * SAME object produced (paired by worldY = dst row, which never wraps), then draw the
+ * cookie-cut sprite natively at the absolute world position — exactly like the player /
+ * char / list-A passes. No dst->worldX reverse-projection (the page is a 368px circular
+ * buffer, so that wraps/ghosts in the margins — the old, deleted hw_blit_capture pass),
+ * no all-blits dedup, no opaque colour-0 outline. Queue $5A39EC is object-only (the char
+ * builder writes a separate queue), so there is no per-frame-sprite ghosting. */
+/* The static-object queue base (executor $57D6C4 plays it; built by $57B0B4). Fixed
+ * literal in the gameplay bank ($57D5C6 / $57B0CC: lea $5a39ec,a0/a2). 24-byte
+ * descriptors, terminated by a zero BLTSIZE word. */
+#define WS_STATIC_QUEUE 0x5A39ECu
+#define WS_STATIC_DESC  24
 
-static void native_wsmissedchar_compose(int pf_top, int pf_bot, int cam16)
+/* native_wsstatic_compose: per-frame inspector count of what this pass drew (REPL). */
+static int s_wsstatic_drawn = 0;
+static int s_wsstatic_scanned = 0;
+static uint32_t s_wsstatic_dbg_bp0 = 0, s_wsstatic_dbg_first = 0;
+int native_wsstatic_drawn(void) { return s_wsstatic_drawn; }
+int native_wsstatic_scanned(void) { return s_wsstatic_scanned; }
+uint32_t native_wsstatic_dbg_bp0(void) { return s_wsstatic_dbg_bp0; }
+uint32_t native_wsstatic_dbg_first(void) { return s_wsstatic_dbg_first; }
+
+/* Builder-captured TRUE world coords (pc_overrides_gameplay.c $57B0EE hook). */
+extern int native_wsstatic_count(void);
+extern int native_wsstatic_get(int i, int *x, int *y, int *type);
+
+static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
 {
     const uint8_t *M = g_mem;
-    s_wsmc_n = 0;
+    s_wsstatic_drawn = 0; s_wsstatic_scanned = 0;
     if (!M || getenv("WS_NOOBJ") || s_nanchors < 1) return;
     uint32_t bp0 = s_anchors[0].ptr[0];
-    uint32_t disp_base = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+    s_wsstatic_dbg_bp0 = bp0; s_wsstatic_dbg_first = gmem_r32(M, WS_STATIC_QUEUE + 0x10u);
+    int nstatic = native_wsstatic_count();
+    /* The object queue is built into the BACK buffer, so a descriptor's dst is usually
+     * in the OTHER page than the displayed bp0 (1-frame double-buffer skew). Project
+     * relative to the descriptor's OWN buffer base, shifted by the displayed page's
+     * coarse-scroll offset (bp0 - its base) — NOT by bp0 directly (cross-buffer would
+     * give a garbage delta). On a static level both pages share the scroll, so this is
+     * exact; while scrolling it can be a few px off (the known edge-camera skew). */
+    uint32_t disp_buf = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+    int scroll_off = (int)((int32_t)bp0 - (int32_t)disp_buf);
 
-    const BlitRec *rec = hw_blit_capture_recs();
-    int n = hw_blit_capture_count();
+    /* Walk the object-only queue $5A39EC. Each 24-byte descriptor (the layout the
+     * executor $57D6C4 reads with a6=$dff000): +0 data(B,5-plane), +4 mask(A,1-plane,
+     * cookie-cut), +8 con0/con1, +C BLTAMOD/BLTDMOD (== BLTBMOD for these), +10 dst,
+     * +14 BLTALWM.w, +16 BLTSIZE.w (==0 terminates). data/mask plane stride = h*rs. */
+    for (int gi = 0; gi < 48; gi++) {
+        uint32_t q = WS_STATIC_QUEUE + (uint32_t)gi * WS_STATIC_DESC;
+        if (q + WS_STATIC_DESC > RT_MEM_SIZE) break;
+        uint16_t bltsize = gmem_r16(M, q + 0x16u);
+        if (bltsize == 0) break;                         /* queue terminator */
+        s_wsstatic_scanned++;
+        uint32_t data = gmem_r32(M, q + 0x00u);
+        uint32_t mask = gmem_r32(M, q + 0x04u);
+        uint16_t con0 = gmem_r16(M, q + 0x08u);
+        int16_t  bmod = (int16_t)gmem_r16(M, q + 0x0Cu); /* BLTAMOD; BLTBMOD identical here */
+        uint32_t dpt  = gmem_r32(M, q + 0x10u) & ~1u;    /* OCS ignores ptr bit 0 */
+        int w = bltsize & 0x3F, h = bltsize >> 6;
+        int shift = (con0 >> 12) & 0xF;                  /* BLTCON0 ASH */
+        if (w <= 0 || h <= 0 || w > 64 || h > 256) continue;
+        int rs = w * 2 + bmod;                           /* packed row stride (rows overlap) */
+        if (rs <= 0) continue;
+        int ww = rs / 2; if (ww < 1) ww = 1;             /* displayed words: BLTALWM=0 kills the spillover */
+        int wpx = ww * 16;
+        uint32_t pstride = (uint32_t)h * (uint32_t)rs;   /* B-channel per-plane auto-advance */
+        if (data + pstride * 4u + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) continue;
+        if (mask + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) continue;
 
-    /* The other passes (list-A objects, $57D3F4 chars, player) already drew their
-     * sprites at the builder-captured world position. We must NOT re-draw those — only
-     * the genuinely UNCAPTURED ones (the Marry Men). We dedup by POSITION, which is the
-     * one identity stable across ANIMATION: a sprite's gfx/mask pointer changes every
-     * anim frame (so the old mask-based dedup let animated walkers slip through and
-     * ghost), but its world position does not. So a blit landing within a sprite's
-     * footprint of an already-captured sprite IS that sprite — skip it. */
-    int nch  = native_wschar_count();
-    int nobj = native_wsobj_count();
-    int px0, py0, pblack; uint32_t pdb, pmb;
-    int have_player = native_wsplayer_get(&px0, &py0, &pdb, &pmb, &pblack);
-
-    int i = 0;
-    while (i < n) {
-        int g0 = i, np = 1;
-        while (i + np < n && np < 5
-               && rec[i + np].dpt == rec[i + np - 1].dpt + WS_PLANE_STRIDE
-               && rec[i + np].w == rec[g0].w && rec[i + np].h == rec[g0].h) np++;
-        const BlitRec *r0 = &rec[g0];
-        i += np;
-
-        if (r0->mask == 0u) continue;                  /* opaque = list-A object/restore */
-        if (r0->w <= 0 || r0->h <= 0 || r0->w > 64 || r0->h > 256) continue;
-        if (r0->dpt < disp_base || r0->dpt >= disp_base + WS_PLANE_STRIDE) continue;  /* displayed buffer */
-
-        /* camera-independent page->world projection (mirrors native_objlayer_project). */
-        int32_t delta = (int32_t)(r0->dpt - bp0);
+        /* dst -> on-screen base. worldY = page row (Y never scrolls/wraps). worldX from
+         * the dst byte column is correct IN-VIEW but ambiguous mod the 368px circular
+         * page, so resolve the wrap with the builder's TRUE worldX (paired by worldY). */
+        uint32_t desc_buf = (dpt >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+        if (dpt < desc_buf || dpt >= desc_buf + WS_PLANE_STRIDE) continue;
+        int32_t delta = (int32_t)(dpt - desc_buf) - scroll_off;
         int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE)
                                 : -(((-delta) + WS_ROWSTRIDE - 1) / WS_ROWSTRIDE);
         int xrel = (int)(delta - orow * WS_ROWSTRIDE);
-        int wx0  = cam16 + xrel * 8 + r0->shift;
-        int srow = r0->w * 2 + r0->smod, mrow = r0->w * 2 + r0->mmod;
-        int draww = r0->w * 16 - r0->shift;
-        if (srow <= 0 || mrow <= 0) continue;
+        int wx0  = cam16 + xrel * 8 + shift;             /* visual left of source bit 0 */
+        int worldY = orow;
+        if (worldY + h <= 0 || worldY >= (pf_bot - pf_top)) continue;
 
-        /* WRAP guard. The page is a 368px circular buffer: a sprite whose dest sits
-         * before the displayed top-left (delta<0) or projects to a row outside the
-         * playfield is a wrap/stale image of an off-screen sprite — drawing it puts a
-         * phantom on the far side of the screen. Only the genuinely on-screen image
-         * (delta>=0, row within the playfield) is real. */
-        if (delta < 0) continue;
-        if (orow + r0->h <= 0 || orow >= (pf_bot - pf_top)) continue;
-
-        /* DEDUP. Primary key = gfx IDENTITY (the blit's source gfx pointer), which the
-         * other passes also store. This is WRAP-INDEPENDENT: the engine page is a 368px
-         * circular scroll buffer, so the dpt->world projection above is only correct
-         * mod 368 and can wrap a sprite to the far side at some scroll values — a
-         * position-only dedup then misses it and ghosts. The gfx pointer is the same no
-         * matter where the sprite sits, so matching it reliably identifies an already-
-         * drawn sprite (verified: a $57D3F4 walker's blit src == its captured data, even
-         * when its derived mask did not). POSITION is a secondary catch for the 1-frame
-         * anim skew (gfx ptr advanced a frame between capture and blit). */
-        const int DTOLX = 24, DTOLY = 10;
-        int dup = 0;
-        if (have_player && (r0->src == pdb || (abs(wx0 - px0) <= DTOLX && abs(orow - py0) <= DTOLY)))
-            dup = 1;
-        for (int k = 0; !dup && k < nobj; k++) {
-            int x, y, w, h; uint32_t s, m;
-            if (native_wsobj_get(k, &x, &y, &w, &h, &s, &m)
-                && (r0->src == s || (abs(wx0 - x) <= DTOLX && abs(orow - y) <= DTOLY))) dup = 1;
+        int matched = 0, truex = 0;
+        for (int k = 0; k < nstatic; k++) {
+            int sx, sy, st;
+            if (native_wsstatic_get(k, &sx, &sy, &st) && abs(sy - worldY) <= 2
+                && (!matched || abs(sx - wx0) < abs(truex - wx0))) { truex = sx; matched = 1; }
         }
-        for (int k = 0; !dup && k < nch; k++) {
-            int x, y, w, h, rs; uint32_t d, m;
-            if (native_wschar_get(k, &x, &y, &w, &h, &d, &m, &rs)
-                && (r0->src == d || (abs(wx0 - x) <= DTOLX && abs(orow - y) <= DTOLY))) dup = 1;
-        }
-        if (dup) continue;
+        /* Resolve the 368px page-wrap with the builder's TRUE worldX, but ONLY when the
+         * dst-projection differs from it by a near-multiple of 368 (a genuine wrap) —
+         * otherwise a wrong worldY-pairing could yank an in-view sprite. The small
+         * gfx-internal offset (truex - wx0 within ±184) leaves the loops as no-ops. */
+        if (matched) {
+            int m = (((truex - wx0) % 368) + 368) % 368;
+            if (m <= 32 || m >= 336) {
+                while (wx0 - truex >  184) wx0 -= 368;
+                while (truex - wx0 > 184) wx0 += 368;
+            }
+        } else if (delta < 0) continue;                  /* no ground truth + wrapped → skip phantom */
 
-        if (s_wsmc_n < WSMC_MAX)
-            s_wsmc[s_wsmc_n++] = (WsMc){ wx0, orow, r0->w, r0->h, r0->src, r0->mask };
-
-        for (int py = 0; py < r0->h; py++) {
-            int sy = pf_top + orow + py;
+        s_wsstatic_drawn++;
+        for (int py = 0; py < h; py++) {
+            int sy = pf_top + worldY + py;
             if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
             const uint32_t *pal = s_scan[sy].palette;
-            for (int px = 0; px < draww; px++) {
-                int wx = wx0 + px;
+            for (int c = 0; c < wpx; c++) {
+                int wo = c >> 4, bit = 15 - (c & 15);
+                uint32_t rowoff = (uint32_t)py * (uint32_t)rs + (uint32_t)wo * 2u;
+                if (!((gmem_r16(M, mask + rowoff) >> bit) & 1u)) continue;  /* cookie-cut */
+                int wx = wx0 + c;
                 if (wx < 0 || wx >= WS_LAYER_W) continue;
-                uint32_t ma = r0->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
-                if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
                 int ci = 0;
-                for (int p = 0; p < np; p++) {
-                    uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
-                    if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
-                }
-                /* colour 0 = transparent (let the bg show), like native_objlayer_from_capture.
-                 * Drawing it as opaque pal[0] painted the sprite's mask silhouette in COLOR0
-                 * (dark red in the cave palette) — the spurious blinking red outline. */
+                for (int p = 0; p < 5; p++)
+                    if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
+                        ci |= (1 << p);
+                /* colour 0 = transparent (let the bg show through the cookie-cut). */
                 if (ci) s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
             }
         }
@@ -1003,7 +1003,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     native_objlayer_from_capture(pf_top, pf_bot);
     native_wschar_compose(pf_top, pf_bot);
     native_wsplayer_compose(pf_top, pf_bot);
-    native_wsmissedchar_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + other uncaptured chars */
+    native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
 
     if (getenv("WS_DBG")) {
         int scroll1 = s_scan[pf_top].bplcon1 & 0xF;
@@ -1082,7 +1082,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
  * coarse offset, mapped into the same screen coordinate the tile bg uses. Opaque
  * blits (con0 $09F0, D=A) copy all pixels; cookie-cut blits (minterm $CA) draw only
  * where the shared mask plane is set (transparency). */
-/* WS_PLANE_STRIDE / WS_ROWSTRIDE defined above (near native_wsmissedchar_compose). */
+/* WS_PLANE_STRIDE / WS_ROWSTRIDE defined above (near native_wsstatic_compose). */
 
 /* Page display-list model. The engine's playfield page is built by DRAW blits (objects,
  * the GET READY banner) and torn down by background-RESTORE blits. We mirror it as a list

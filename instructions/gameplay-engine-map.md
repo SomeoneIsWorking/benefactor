@@ -240,6 +240,38 @@ splits to either a jump-table dispatch at `$59AC64` or `adda.w #$645,a7; jmp (a0
 at `$59AC5E` (the path whose status under real play is unknown — see
 [[w6l2-crash-status-unknown]]).
 
+## Sprite / object DRAW pipeline (RE'd 2026-06-05) — owned by the widescreen capture
+
+The playfield sprites are drawn by THREE distinct producer→queue→executor systems, all
+compositing into the double-buffer pages (`$02B3EC` / `$038628`, row stride `$2e`=46,
+plane stride `$2A0C`). Knowing which system draws a sprite tells you where to capture it
+for the native wide renderer (and avoids the per-level magic-src-range trap).
+
+| system | producer (builder) | queue | executor | what | wide capture |
+|--------|--------------------|-------|----------|------|--------------|
+| **list-A objects** | object walker `$57D79A`→`$57D7BC`, choke `$57D8D0` | — | `$57DB34`/`$57DB5E` | platforms, pickups, ladders, box ($06xxxx) | `native_objdraw_capture` (`$57D8D0`, clean d0/d1) |
+| **characters** | char loop `$57D3C2` (a2=`$10e6(a5)` list), per-type handler `jmp (a1,d0.w)` → builder `$57D3F4` | `$1032(a5)`(=`$5A371C`) + `$1036(a5)` | `$57D5AA` / `$57D6C4` (via `$57D56C`) | player-size walkers, enemies, FREED marry men ($05xxxx) | `native_char_capture` (`$57D3F4`, clean d0/d1/d5/a1) |
+| **static-placement objects** | object compositor `$57B0B4` (a0=`$5A4562` records, per-record re-entry `$57B0EE`, common build `$57B19E`) | `$5A39EC` (+`$5A371C`) | `$57D6C4` (via `$57D56C`) | CAGED marry men + level deco ($01xxxx etc.) | `native_wsstatic_compose` (walk `$5A39EC`) + `native_staticobj_capture` (`$57B0EE`, clean worldX/Y) |
+
+- **The PLAYER** is its own path (`$57A666`, not in any list) — `native_player_capture`.
+- **`$5A4562` placement record** = 6 words: `+0 type`, `+2 worldX`, `+4 worldY`, `+6..` aux
+  (`$57B0B4` caches a resolved handler ptr into later slots — `+2/+4` stay clean). type=0
+  ends the list; type<0 = multi-tile path.
+- **`$57D6C4`/`$57D5AA` executor descriptor** (24 bytes, a6=`$dff000` so a5=BLTSIZE): `+0`
+  data(B,5-plane), `+4` mask(A,1-plane, cookie-cut), `+8` con0/con1 (ASH=con0>>12), `+C`
+  BLTAMOD/BLTDMOD (==BLTBMOD here), `+10` dst, `+14` BLTALWM.w, `+16` BLTSIZE.w (==0 ends).
+  Displayed width = `rs/2` words (`rs=w*2+BMOD`; BLTALWM=0 kills the spillover); data plane
+  stride = `h*rs` (B-channel auto-advance). Decode = cookie-cut: mask bit gates, 5 data
+  planes → colour index, colour 0 transparent.
+- **Why the wide renderer must capture all three:** `native_render_wide_bg` rebuilds the
+  playfield from the tilemap and IGNORES the engine page, so anything only drawn into the
+  page (i.e. every sprite) is lost unless separately captured. dst→worldX is ambiguous mod
+  the 368px circular page — capture clean world coords at the BUILDER, never reverse-project
+  the page (the deleted `native_wsmissedchar_compose`/`s_pg` did and produced wrap phantoms).
+- **Double-buffer skew:** the queue is built into the BACK buffer, so a descriptor's dst is
+  usually in the OTHER page than the displayed `bp0`. Project relative to the descriptor's
+  own page base + the displayed coarse-scroll offset (see `native_wsstatic_compose`).
+
 ## Low chip-RAM state map (in-progress)
 
 The engine reads low chip-RAM addresses (`$0..$2FFF`) heavily during boot + level
