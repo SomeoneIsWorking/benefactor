@@ -664,6 +664,90 @@ static void native_wschar_compose(int pf_top, int pf_bot)
     }
 }
 
+#define WS_PLANE_STRIDE 0x2A0Cu      /* page bitplane stride (dest step per plane)   */
+#define WS_ROWSTRIDE    46           /* playfield page row stride (bytes) = $2e      */
+
+/* Composite cookie-cut CHARACTERS that the $57D3F4 builder capture MISSES — most
+ * notably the caged "Marry Men" (rescued creatures). They are drawn by the same
+ * executor $57D6C4 as the captured walkers/enemies, but built by a DIFFERENT builder
+ * (their gfx lives in a separate pool), so $57D3F4 never sees them → they were
+ * invisible in widescreen (issue #1). Rather than chase each builder, we read the
+ * blits the engine actually issued (hw_blit_capture, which already records EVERY page
+ * sprite) and project the cookie-cut ones the other capture systems don't already
+ * draw, into s_objlayer — the SAME camera-independent page->world projection the dead
+ * s_pg list used (worldX = cam16 + xrel*8 + ASH). Dedup is by gfx IDENTITY (mask ptr),
+ * never a src RANGE (which is per-level): a blit whose mask matches a $57D3F4 char or
+ * the player is already drawn elsewhere — skip it; everything else cookie-cut is a
+ * missed char. Drawn AFTER the other captures (no memset) so it only ADDS. Camera-
+ * relative, so it covers the normal view + scroll margin (where these chars live);
+ * the wide-margin pre-clip path stays the $57D8D0/$57D3F4 captures. */
+static void native_wsmissedchar_compose(int pf_top, int pf_bot, int cam16)
+{
+    const uint8_t *M = g_mem;
+    if (!M || getenv("WS_NOOBJ") || s_nanchors < 1) return;
+    uint32_t bp0 = s_anchors[0].ptr[0];
+    uint32_t disp_base = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
+
+    const BlitRec *rec = hw_blit_capture_recs();
+    int n = hw_blit_capture_count();
+
+    /* gfx-identity dedup set: masks of every char the $57D3F4 builder captured + the
+     * player's mask (both are drawn by their own compose pass already). */
+    int nch = native_wschar_count();
+    int px0, py0, pw, ph, pblack; uint32_t pdb, pmb;
+    int have_player = native_wsplayer_get(&px0, &py0, &pdb, &pmb, &pblack);
+
+    int i = 0;
+    while (i < n) {
+        int g0 = i, np = 1;
+        while (i + np < n && np < 5
+               && rec[i + np].dpt == rec[i + np - 1].dpt + WS_PLANE_STRIDE
+               && rec[i + np].w == rec[g0].w && rec[i + np].h == rec[g0].h) np++;
+        const BlitRec *r0 = &rec[g0];
+        i += np;
+
+        if (r0->mask == 0u) continue;                  /* opaque = list-A object/restore */
+        if (r0->w <= 0 || r0->h <= 0 || r0->w > 64 || r0->h > 256) continue;
+        if (r0->dpt < disp_base || r0->dpt >= disp_base + WS_PLANE_STRIDE) continue;  /* displayed buffer */
+
+        int dup = 0;                                   /* already drawn by another pass? */
+        if (have_player && r0->mask == pmb) dup = 1;
+        for (int k = 0; !dup && k < nch; k++) {
+            int x, y, w, h, rs; uint32_t d, m;
+            if (native_wschar_get(k, &x, &y, &w, &h, &d, &m, &rs) && m == r0->mask) dup = 1;
+        }
+        if (dup) continue;
+
+        /* camera-independent page->world projection (mirrors native_objlayer_project). */
+        int32_t delta = (int32_t)(r0->dpt - bp0);
+        int orow = (delta >= 0) ? (delta / WS_ROWSTRIDE)
+                                : -(((-delta) + WS_ROWSTRIDE - 1) / WS_ROWSTRIDE);
+        int xrel = (int)(delta - orow * WS_ROWSTRIDE);
+        int wx0  = cam16 + xrel * 8 + r0->shift;
+        int srow = r0->w * 2 + r0->smod, mrow = r0->w * 2 + r0->mmod;
+        int draww = r0->w * 16 - r0->shift;
+        if (srow <= 0 || mrow <= 0) continue;
+
+        for (int py = 0; py < r0->h; py++) {
+            int sy = pf_top + orow + py;
+            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
+            const uint32_t *pal = s_scan[sy].palette;
+            for (int px = 0; px < draww; px++) {
+                int wx = wx0 + px;
+                if (wx < 0 || wx >= WS_LAYER_W) continue;
+                uint32_t ma = r0->mask + (uint32_t)py * mrow + (uint32_t)(px >> 3);
+                if (ma + 1u >= RT_MEM_SIZE || !((M[ma] >> (7 - (px & 7))) & 1u)) continue;
+                int ci = 0;
+                for (int p = 0; p < np; p++) {
+                    uint32_t sa = rec[g0 + p].src + (uint32_t)py * srow + (uint32_t)(px >> 3);
+                    if (sa + 1u < RT_MEM_SIZE && ((M[sa] >> (7 - (px & 7))) & 1u)) ci |= (1 << p);
+                }
+                s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+            }
+        }
+    }
+}
+
 /* Composite the GET READY / GAME OVER banner as a CENTERED top UI overlay drawn
  * straight into `out` (after the playfield + objects, so nothing draws over it). Three
  * captured elements (pc_overrides_gameplay.c): the box ($578974, cookie-cut), the
@@ -867,6 +951,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     native_objlayer_from_capture(pf_top, pf_bot);
     native_wschar_compose(pf_top, pf_bot);
     native_wsplayer_compose(pf_top, pf_bot);
+    native_wsmissedchar_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + other uncaptured chars */
 
     if (getenv("WS_DBG")) {
         int scroll1 = s_scan[pf_top].bplcon1 & 0xF;
@@ -945,8 +1030,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
  * coarse offset, mapped into the same screen coordinate the tile bg uses. Opaque
  * blits (con0 $09F0, D=A) copy all pixels; cookie-cut blits (minterm $CA) draw only
  * where the shared mask plane is set (transparency). */
-#define WS_PLANE_STRIDE 0x2A0Cu
-#define WS_ROWSTRIDE    46            /* playfield page row stride (bytes) = $2e */
+/* WS_PLANE_STRIDE / WS_ROWSTRIDE defined above (near native_wsmissedchar_compose). */
 
 /* Page display-list model. The engine's playfield page is built by DRAW blits (objects,
  * the GET READY banner) and torn down by background-RESTORE blits. We mirror it as a list
