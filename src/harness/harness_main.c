@@ -603,6 +603,30 @@ int main(int argc, char **argv)
             g_native_render_delay = saved_delay;
             printf("[crepl] rendered current g_mem to framebuffer (delay bypassed)\n");
         }
+        else if (!strcmp(cmd, "blitskip")) {  /* blitskip <fn-hex|0> — DIAGNOSTIC: drop every blit issued
+                                                 by routine <fn> (g_rt_last_call), to confirm which fn draws
+                                                 a sprite by watching it vanish. 0 = disable. */
+            extern uint32_t g_blit_skip_fn;
+            unsigned f = 0; const char *p = line; while (*p && *p!=' ') p++; sscanf(p, " %x", &f);
+            g_blit_skip_fn = f;
+            printf("[crepl] blitskip fn=$%06X %s\n", f, f?"(active)":"(off)");
+        }
+        else if (!strcmp(cmd, "vren")) {  /* vren [tag] — DIAGNOSTIC: render current g_mem through the
+                                              FAITHFUL emulated copper renderer (hw_render_frame) into s_fb
+                                              and dump to logs/fb_vren_<tag>.bin. Compare against the native
+                                              render (fb <tag>) on the SAME g_mem to isolate exactly what the
+                                              native renderer drops (e.g. the page-only Marry Man draw). */
+            extern void hw_execute_copper(void);
+            extern void hw_render_frame(void);
+            char tag[64] = {0}; sscanf(line, "%*s %63s", tag);
+            hw_execute_copper();
+            hw_render_frame();
+            const uint32_t *fb = hw_get_framebuffer();
+            char path[160]; snprintf(path, sizeof path, "logs/fb_vren_%s.bin", tag[0]?tag:"out");
+            FILE *q = fopen(path, "wb");
+            if (q && fb) { fwrite(fb, 4, FB_W * FB_H, q); fclose(q); }
+            printf("[crepl] wrote %s (faithful hw_render_frame of current g_mem)\n", path);
+        }
         else if (!strcmp(cmd, "done")) {  /* debug: force PC level-complete (win) */
             extern void pc_debug_complete_level(void);
             pc_debug_complete_level();
@@ -908,6 +932,69 @@ int main(int argc, char **argv)
             for (int i=0;i<nchr;i++){ int x,y,w,h,rsd; uint32_t d,mk;
                 if (!native_wschar_get(i,&x,&y,&w,&h,&d,&mk,&rsd)) continue;
                 printf("  chr%2d x=%5d y=%4d screenX=%5d w=%d h=%d data=$%06X\n",i,x,y,x-cam,w,h,d); }
+        }
+        else if (!strcmp(cmd, "wswalk")) {  /* wswalk — DIAGNOSTIC: walk the $1162(a5) object-ptr list
+                                               read-only and classify each object's walker branch
+                                               (multitile $57D81C / animated $57D8B4 / main $57D804 / bit6
+                                               fast-path) and whether it PASSes or is CULLed by that branch's
+                                               camera window. (Note: the Marry Man is NOT a walker-cull case —
+                                               he's an uncaptured char drawn by executor $57D6C4; see
+                                               remaining-issues #1. This inspects the list-A/B walker only.) */
+            extern uint8_t *g_mem;
+            if (!g_mem) { printf("[wswalk] no g_mem\n"); }
+            else {
+              #define RD16(A) ((uint16_t)((g_mem[(A)&0x7FFFFF]<<8)|g_mem[((A)+1)&0x7FFFFF]))
+              #define RD32(A) ((uint32_t)((RD16(A)<<16)|RD16((A)+2)))
+              #define RD8(A)  (g_mem[(A)&0x7FFFFF])
+              uint32_t a5 = 0x57EE12u;
+              uint32_t a2 = a5 + 0x1162u;          /* object-ptr list */
+              uint32_t a0 = a5 + 0x16a6u;          /* anim/aux table */
+              int cam = (int)(int16_t)RD16(0x57FDBAu);
+              printf("[wswalk] cam=%d list=$%06X\n", cam, a2);
+              int idx = 0;
+              while (RD32(a2) != 0 && idx < 64) {
+                uint32_t a1 = RD32(a2); a2 += 4;
+                uint16_t w0 = RD16(a1);
+                const char *branch; int worldX=-1, d1=-1, win=-1, pass=-1; uint32_t handler=0;
+                if ((int16_t)w0 < 0) {
+                  /* multi-tile path $57D81C: worldX = $6(a0), cull cmpi.w #$150 */
+                  branch = "MULTI";
+                  worldX = (int16_t)RD16(a0 + 6u);
+                  d1 = (uint16_t)(worldX - (uint16_t)cam);
+                  win = 0x150; pass = (d1 <= win);
+                } else {
+                  uint32_t a1b = a1 + (int16_t)w0;   /* adda.w d2,a1 */
+                  uint32_t a0loc = a0;
+                  uint16_t aux = RD16(a0loc); a0loc += 2;  /* tst.w (a0)+ */
+                  if (aux == 0) { branch = "ZERO-AUX"; }
+                  else {
+                    uint16_t animn = (uint16_t)(0x3F & RD16(a1b - 12u));
+                    if (animn != 0) {
+                      branch = "ANIM($57D8B4)";
+                      handler = a1b;
+                      if ((int16_t)RD16(a1b - 2u) >= 0) { pass = 1; win=-1; }
+                      else { worldX = (int16_t)RD16(a0loc);
+                             d1 = (uint16_t)(worldX + 0x30 - (uint16_t)cam); win=0x1b0; pass=(d1<=win); }
+                    } else if (RD8(a1b - 2u) & (1u<<6)) {
+                      branch = "BIT6-FAST"; handler=a1b; pass=1; win=-1;
+                    } else {
+                      branch = "MAIN($57D804)"; handler=a1b;
+                      worldX = (int16_t)RD16(a0loc);
+                      d1 = (uint16_t)(worldX + 0x30 - (uint16_t)cam); win=0x170; pass=(d1<=win);
+                    }
+                  }
+                }
+                printf("  [%2d] a1=$%06X w0=$%04X %-14s worldX=%5d screenX=%5d d1=%5d win=$%X %s hdlr=$%06X\n",
+                       idx, a1, w0, branch, worldX, worldX<0?0:worldX-cam, d1, win<0?0:win,
+                       pass<0?"-":(pass?"PASS":"CULL"), handler);
+                a0 += (((int16_t)w0 < 0) ? 0x1c : 0x20);  /* multi-tile advances $1c, else $20 */
+                idx++;
+              }
+              printf("[wswalk] %d objects\n", idx);
+              #undef RD16
+              #undef RD32
+              #undef RD8
+            }
         }
         else if (!strcmp(cmd, "bpos")) {  /* bpos — print banner box/anim/text captured page offsets +
                                              derived box-relative (row,col px) placement, vs the box mask's

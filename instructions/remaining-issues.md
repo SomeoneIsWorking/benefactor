@@ -16,17 +16,41 @@ tilemap + per-routine sprite captures, ignoring the engine page. Anything drawn 
 into the page by a path we DON'T capture is invisible. Full routine map +
 verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
-1. **Marry Men (rescued creatures) invisible.** OPEN. Repro: level 1, figures stand in
-   doorways. They are NOT in any current capture (the human-sized things captured on L1
-   were a door + a boulder). They go through an UNHOOKED walker path — likely the
-   `$57D81C` multi-tile branch (a CPU `move.w` copy, NOT a blitter blit → absent from
-   BLIT_LOG and the `$57D8D0`/`$57D3F4` choke captures) and/or the same setup
-   queue-build path as issue #2. SHARES the root cause of #4: the char/list-B draw paths
-   are gated by a per-object camera cull in the walker `$57D79A` (unlike `$57D8D0` list-A
-   which we capture pre-clip). NEXT: hook the walker's per-object point before the cull;
-   capture worldX/Y/gfx for ALL objects (on+off screen) and draw natively — one fix covers
-   marry men + torches + teleporter (#4). NOTE: object src-range classification is PER-LEVEL
-   (L1 gfx in `$05xxxx`, L9 in `$06xxxx`) — classify by ROUTINE, never by magic src range.
+1. **Marry Men (rescued creatures) invisible.** OPEN — **ROOT CAUSE NAILED (2026-06-05),
+   fix not yet built.** The Marry Man = the short red-shirt figure inside the **cage** (grey
+   two-pillar cell with a cross on the right pillar), NOT the teleporter (the green figure in
+   the bottom-left grey structure is the PLAYER — do not chase him). On L1 the cage sits at
+   ~worldX 67, page dpt `$02C338`. CONFIRMED VIA ABLATION (REPL `blitskip <fn>` drops every
+   blit from a routine): blitskip-ing **`57D6C4`** empties the cage → he is drawn by the
+   cookie-cut CHARACTER executor `57D6C4`. blitskip-ing every other candidate (`57DB16`/
+   `57DA40`/`57DA88` list-B, `57D56C`, the `57D282` restore) left him intact → the doc's
+   old "list-B / multi-tile" guess was WRONG. He is a **character we never captured** (user's
+   call), distinct from the player (`$57A666`) and enemies (already done).
+   - His blit: `con0=AFCA` (A-shift 10), 2×9, **DATA(bpt)=`$010xxx`, MASK(apt)=`$013xxx`**,
+     `bmod=-2`, animated (4 frames, bpt +`$5A`/frame), 5 planes at dpt step `$2A0C`.
+   - WHY uncaptured: the char capture hooks the `$57D3F4` builder; EVERY char it captures has
+     data `$05xxxx`, his is `$01xxxx` → `$57D3F4` never fires for him. Three builders feed the
+     executor `57D6C4`: `$57D3F4` (captured), `$57D5AA`, `$57D6F2` (`$57D5AA`/`$57D6F2` are the
+     low-level blit-issue helpers — `btst d4,(a6)` wait-blitter + reg-stream + trigger — so the
+     worldX/Y is only in their indirectly-dispatched object handler, not in clean regs there).
+   - The executor `$57D6C4` is a blitter-QUEUE PLAYER (reads a descriptor stream from A0,
+     issues all 5 planes in ONE entry → an override on it fires once/char, but params are in
+     the queue not registers). PAGE dpt is camera-INDEPENDENT (page = full level width), so
+     dpt→worldX/worldY is derivable (page base `$02B3EC`/`$038628`, row stride `$2E`=46 → L1
+     marry man dpt `$02C338` decodes to worldY≈85, worldX≈48+ASH, matches the cage).
+   - NEXT (fix): capture the marry-man char at the blit (the one place every plane resolves)
+     — record plane-0 `{dpt→world, data, mask, w, h, ASH, bmod}` for `fn=57D6C4` chars the
+     `$57D3F4` builder didn't capture (his data `$01xxxx` vs the builder's `$05xxxx`), dedup the
+     5 planes, and draw via the wide CHAR compositor (`native_wschar_compose`). Same
+     capture-and-replay model as `$57D8D0`/`$57D3F4`; no engine-page reading. Diagnostic tools
+     added: REPL `blitskip <fn>` (ablate a routine's blits), `vren` (faithful `hw_render_frame`
+     of current g_mem — note: that legacy renderer is now mostly dead/black, not a usable oracle;
+     use PUAE).
+   - Verify method: PUAE (`pugoto 1`) vs native at 352, lockstep `both N`, crop the cage
+     (`scratch/screenshots/cage_van.png` shows him, `cage_nat.png` is the page-faithful native
+     render which ALSO shows him — but the WIDE output `fbw`/`s_out` does NOT; that gap is the
+     bug). NOTE: object src-range classification is PER-LEVEL — classify by ROUTINE, never by
+     magic src range.
 
 2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
    VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports

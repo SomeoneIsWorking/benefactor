@@ -245,9 +245,19 @@ static void hw_do_line(uint16_t bltcon0, uint16_t bltcon1, uint16_t bltsize)
 
 /* ── Main blit engine ───────────────────────────────────────────────────── */
 
+/* DIAGNOSTIC ablation: when set (via REPL `blitskip <fn>`), drop every blit whose
+ * issuing routine (g_rt_last_call) matches — used to confirm which fn draws a given
+ * on-screen sprite (e.g. the Marry Man) by watching it vanish from the page render. */
+uint32_t g_blit_skip_fn = 0;
+
 void hw_do_blit(void)
 {
     _trace_init();
+
+    if (g_blit_skip_fn) {
+        extern volatile uint32_t g_rt_last_call;
+        if ((g_rt_last_call & 0xFFFFFFu) == (g_blit_skip_fn & 0xFFFFFFu)) return;
+    }
 
     uint16_t bltcon0 = s_regs[_BLTCON0 >> 1];
     uint16_t bltcon1 = s_regs[_BLTCON1 >> 1];
