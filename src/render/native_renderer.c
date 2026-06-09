@@ -1003,23 +1003,40 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                 int lx = (x - margin) - x_off - scroll1;      /* compare: engine bitplane index */
                 worldX = cam16 + lx;                          /* engine-aligned mapping */
             }
-            if (worldX < 0) continue;
-            int col = worldX >> 4;
-            if (col < mincol || col >= maxcol) continue;
-            int tx = worldX & 15;
-            uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
-            if (mo + 1u >= RT_MEM_SIZE) continue;
-            uint16_t w = gmem_r16(M, mo);
-            uint32_t gfx = gmem_r32(M, WS_GFXTAB + (uint32_t)(w & 0xFFFEu));
-            if (gfx < 0x1000u || gfx + 160u > RT_MEM_SIZE) continue;
-            int ci = 0;
-            for (int p = 0; p < 5; p++)
-                if ((gmem_r16(M, gfx + (uint32_t)p * 32u + (uint32_t)ty * 2u) >> (15 - tx)) & 1u)
-                    ci |= (1 << p);
-            row[x] = pal[ci & 0x1Fu];
+            /* Decode the level tile at this world X, if any (the only thing on the
+             * playfield besides objects). drew = a real level pixel was written. */
+            int drew = 0;
+            if (worldX >= 0) {
+                int col = worldX >> 4;
+                if (col >= mincol && col < maxcol) {
+                    int tx = worldX & 15;
+                    uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
+                    if (mo + 1u < RT_MEM_SIZE) {
+                        uint16_t w = gmem_r16(M, mo);
+                        uint32_t gfx = gmem_r32(M, WS_GFXTAB + (uint32_t)(w & 0xFFFEu));
+                        if (gfx >= 0x1000u && gfx + 160u <= RT_MEM_SIZE) {
+                            int ci = 0;
+                            for (int p = 0; p < 5; p++)
+                                if ((gmem_r16(M, gfx + (uint32_t)p * 32u + (uint32_t)ty * 2u) >> (15 - tx)) & 1u)
+                                    ci |= (1 << p);
+                            row[x] = pal[ci & 0x1Fu];
+                            drew = 1;
+                        }
+                    }
+                }
+            }
+            if (!drew) {
+                /* No level pixel here. In the WIDE view this is the void beyond the level
+                 * edge (the engine hides it with DIWSTRT/DIWSTOP) — own the row and paint it
+                 * BLACK, never leave the engine's 352 page copy (which scrolls with the
+                 * VANILLA camera) showing through → that leak was the left-edge artifact.
+                 * The margin==0 COMPARE path keeps the s_fb baseline (it is diffed against). */
+                if (margin > 0) row[x] = 0xFF000000u;
+                else continue;
+            }
 
             /* Composite the captured gameplay objects (s_objlayer, keyed by absolute
-             * world X — same coordinate as the tile bg) on top of the terrain. */
+             * world X — same coordinate as the tile bg) on top of terrain or void. */
             if (worldX >= 0 && worldX < WS_LAYER_W) {
                 uint32_t o = s_objlayer[y][worldX];
                 if (o & 0xFF000000u) row[x] = o;
