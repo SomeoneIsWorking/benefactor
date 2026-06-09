@@ -324,8 +324,9 @@ for the native wide renderer (and avoids the per-level magic-src-range trap).
   own page base + the displayed coarse-scroll offset (see `native_wsstatic_compose`).
 - **A 4th draw system — LINE-mode chains** (chandelier ropes): routine `$57DD42` draws a
   per-frame segment list at `$5ABB5E` (`{x0,y0,x1,y1}` world coords) via the OCS blitter LINE
-  mode, into the page. Page-only ⇒ invisible in the wide view; RE'd + port spec in
-  [[remaining-issues]] #6 (not yet ported — needs the chandelier chamber to verify).
+  mode, into the page. Page-only ⇒ was invisible in the wide view; PORTED — ropes are
+  captured pre-cull at the shared clip/emit entry `$57DCD4` (`native_wsrope_*`) and drawn
+  by `native_wsrope_compose`.
 
 ### The static-object compositor `$57B0B4` — internals (RE'd 2026-06-05)
 
