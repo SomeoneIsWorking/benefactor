@@ -32,9 +32,9 @@
 unsigned long g_native_pickup_hits = 0;
 
 /* Extra HORIZONTAL (X) pickup/interaction reach, in pixels, ON TOP of each handler's
- * own vanilla window. Single knob ("interact_extend" in benefactor.json, default 5).
- * Vertical reach is left exactly as the original game. -1 = unresolved. */
-int g_interact_extend = -1;
+ * own vanilla window. Single knob "interact_extend", resolved live each frame through
+ * the unified config (ENV > REPL `cfg` > benefactor.json > 0). Vertical reach is left
+ * exactly as the original game. */
 
 /* One-trigger-per-press latch (interactables only). Levers are one-shot toggles, so
  * holding the interact key must NOT re-fire across frames. Consumed only when a trigger
@@ -129,16 +129,13 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
     }
 }
 
-/* Resolve the single horizontal-extend knob (env override > benefactor.json > 5). */
+/* Resolve the horizontal-extend knob LIVE (ENV > REPL > JSON > 0), so a runtime
+ * `cfg interact_extend N` takes effect on the next frame with no restart. */
 int interact_extend_px(void)
 {
-    extern int pc_config_int(const char *, int);
-    if (g_interact_extend < 0) {
-        const char *e = getenv("INTERACT_EXTEND");
-        g_interact_extend = e ? atoi(e) : pc_config_int("interact_extend", 0);
-        if (g_interact_extend < 0) g_interact_extend = 0;
-    }
-    return g_interact_extend;
+    extern int pc_cfg_int(const char *, int);
+    int e = pc_cfg_int("interact_extend", 0);
+    return e < 0 ? 0 : e;
 }
 
 static void pickup_wide(M68KCtx *ctx, uint32_t addr) { interact_wide(ctx, addr, interact_extend_px(), 0); }

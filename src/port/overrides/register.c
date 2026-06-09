@@ -188,37 +188,36 @@ void pc_register_overrides(void)
      * the pickup/interact override lists (pc_overrides_pickup.c) yet; find them
      * (PICKUP_SCAN / object-table walk) and add them so modern mode covers them.
      *
-     * The only user config is "modern_controls" (on/off) and "interact_extend" (the
-     * reach in px). interact_extend applies in BOTH schemes — in vanilla it just
-     * extends Fire's reach; in modern it also moves the trigger to X. Debug-only env:
-     * PICKUP_SCAN (identify collectible handlers), BENEFACTOR_RECOMP_PICKUP (keep the
-     * recompiled pickup for A/B). */
-    { extern int pc_config_bool(const char *, int);
+     * Two INDEPENDENT user knobs (resolved via the unified config, ENV > REPL > JSON):
+     *   - "modern_controls" (bool): X=interact trigger, X+Down drop, Hop; gates ONLY the
+     *     input-remap override below.
+     *   - "interact_extend" (px): extra horizontal pickup/interact reach; works in BOTH
+     *     schemes and is DECOUPLED from modern_controls. The pickup/interact wideners are
+     *     registered unconditionally (with extend==0 they are a verified pure passthrough)
+     *     and extend is resolved LIVE per frame, so a runtime `cfg interact_extend N`
+     *     widens the reach with no restart. Debug-only env: PICKUP_SCAN (identify item
+     *     handlers), BENEFACTOR_RECOMP_PICKUP (keep recompiled pickup for A/B). */
+    { extern int pc_cfg_bool(const char *, int);
       extern void native_gameplay_input(M68KCtx *ctx);
       extern void interact_register(void);
       extern int interact_extend_px(void);
       extern int g_modern_controls;
 
-      int modern = getenv("BENEFACTOR_MODERN_CONTROLS")
-                     ? atoi(getenv("BENEFACTOR_MODERN_CONTROLS"))
-                     : pc_config_bool("modern_controls", 0);
+      int modern = pc_cfg_bool("modern_controls", 0);
       g_modern_controls = modern;
-      int extend = interact_extend_px();
-      fprintf(stderr, "[controls] modern_controls=%d interact_extend=%d\n", modern, extend);
+      fprintf(stderr, "[controls] modern_controls=%d interact_extend=%d\n",
+              modern, interact_extend_px());
 
       if (getenv("PICKUP_SCAN")) {
           pickup_register_scan();                 /* diagnostic — identify item handlers */
       } else {
           if (modern)                             /* X+Down drop, hop — modern only */
               rt_register_override_gp(0x0057DEACu, native_gameplay_input);
-          /* Pickup/interact wideners: needed in modern (X trigger) OR whenever the
-           * reach is extended in vanilla (Fire trigger + interact_extend>0). */
-          if ((modern || extend > 0) && !getenv("BENEFACTOR_RECOMP_PICKUP")) {
+          if (!getenv("BENEFACTOR_RECOMP_PICKUP")) {   /* wideners always on (live extend) */
               pickup_register();
               interact_register();
           }
       }
-      /* else (vanilla, extend==0): no overrides; the engine's own Fire handlers run. */
     }
 }
 
