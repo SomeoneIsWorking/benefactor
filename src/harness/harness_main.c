@@ -593,12 +593,10 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "render")) {  /* render — re-render s_fb straight from the current g_mem
                                                (copper + bitplanes) WITHOUT stepping the game thread. Use
                                                after `loadmem` to view a saved scene exactly as stored. */
-            extern void hw_execute_copper(void);
             extern void native_render_frame(void);
             extern int g_native_render_delay;
             int saved_delay = g_native_render_delay;
             g_native_render_delay = 0;   /* read live g_mem, not the stale snapshot ring */
-            hw_execute_copper();
             native_render_frame();
             g_native_render_delay = saved_delay;
             printf("[crepl] rendered current g_mem to framebuffer (delay bypassed)\n");
@@ -623,22 +621,6 @@ int main(int argc, char **argv)
             unsigned f = 0; const char *p = line; while (*p && *p!=' ') p++; sscanf(p, " %x", &f);
             g_blit_skip_fn = f;
             printf("[crepl] blitskip fn=$%06X %s\n", f, f?"(active)":"(off)");
-        }
-        else if (!strcmp(cmd, "vren")) {  /* vren [tag] — DIAGNOSTIC: render current g_mem through the
-                                              FAITHFUL emulated copper renderer (hw_render_frame) into s_fb
-                                              and dump to logs/fb_vren_<tag>.bin. Compare against the native
-                                              render (fb <tag>) on the SAME g_mem to isolate exactly what the
-                                              native renderer drops (e.g. the page-only Marry Man draw). */
-            extern void hw_execute_copper(void);
-            extern void hw_render_frame(void);
-            char tag[64] = {0}; sscanf(line, "%*s %63s", tag);
-            hw_execute_copper();
-            hw_render_frame();
-            const uint32_t *fb = hw_get_framebuffer();
-            char path[160]; snprintf(path, sizeof path, "logs/fb_vren_%s.bin", tag[0]?tag:"out");
-            FILE *q = fopen(path, "wb");
-            if (q && fb) { fwrite(fb, 4, FB_W * FB_H, q); fclose(q); }
-            printf("[crepl] wrote %s (faithful hw_render_frame of current g_mem)\n", path);
         }
         else if (!strcmp(cmd, "done")) {  /* debug: force PC level-complete (win) */
             extern void pc_debug_complete_level(void);

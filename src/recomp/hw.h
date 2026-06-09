@@ -45,10 +45,6 @@ uint16_t hw_get_intena(void);
  */
 int hw_present_frame(void);
 
-/* Render the current Amiga frame to the internal framebuffer without presenting.
- * Used by the harness for side-by-side display. */
-void hw_render_frame(void);
-
 /* Get pointer to the internal ARGB8888 framebuffer (HW_DISPLAY_W × HW_DISPLAY_H pixels). */
 const uint32_t *hw_get_framebuffer(void);
 int hw_get_frame_num(void);
@@ -126,12 +122,6 @@ void hw_set_pixel(int x, int y, uint32_t argb);
 
 /* Palette: 32 entries × 12-bit Amiga colour → ARGB32 */
 void hw_set_color(int idx, uint16_t amiga_rgb12);
-
-/* Trigger one complete frame render from the current bitplane/palette state */
-void hw_render_frame(void);
-
-/* Execute the current copper list (updates register state for rendering) */
-void hw_execute_copper(void);
 
 /* Set a frame limit for auto-exit (0 = unlimited).  Useful for testing. */
 void hw_set_frame_limit(int frames);
