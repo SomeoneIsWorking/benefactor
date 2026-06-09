@@ -1,12 +1,12 @@
-# Recompiler Notes (`tools/recompile68k.py`)
+# Recompiler Notes (`tools/recomp/recomp.py`)
 
 ## Purpose
 
 Offline Python tool: reads the raw 68k binary, does recursive-descent CFG analysis, emits a C source+header pair.
 
 ```
-python3 tools/recompile68k.py <binary> <base_hex> <entry_hex ...> \
-    [--out-c src/generated/game.c] [--out-h src/generated/game.h]
+python3 tools/recomp/recomp.py <binary> <base_hex> <entry_hex ...> \
+    [--out-c src/engine/generated/game.c] [--out-h src/engine/generated/game.h]
 ```
 
 ## Key Classes / Functions

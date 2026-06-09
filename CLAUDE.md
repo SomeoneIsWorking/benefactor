@@ -2,12 +2,21 @@
 
 See `AGENTS.md` for full project context, session protocol, build commands, architecture, and conventions.
 
+## Start here
+
+- **`docs/codebase-layout.md` — the canonical project/module map. Read it first.**
+  (`src/port/` = native PC driver + overrides, `src/engine/` = recompiled M68K + Amiga
+  HW model + `generated/`, `src/render/` = renderer, `src/harness/` = PUAE test harness.)
+- **`docs/working-agreements.md` — the hard rules** (verify-before-commit via
+  `scripts/build.sh`, never commit half a coupled change, no-bandaids/firewall,
+  src-rooted includes, generated code is sacrosanct). Follow them.
+
 ## Current Direction (as of 2026-05-20)
 
 **Moving away from PUAE emulation toward a native PC port.**
 
 - The harness / PUAE comparison work is COMPLETE (4 frames match). Do NOT re-open it.
-- Focus is now on the **native renderer** (`native_renderer.c`) and **native game loop** (`pc.c`).
+- Focus is now on the **native renderer** (`src/render/native_renderer.c`) and **native game loop** (`src/port/game_loop.c`).
 - Goal: widescreen, 60fps, PC-native features — none of which are possible through PUAE emulation.
 
 ### Active Rendering Path
@@ -62,10 +71,10 @@ destinations and lessons:
 
 | File | Role |
 |------|------|
-| `src/recomp/native_renderer.c` | Copper-walking native renderer — the display path |
-| `src/pc.c` | Native game loop (title + gameplay state machine) |
-| `src/pc_overrides_*.c` | Hand-written C replacements for M68K functions |
-| `src/generated/game.c` | Recompiled M68K → C (generated, do not hand-edit) |
+| `src/render/native_renderer.c` | Copper-walking native renderer — the display path |
+| `src/port/game_loop.c` | Native game loop (title + gameplay state machine) |
+| `src/port/overrides/*.c` | Hand-written C replacements for M68K functions |
+| `src/engine/generated/game.c` | Recompiled M68K → C (generated, do not hand-edit) |
 | `tools/recomp/` | Recompiler (Python) — generates game.c from binary |
 
 ## Debugging Architecture (GDB-centric)

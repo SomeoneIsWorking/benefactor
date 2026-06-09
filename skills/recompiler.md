@@ -17,7 +17,7 @@ Use, test, and improve the Benefactor 68k→C recompiler (`recomp.py`). Use when
 | `tools/recomp/analyze.py` | Static analysis helpers |
 | `tools/recomp/validate.py` | Output validation |
 | `tools/test_recomp.py` | Unit tests for the translator — **always run after any recompiler change** |
-| `src/generated/game.c` | Output — auto-generated, do not edit |
+| `src/engine/generated/game.c` | Output — auto-generated, do not edit |
 
 ## Discovering indirect-dispatch handlers (static descent misses these)
 
@@ -81,8 +81,8 @@ python3 -m pytest tools/test_recomp.py -v
 
 ```bash
 python3 tools/recomp/recomp.py build/chip_ram_dump.bin \
-    --out-c src/generated/game.c \
-    --out-h src/generated/game.h
+    --out-c src/engine/generated/game.c \
+    --out-h src/engine/generated/game.h
 ```
 
 Then rebuild and run the harness to verify:
@@ -147,10 +147,10 @@ Examples of the kind of patterns to look for and specialise:
 **How to find patterns:**
 ```bash
 # Find the most repeated MW16 target addresses across game.c
-grep -oP 'MW16\([^,]+' src/generated/game.c | sort | uniq -c | sort -rn | head -20
+grep -oP 'MW16\([^,]+' src/engine/generated/game.c | sort | uniq -c | sort -rn | head -20
 
 # Find functions with many sequential MW16 writes (likely HW setup)
-grep -c 'MW16' src/generated/game.c
+grep -c 'MW16' src/engine/generated/game.c
 ```
 
 When a pattern is identified and specialised in the recompiler, document it in this skill under a "Known Patterns" section and add a test in `test_recomp.py`.

@@ -108,7 +108,7 @@ Optional tunables live in a JSON file `benefactor.json` next to the disks (copy
 The original binary is a moving target — different overlays load different code at the same chip-RAM addresses depending on game state. The port handles this as a hybrid:
 
 - A **Python recompiler** (`tools/recomp/`) lifts the M68K binary to C, one bank per overlay. `rt.c`'s dispatch picks the right bank at runtime based on which overlay is active.
-- A growing set of **hand-written native C** (`src/pc_overrides_*.c`, `src/recomp/native_renderer.c`, etc.) replaces recompiled M68K with code we own.
+- A growing set of **hand-written native C** (`src/port/overrides/*.c`, `src/render/native_renderer.c`, etc.) replaces recompiled M68K with code we own.
 - A **native renderer** walks the copper list from chip RAM each frame and rasterises directly into an SDL framebuffer — no PUAE emulation at runtime.
 
 ### Reverse-engineered (native C, ours)
@@ -190,11 +190,11 @@ These wrap the binary, not the game logic:
 
 | Path | Role |
 |------|------|
-| `src/pc.c` | Native game loop |
-| `src/recomp/` | Recompiler runtime (hw / blitter / copper / native renderer) |
-| `src/pc_overrides_*.c` | Native C replacements / wrappers for recompiled M68K functions |
-| `src/pc_pause_menu.c`, `src/pc_level_select_ui.c` | Wholly-PC-side UI |
-| `src/generated/` | Recompiler output (M68K → C), per bank |
+| `src/port/game_loop.c` | Native game loop |
+| `src/engine/` | Recompiler runtime (hw / blitter / copper / native renderer) |
+| `src/port/overrides/*.c` | Native C replacements / wrappers for recompiled M68K functions |
+| `src/port/pause_menu.c`, `src/port/level_select_ui.c` | Wholly-PC-side UI |
+| `src/engine/generated/` | Recompiler output (M68K → C), per bank |
 | `tools/recomp/` | Python recompiler (regenerates `generated/`) |
 | `vendor/libretro-uae/` | PUAE reference, used by the comparison harness |
 | `instructions/gameplay-engine-map.md` | Working RE map of the gameplay engine |

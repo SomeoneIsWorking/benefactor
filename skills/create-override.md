@@ -20,7 +20,7 @@ instead (super-call + adjust, or re-implement the loop natively). Full rule:
 - The recompiler generates bad C (e.g., wrong An-dest flag handling).
 - You need different *behavior* for a PC-native feature (widescreen window widening, etc.).
 
-## File: `src/pc.c`
+## File: `src/port/game_loop.c`
 
 ### Step 1: Write the native function
 

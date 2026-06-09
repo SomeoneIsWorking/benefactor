@@ -1,6 +1,6 @@
 # Gameplay engine map
 
-The recompiled gameplay-engine bank (`$577000+`, file `src/generated/game_gpl_*.c`,
+The recompiled gameplay-engine bank (`$577000+`, file `src/engine/generated/game_gpl_*.c`,
 1075 functions) is the largest piece of code we don't own. This document tracks what
 each high-leverage routine does so we can replace them with native C one subsystem
 at a time. **Updated by walking the recompiled output + `pc_freeze.bin` state.**
@@ -40,14 +40,14 @@ Regen command:
 ```
 python3 tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
   --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-  --out-dir src/generated --seed-dir tools/recomp/seeds
+  --out-dir src/engine/generated --seed-dir tools/recomp/seeds
 ```
 After regen, `python3 tools/recomp/check_unregistered_targets.py` flags any literal
 `rt_jump/rt_call` target that isn't a function (seed the clean-code ones; PC-rel-index /
 skipdata results are data artifacts — don't seed). Verify with the level-entry sweep
 (fire past the level card into `cop1lc=$003484` gameplay, run frames + joystick): all 60
 levels must enter and survive with no `rt_call: NO FUNCTION ...`. Also
-`grep UNK src/generated/game_gpl_*.c`.
+`grep UNK src/engine/generated/game_gpl_*.c`.
 
 ## `$57D3EC` object dispatcher — decoded (2026-05-31)
 
@@ -629,7 +629,7 @@ jmp tail `-$1a1e(a5)`. 19 handlers (lea $6c24(a5)): 586B1C 586B2A 586C10 586C1E 
 586E6C 586ECC 586F9C 587006 5870CE 5871F4 587272 58733A 58743C 5874FE 587554 587616
 58766E 5876C4. **$586C10 = universal item** (every level; `PICKUP_SCAN=1` to map per level).
 
-NATIVE port (`src/pc_overrides_pickup.c`): own the RADIUS (the only wrong part), reuse
+NATIVE port (`src/port/overrides/pickup.c`): own the RADIUS (the only wrong part), reuse
 each item's collect. `pickup_wide` widens+centers the zone (`PICKUP_RX`/`PICKUP_RY`,
 default 18/12 half-window, two-sided); inside it + fire → spoof player pos = item pos,
 `rt_call_generated(handler)` (its narrow test passes → full normal collect), restore.

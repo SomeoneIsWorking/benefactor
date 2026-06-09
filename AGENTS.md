@@ -37,9 +37,12 @@ Self-evolving workflow: every session should improve tools, skills, or instructi
 
 Static recompilation port of *Benefactor* (Amiga 68k → native C + SDL2). The 68k binary is translated once offline by a Python recompiler; at runtime there is no interpreter. Hardware I/O (OCS custom chips, CIA) is intercepted and emulated in SDL2.
 
-- **Active code:** `src/recomp/*`, `src/pc*.c`, `src/generated/*`
-- **Dead code (do not build):** `src/amiga/*`, `src/platform/*`, `src/main.c`
-- **Generated code (never edit manually):** `src/generated/game.c` and `game.h`
+- **Module map (canonical):** see `docs/codebase-layout.md`. Briefly: `src/port/` =
+  native PC driver + overrides; `src/engine/` = recompiled M68K + Amiga HW model (+
+  `generated/`); `src/render/` = renderer; `src/common/` = shared headers; `src/harness/`
+  = differential PUAE test harness; `src/main.c` = entry point.
+- **Generated code (never edit manually):** `src/engine/generated/game_*.c` — regenerated
+  from the disks by `tools/regen.sh`; change `tools/recomp/` instead.
 
 ## Exact Build / Run / Test Commands
 
@@ -72,8 +75,8 @@ python3 tools/test_recomp.py
 
 # Force regenerate game.c/game.h (or just delete them and rebuild)
 python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
-  --out-c src/generated/game.c \
-  --out-h src/generated/game.h
+  --out-c src/engine/generated/game.c \
+  --out-h src/engine/generated/game.h
 ```
 
 **Prerequisites:** GCC 15.2, CMake 3.31, SDL2 (`libsdl2-dev`), Python 3.14 + `capstone` (`pip install capstone`).
@@ -87,11 +90,11 @@ chip_ram_dump.bin (512 KB PUAE snapshot)
 recomp.py  (capstone 5.0, offline)
       │
       ▼
-src/generated/game.c  – one native C function per 68k subroutine
-src/generated/game.h  – forward decls + dispatch table
+src/engine/generated/game.c  – one native C function per 68k subroutine
+src/engine/generated/game.h  – forward decls + dispatch table
       │
-      ├── src/recomp/rt.c / rt.h  – memory routing, dispatch, M68KCtx
-      └── src/recomp/hw.c / hw.h  – SDL2 hardware layer (OCS/CIA)
+      ├── src/engine/rt.c / rt.h  – memory routing, dispatch, M68KCtx
+      └── src/engine/hw.c / hw.h  – SDL2 hardware layer (OCS/CIA)
 ```
 
 - `CMakeLists.txt` drives recompilation as a build step; deleting `game.c`/`game.h` triggers regeneration automatically.
@@ -132,7 +135,7 @@ src/generated/game.h  – forward decls + dispatch table
 - **Output paths are fixed** — use `logs/` for everything; never `/tmp/`.
 - **`fprintf(stderr, ...)` is suppressed inside PUAE vendor code** — use `write(2, buf, n)` for debug prints in PUAE context.
 - **PUAE/libretro-uae is compiled INTO the harness binary** (all sources in `vendor/libretro-uae/` are built as one TU). You can freely add tracing, watchpoints, or printf inside PUAE code — just rebuild the harness target. It is not a prebuilt library you cannot touch.
-- **Do not delete `src/generated/game.c`** unless forcing a recompile.
+- **Do not delete `src/engine/generated/game.c`** unless forcing a recompile.
 
 ## Native Override Pattern
 

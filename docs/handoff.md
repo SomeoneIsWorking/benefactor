@@ -11,7 +11,7 @@ No 68k interpreter at runtime — all game logic compiles to native functions.
 
 ### 1. Fix `(An)+` / `-(An)` post-increment/pre-decrement in `_emit`
 
-`pre_decrement()` and `post_increment()` helpers exist in `recompile68k.py` but are **never called** from `_emit`.  
+`pre_decrement()` and `post_increment()` helpers exist in `tools/recomp/recomp.py` but are **never called** from `_emit`.  
 For instructions that read/write `(An)+` or `-(An)`, the current code uses a stale constant address instead of `ctx->A[n]`.
 
 Fix: detect `address_mode` on the operand:
@@ -40,8 +40,8 @@ Do a bulk replace: all `read_op(ops[` → `read_op(ops[` with `insn=insn` append
 ```bash
 cd <repo>
 python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
-  --out-c src/generated/game.c \
-  --out-h src/generated/game.h 2>&1
+  --out-c src/engine/generated/game.c \
+  --out-h src/engine/generated/game.h 2>&1
 ```
 
 After the fixes above the output should report **hundreds of functions**, not just 4.
@@ -103,26 +103,6 @@ The recompiler approach instead:
 
 ## File Map
 
-```
-
-  CMakeLists.txt          # Recomp build — Musashi removed
-  tools/
-    recompile68k.py       # 68k→C static recompiler (Python, uses capstone)
-  src/
-    recomp_main.c         # Entry point for recompiled build
-    recomp/
-      rt.h                # Runtime header (M68KCtx, MR/MW macros, flags)
-      rt.c                # Runtime impl (memory routing, dispatch, TRAP)
-      hw.h                # Hardware abstraction header
-      hw.c                # SDL2 hardware implementation
-    generated/
-      game.c              # AUTO-GENERATED — do not edit
-      game.h              # AUTO-GENERATED — do not edit
-    amiga/                # OLD emulator sources — no longer built
-    platform/             # OLD emulator sources — no longer built
-    main.c                # OLD Musashi-based entry — no longer built
-../
-  chip_ram_dump.bin         # 512KB PUAE chip RAM snapshot
-  Disk.1, Disk.2, Disk.3  # WHDLoad disk images (user-supplied, at repo root)
-  docs/                   # This directory
-```
+See **`docs/codebase-layout.md`** for the canonical, up-to-date module map. (This
+handoff predates the `port/engine/render/common` reorganization; the layout it once
+described — `recomp/`, `amiga/`, `platform/`, a single `game.c` — no longer exists.)
