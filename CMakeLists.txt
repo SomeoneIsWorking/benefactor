@@ -202,6 +202,7 @@ add_executable(benefactor-pc
     src/engine/hw_blitter.c
     src/render/native_renderer.c
     src/render/scene.c
+    src/render/scene_sdl.c
     src/render/engine_view.c
     src/render/present_sdl.c
     src/engine/disk_boot.c
@@ -485,6 +486,7 @@ set(HARNESS_SOURCES
     src/engine/hw_blitter.c
     src/render/native_renderer.c
     src/render/scene.c
+    src/render/scene_sdl.c
     src/render/engine_view.c
     src/render/present_sdl.c
     src/engine/disk_boot.c
