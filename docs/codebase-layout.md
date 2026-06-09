@@ -58,8 +58,15 @@ src/
                       # Do NOT hand-edit; change tools/recomp/ + regen instead.
 
   render/           # THE RENDERER SUBSYSTEM (the Vulkan home)
-    native_renderer.c # copper-walking software renderer: reads the copper list +
-                      # bitplanes from chip RAM, decodes to the framebuffer.
+                    # Frame-renderer MODE is the `renderer` cfg knob (pc_render_mode):
+                    #   vanilla = copper-walk bitplane render (Amiga-blit-faithful, 352);
+                    #   benren  = the sprite-based draw-list renderer (scene.*), owns
+                    #             widescreen. (The old "WSRend" is dropped — it was BenRen
+                    #             mid-build.) This is distinct from the PRESENT backend
+                    #             (BENEFACTOR_RENDER=sdl|vulkan, how the surface is shown).
+    native_renderer.c # vanilla: copper-walking software renderer (reads the copper list +
+                      # bitplanes from chip RAM). Also hosts the BenRen compose
+                      # (native_render_wide_bg) that emits the scene draw list.
     engine_view.c/.h  # the de-hack "firewall": a typed, read-only snapshot of the
                       # engine state the wide renderer may read — and NOTHING else
                       # (no copper/displayed-output reverse-projection). See

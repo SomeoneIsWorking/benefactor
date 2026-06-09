@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>   /* strcasecmp */
 #include <ctype.h>
 
 static char *s_cfg = NULL;     /* whole file text, NUL-terminated */
@@ -84,6 +85,7 @@ static const struct { const char *key, *desc; } s_cfg_decl[] = {
     { "modern_controls", "modern controls: X=interact/pickup, FIRE no longer interacts (bool)" },
     { "interact_extend", "extra horizontal pickup/interact reach, px (0 = vanilla)" },
     { "widescreen",      "widescreen output width, px (0 = native 352)" },
+    { "renderer",        "frame renderer: vanilla (Amiga blit) | benren (sprite-based, widescreen)" },
 };
 int         pc_cfg_count(void)    { return (int)(sizeof s_cfg_decl / sizeof s_cfg_decl[0]); }
 const char *pc_cfg_key (int i)    { return (i >= 0 && i < pc_cfg_count()) ? s_cfg_decl[i].key  : NULL; }
@@ -176,4 +178,17 @@ int pc_cfg_show(const char *key, char *out, int cap, const char **src)
     if (cap > 0) out[0] = 0;
     if (src) *src = "default";
     return 0;
+}
+
+PcRenderMode pc_render_mode(void)
+{
+    char buf[32]; const char *src;
+    if (pc_cfg_show("renderer", buf, sizeof buf, &src) && *buf) {
+        if (!strcasecmp(buf, "benren"))  return PC_RENDER_BENREN;
+        if (!strcasecmp(buf, "vanilla")) return PC_RENDER_VANILLA;
+        /* unknown value: don't silently pick — warn once, fall through to AUTO */
+        static int warned = 0;
+        if (!warned) { warned = 1; fprintf(stderr, "[render] unknown renderer '%s' (use vanilla|benren); using auto\n", buf); }
+    }
+    return PC_RENDER_AUTO;
 }

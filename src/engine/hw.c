@@ -38,6 +38,7 @@ static inline int _hwtrace_enabled(void) {
 #include <stdio.h>
 #include <stdlib.h>
 #include "port/input.h"
+#include "port/config.h"   /* pc_render_mode() — frame-renderer mode select */
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Amiga OCS register offsets (relative to $DFF000)                           */
@@ -208,13 +209,18 @@ static void hw_compose_output(void)
         memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
         for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = 0xFF000000u;
     }
-    /* BENEFACTOR_WS_CMP: render the native playfield into s_out even at 352 (margin 0),
-     * so it can be diffed against the vanilla engine bitplane render (s_fb) frame-by-frame
-     * as a correctness gate. */
+    /* BenRen = the sprite-based renderer (no Amiga blit): it composes the gameplay
+     * playfield + margins natively across the full output width. Vanilla leaves
+     * s_fb (the copper/blitter render) pillarboxed. Mode comes from the "renderer"
+     * cfg knob; AUTO (unset) picks BenRen whenever a widescreen width is requested.
+     * BENEFACTOR_WS_CMP forces the BenRen compose even at 352 so it can be diffed
+     * against the vanilla bitplane render (s_fb) frame-by-frame as a correctness gate. */
     static int cmp = -1;
     if (cmp < 0) cmp = getenv("BENEFACTOR_WS_CMP") ? 1 : 0;
-    if (ow > HW_DISPLAY_W || cmp)
-        native_render_wide_bg(s_out, ow, margin);   /* native playfield (full width) */
+    PcRenderMode mode = pc_render_mode();
+    int benren = (mode == PC_RENDER_BENREN) || (mode == PC_RENDER_AUTO && ow > HW_DISPLAY_W) || cmp;
+    if (benren)
+        native_render_wide_bg(s_out, ow, margin);   /* BenRen native playfield (full width) */
     hw_blit_capture_reset();   /* start a fresh object-blit capture for the next frame */
 }
 
