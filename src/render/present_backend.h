@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 #include <SDL2/SDL.h>
+#include "render/scene.h"
 
 typedef struct PresentBackend {
     const char *name;                                   /* "sdl" | "vulkan" */
@@ -24,6 +25,13 @@ typedef struct PresentBackend {
     int  (*init)(const char *title, int content_w, int content_h);
     /* Upload `argb` (w x h, ARGB8888, row stride w*4) and present it to the window. */
     void (*present)(const uint32_t *argb, int w, int h);
+    /* OPTIONAL (NULL = unsupported): present a BenRen frame PER-SPRITE — draw the
+     * scene's quads to the window (world quads camera-projected, banner on top)
+     * with the non-scene rows of `base` (top border + HUD) as the base layer,
+     * instead of blitting the whole composed surface. P4 of the GPU-renderer
+     * plan; only the SDL backend implements it (Vulkan is shelved). */
+    void (*present_scene)(const Scene *s, int y_lo, int y_hi,
+                          const uint32_t *base, int w, int h);
     void (*toggle_fullscreen)(void);
     SDL_Window *(*window)(void);                        /* hw.c still pumps SDL events */
     void (*shutdown)(void);

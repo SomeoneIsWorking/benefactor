@@ -480,6 +480,14 @@ const Scene *native_render_scene(void) { return &s_scene; }
 void native_render_scene_yrange(int *lo, int *hi) { if (lo) *lo = s_scene_ylo; if (hi) *hi = s_scene_yhi; }
 void native_render_scene_dims(int *w, int *h) { if (w) *w = WS_LAYER_W; if (h) *h = HW_DISPLAY_H; }
 
+/* Scene freshness: the windowed per-sprite present must only consume a scene
+ * built THIS frame (menus / the level card leave the previous gameplay scene
+ * stale). hw_compose_output invalidates before the BenRen compose; the compose
+ * marks it ready once it has built this frame's draw list. */
+static int s_scene_ready = 0;
+void native_render_scene_invalidate(void) { s_scene_ready = 0; }
+int  native_render_scene_ready(void)      { return s_scene_ready; }
+
 /* Copy walk_copper's per-scanline palette into the scene's per-row colour LUT
  * (this engine's palette is copper-driven, so colours are per output row). */
 static void scene_load_palrows(void)
@@ -1143,6 +1151,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 
     /* Banner (GET READY / GAME OVER) — screen-fixed UI quads, on top of everything. */
     scene_composite_screen_argb(&s_scene, out, ow, HW_DISPLAY_H);
+
+    s_scene_ready = 1;     /* this frame's draw list is complete (windowed present may consume it) */
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.
