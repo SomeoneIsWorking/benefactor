@@ -29,6 +29,23 @@ cmake --build build --target benefactor-pc -j"$(nproc)"
 Native disk boot needs only the `Disk.*` images — no kickstart ROM. To force a
 regen, delete `src/engine/generated/.regen-hash` (or the whole dir) and reconfigure.
 
+## Render backend (SDL / Vulkan)
+
+Present is delegated to a render backend (`src/render/present_*.c`), selected by
+`BENEFACTOR_RENDER=sdl|vulkan` (default **sdl** — the SDL_Renderer path).
+
+- **Vulkan is optional.** CMake `find_package(Vulkan)`: if the Vulkan SDK (headers +
+  `glslc`) is present, the Vulkan backend is compiled in; otherwise the build is
+  SDL-only and `BENEFACTOR_RENDER=vulkan` falls back to SDL with a log line. On
+  Linux install the LunarG SDK / distro `vulkan` packages + `glslc` (shaderc).
+  On **macOS** the Vulkan path runs through **MoltenVK** (`brew install molten-vk
+  vulkan-headers shaderc`, or the LunarG macOS SDK).
+- **Verify the Vulkan pipeline without a display:** `./build/benefactor-pc
+  --vk-selftest` renders a gradient through the offscreen Vulkan pipeline and
+  compares the readback to the input (prints the max channel diff; 0 = exact).
+- The windowed Vulkan swapchain present is still being brought up; until then the
+  default windowed path is SDL. The software renderer is always the fallback.
+
 ## macOS (Apple Silicon / Intel)
 
 The game is portable: SDL2 + pthread, game on a worker thread, all SDL on the
