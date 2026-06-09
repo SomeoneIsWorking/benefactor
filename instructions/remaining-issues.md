@@ -238,21 +238,26 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    to ~320 (defeats widescreen) — so apply it ONLY to the margin==0 / 352 path, never to
    the wide (margin>0) path. See [[widescreen-plan]] "DIW over-fetch clip" history.
 
-6. **Line-blitter graphics (chandelier ropes) — PARTLY DONE (2026-06-09).** The ropes now
-   render natively: `native_wsrope_compose` (native_renderer.c) reads the engine's own
-   per-frame line-segment list at **$5ABB5E** ($5ABB5E.w = count-1, $FFFF=empty; then
-   {x0,y0,x1,y1} s16 WORLD coords per segment, confirmed live via `pcwatch`) and draws each
-   as a Bresenham line into s_objlayer (world X / screen Y = pf_top+worldY), so the main
-   composite loop maps + clips them like every sprite. Colour = the rope's main brown
-   (palette index 19 / $9C5521). Verified: ropes draw on/off (WS_NOROPE) over the user's
-   chandelier savestate. **REMAINING:** (a) the engine's emitter ($57DCD4) clips each segment
-   to the vanilla window [cam,cam+0x170] and culls chandeliers fully outside it → ropes are
-   MISSING for chandeliers visible only in the wide margins. A capture of the pre-clip
-   endpoints at $57DCD4 was tried but $57DCD4 is **double-emitted** (standalone gfn + inlined
-   into gfn_gpl_57DCC4) so the entry override fires unreliably (same class as the removed
-   $57B0EE hook) — needs a recompiler de-dup or a reimplemented emitter. (b) the blitter
-   draws a textured 2-tone rope (palette 17/19/20/22); we render a solid 1px line.
-   Below: the original RE of the blitter draw path, for the eventual full port.
+6. **Line-blitter graphics (ropes) — DONE incl. cull (2026-06-09).** Ropes now render
+   natively across the full wide view. Mechanism: the engine builds a per-frame segment list
+   via the driver **$57DCAE**, walking a handler list ($1292(a5)) in parallel with source
+   records ($2006(a5), stride $20); each handler computes a segment {x0,y0,x1,y1} (e.g.
+   $59B0A8 just reads it from its record) and `jmp`s to the SHARED clip/emit code at
+   **$57DCD4** (= a5-$113e), which clips to the vanilla window [cam,cam+0x170] and CULLS any
+   segment fully outside it before storing to $5ABB5E. So $5ABB5E (the clipped list) drops
+   ropes off the vanilla view. FIX: capture the raw UNCLIPPED {x0,y0,x1,y1} at $57DCD4 (the
+   universal choke — every rope creator jmps there via rt_jump → real dispatch — reached
+   BEFORE the cull), reset at the driver $57DCAE; `native_wsrope_compose` draws the capture
+   as Bresenham lines into s_objlayer (world X / screen Y = pf_top+worldY), so the main
+   composite loop maps + clips (in_view) them like every sprite. Colour = the rope brown
+   (palette 19 / $9C5521). Verified: a rope the engine culled off the vanilla view now renders
+   in the wide margin (capture got 2 segments where $5ABB5E had 1). NOTE on the earlier
+   "double-emit blocks the override" claim — that was WRONG: $57DCD4 IS reliably dispatched;
+   the real bug was promoting in the driver wrapper while rt_jump is a trampoline (the emit
+   chain runs after the wrapper returns), so the renderer reads the capture at present
+   instead. **REMAINING (cosmetic):** the blitter draws a textured 2-tone rope (palette
+   17/19/20/22); we render a solid 1px line in the main brown. Below: the original RE of the
+   blitter draw path, for the eventual textured port.
 
    The engine draws chain/rope graphics with
    the blitter in LINE mode; `hw_do_blit` renders them ([[project_blitter_line_fill]]) into
