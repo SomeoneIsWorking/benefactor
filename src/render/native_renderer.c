@@ -1040,9 +1040,11 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
             /* Decode the level tile at this world X, if any (the only thing on the
              * playfield besides objects). drew = a real level pixel was written. */
             int drew = 0;
+            int in_view = 0;     /* worldX is inside the camera-reachable level columns */
             if (worldX >= 0) {
                 int col = worldX >> 4;
                 if (col >= mincol && col < maxcol) {
+                    in_view = 1;
                     int tx = worldX & 15;
                     uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
                     if (mo + 1u < RT_MEM_SIZE) {
@@ -1070,8 +1072,11 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
             }
 
             /* Composite the captured gameplay objects (s_objlayer, keyed by absolute
-             * world X — same coordinate as the tile bg) on top of terrain or void. */
-            if (worldX >= 0 && worldX < WS_LAYER_W) {
+             * world X — same coordinate as the tile bg). Clip them to the SAME
+             * camera-reachable columns as the terrain: objects beyond the level edge
+             * are in the hidden void the vanilla camera never scrolls to, so they must
+             * stay hidden (this was the floating torch/chest in the black margin). */
+            if (in_view && worldX < WS_LAYER_W) {
                 uint32_t o = s_objlayer[y][worldX];
                 if (o & 0xFF000000u) row[x] = o;
             }
