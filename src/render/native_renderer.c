@@ -17,8 +17,8 @@
  *                          320px; PF1=BPL1+BPL3 (odd), PF2=BPL2 (even); fetch=40B/plane
  *                          BPL1MOD=40 (constant); BPL2MOD varies per copper WAIT
  */
-#include "hw_private.h"   /* pulls in rt.h → g_mem, and amiga_to_argb(), s_regs, etc. */
-#include "native_engine_view.h"  /* the wide renderer's only engine-state input (the firewall) */
+#include "engine/hw_private.h"   /* pulls in rt.h → g_mem, and amiga_to_argb(), s_regs, etc. */
+#include "render/engine_view.h"  /* the wide renderer's only engine-state input (the firewall) */
 #include <string.h>
 #include <stdlib.h>
 

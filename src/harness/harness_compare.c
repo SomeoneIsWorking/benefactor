@@ -11,8 +11,8 @@
 #include "harness/puae_state.h"
 #include "harness/harness_internal.h"
 #include "harness/trace.h"
-#include "recomp/rt.h"   /* g_mem */
-#include "recomp/hw.h"   /* g_mem size constant */
+#include "engine/rt.h"   /* g_mem */
+#include "engine/hw.h"   /* g_mem size constant */
 
 /* Called at the first detected divergence. Set a GDB breakpoint here. */
 void __attribute__((noinline)) harness_on_diverge(int frame, const char *reason)

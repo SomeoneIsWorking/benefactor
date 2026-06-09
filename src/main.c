@@ -1,5 +1,5 @@
 /* pc_main.c – Native PC game entry point (single path: native disk boot) */
-#include "pc.h"
+#include "port/port.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -7,13 +7,13 @@
 #pragma once
 #include <stdint.h>
 #include <SDL2/SDL.h>
-#include "hw.h"
-#include "rt.h"
+#include "engine/hw.h"
+#include "engine/rt.h"
 /* All hw register shadows (s_regs, s_dmacon/intena/intreq, s_bplcon0, s_bplptr,
  * s_sprpt, s_palette, s_diwstrt/stop, s_blt_bzero, the s_ciab_* timer state,
  * s_audio[]) and the AudioChannel typedef now live on g_state — see
  * game_state.h. */
-#include "../game_state.h"
+#include "common/game_state.h"
 
 /* ── Framebuffer ───────────────────────────────────────────────────────────── */
 extern uint32_t s_fb[HW_DISPLAY_W * HW_DISPLAY_H];

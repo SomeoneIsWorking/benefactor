@@ -1,5 +1,5 @@
 /* harness/trace.c – Ring-buffer write trace shared between PUAE and PC */
-#include "trace.h"
+#include "harness/trace.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

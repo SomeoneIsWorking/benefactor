@@ -29,7 +29,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "game_state.h"   /* g_state + g_gameplay_active / g_credits_active /
+#include "common/game_state.h"   /* g_state + g_gameplay_active / g_credits_active /
                            * g_enter_gameplay / g_gameplay_entry macros */
 
 extern void pc_fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb);

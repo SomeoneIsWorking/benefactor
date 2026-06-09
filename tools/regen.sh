@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."   # repo root
 
-GEN=src/generated
+GEN=src/engine/generated
 HASHFILE="$GEN/.regen-hash"
 DISKS=(Disk.1 Disk.2 Disk.3)
 
@@ -19,8 +19,8 @@ DISKS=(Disk.1 Disk.2 Disk.3)
 # lists, and the loader/dumper sources (they determine the bank inputs).
 hash_inputs() {
   cat tools/recomp/*.py tools/recomp/*.txt tools/recomp/seeds/* \
-      src/recomp/overlay_load.c src/recomp/overlay_load.h \
-      src/recomp/disk_boot.c tools/dump_banks.c 2>/dev/null | sha256sum | cut -d' ' -f1
+      src/engine/overlay_load.c src/engine/overlay_load.h \
+      src/engine/disk_boot.c tools/dump_banks.c 2>/dev/null | sha256sum | cut -d' ' -f1
 }
 WANT=$(hash_inputs)
 
@@ -41,7 +41,7 @@ echo "[regen] building bootstrap dumper"
 # standalone. (Previously this relied on sdl2-config/pkg-config finding SDL, which
 # breaks on macOS/Homebrew when neither is on PATH.)
 cc -O2 -I src \
-   tools/dump_banks.c src/recomp/overlay_load.c src/recomp/disk_boot.c \
+   tools/dump_banks.c src/engine/overlay_load.c src/engine/disk_boot.c \
    -o "$SCR/dumpbanks"
 
 echo "[regen] dumping bank inputs from disks"

@@ -6,7 +6,7 @@
  *   pc_overrides_copper.c — copper list rebuild helpers, frame-level overrides
  *   pc_overrides_render.c — render pipeline hook wrappers
  */
-#include "pc_internal.h"
+#include "port/port_internal.h"
 
 /* ── Registration ────────────────────────────────────────────────────────────
  * Called once from pc_init_state().  Maps M68K addresses to native C

@@ -42,10 +42,10 @@ set(CHIP_DUMP_INPUT "${CMAKE_CURRENT_SOURCE_DIR}/chip_ram_dump.bin")
 
 set(RECOMPILER      "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp/recomp.py")
 set(RECOMP_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp")
-set(GEN_DIR         "${CMAKE_CURRENT_SOURCE_DIR}/src/generated")
+set(GEN_DIR         "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/generated")
 set(GAME_H          "${GEN_DIR}/game.h")
 
-# src/generated/ is a build artifact derived from the user's Disk.* images (it's
+# src/engine/generated/ is a build artifact derived from the user's Disk.* images (it's
 # a recompilation of the copyrighted game code, so it's gitignored — not shipped).
 # Regenerate it on configure if missing or if the recompiler/loaders/seeds
 # changed. tools/regen.sh is hash-gated and idempotent (a no-op when up-to-date):
@@ -87,7 +87,7 @@ file(GLOB GAME_SRCS    CONFIGURE_DEPENDS
 #   SEEDS=$(cat tools/recomp/gp_seeds.txt)
 #   python3 tools/recomp/recomp.py logs/chip_flow_256_0081D2.bin \
 #     --chip-dump --base 3000 --code-size 46000 --seed "$SEEDS" \
-#     --bank gp --areg 5=511E --out-dir src/generated
+#     --bank gp --areg 5=511E --out-dir src/engine/generated
 # Committed as source for now (no auto-regen until a canonical gameplay image
 # artifact is checked in). rt.c selects this bank when g_overlay_active.
 #
@@ -96,7 +96,7 @@ file(GLOB GAME_SRCS    CONFIGURE_DEPENDS
 # tools/recomp/seeds/ only carries what the passes can't reach. Regenerate with:
 #   python3 tools/recomp/recomp.py logs/gmem_after_load.bin \
 #     --chip-dump --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-#     --out-dir src/generated --seed-dir tools/recomp/seeds
+#     --out-dir src/engine/generated --seed-dir tools/recomp/seeds
 # recomp.py auto-derives entries three ways (so the tree stays small):
 #   - extract_jumptables.discover_jumptable_targets: pc-rel jump tables,
 #     installed handler-pointer immediates, dc.l function-pointer tables
@@ -120,7 +120,7 @@ file(GLOB GP_GAME_SRCS CONFIGURE_DEPENDS
 file(MAKE_DIRECTORY "${GEN_DIR}")
 
 # The generated 68k → C files (game.c, game_gp_*, game_gpl_*) live in
-# src/generated/ and are checked into the repo. The build uses them as-is, so
+# src/engine/generated/ and are checked into the repo. The build uses them as-is, so
 # a user with the disks alone can build without running the recompiler.
 #
 # The 'recompile_game' target below regenerates them from chip_ram_dump.bin
@@ -140,38 +140,38 @@ if(EXISTS "${CHIP_DUMP_INPUT}")
     add_custom_target(recompile_game DEPENDS ${GAME_SRCS} "${GAME_H}")
 else()
     add_custom_target(recompile_game
-        COMMENT "chip_ram_dump.bin not found at repo root; using committed src/generated/ as-is. "
+        COMMENT "chip_ram_dump.bin not found at repo root; using committed src/engine/generated/ as-is. "
                 "Run tools/extract_chipram_from_roms.py if you want to regenerate.")
 endif()
 
 # ── Main executable (canonical PC runtime path) ───────────────────────────────
 
 add_executable(benefactor-pc
-    src/pc_main.c
-    src/pc.c
-    src/pc_overrides.c
-    src/pc_overrides_hw.c
-    src/pc_overrides_boot.c
-    src/pc_overrides_copper.c
-    src/pc_overrides_render.c
-    src/pc_overrides_gameplay.c
-    src/pc_overrides_audio.c
-    src/pc_overrides_pickup.c
-    src/pc_config.c
-    src/pc_input.c
-    src/pc_level_select_ui.c
-    src/pc_pause_menu.c
-    src/pc_http_debug.c
-    src/pc.h
-    src/pc_internal.h
-    src/recomp/rt.c
-    src/recomp/hw.c
-    src/recomp/hw_audio.c
-    src/recomp/hw_blitter.c
-    src/recomp/native_renderer.c
-    src/recomp/native_engine_view.c
-    src/recomp/disk_boot.c
-    src/recomp/overlay_load.c
+    src/main.c
+    src/port/game_loop.c
+    src/port/overrides/register.c
+    src/port/overrides/hw.c
+    src/port/overrides/boot.c
+    src/port/overrides/copper.c
+    src/port/overrides/render.c
+    src/port/overrides/gameplay.c
+    src/port/overrides/audio.c
+    src/port/overrides/pickup.c
+    src/port/config.c
+    src/port/input.c
+    src/port/level_select_ui.c
+    src/port/pause_menu.c
+    src/port/http_debug.c
+    src/port/port.h
+    src/port/port_internal.h
+    src/engine/rt.c
+    src/engine/hw.c
+    src/engine/hw_audio.c
+    src/engine/hw_blitter.c
+    src/render/native_renderer.c
+    src/render/engine_view.c
+    src/engine/disk_boot.c
+    src/engine/overlay_load.c
     ${GAME_SRCS}
     ${GP_GAME_SRCS}
 )
@@ -188,14 +188,14 @@ target_compile_options(benefactor-pc PRIVATE -Wall -Wextra -g)
 
 # ── Bank-input dumper (bootstrap-clean: no generated code, no PUAE) ────────────
 # Produces the three recompiler bank inputs from the Disk.* images alone, using
-# only the pure overlay loaders + disk boot. It links WITHOUT src/generated/, so
+# only the pure overlay loaders + disk boot. It links WITHOUT src/engine/generated/, so
 # a fresh checkout can run it to regenerate the recompiled code from the user's
 # own disks (defines its own g_mem; no rt.c, no SDL link — only SDL2 headers for
 # disk_boot.c's include).
 add_executable(benefactor-dumpbanks
     tools/dump_banks.c
-    src/recomp/overlay_load.c
-    src/recomp/disk_boot.c
+    src/engine/overlay_load.c
+    src/engine/disk_boot.c
 )
 target_include_directories(benefactor-dumpbanks PRIVATE src ${SDL2_INCLUDE_DIRS})
 target_compile_options(benefactor-dumpbanks PRIVATE -Wall -Wextra -g)
@@ -445,27 +445,27 @@ set(HARNESS_SOURCES
     src/harness/input.c
     src/harness/trace.c
     # PC-port side
-    src/recomp/rt.c
-    src/recomp/hw.c
-    src/recomp/hw_audio.c
-    src/recomp/hw_blitter.c
-    src/recomp/native_renderer.c
-    src/recomp/native_engine_view.c
-    src/recomp/disk_boot.c
-    src/recomp/overlay_load.c
-    src/pc.c
-    src/pc_overrides.c
-    src/pc_overrides_hw.c
-    src/pc_overrides_boot.c
-    src/pc_overrides_copper.c
-    src/pc_overrides_render.c
-    src/pc_overrides_gameplay.c
-    src/pc_overrides_audio.c
-    src/pc_overrides_pickup.c
-    src/pc_config.c
-    src/pc_input.c
-    src/pc_level_select_ui.c
-    src/pc_pause_menu.c
+    src/engine/rt.c
+    src/engine/hw.c
+    src/engine/hw_audio.c
+    src/engine/hw_blitter.c
+    src/render/native_renderer.c
+    src/render/engine_view.c
+    src/engine/disk_boot.c
+    src/engine/overlay_load.c
+    src/port/game_loop.c
+    src/port/overrides/register.c
+    src/port/overrides/hw.c
+    src/port/overrides/boot.c
+    src/port/overrides/copper.c
+    src/port/overrides/render.c
+    src/port/overrides/gameplay.c
+    src/port/overrides/audio.c
+    src/port/overrides/pickup.c
+    src/port/config.c
+    src/port/input.c
+    src/port/level_select_ui.c
+    src/port/pause_menu.c
     ${GAME_SRCS}
     ${GP_GAME_SRCS}
 )

@@ -10,7 +10,7 @@
 /* Relative include path as seen from sources/src/custom.c */
 #include "../../src/harness/puae_state.h"
 #include "../../src/harness/trace.h"
-#include "../../src/common_log.h"
+#include "../../src/common/log.h"
 #include "audio.h"
 
 /* chipmem_bank is declared in memory.h, which custom.c already includes */

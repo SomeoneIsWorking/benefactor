@@ -6,7 +6,7 @@
  *
  * Stage 1 (this file, so far): the SFX TRIGGER ($58656E). Faithful 1:1 translation.
  */
-#include "pc_internal.h"
+#include "port/port_internal.h"
 
 /* For confirming the override actually fires during gameplay (gpl bank). */
 unsigned long g_native_sfx_trigger_hits = 0;

@@ -1,6 +1,6 @@
 /* pc_overrides_boot.c — Boot-time animation overrides (native PC C, no M68K emulation) */
-#include "pc_internal.h"
-#include "recomp/overlay_load.h"   /* shared pure overlay loaders */
+#include "port/port_internal.h"
+#include "engine/overlay_load.h"   /* shared pure overlay loaders */
 
 /* Step a single 12-bit Amiga color one nibble-step toward its target.
  * Each of the R/G/B 4-bit channels moves ±1 per call. */

@@ -17,10 +17,10 @@
  * alternate, and this server reads g_mem / the framebuffer without locking, so
  * a response may capture a mid-frame view. That is fine for debugging.
  */
-#include "pc.h"
-#include "game_state.h"
-#include "recomp/hw.h"
-#include "recomp/rt.h"
+#include "port/port.h"
+#include "common/game_state.h"
+#include "engine/hw.h"
+#include "engine/rt.h"
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,5 +1,5 @@
 /* pc_overrides_copper.c — Copper list rebuild helpers and frame-level overrides */
-#include "pc_internal.h"
+#include "port/port_internal.h"
 
 /* $0041A4 — per-frame blitter setup for sprite rendering */
 void native_sprite_blitter_setup(M68KCtx *ctx)

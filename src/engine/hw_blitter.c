@@ -13,7 +13,7 @@
  * logging every blit that touches that address.
  */
 
-#include "hw_private.h"
+#include "engine/hw_private.h"
 #ifdef HARNESS_BUILD
 #include "harness/trace.h"
 #endif

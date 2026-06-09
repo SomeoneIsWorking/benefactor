@@ -4,8 +4,8 @@
  * (hw_handle_key). Both PUAE (via input_state_cb, which reads input_up/… below)
  * and PC (via the same hw state) therefore see identical input — there is no
  * separate harness key mapping. */
-#include "input.h"
-#include "recomp/hw.h"
+#include "harness/input.h"
+#include "engine/hw.h"
 #include <SDL2/SDL.h>
 #include <stdlib.h>
 

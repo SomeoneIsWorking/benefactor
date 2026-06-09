@@ -11,7 +11,7 @@
 #pragma once
 
 #include <stdint.h>
-#include "recomp/rt.h"   /* M68KCtx */
+#include "engine/rt.h"   /* M68KCtx */
 
 /* Audio channel state — mirrored from the live Paula register shadows. Lives
  * inside GameState so it round-trips with everything else. */
@@ -76,7 +76,7 @@ extern GameState g_state;
  * fields of the single g_state instance. Because the macros expand to struct
  * member access, any stray `extern int g_overlay_active;` declaration is now
  * a syntax error — those have been removed from call sites and replaced by
- * `#include "game_state.h"`. */
+ * `#include "common/game_state.h"`. */
 
 #define s_regs                    (g_state.regs)
 #define s_dmacon                  (g_state.dmacon)
