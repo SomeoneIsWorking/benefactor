@@ -43,8 +43,11 @@ Present is delegated to a render backend (`src/render/present_*.c`), selected by
 - **Verify the Vulkan pipeline without a display:** `./build/benefactor-pc
   --vk-selftest` renders a gradient through the offscreen Vulkan pipeline and
   compares the readback to the input (prints the max channel diff; 0 = exact).
-- The windowed Vulkan swapchain present is still being brought up; until then the
-  default windowed path is SDL. The software renderer is always the fallback.
+- **Windowed Vulkan present works**: `BENEFACTOR_RENDER=vulkan ./build/benefactor-pc
+  Disk.1 Disk.2 Disk.3` creates a Vulkan window + swapchain and presents each composed
+  frame via a blit (the shader pipeline is reserved for the Phase 3 lighting pass). SDL
+  remains the default; if Vulkan init fails (e.g. no usable display), it logs and falls
+  back to SDL — never a hard crash. The software renderer is always the fallback.
 
 ## macOS (Apple Silicon / Intel)
 
