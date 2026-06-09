@@ -14,6 +14,7 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi)
     int rc = 0;
     for (int i = 0; i < s->nquads && rc == 0; i++) {
         const SceneQuad *q = &s->quads[i];
+        if (q->space != SCENE_SPACE_WORLD) continue;   /* screen-space UI: windowed present only */
         if (q->w <= 0 || q->h <= 0) continue;
 
         SDL_Texture *tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888,

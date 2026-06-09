@@ -33,14 +33,22 @@ uint8_t *scene_alloc_idx(Scene *s, uint32_t nbytes)
     return p;
 }
 
-void scene_add_quad(Scene *s, int x, int y, int w, int h,
-                    const uint8_t *idx, int stride)
+static void scene_add_quad_space(Scene *s, int x, int y, int w, int h,
+                                 const uint8_t *idx, int stride, uint8_t space)
 {
     if (s->nquads >= SCENE_MAX_QUADS || !idx) return;
     SceneQuad *q = &s->quads[s->nquads++];
     q->x = x; q->y = y; q->w = w; q->h = h;
-    q->idx = idx; q->stride = stride;
+    q->idx = idx; q->stride = stride; q->space = space;
 }
+
+void scene_add_quad(Scene *s, int x, int y, int w, int h,
+                    const uint8_t *idx, int stride)
+{ scene_add_quad_space(s, x, y, w, h, idx, stride, SCENE_SPACE_WORLD); }
+
+void scene_add_quad_screen(Scene *s, int x, int y, int w, int h,
+                           const uint8_t *idx, int stride)
+{ scene_add_quad_space(s, x, y, w, h, idx, stride, SCENE_SPACE_SCREEN); }
 
 void scene_composite_argb(const Scene *s, uint32_t *dst, int dst_w, int dst_h,
                           int y_lo, int y_hi)
@@ -49,9 +57,33 @@ void scene_composite_argb(const Scene *s, uint32_t *dst, int dst_w, int dst_h,
     if (y_hi > dst_h) y_hi = dst_h;
     for (int i = 0; i < s->nquads; i++) {
         const SceneQuad *q = &s->quads[i];
+        if (q->space != SCENE_SPACE_WORLD) continue;
         for (int r = 0; r < q->h; r++) {
             int dy = q->y + r;
             if (dy < y_lo || dy >= y_hi) continue;
+            const uint8_t *row = q->idx + (size_t)r * q->stride;
+            const uint32_t *pal = s->pal_rows[dy];
+            uint32_t *out = dst + (size_t)dy * dst_w;
+            for (int c = 0; c < q->w; c++) {
+                uint8_t v = row[c];
+                if (v == SCENE_TRANSPARENT) continue;
+                int dx = q->x + c;
+                if (dx < 0 || dx >= dst_w) continue;
+                out[dx] = 0xFF000000u | (pal[v & (SCENE_PAL - 1)] & 0x00FFFFFFu);
+            }
+        }
+    }
+}
+
+void scene_composite_screen_argb(const Scene *s, uint32_t *dst,
+                                 int dst_w, int dst_h)
+{
+    for (int i = 0; i < s->nquads; i++) {
+        const SceneQuad *q = &s->quads[i];
+        if (q->space != SCENE_SPACE_SCREEN) continue;
+        for (int r = 0; r < q->h; r++) {
+            int dy = q->y + r;
+            if (dy < 0 || dy >= dst_h) continue;
             const uint8_t *row = q->idx + (size_t)r * q->stride;
             const uint32_t *pal = s->pal_rows[dy];
             uint32_t *out = dst + (size_t)dy * dst_w;

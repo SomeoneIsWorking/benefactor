@@ -895,6 +895,7 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
 #define WS_ROPE_CI  19              /* $9C5521 — the rope's main brown (row-35 palette) */
 static void native_wsrope_compose(int pf_top, int pf_bot)
 {
+    (void)pf_bot;
     if (getenv("WS_NOROPE")) return;
     extern int  native_wsrope_count(void);
     extern void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1);
@@ -902,27 +903,31 @@ static void native_wsrope_compose(int pf_top, int pf_bot)
     for (int i = 0; i < nseg; i++) {
         int x0, y0, x1, y1;
         native_wsrope_get(i, &x0, &y0, &x1, &y1);
-        int dx =  (x1 > x0 ? x1 - x0 : x0 - x1), sx = x0 < x1 ? 1 : -1;
-        int dy = -(y1 > y0 ? y1 - y0 : y0 - y1), sy = y0 < y1 ? 1 : -1;
+        /* Emit the segment as one world-space quad: a transparent bounding box
+         * with the Bresenham line texels set to the rope colour index. The
+         * compositor clips to the playfield rows / layer width exactly as the
+         * old direct s_objlayer writes did. */
+        int bx = x0 < x1 ? x0 : x1, by = y0 < y1 ? y0 : y1;
+        int bw = (x1 > x0 ? x1 - x0 : x0 - x1) + 1;
+        int bh = (y1 > y0 ? y1 - y0 : y0 - y1) + 1;
+        uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)bw * (uint32_t)bh);
+        if (!idx) continue;
+        memset(idx, SCENE_TRANSPARENT, (size_t)bw * (size_t)bh);
+        int dx =  (bw - 1), sx = x0 < x1 ? 1 : -1;
+        int dy = -(bh - 1), sy = y0 < y1 ? 1 : -1;
         int err = dx + dy, x = x0, y = y0;
         for (;;) {
-            int syv = pf_top + y;
-            if (syv >= pf_top && syv < pf_bot && syv < HW_DISPLAY_H && x >= 0 && x < WS_LAYER_W)
-                s_objlayer[syv][x] = 0xFF000000u | (s_scan[syv].palette[WS_ROPE_CI] & 0x00FFFFFFu);
+            idx[(size_t)(y - by) * bw + (x - bx)] = WS_ROPE_CI;
             if (x == x1 && y == y1) break;
             int e2 = 2 * err;
             if (e2 >= dy) { err += dy; x += sx; }
             if (e2 <= dx) { err += dx; y += sy; }
         }
+        scene_add_quad(&s_scene, bx, pf_top + by, bw, bh, idx, bw);
     }
 }
 
-static void wsbanner_put(uint32_t *out, int ow, int sy, int ox, uint32_t argb)
-{
-    if (sy >= 0 && sy < HW_DISPLAY_H && ox >= 0 && ox < ow)
-        out[(size_t)sy * ow + ox] = argb;
-}
-static void native_wsbanner_overlay(uint32_t *out, int ow, int cam, int pf_top)
+static void native_wsbanner_compose(int ow, int cam, int pf_top)
 {
     const uint8_t *M = g_mem;
     int row, brel, pstride, rs, ww, rows; uint32_t data, mask;
@@ -943,21 +948,22 @@ static void native_wsbanner_overlay(uint32_t *out, int ow, int cam, int pf_top)
     if (data + (uint32_t)pstride * 4u + (uint32_t)(rows - 1) * (uint32_t)rs
               + (uint32_t)ww * 2u < RT_MEM_SIZE &&
         mask + (uint32_t)(rows - 1) * (uint32_t)rs + (uint32_t)ww * 2u < RT_MEM_SIZE) {
-        for (int r = 0; r < rows; r++) {
-            int sy = boy + r;
-            if (sy < 0 || sy >= HW_DISPLAY_H) continue;
-            const uint32_t *pal = s_scan[sy].palette;
-            for (int c = 0; c < wpx; c++) {
-                int wo = c >> 4, bit = 15 - (c & 15);
-                uint32_t roff = (uint32_t)r * (uint32_t)rs + (uint32_t)wo * 2u;
-                if ((gmem_r16(M, mask + roff) >> bit) & 1u) {
+        uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)wpx * (uint32_t)rows);
+        if (idx) {
+            for (int r = 0; r < rows; r++) {
+                uint8_t *irow = idx + (size_t)r * wpx;
+                for (int c = 0; c < wpx; c++) {
+                    int wo = c >> 4, bit = 15 - (c & 15);
+                    uint32_t roff = (uint32_t)r * (uint32_t)rs + (uint32_t)wo * 2u;
+                    if (!((gmem_r16(M, mask + roff) >> bit) & 1u)) { irow[c] = SCENE_TRANSPARENT; continue; }
                     int ci = 0;
                     for (int p = 0; p < 5; p++)
                         if ((gmem_r16(M, data + (uint32_t)p * (uint32_t)pstride + roff) >> bit) & 1u)
                             ci |= (1 << p);
-                    wsbanner_put(out, ow, sy, bx0 + c, pal[ci & 0x1Fu]);
+                    irow[c] = (uint8_t)ci;
                 }
             }
+            scene_add_quad_screen(&s_scene, bx0, boy, wpx, rows, idx, wpx);
         }
     }
 
@@ -971,21 +977,23 @@ static void native_wsbanner_overlay(uint32_t *out, int ow, int cam, int pf_top)
         uint32_t trs = (uint32_t)tw * 2u;             /* source rows PACKED (amod=0)   */
         if (tsrc + WS_TEL_PSTRIDE * 4u + (uint32_t)(th - 1) * trs + (uint32_t)tw * 2u
                 < RT_MEM_SIZE) {
-            for (int r = 0; r < th; r++) {
-                int sy = tsy0 + r;
-                if (sy < 0 || sy >= HW_DISPLAY_H) continue;
-                const uint32_t *pal = s_scan[sy].palette;
-                for (int c = 0; c < twpx; c++) {
-                    int wo = c >> 4, bit = 15 - (c & 15);
-                    uint32_t roff = (uint32_t)r * trs + (uint32_t)wo * 2u;
-                    int ci = 0;
-                    for (int p = 0; p < 4; p++)         /* anim is 4 planes (moveq #3,d6) */
-                        if ((gmem_r16(M, tsrc + (uint32_t)p * WS_TEL_PSTRIDE + roff) >> bit) & 1u)
-                            ci |= (1 << p);
-                    /* The engine blits only planes 0-3; the circle background has plane 4
-                     * SET, so the displayed colour is ci|16 (verified: page index = src+16). */
-                    wsbanner_put(out, ow, sy, txx + c, pal[(ci | 16) & 0x1Fu]);   /* opaque */
+            uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)twpx * (uint32_t)th);
+            if (idx) {
+                for (int r = 0; r < th; r++) {
+                    uint8_t *irow = idx + (size_t)r * twpx;
+                    for (int c = 0; c < twpx; c++) {
+                        int wo = c >> 4, bit = 15 - (c & 15);
+                        uint32_t roff = (uint32_t)r * trs + (uint32_t)wo * 2u;
+                        int ci = 0;
+                        for (int p = 0; p < 4; p++)     /* anim is 4 planes (moveq #3,d6) */
+                            if ((gmem_r16(M, tsrc + (uint32_t)p * WS_TEL_PSTRIDE + roff) >> bit) & 1u)
+                                ci |= (1 << p);
+                        /* The engine blits only planes 0-3; the circle background has plane 4
+                         * SET, so the displayed colour is ci|16 (verified: page index = src+16). */
+                        irow[c] = (uint8_t)((ci | 16) & 0x1F);   /* opaque */
+                    }
                 }
+                scene_add_quad_screen(&s_scene, txx, tsy0, twpx, th, idx, twpx);
             }
         }
       } }
@@ -997,24 +1005,32 @@ static void native_wsbanner_overlay(uint32_t *out, int ow, int cam, int pf_top)
         int drow  = (delta >= 0) ? delta / WS_PAGE_RS : -(((-delta) + WS_PAGE_RS - 1) / WS_PAGE_RS);
         int dcol  = delta - drow * WS_PAGE_RS;
         int txx = bx0 + dcol * 8 - box_ash, tsy0 = boy + drow;
-        for (int k = 0; k < 40; k++) {
-            uint32_t ca = str + (uint32_t)k;
-            if (ca >= RT_MEM_SIZE) break;
-            uint8_t ch = M[ca];
-            if (ch == 0) break;
-            if (ch < 0x20) continue;
-            uint32_t glyph = WS_FONT_BASE + (uint32_t)(ch - 0x20);
-            for (int r = 0; r < 16; r++) {
-                int sy = tsy0 + r;
-                if (sy < 0 || sy >= HW_DISPLAY_H) continue;
-                uint32_t ga = glyph + (uint32_t)r * WS_FONT_RS;
-                if (ga >= RT_MEM_SIZE) continue;
-                uint8_t gb = M[ga];
-                if (!gb) continue;
-                const uint32_t *pal = s_scan[sy].palette;
-                for (int px = 0; px < 8; px++)
-                    if ((gb >> (7 - px)) & 1u) wsbanner_put(out, ow, sy, txx + k * 8 + px, pal[16]);
+        /* One screen quad for the whole string: 8px per char, 16 rows, colour
+         * index 16 where a glyph bit is set, transparent elsewhere. */
+        uint8_t *idx = scene_alloc_idx(&s_scene, 40u * 8u * 16u);
+        int nk = 0;
+        if (idx) {
+            memset(idx, SCENE_TRANSPARENT, 40u * 8u * 16u);
+            for (int k = 0; k < 40; k++) {
+                uint32_t ca = str + (uint32_t)k;
+                if (ca >= RT_MEM_SIZE) break;
+                uint8_t ch = M[ca];
+                if (ch == 0) break;
+                nk = k + 1;
+                if (ch < 0x20) continue;
+                uint32_t glyph = WS_FONT_BASE + (uint32_t)(ch - 0x20);
+                for (int r = 0; r < 16; r++) {
+                    uint32_t ga = glyph + (uint32_t)r * WS_FONT_RS;
+                    if (ga >= RT_MEM_SIZE) continue;
+                    uint8_t gb = M[ga];
+                    if (!gb) continue;
+                    uint8_t *irow = idx + (size_t)r * (40 * 8) + (size_t)k * 8;
+                    for (int px = 0; px < 8; px++)
+                        if ((gb >> (7 - px)) & 1u) irow[px] = 16;
+                }
             }
+            if (nk > 0)
+                scene_add_quad_screen(&s_scene, txx, tsy0, nk * 8, 16, idx, 40 * 8);
         }
       } }
 }
@@ -1083,9 +1099,15 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     native_wsplayer_compose(pf_top, pf_bot);          /* player UNDER characters... */
     native_wschar_compose(pf_top, pf_bot);            /* ...so enemies render OVER the player (vanilla Z-order) */
     native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
+    native_wsrope_compose(pf_top, pf_bot);          /* chandelier ropes (blitter LINE mode) — on top */
+    native_wsbanner_compose(ow, cam, pf_top);       /* GET READY / GAME OVER — screen-fixed UI quads */
     s_scene_ylo = pf_top; s_scene_yhi = pf_bot;     /* publish the scene's row span */
+    /* Publish the camera view so a windowed per-sprite consumer (P4) can project
+     * world quads itself: screen_x = x - view_left, world clip [mincol,maxcol)*16. */
+    s_scene.view_left = view_left;
+    s_scene.wclip_x0  = mincol * 16;
+    s_scene.wclip_x1  = maxcol * 16 < WS_LAYER_W ? maxcol * 16 : WS_LAYER_W;
     scene_composite_argb(&s_scene, &s_objlayer[0][0], WS_LAYER_W, HW_DISPLAY_H, pf_top, pf_bot);
-    native_wsrope_compose(pf_top, pf_bot);          /* chandelier ropes (blitter LINE mode) */
 
     /* The whole playfield (terrain + sprites) is now in the draw list, rasterized into
      * s_objlayer in absolute world X. This loop is just the camera projection: map each
@@ -1119,8 +1141,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
         }
     }
 
-    /* Banner (GET READY / GAME OVER) — screen-fixed UI on top of everything. */
-    native_wsbanner_overlay(out, ow, cam, pf_top);
+    /* Banner (GET READY / GAME OVER) — screen-fixed UI quads, on top of everything. */
+    scene_composite_screen_argb(&s_scene, out, ow, HW_DISPLAY_H);
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.
