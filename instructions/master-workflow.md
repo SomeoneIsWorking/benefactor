@@ -113,22 +113,22 @@ python3 tools/test_recomp.py
 
 | File | Role |
 |------|------|
-| `src/recomp/rt.c` / `rt.h` | Memory routing, dispatch table, `M68KCtx` struct |
-| `src/recomp/hw.c` / `hw.h` | SDL2 hardware layer: OCS/CIA register shadows, rendering |
-| `src/generated/game.c` / `game.h` | **AUTO-GENERATED** by `recomp.py` — do not edit manually |
-| `src/pc.c` / `pc.h` | PC port core: frame loop, state machine, init/fini |
-| `src/pc_internal.h` | Shared declarations for `pc.c` and `pc_overrides.c` |
-| `src/pc_overrides.c` | Native C overrides for broken recompiled functions |
+| `src/engine/rt.c` / `rt.h` | Memory routing, dispatch table, `M68KCtx` struct |
+| `src/engine/hw.c` / `hw.h` | SDL2 hardware layer: OCS/CIA register shadows, rendering |
+| `src/engine/generated/game.c` / `game.h` | **AUTO-GENERATED** by `recomp.py` — do not edit manually |
+| `src/port/game_loop.c` / `pc.h` | PC port core: frame loop, state machine, init/fini |
+| `src/port/port_internal.h` | Shared declarations for `pc.c` and `pc_overrides.c` |
+| `src/port/overrides/register.c` | Native C overrides for broken recompiled functions |
 | `tools/recomp/recomp.py` | 68k→C static recompiler (Python + capstone) |
 | `tools/recomp/entries.py` | Entry points with descriptive function names |
 | `chip_ram_dump.bin` | Extracted 68k binary (148526 bytes @ offset `$3000` from `chip_ram_dump.bin`) |
 
-**Do not delete `src/generated/game.c`** unless forcing a recompile. Sources in `src/amiga/` and `src/platform/` are **not compiled**.
+**Do not hand-edit `src/engine/generated/`** — it's a regenerated build artifact (`tools/regen.sh`). See `docs/codebase-layout.md` for the module map.
 
 To manually recompile:
 ```bash
 python3 tools/recomp/recomp.py build/chip_ram_dump.bin \
-    --out-c src/generated/game.c --out-h src/generated/game.h
+    --out-c src/engine/generated/game.c --out-h src/engine/generated/game.h
 ```
 
 ---

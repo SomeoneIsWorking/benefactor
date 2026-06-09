@@ -7,7 +7,7 @@ Disassemble and analyze the Benefactor M68K binary from the PUAE chip RAM dump. 
 ## Source of Truth
 - Binary: `logs/harness_puae_chipram.bin` (524288 bytes)
 - Game code base: offset `$3000` in file = address `$3000` in chip RAM
-- Recompiled output: `src/generated/game.c`
+- Recompiled output: `src/engine/generated/game.c`
 - Symbol table (function → address): last entries in `game.c` dispatch table
 
 ## Quick Disassembly (run in terminal)
@@ -41,7 +41,7 @@ for i in range(0, 64, 2):
 4. If blitter clobbered it, find the REBUILD function — look for calls after the blitter fill.
 5. Search `game.c` for `MW16` with the register code value (e.g., `0x0104` = DFF104 = BPLCON2):
    ```bash
-   grep -n "MW16.*0x0104\|0x0100\|0x0102" src/generated/game.c | head -20
+   grep -n "MW16.*0x0104\|0x0100\|0x0102" src/engine/generated/game.c | head -20
    ```
 6. Note: copper instructions are pairs of 16-bit writes: reg-word then val-word. The reg-word is `$01xx` for display registers.
 

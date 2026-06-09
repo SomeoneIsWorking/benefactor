@@ -25,14 +25,14 @@ Two prior sessions built a full Musashi + OCS/CIA emulator. It was abandoned bec
 chip_ram_dump.bin
       │
       ▼
-recompile68k.py   (capstone 5.0 Python, offline)
+tools/recomp/recomp.py   (capstone 5.0 Python, offline)
       │
       ▼
-src/generated/game.c   – native C function per 68k subroutine
-src/generated/game.h   – forward decls + dispatch table
+src/engine/generated/game.c   – native C function per 68k subroutine
+src/engine/generated/game.h   – forward decls + dispatch table
       │
-      ├── src/recomp/rt.h / rt.c    – memory routing, dispatch
-      └── src/recomp/hw.h / hw.c    – SDL2 hardware layer
+      ├── src/engine/rt.h / rt.c    – memory routing, dispatch
+      └── src/engine/hw.h / hw.c    – SDL2 hardware layer
 ```
 
 ## Register Mapping

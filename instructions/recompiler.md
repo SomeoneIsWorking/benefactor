@@ -38,8 +38,8 @@ python3 tools/test_recomp.py
 
 # 3. Regenerate game.c
 python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
-    --out-c src/generated/game.c \
-    --out-h src/generated/game.h
+    --out-c src/engine/generated/game.c \
+    --out-h src/engine/generated/game.h
 
 # 4. Rebuild + verify harness
 cd build && cmake --build . --target benefactor-harness -j$(nproc)
@@ -50,10 +50,10 @@ cd ../.. && bash run_harness_headless.sh 2>&1 | grep -E "DIFF|ok$|MATCH"
 
 ```bash
 # Find the C translation of a specific function
-grep -A 50 "^void gfn_00XXXX" src/generated/game.c | head -60
+grep -A 50 "^void gfn_00XXXX" src/engine/generated/game.c | head -60
 
 # Find all uses of a specific M68K register write pattern
-grep -n "MW16\|MW32" src/generated/game.c | grep "0x01" | head -20
+grep -n "MW16\|MW32" src/engine/generated/game.c | grep "0x01" | head -20
 ```
 
 ## Key recompiler structure

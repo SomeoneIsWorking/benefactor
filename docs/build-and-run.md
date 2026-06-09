@@ -9,7 +9,7 @@
 
 ## The recompiled code is generated from your disks (not shipped)
 
-`src/generated/` is a recompilation of the copyrighted game and is **not in the
+`src/engine/generated/` is a recompilation of the copyrighted game and is **not in the
 repo** (gitignored). CMake regenerates it automatically from your `Disk.*` images
 at configure time via `tools/regen.sh` — which builds a small bootstrap dumper,
 extracts the four bank images from the disks (pure disk read + ATN! decrunch, no
@@ -20,14 +20,14 @@ So the whole build is just:
 
 ```bash
 # Disk.1 Disk.2 Disk.3 in the repo root
-cmake -S . -B build              # auto-regenerates src/generated/ from the disks
+cmake -S . -B build              # auto-regenerates src/engine/generated/ from the disks
 cmake --build build --target benefactor-pc -j"$(nproc)"
 ./build/benefactor-pc Disk.1 Disk.2 Disk.3      # window: arrows=move, Z/Ctrl/Space=fire
 #   --level N   start directly at level 1..60 (skips intro/title/menu)
 ```
 
 Native disk boot needs only the `Disk.*` images — no kickstart ROM. To force a
-regen, delete `src/generated/.regen-hash` (or the whole dir) and reconfigure.
+regen, delete `src/engine/generated/.regen-hash` (or the whole dir) and reconfigure.
 
 ## macOS (Apple Silicon / Intel)
 
@@ -56,8 +56,8 @@ python3 tools/extract_chipram_from_roms.py --build --output chip_ram_dump.bin
 ```bash
 python3 tools/recomp/recomp.py \
     chip_ram_dump.bin --chip-dump \
-    --out-c src/generated/game.c \
-    --out-h src/generated/game.h
+    --out-c src/engine/generated/game.c \
+    --out-h src/engine/generated/game.h
 ```
 
 ## Step 3 — CMake build
@@ -73,7 +73,7 @@ The CMakeLists.txt **no longer uses Musashi**. It runs the recompiler against `c
 
 To force a clean recompile:
 ```bash
-rm src/generated/game.c src/generated/game.h
+rm src/engine/generated/game.c src/engine/generated/game.h
 cmake --build . --parallel 4
 ```
 
@@ -103,7 +103,3 @@ cd <repo>
 - `rt.c` `is_hw()` gate: addresses `$BFD000`, `$BFE000`, `$DFF000` are hardware — everything else is plain RAM
 - To trace hardware register writes, add prints to `hw_write16()` in `hw.c`
 - `hw_present_frame()` is the vsync point — the game's vblank poll loop terminates here
-
-## Old Emulator Build (reference only)
-
-The old Musashi-based build is preserved in `src/amiga/` and `src/platform/` but is **not compiled**. `src/main.c` is the old entry point. The new entry is `src/recomp_main.c`.
