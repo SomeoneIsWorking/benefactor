@@ -5,7 +5,7 @@ when truly fixed+verified. Details for the widescreen items live in
 [[widescreen-plan]]; this is the index + current status. Verify any "fixed" claim on
 real data (REPL `wscap`/`fbw`, screenshots) before crossing it off.
 
-Last updated: 2026-06-04.
+Last updated: 2026-06-09.
 
 ---
 
@@ -58,19 +58,33 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    An unmatched queue descriptor (far-side page wrap) is DROPPED, never drawn (no phantom). No
    X-dedup, no learned offset, no persistence cache. Runs only for `ow>352` (default 352 untouched).
 
-   **OPEN — off-view "blind" (gray) variant (RE not finished; do NOT hack).** The Marry Man has
-   two variants, selected by record **type bit7**: painted/RED (clear → sub-handler `$57BA74` →
-   build `$57B19E` → `$4a72` gfx) and blind/GRAY (set, e.g. type=$82 → sub-handler `$57BBF8` →
-   build **`$57B856`**, a TERRAIN-gfx path using `$5a5d9c`/`$55ba(a5)`/`$5042(a5)`/`$5a211c`).
-   DECODED (user L9 savestate): the blind sprite is the SAME SHAPE as red, recoloured into the
-   gray palette band (colour indices ~$18–$1D vs red's ~$11–$18), and its gfx is exactly
-   **red + $4C38** (BOTH data $010052→$014C8A and mask $0131F6→$017E2E) — i.e. a parallel gray
-   sprite sheet $4C38 after the red one. The native off-view resolver only does the RED path, so
-   an off-view BLIND Marry Man renders RED; IN VIEW it is correct (the queue carries the engine's
-   exact gray gfx). To FINISH PROPERLY: RE `$57B856`'s gfx resolution so the blind data/mask are
-   derived from the record off-view (replay of its index math does NOT yet reproduce $014C8A, so
-   it isn't understood). Do NOT hardcode the $4C38 offset (magic constant) or re-learn the delta
-   from the queue (both are the hacks already rejected — see [[feedback_no_hacks_re_first]]).
+   **RESOLVED 2026-06-09 — blind variant gfx = red + $4C38 (a CONSTANT). The earlier "per-level"
+   claim was WRONG (falsified).** Variants selected by record **type bit7** (initial handler ptr)
+   and, at draw time, by `tst.b d0; bmi $57b856` (d0<0 → blind): painted/RED (`$57BA74`→build
+   `$57B19E`/emit `$57B4F6`) and blind/GRAY (`$57BBF8`→build `$57B856`). VERIFIED: `$57B856`'s emit
+   is byte-identical to red's — same `$4a72(a5)` descriptor, same `(frame[+$55 if !d4.bit1])*8`
+   index — except it adds `$13B32`/`$17AB6` (data/mask) where red adds `$EEFA`/`$12E7E`. Both
+   deltas == **`$4C38`** (immediates `game_gpl_0.c:53632/53638` vs `:27974/27980`). So
+   `blind_data = red_data + $4C38`, `blind_mask = red_mask + $4C38` — a hardcoded constant, fine to
+   use. The "+$6AB0 on L11" mismeasurement was a SEPARATE mechanism: `$57B856` special-cases
+   resolved frame `$3a` (gated `$10aa(a5)>=$2c` + `$57FEB8`/`$10ad(a5)` parity) to a fixed gfx page
+   `#$585138` (`game_gpl_0.c:52981`). Full model in [[gameplay-engine-map]] "$57B0B4 internals".
+   **REMAINING off-view gaps (now small + RE-grounded — the resolution is fully decoded):**
+   - **FACING** = `d4` bit1 for the blitter frame (clear → `+$55` frame block) and `d4` bit0 for
+     the resolve tail. The off-view resolver currently ignores these (always right-facing). Replay
+     the bit from the creature's face-the-player state to fix.
+   - **ANIMATION** (idle-only correct, user-observed): the off-view resolver replays only
+     `$57C13A`'s top-level cursor→frame table; the engine routes the resolved frame `$a(a0)*4`
+     through per-pose sub-handlers (`$526a(a5)` d0≥0 / `$545a(a5)` d0<0 → `$57C194`/`$57C1B8`/…,
+     each walking its own sub-sequence table). Replay that dispatch for correct non-idle frames.
+   - **VARIANT** = RESOLVED (blind = red + `$4C38`, above).
+   So a correct off-view marry man no longer needs a "large per-level port" — it needs the camera-
+   independent resolver (already in `native_wsstatic_compose`) extended with: the `$4C38` blind
+   add (when d0<0 / type bit7), the `d4` facing bits, and the per-pose anim sub-handler replay.
+   The `$57B19E`/`$57B2B8` terrain-collision pass is NOT needed for DRAW (it feeds the player-
+   overlap hardware sprite + collision, not the blitter gfx). IN-VIEW stays the source of truth
+   (engine queue `$5A39EC`, paired by worldY). Still: derive every value from engine state — the
+   `$4C38` is a VERIFIED instruction-stream constant, not a learned delta.
 
    **FALSIFIED prior claims (do NOT re-chase):**
    - ~~"drawn by a non-$57D3F4 BUILDER feeding $57D6C4 ($57D5AA/$57D6F2)"~~ — he's an OBJECT
