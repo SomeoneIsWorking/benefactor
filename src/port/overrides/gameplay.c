@@ -270,7 +270,7 @@ void native_level_load(M68KCtx *ctx)
  * (height<<6)|width_words, gfxBase=MR32(A1-$A); gfx src = gfxBase + (int16)D5.
  * Sprite is 5-plane plane-major, plane stride $2A0C, w words x h rows.
  * Full RE: instructions/widescreen-plan.md "Phase 4 RE — object draw path". */
-typedef struct { int x, y, w, h; uint32_t src, mod, id; } WsObj;
+typedef struct { int x, y, w, h; uint32_t src, mod; } WsObj;
 #define WS_OBJ_MAX 256
 static WsObj s_wsobj[WS_OBJ_MAX];
 static int   s_wsobj_n = 0;       /* count being built this frame              */
@@ -738,54 +738,19 @@ void native_objdraw_capture(M68KCtx *ctx)
     int      h      = size >> 6;            /* height in rows           */
     uint32_t mod    = MR32(obj - 0x10u);
     uint32_t src    = MR32(obj - 0x0Au) + (uint32_t)(int32_t)(int16_t)(uint16_t)ctx->D[5];
-    uint32_t id     = obj;                  /* object descriptor ptr — stable per object */
+
+    if (s_wsobj_n < WS_OBJ_MAX)
+        s_wsobj[s_wsobj_n++] = (WsObj){ worldX, worldY, w, h, src, mod };
 
     if (s_wsobj_log < 0)
         s_wsobj_log = getenv("WSOBJ_LOG") ? atoi(getenv("WSOBJ_LOG")) : 0;
-    if (s_wsobj_log && s_wsobj_n < s_wsobj_log) {
+    if (s_wsobj_log && s_wsobj_n <= s_wsobj_log) {
         int cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
         GLOBAL_LOG("[wsobj] x=%d y=%d (screenX=%d) w=%d h=%d src=%06X mod=%08X\n",
                    worldX, worldY, worldX - cam, w, h, src, mod);
     }
 
-    /* The engine's $57D8D0 doesn't always emit a blit: its dirty-rect / incremental
-     * redraw skips objects whose page pixels are still correct from a prior frame
-     * (the page PERSISTS them). The wide renderer has no page — it rebuilds the whole
-     * frame from captures — so it must mirror that persistence, else a transient
-     * worldX the engine computes-but-never-draws (e.g. a Marry Man pulling a lever
-     * momentarily yields a garbage X for one frame) gets drawn at the wrong place.
-     *
-     * Measure whether the engine REALLY draws this object this frame: the output blit
-     * queues are a3 (saved on the stack by the dispatch movem at $57D816/$57D8CA, so
-     * read it back at $57D8D0 entry before the body pops it) and a6 (not saved → read
-     * ctx->A[6] directly). A non-zero advance in either == a real blit emitted.
-     *
-     * If the engine skipped the blit AND the object is within the original 320px
-     * window (so the skip is a dirty-rect "unchanged", not an off-screen cull), reuse
-     * the object's last EMITTED entry by identity (= its committed on-page position),
-     * exactly as the page would still show it. If it's outside that window it's an
-     * off-screen object the widescreen cull widened in (a margin sprite that the engine
-     * never blits) — draw it at its current position so margin sprites still animate. */
-    uint32_t a3_pushed = MR32(ctx->A[7] + 4u);
-    uint32_t a6_before = ctx->A[6];
     gfn_gpl_57D8D0(ctx);
-    int real_blit = (ctx->A[3] != a3_pushed) || (ctx->A[6] != a6_before);
-
-    if (!real_blit) {
-        uint16_t cam   = (uint16_t)MR16(0x57FDBAu);
-        int in_window  = (uint16_t)(worldX + 0x30u - cam) <= 0x170u; /* engine d1<=$170 */
-        if (in_window) {
-            for (int i = 0; i < s_wsobj_done_n; i++)        /* committed = last emitted */
-                if (s_wsobj_done[i].id == id) {
-                    if (s_wsobj_n < WS_OBJ_MAX) s_wsobj[s_wsobj_n++] = s_wsobj_done[i];
-                    return;
-                }
-            /* no prior committed entry (first appearance while skipped) → fall through */
-        }
-    }
-
-    if (s_wsobj_n < WS_OBJ_MAX)
-        s_wsobj[s_wsobj_n++] = (WsObj){ worldX, worldY, w, h, src, mod, id };
 }
 
 /* ── Native PLAYER capture for widescreen ($57A666) ──────────────────────────
