@@ -136,6 +136,12 @@ void pc_register_overrides(void)
      * (executor $57D6C4) — a separate path from the $57D8D0 object loop. Capture
      * each at entry (D0/D1/D5/A1) before its camera-clip; super-call the body. */
     rt_register_override_gp(0x0057D3F4u, native_char_capture);
+    /* Object anim+draw dispatcher ($59AC38): own its init-integrity gate so a corrupt
+     * low-RAM state ($1890 != $0200, e.g. a stale savestate) yields a clear diagnostic
+     * in our code instead of the engine's bail wild-jumping into object data (the W6L2
+     * "no function at $58081A" crash). Good state delegates to the recompiled body. */
+    { extern void native_obj_anim_59AC38(M68KCtx *ctx);
+      rt_register_override_gp(0x0059AC38u, native_obj_anim_59AC38); }
     /* Marry-Man build-entry capture: $57B07C (compositor frame start → clear), $57B19E
      * (RED build) and $57B856 (BLIND build) — fire per-record before the cull, so EVERY
      * marry man (in view + culled) is captured with the engine's own frame/facing/variant,

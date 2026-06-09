@@ -453,6 +453,42 @@ void native_wsrope_seg(M68KCtx *ctx)     /* $57DCD4 — shared clip/emit entry, 
     gfn_gpl_57DCD4(ctx);
 }
 
+/* Object anim+draw dispatcher $59AC38 (one of the per-object-type handlers the
+ * object loop tail-jumps to). RE'd from the W6L2 "rt_call: NO FUNCTION at $58081A"
+ * crash:
+ *   $59AC38  movem.w (a0),d0-d1/d5   ; d0=obj.x d1=obj.y d5=obj[4] (anim counter)
+ *   $59AC3C  addq.w #2,d5 ; cmpi #$9A ; clr.w if wrapped ; move.w d5,$4(a0)
+ *   $59AC4A  d2 = $1890.w - $1C4
+ *   $59AC52  a3 = (a5-$f22) ; cmp.w (a3),d2
+ *   $59AC58  beq $59AC64 -> d5 = tbl[d5] ; jmp $57D8D0 (object DRAW)   <- normal
+ *   $59AC5A  bne $59AC5E -> adda.w #$645,a7 ; jmp (a0)                 <- bail
+ * The gate is an INIT-INTEGRITY check: $1890.w is a loader constant ($0200, from the
+ * $6D734->$150 block copy), and (a3)=(a5-$f22) is a constant ($3C) — they're equal
+ * iff $1890==$0200, i.e. the low-RAM init ran. When it didn't (a stale savestate that
+ * bypassed the loader), the gate fails and the engine bails to `jmp(a0)` — but a0 is
+ * still the OBJECT-RECORD pointer, so it wild-jumps into object DATA, surfacing as a
+ * bogus "no function" dispatch miss. That's not a recompiler/discovery bug and not a
+ * state we support; owning the handler turns the cryptic wild-jump into a clear,
+ * breakpoint-able diagnostic in our own code. Good state delegates to the faithful
+ * recompiled body. */
+void native_obj_anim_59AC38(M68KCtx *ctx)
+{
+    uint16_t d2   = (uint16_t)(MR16(0x1890u) - 0x1C4u);     /* $59AC4A/$59AC4E */
+    uint32_t a3   = (uint32_t)(int16_t)MR16(ctx->A[5] - 0xF22u); /* $59AC52 movea.w (sign-ext) */
+    uint16_t gate = MR16(a3);                               /* $59AC56 cmp.w (a3),d2 */
+    if (gate == d2) { gfn_gpl_59AC38(ctx); return; }        /* beq: normal anim+draw dispatch */
+
+    /* bne bail with a0=object → wild jump into data. Corrupt low-RAM init. */
+    fprintf(stderr,
+        "\n*** [obj $59AC38] corrupt low-RAM init: $1890=$%04X (expected $0200), "
+        "gate (a5-$f22)->$%04X != d2 $%04X.\n"
+        "    The object handler would jmp(a0=$%06X) into object DATA. This is a BAD/STALE "
+        "engine state (e.g. a savestate that bypassed the loader's $6D734->$150 block copy),\n"
+        "    NOT a recompiler bug — broken states aren't supported. (a0=$%06X a5=$%06X)\n",
+        MR16(0x1890u), gate, d2, ctx->A[0], ctx->A[0], ctx->A[5]);
+    abort();
+}
+
 /* NOTE: the caged "Marry Men" / static-placement objects are drawn by
  * native_wsstatic_compose (native_renderer.c) walking the object-only queue $5A39EC
  * directly — no override needed here. (An earlier $57B0EE builder hook to capture the
