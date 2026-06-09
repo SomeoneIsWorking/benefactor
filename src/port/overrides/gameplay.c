@@ -243,8 +243,11 @@ void native_level_setup(M68KCtx *ctx)
  * next-level load on a WIN currently freezes; log its inputs so we can see how
  * the win-path load differs from the (working) game-over load. Pure passthrough
  * otherwise. */
+void native_wsobj_commit_reset(void);   /* defined with the wsobj capture below */
+
 void native_level_load(M68KCtx *ctx)
 {
+    native_wsobj_commit_reset();        /* object nodes are per-level */
     if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
     if (s_dbg_endlevel) {
         fprintf(stderr, "[level-load] $59DC02: d0=%08X d1=%08X a0=%08X a1=%08X a2=%08X a3=%08X\n",
@@ -277,6 +280,39 @@ static int   s_wsobj_n = 0;       /* count being built this frame              *
 static WsObj s_wsobj_done[WS_OBJ_MAX];
 static int   s_wsobj_done_n = 0;  /* last COMPLETE frame's list (for renderer) */
 static int   s_wsobj_log = -1;
+
+/* Per-INSTANCE committed (page) state, mirroring the engine's own persistence.
+ * The walker keeps a 6-byte dirty record per object in its a4 queue (long gfx
+ * signature = live d5, word counter): on a signature change it stores it,
+ * counter=3, and emits; while unchanged it emits the two page blits (counter
+ * 2,1) and then STOPS (counter==1 -> $57DA1A writes 1, NO blit) — the page
+ * persists the last-emitted pixels. We key the committed entry by the walker's
+ * per-object NODE (a0, 32-byte stride — pushed at $57D7CC, so at a7+12 at the
+ * $57D8D0 entry), which is instance-unique; the gfx descriptor (A1) is NOT (two
+ * instances of one object type share it — keying by it duplicated one instance
+ * and lost the other, the c70636e bug). Cleared per level load. */
+typedef struct { uint32_t node; WsObj obj; } WsObjCommit;
+static WsObjCommit s_wsobj_commit[WS_OBJ_MAX];
+static int s_wsobj_commit_n = 0;
+
+void native_wsobj_commit_reset(void) { s_wsobj_commit_n = 0; }
+
+static WsObj *wsobj_commit_find(uint32_t node)
+{
+    for (int i = 0; i < s_wsobj_commit_n; i++)
+        if (s_wsobj_commit[i].node == node) return &s_wsobj_commit[i].obj;
+    return NULL;
+}
+static void wsobj_commit_put(uint32_t node, const WsObj *o)
+{
+    WsObj *c = wsobj_commit_find(node);
+    if (!c) {
+        if (s_wsobj_commit_n >= WS_OBJ_MAX) return;
+        s_wsobj_commit[s_wsobj_commit_n].node = node;
+        c = &s_wsobj_commit[s_wsobj_commit_n++].obj;
+    }
+    *c = *o;
+}
 
 /* Renderer-facing API (called from native_renderer.c). Returns the last fully
  * captured frame's object list — stable while the next frame is being built. */
@@ -738,9 +774,53 @@ void native_objdraw_capture(M68KCtx *ctx)
     int      h      = size >> 6;            /* height in rows           */
     uint32_t mod    = MR32(obj - 0x10u);
     uint32_t src    = MR32(obj - 0x0Au) + (uint32_t)(int32_t)(int16_t)(uint16_t)ctx->D[5];
+    WsObj    cur    = (WsObj){ worldX, worldY, w, h, src, mod };
 
-    if (s_wsobj_n < WS_OBJ_MAX)
-        s_wsobj[s_wsobj_n++] = (WsObj){ worldX, worldY, w, h, src, mod };
+    /* Replicate the body's OWN clip/dirty decision (read BEFORE the super-call;
+     * the body consumes/updates the a4 record). Stack at entry: the dispatch
+     * movem ($57D816/$57D8CA) pushed a2@+0 a3@+4 a4@+8; a0 (the per-object node,
+     * $57D7CC) is at +12. Branch map of $57D8D0 (RE 2026-06-10):
+     *   d3=(s16)(d0-cam): <0 -> d6=w+(d3>>4): >0 left-clip EMIT ($57D960),
+     *                                         <=0 cull ($57D8F2, sentinel only)
+     *   else d4=((u16)(cam+$160)>>4)-(d0>>4): <=0 cull;  < w right-clip EMIT
+     *        ($57D91C); >= w in-window dirty check ($57D9AE): signature (live
+     *        32-bit d5) unchanged AND counter==1 -> NO EMIT (page persists,
+     *        $57DA1A); anything else EMITs. */
+    uint32_t a4slot = MR32(ctx->A[7] + 8u);
+    uint32_t node   = MR32(ctx->A[7] + 12u);
+    uint16_t cam    = (uint16_t)MR16(0x57FDBAu);
+    uint16_t w16    = (uint16_t)(MR16(obj - 0x0Cu) & 0x3Fu);
+    enum { EMIT, PERSIST, CULL } dec;
+    int16_t d3 = (int16_t)((uint16_t)((uint16_t)ctx->D[0] - cam));
+    if (d3 < 0) {
+        int16_t d6 = (int16_t)(uint16_t)(w16 + (uint16_t)(d3 >> 4));
+        dec = (d6 > 0) ? EMIT : CULL;
+    } else {
+        uint16_t d4 = (uint16_t)((uint16_t)(cam + 0x160u) >> 4);
+        int16_t span = (int16_t)(uint16_t)(d4 - (uint16_t)(((uint16_t)ctx->D[0]) >> 4));
+        if (span <= 0)                  dec = CULL;
+        else if (span < (int16_t)w16)   dec = EMIT;          /* right clip */
+        else {                                                /* in window  */
+            uint32_t sig = MR32(a4slot);
+            uint16_t cnt = (uint16_t)MR16(a4slot + 4u);
+            dec = (sig == ctx->D[5] && cnt == 1u) ? PERSIST : EMIT;
+        }
+    }
+
+    if (s_wsobj_n < WS_OBJ_MAX) {
+        if (dec == EMIT) {                 /* engine draws this -> page = cur   */
+            wsobj_commit_put(node, &cur);
+            s_wsobj[s_wsobj_n++] = cur;
+        } else if (dec == PERSIST) {       /* engine skips -> page keeps commit */
+            WsObj *c = wsobj_commit_find(node);
+            if (!c) { wsobj_commit_put(node, &cur); c = wsobj_commit_find(node); }
+            s_wsobj[s_wsobj_n++] = c ? *c : cur;
+        } else {                           /* CULLed: margin object the engine
+                                            * never blits -> draw live so the
+                                            * widescreen margins still animate */
+            s_wsobj[s_wsobj_n++] = cur;
+        }
+    }
 
     if (s_wsobj_log < 0)
         s_wsobj_log = getenv("WSOBJ_LOG") ? atoi(getenv("WSOBJ_LOG")) : 0;
