@@ -136,6 +136,15 @@ void pc_register_overrides(void)
      * (executor $57D6C4) — a separate path from the $57D8D0 object loop. Capture
      * each at entry (D0/D1/D5/A1) before its camera-clip; super-call the body. */
     rt_register_override_gp(0x0057D3F4u, native_char_capture);
+    /* Marry-Man build-entry capture: $57B07C (compositor frame start → clear), $57B19E
+     * (RED build) and $57B856 (BLIND build) — fire per-record before the cull, so EVERY
+     * marry man (in view + culled) is captured with the engine's own frame/facing/variant,
+     * resolved natively from the $4a72 table. See pc_overrides_gameplay.c. */
+    { extern void native_build_red(M68KCtx *ctx), native_build_blind(M68KCtx *ctx),
+                  native_build_clear(M68KCtx *ctx);
+      rt_register_override_gp(0x0057B07Cu, native_build_clear);
+      rt_register_override_gp(0x0057B19Eu, native_build_red);
+      rt_register_override_gp(0x0057B856u, native_build_blind); }
     /* Static-placement OBJECTS (caged Marry Men + level sprites) are drawn by walking
      * the object-only queue $5A39EC in native_wsstatic_compose (native_renderer.c) — no
      * override needed (the $57B0EE builder hook was double-emitted/unreliable, removed). */
