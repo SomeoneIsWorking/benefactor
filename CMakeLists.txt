@@ -170,6 +170,7 @@ add_executable(benefactor-pc
     src/recomp/hw_blitter.c
     src/recomp/hw_copper.c
     src/recomp/native_renderer.c
+    src/recomp/native_engine_view.c
     src/recomp/disk_boot.c
     src/recomp/overlay_load.c
     ${GAME_SRCS}
@@ -451,6 +452,7 @@ set(HARNESS_SOURCES
     src/recomp/hw_blitter.c
     src/recomp/hw_copper.c
     src/recomp/native_renderer.c
+    src/recomp/native_engine_view.c
     src/recomp/disk_boot.c
     src/recomp/overlay_load.c
     src/pc.c

@@ -600,12 +600,13 @@ int hw_present_frame(void)
             dump_frame = env ? atoi(env) : -1;
         }
         if (dump_frame >= 0 && (uint32_t)s_frame_num == (uint32_t)dump_frame) {
-            native_render_frame();  /* re-render to ensure fb is populated in headless */
-            /* Write BMP */
+            /* Dump the composed OUTPUT surface (s_out) — what is actually
+             * presented, including the widescreen margins and overlays — not the
+             * 352px content fb. hw_compose_output() already ran this frame. */
             const char *path = "frame_dump.bmp";
             FILE *fp = fopen(path, "wb");
             if (fp) {
-                int W = HW_DISPLAY_W, H = HW_DISPLAY_H;
+                int W = s_hw_out_w, H = HW_DISPLAY_H;
                 /* BMP row stride must be 4-byte aligned (already: W*4) */
                 int row_bytes = W * 4;
                 int data_size = row_bytes * H;
@@ -626,10 +627,10 @@ int hw_present_frame(void)
                 hdr[26]=1;  /* planes */
                 hdr[28]=32; /* bits per pixel */
                 fwrite(hdr, 1, 54, fp);
-                /* Pixel data: s_fb is ARGB (0xAARRGGBB) → BMP needs BGRA */
+                /* Pixel data: s_out is ARGB (0xAARRGGBB) → BMP needs BGRA */
                 for (int y = 0; y < H; y++) {
                     for (int x = 0; x < W; x++) {
-                        uint32_t c = s_fb[y * W + x];
+                        uint32_t c = s_out[y * W + x];
                         uint8_t px[4] = {c&0xFF,(c>>8)&0xFF,(c>>16)&0xFF,0xFF};
                         fwrite(px, 1, 4, fp);
                     }
