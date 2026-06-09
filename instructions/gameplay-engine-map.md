@@ -317,9 +317,27 @@ static-placement class (currently just the caged Marry Men). Verified by disasm 
   — in view from the engine's exact `$5A39EC` descriptor (correct frame + variant), off view by
   natively replaying the RED `$57C13A` resolution (cursor→frame→`$4a72`→data/mask) across the
   full wide view (ignores the `$57B4DC` cull) → live anim + no margin cull, no duplication.
-  STILL OPEN: the BLIND/gray variant's off-view resolution is the terrain-gfx path `$57B856`
-  (type bit7 → sub-handler `$57BBF8`), NOT yet RE'd — off-view blind shows red until ported.
-  Do NOT hack it (no learned delta / cache / second source — see [[feedback-no-hacks-re-first]]).
+- **BLIND/gray variant — RE'd + VERIFIED 2026-06-09 (was "OPEN/per-level"; that was WRONG):**
+  the blind sub-handler `$57BBF8` → build `$57B856` is structurally IDENTICAL to the red
+  `$57B4F6` emit — same `$4a72(a5)` descriptor, same index `(frame [+$55 if !d4.bit1])*8`, same
+  dst math, same `$FFFE002A` mod. The ONLY difference is the two absolute-offset adds: blind
+  `data = data_off+$13B32`, `mask = mask_off+$17AB6` (vs red `+$EEFA` / `+$12E7E`). **Both deltas
+  are EXACTLY `$4C38`** — verified: immediates at `game_gpl_0.c:53632/53638` (blind) vs
+  `:27974/27980` (red); `$13B32−$EEFA == $17AB6−$12E7E == $4C38`. So **blind gfx = red gfx +
+  $4C38, a HARDCODED CONSTANT — not a per-level table.** The earlier "+$4C38 (L9) / +$6AB0 (L11)"
+  measurement was a DIFFERENT mechanism: `$57B856` special-cases resolved frame `$3a` (gated by
+  `$10aa(a5)>=$2c` + a `$57FEB8`/`$10ad(a5)` parity) to a fixed gfx page `#$585138`
+  (`game_gpl_0.c:52981`); that override produced the apparent variation. So off-view blind is
+  legit-resolvable as **red-resolution + $4C38** (RE-grounded, not a learned-delta hack). Variant
+  selection AT DRAW time = `tst.b d0; bmi $57b856` in the per-frame handler (d0<0 → blind),
+  distinct from the record type bit7 (which only picks the initial handler pointer).
+- **OFF-VIEW ANIMATION (the "idle-only correct" gap):** the off-view native resolver replays only
+  `$57C13A`'s top-level cursor→frame table (`$5d5a(a5)`), but the engine routes the resolved frame
+  `$a(a0)*4` through per-pose sub-handlers via `$526a(a5)`(d0≥0)/`$545a(a5)`(d0<0) → `$57C194`/
+  `$57C1B8`/… each walking its OWN sub-sequence table (`$5a72`/`$5ae4(a5)`, advance d5 by 2, `<0`→
+  reset). To get correct non-idle frames off-view, replay that sub-handler dispatch, not just the
+  top table. FACING: blitter-frame facing = `d4` bit1 (clear → `+$55` frame block); resolve-tail
+  facing = `d4` bit0.
 
 ### The character loop `$57D3C2` + queue executor `$57D56C` (RE'd 2026-06-05)
 
