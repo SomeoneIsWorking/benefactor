@@ -4,8 +4,8 @@
  * place the wide-render pipeline touches raw g_mem: it reads the named engine
  * variables once, validates them, and hands the renderer a typed snapshot. The
  * composers downstream see only `const EngineView*` and cannot reach around it. */
-#include "hw_private.h"          /* g_mem, RT_MEM_SIZE */
-#include "native_engine_view.h"
+#include "engine/hw_private.h"          /* g_mem, RT_MEM_SIZE */
+#include "render/engine_view.h"
 
 /* Big-endian 16-bit read of an engine variable, sign-extended. Bounds-checked:
  * an out-of-range address is a hard failure (caught by the caller), never a 0

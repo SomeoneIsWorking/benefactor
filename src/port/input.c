@@ -1,7 +1,7 @@
 /* pc_input.c — JSON-configurable action bindings (see pc_input.h). Header-only SDL
  * (SDLK_* constants); no SDL functions, so it links in the harness too. */
-#include "pc_input.h"
-#include "pc_config.h"
+#include "port/input.h"
+#include "port/config.h"
 #include <SDL2/SDL.h>
 #include <string.h>
 #include <strings.h>

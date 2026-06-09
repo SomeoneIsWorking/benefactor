@@ -5,7 +5,7 @@
  * Memory accesses go through MRxx / MWxx which route hardware I/O.
  */
 #pragma once
-#include "common_log.h"
+#include "common/log.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>

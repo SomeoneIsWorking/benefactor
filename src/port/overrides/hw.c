@@ -3,7 +3,7 @@
  * Overrides for functions that poll Amiga hardware registers in tight loops.
  * The PC port uses a synchronous blitter; all BBUSY polls become no-ops.
  */
-#include "pc_internal.h"
+#include "port/port_internal.h"
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * $0030C2 — hardware-wait loop eliminator

@@ -5,9 +5,9 @@
  * This replaces all of: custom.c, cia.c, copper.c, display.c, audio.c, input.c
  */
 
-#include "hw_private.h"
-#include "native_renderer.h"
-#include "../pc.h"   /* level/world layout accessors (single source of truth) */
+#include "engine/hw_private.h"
+#include "render/native_renderer.h"
+#include "port/port.h"   /* level/world layout accessors (single source of truth) */
 #include <signal.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -37,7 +37,7 @@ static inline int _hwtrace_enabled(void) {
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../pc_input.h"
+#include "port/input.h"
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Amiga OCS register offsets (relative to $DFF000)                           */

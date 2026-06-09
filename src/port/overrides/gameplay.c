@@ -5,8 +5,8 @@
  * high-level behavior (the "what" and "when") and delegate the heavy
  * hardware/teardown work to the existing handlers for now.
  */
-#include "pc_internal.h"
-#include "generated/game_gpl.h"   /* raw gfn_gpl_* (to delegate without re-dispatch) */
+#include "port/port_internal.h"
+#include "engine/generated/game_gpl.h"   /* raw gfn_gpl_* (to delegate without re-dispatch) */
 
 /* gameplay work-area globals (a5 = $0057EE12) */
 #define GP_MODE_001E   0x001Eu    /* screen/mode word: 2 = in a level, 8 = game-over menu */

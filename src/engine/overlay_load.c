@@ -7,7 +7,7 @@
  * no generated code. */
 #include <stdint.h>
 #include <string.h>
-#include "disk_boot.h"
+#include "engine/disk_boot.h"
 
 extern uint8_t *g_mem;
 

@@ -21,10 +21,10 @@
 #include "libretro-core.h"
 #include "libretro.h"
 
-#include "recomp/hw.h"
-#include "recomp/rt.h"
-#include "pc.h"
-#include "game_state.h"   /* g_state + legacy-name macros */
+#include "engine/hw.h"
+#include "engine/rt.h"
+#include "port/port.h"
+#include "common/game_state.h"   /* g_state + legacy-name macros */
 #include "harness/puae_state.h"
 #include "harness/harness_internal.h"
 

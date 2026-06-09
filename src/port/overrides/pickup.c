@@ -23,7 +23,7 @@
  *
  * Zone size: PICKUP_RX / PICKUP_RY env (default 18 / 12 px, half-window each side).
  */
-#include "pc_internal.h"
+#include "port/port_internal.h"
 
 #define A5_F80   3968u    /* current input bits ($20 = fire)  */
 #define A5_F94   3988u    /* player screen X                  */

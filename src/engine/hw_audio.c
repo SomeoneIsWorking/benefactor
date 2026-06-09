@@ -5,7 +5,7 @@
  * Audio is triggered by writes to AUDxDAT in hw.c's hw_write16().
  */
 
-#include "hw_private.h"
+#include "engine/hw_private.h"
 #include <string.h>
 #include <stdio.h>
 

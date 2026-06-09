@@ -1,7 +1,7 @@
 /* pc_config.c — tiny flat-JSON config loader (see pc_config.h). No external deps:
  * it just locates "key": <value> in the file text and parses a number/bool. Good
  * enough for a flat object of settings; not a general JSON parser. */
-#include "pc_config.h"
+#include "port/config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

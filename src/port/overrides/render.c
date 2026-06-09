@@ -19,7 +19,7 @@
  *   $0052A4  native_post_blit_handler   — post-blit: animation advance, zero fill
  *   $0055A0  native_timer_interrupt     — CIA-B timer B: palette animation tick
  */
-#include "pc_internal.h"
+#include "port/port_internal.h"
 
 void native_text_sprite_render(M68KCtx *ctx)
 {

@@ -2,12 +2,12 @@
  *
  * Override implementations live in pc_overrides.c.
  */
-#include "pc_internal.h"
+#include "port/port_internal.h"
 /* game.h is included here ONLY for GAME_FN_COUNT (dispatch table size).
  * Do NOT call any gfn_* functions directly from this file. */
-#include "generated/game.h"
-#include "recomp/disk_boot.h"
-#include "recomp/overlay_load.h"
+#include "engine/generated/game.h"
+#include "engine/disk_boot.h"
+#include "engine/overlay_load.h"
 #include <setjmp.h>
 #include <pthread.h>
 

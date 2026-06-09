@@ -3,9 +3,9 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include "common_log.h"
+#include "common/log.h"
 #include "harness/puae_state.h"
-#include "recomp/hw.h"   /* HW_DISPLAY_W/H */
+#include "engine/hw.h"   /* HW_DISPLAY_W/H */
 
 /* State logging */
 #define MAX_FRAMES 1000

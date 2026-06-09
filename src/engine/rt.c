@@ -9,9 +9,9 @@
  *   $DFF000 – $DFFFFF   custom chips (routed to hw.c)
  */
 
-#include "rt.h"
-#include "hw.h"
-#include "../game_state.h"   /* g_overlay_active, g_gameplay_active */
+#include "engine/rt.h"
+#include "engine/hw.h"
+#include "common/game_state.h"   /* g_overlay_active, g_gameplay_active */
 
 #ifdef HARNESS_BUILD
 #include "harness/trace.h"

@@ -62,7 +62,7 @@ EOF
 for round in $(seq 1 24); do
   python3 tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
     --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-    --out-dir src/generated --seed "$(cat "$SEEDS")" >/dev/null 2>&1
+    --out-dir src/engine/generated --seed "$(cat "$SEEDS")" >/dev/null 2>&1
   cmake --build build --target benefactor-harness -j"$(nproc)" 2>&1 | grep -iE "error:" && exit 1
   MISS=$(printf '%s\n' "$INPUT" | timeout 220 env RT_ALLOW_MISS=1 \
            ./build/benefactor-harness "${ARGS[@]}" 2>&1 \

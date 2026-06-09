@@ -20,7 +20,7 @@
 
 #include "libretro.h"
 #include "libretro-core.h"
-#include "recomp/hw.h"
+#include "engine/hw.h"
 #include "harness/input.h"
 #include "harness/harness_internal.h"
 

@@ -15,8 +15,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "recomp/disk_boot.h"
-#include "recomp/overlay_load.h"
+#include "engine/disk_boot.h"
+#include "engine/overlay_load.h"
 
 #define MEM_SIZE (8u * 1024u * 1024u)
 
