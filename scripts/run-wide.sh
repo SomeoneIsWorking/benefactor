@@ -8,7 +8,7 @@
 #
 # The standalone lands on the level card; press fire (Ctrl/Space/Z) to enter gameplay,
 # arrows to move. Same level-9 cavern used in all the widescreen comparison work.
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1
 
 WIDTH="${1:-480}"
 if [ "$2" = "build" ]; then

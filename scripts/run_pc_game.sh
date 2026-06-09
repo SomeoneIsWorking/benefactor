@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_PATH="$ROOT_DIR/build/benefactor-pc"
 DISK1="$ROOT_DIR/Disk.1"
 DISK2="$ROOT_DIR/Disk.2"
