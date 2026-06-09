@@ -19,6 +19,7 @@
  */
 #include "engine/hw_private.h"   /* pulls in rt.h → g_mem, and amiga_to_argb(), s_regs, etc. */
 #include "render/engine_view.h"  /* the wide renderer's only engine-state input (the firewall) */
+#include "render/scene.h"        /* the per-frame gameplay draw list (renderer/backend seam) */
 #include <string.h>
 #include <stdlib.h>
 
@@ -465,6 +466,21 @@ int g_ws_view_left = 0, g_ws_view_w = 0;   /* last wide-render view mapping (wor
  * ============================================================================ */
 static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
 
+/* The per-frame gameplay draw list (Phase 1 of the GPU-renderer plan): each
+ * sprite pass emits index-bitmap quads here instead of resolving ARGB into
+ * s_objlayer directly. The CPU rasterizer (scene_composite_argb) reproduces the
+ * old pixels byte-for-byte; the Vulkan/SDL backends will draw the SAME list.
+ * See instructions/gpu-renderer-plan.md. */
+static Scene s_scene;
+
+/* Copy walk_copper's per-scanline palette into the scene's per-row colour LUT
+ * (this engine's palette is copper-driven, so colours are per output row). */
+static void scene_load_palrows(void)
+{
+    for (int y = 0; y < HW_DISPLAY_H; y++)
+        memcpy(s_scene.pal_rows[y], s_scan[y].palette, sizeof s_scene.pal_rows[y]);
+}
+
 #define WS_GFXTAB   0x005A539Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
@@ -532,22 +548,28 @@ static void native_wsobj_compose(int pf_top, int pf_bot)
         uint32_t plane_stride = (uint32_t)w * 2u * (uint32_t)h;   /* A-mod 0 => packed */
         if (src < 0x1000u || src + plane_stride * 5u > RT_MEM_SIZE) continue;
         int wpx = w * 16;
+        /* Decode the sprite into a colour-index bitmap (0..31, 0xFF = transparent
+         * where the colour index is 0) and emit it as a draw-list quad at the
+         * object's absolute world (x, pf_top+y). The CPU rasterizer composites it
+         * into s_objlayer below — same pixels as the old direct write. */
+        uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)wpx * (uint32_t)h);
+        if (!idx) continue;
         for (int r = 0; r < h; r++) {
-            int sy = pf_top + y + r;
-            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-            const uint32_t *pal = s_scan[sy].palette;
+            uint8_t *irow = idx + (size_t)r * wpx;
             for (int c = 0; c < wpx; c++) {
-                int worldX = x + c;
-                if (worldX < 0 || worldX >= WS_LAYER_W) continue;
                 uint32_t base = src + (uint32_t)r * (uint32_t)w * 2u + (uint32_t)(c >> 4) * 2u;
                 int bit = 15 - (c & 15), ci = 0;
                 for (int p = 0; p < 5; p++)
                     if ((gmem_r16(M, base + (uint32_t)p * plane_stride) >> bit) & 1u)
                         ci |= (1 << p);
-                if (ci) s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+                irow[c] = ci ? (uint8_t)ci : SCENE_TRANSPARENT;
             }
         }
+        scene_add_quad(&s_scene, x, pf_top + y, wpx, h, idx, wpx);
     }
+    /* Rasterize the object quads into s_objlayer (world X, screen Y), clipped to
+     * the playfield rows — exactly the old loop's clip. */
+    scene_composite_argb(&s_scene, &s_objlayer[0][0], WS_LAYER_W, HW_DISPLAY_H, pf_top, pf_bot);
 }
 
 /* Composite the captured PLAYER ($57A666) into s_objlayer. 16px x 16 rows,
@@ -967,6 +989,10 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     }
 
     if (pf_top < 0) return;
+    /* New frame on the draw list + load this frame's per-scanline palette LUT
+     * (Phase 1 seam — see instructions/gpu-renderer-plan.md). */
+    scene_reset(&s_scene);
+    scene_load_palrows();
     /* Fill the object layer from the engine's captured per-object draw list, then
      * composite the player (drawn by its own routine $57A666, not the object loop). */
     native_wsobj_compose(pf_top, pf_bot);
