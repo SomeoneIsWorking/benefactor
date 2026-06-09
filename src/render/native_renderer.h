@@ -15,3 +15,7 @@ void native_render_frame(void);
 const Scene *native_render_scene(void);
 void native_render_scene_yrange(int *lo, int *hi);
 void native_render_scene_dims(int *w, int *h);   /* target object-layer dims (WS_LAYER_W x H) */
+
+/* REPL diagnostic: per-scanline BPL pointer snapshot from the last vanilla-path
+ * render (single-playfield lines only). Returns nplanes (0 = no data). */
+int native_render_line_info(int y, uint32_t pt[5], int *xoff, int *scr1, int *width);

@@ -276,6 +276,21 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    "draw from a clean per-frame list" shape as the Marry Men (`native_wsmm_compose`).
 
 ### Widescreen — DONE / NOT-A-BUG (verified this push series)
+- **Animated water surface line — FIXED (2026-06-10).** The dashed blue line on top of
+  water pools was missing in BenRen (in view AND margins). ROOT CAUSE: it's drawn by the
+  object walker's multi-tile path `$57D81C` — ten CPU `move.w`s writing a 16×2 5-plane
+  patch per record straight into the page (no blit, culled to `worldX−cam ≤ $150`), a
+  path no capture covered. FIX: `native_anim_patch` override captures every record
+  PRE-cull (worldX, page row, resolved animated src) + `native_wswater_compose` draws
+  them as opaque quads over the tiles. Full RE in [[gameplay-engine-map]] "$57D81C
+  multi-tile / animated PAGE PATCH path". VERIFIED (savestate, two pools L?): line at
+  y=201–202 with identical px counts vs vanilla, both pools (incl. fully off-view one at
+  worldX 448–560) animate in the wide view; vanilla output byte-identical (cmp);
+  `scenesdl` 0px with the new quads. REPL `wswater`, kill-switch `WS_NOWATER=1`.
+  NOTE (separate, pre-existing): on this savestate the whole BenRen 352-compare frame
+  (pool tiles AND sprites) sits +16px right of vanilla, and `scenewin` shows a ~43k px
+  pre-existing mismatch (43822 WITHOUT the water quads) — a compare-path/camera-parity
+  issue, NOT introduced by and NOT fixable in the water patch.
 - **Pause menu / overlays Z-order** — FIXED (2026-06-05): the pause/level-select/toast
   overlays were drawn into `s_fb` before the wide compose, so `native_render_wide_bg`
   overpainted them. Now drawn into `s_out` AFTER compose, width-aware (`pc_overlay_set_dims`)

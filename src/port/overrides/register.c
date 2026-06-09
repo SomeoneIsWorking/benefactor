@@ -163,6 +163,12 @@ void pc_register_overrides(void)
     { extern void native_wsrope_build(M68KCtx *ctx), native_wsrope_seg(M68KCtx *ctx);
       rt_register_override_gp(0x0057DCAEu, native_wsrope_build);
       rt_register_override_gp(0x0057DCD4u, native_wsrope_seg); }
+    /* ANIMATED PAGE PATCHES (water surface line): the walker's multi-tile path $57D81C
+     * CPU-writes 16x2 5-plane patches straight into the page (no blit) and culls to the
+     * vanilla window — BenRen missed them entirely. Capture each record PRE-cull; the
+     * recomp body still runs (engine behaviour identical). native_wswater_compose draws. */
+    { extern void native_anim_patch(M68KCtx *ctx);
+      rt_register_override_gp(0x0057D81Cu, native_anim_patch); }
     /* GET READY / GAME OVER banner: the native wide renderer ignores the engine page,
      * so the banner (drawn there) was invisible. Capture each of its three elements so
      * the renderer can composite them as a centered top UI overlay: the box ($578974),

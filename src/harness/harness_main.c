@@ -695,6 +695,30 @@ int main(int argc, char **argv)
                   } }
             }
         }
+        else if (!strcmp(cmd, "wswater")) {  /* wswater — dump captured animated page patches ($57D81C) */
+            extern int native_wswater_count(void);
+            extern int native_wswater_get(int, int*, int*, int*, uint32_t*);
+            int n = native_wswater_count();
+            printf("[wswater] %d patch(es): (worldX, page row, byte col, src)\n", n);
+            for (int i = 0; i < n; i++) {
+                int wx, row, col; uint32_t src;
+                if (native_wswater_get(i, &wx, &row, &col, &src))
+                    printf("  p%2d worldX=%d row=%d col=%d src=$%06X\n", i, wx, row, col, src);
+            }
+        }
+        else if (!strcmp(cmd, "line")) {  /* line <y> — per-scanline BPL pointers from the last
+                                             vanilla render, to map a view pixel to its page addr. */
+            extern int native_render_line_info(int, uint32_t[5], int*, int*, int*);
+            int y = -1; sscanf(line, "%*s %d", &y);
+            uint32_t pt[5]; int xo = 0, sc = 0, wd = 0;
+            int np = native_render_line_info(y, pt, &xo, &sc, &wd);
+            if (np <= 0) printf("[line] y=%d: no single-PF data\n", y);
+            else {
+                printf("[line] y=%d bpu=%d xoff=%d scr1=%d width=%d pt:", y, np, xo, sc, wd);
+                for (int p = 0; p < np; p++) printf(" $%06X", pt[p]);
+                printf("\n");
+            }
+        }
         else if (!strcmp(cmd, "blits")) {  /* blits — dump the engine's captured object blits (BlitRec):
                                               src/mask/dpt/w/h. The MM's REAL gfx when on-page lives here. */
             extern int hw_blit_capture_count(void);
