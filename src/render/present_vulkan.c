@@ -18,6 +18,7 @@
 
 #ifdef BENEFACTOR_HAVE_VULKAN
 #include <vulkan/vulkan.h>
+#include <SDL2/SDL_vulkan.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -361,8 +362,293 @@ int present_vulkan_selftest(const uint32_t *argb, int w, int h)
     return maxdiff;
 }
 
-/* Windowed swapchain present — Phase 2b (needs a live display to verify). Until
- * implemented + verified, return NULL so present_backend_select() uses SDL. */
-const PresentBackend *present_backend_vulkan(void) { return NULL; }
+/* ─────────────────────────────────────────────────────────────────────────
+ * Windowed swapchain present (blit-based).
+ *
+ * Each frame: upload `argb` into a device-local source image, acquire a
+ * swapchain image, vkCmdBlitImage (NEAREST, scales content->window) the source
+ * into it, present. No graphics pipeline needed for present — the verified
+ * fullscreen-quad shader pipeline (above) is where the Phase 3 per-character
+ * lighting pass will render INTO the swapchain instead of a plain blit.
+ * ───────────────────────────────────────────────────────────────────────── */
+typedef struct {
+    SDL_Window      *win;
+    VkInstance       inst;
+    VkPhysicalDevice pd;
+    uint32_t         qfam;
+    VkDevice         dev;
+    VkQueue          queue;
+    VkSurfaceKHR     surface;
+    VkSwapchainKHR   swap;
+    VkExtent2D       extent;
+    uint32_t         n_images;
+    VkImage         *images;          /* owned by the swapchain */
+    VkCommandPool    cpool;
+    VkCommandBuffer  cmd;
+    int              cw, ch;          /* content size */
+    VkImage          src_img;
+    VkDeviceMemory   src_mem;
+    VkBuffer         up_buf;
+    VkDeviceMemory   up_mem;
+    void            *up_ptr;          /* persistently mapped */
+    VkSemaphore      sem_acquire, sem_done;
+    VkFence          fence;
+    int             ok;
+} Swap;
+static Swap g_sw;
+
+static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h)
+{
+    VkSurfaceCapabilitiesKHR caps;
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(s->pd, s->surface, &caps) != VK_SUCCESS)
+        return -1;
+    s->extent = caps.currentExtent.width != 0xFFFFFFFFu ? caps.currentExtent
+              : (VkExtent2D){ w, h };
+
+    /* Prefer B8G8R8A8_UNORM (matches the source: no blit colour conversion). */
+    uint32_t nf = 0; vkGetPhysicalDeviceSurfaceFormatsKHR(s->pd, s->surface, &nf, NULL);
+    VkSurfaceFormatKHR *fmts = calloc(nf, sizeof *fmts);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(s->pd, s->surface, &nf, fmts);
+    VkSurfaceFormatKHR pick = fmts[0];
+    for (uint32_t i = 0; i < nf; i++)
+        if (fmts[i].format == VK_FORMAT_B8G8R8A8_UNORM) { pick = fmts[i]; break; }
+    free(fmts);
+
+    uint32_t want = caps.minImageCount + 1;
+    if (caps.maxImageCount && want > caps.maxImageCount) want = caps.maxImageCount;
+
+    VkSwapchainCreateInfoKHR ci = { .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = s->surface, .minImageCount = want, .imageFormat = pick.format,
+        .imageColorSpace = pick.colorSpace, .imageExtent = s->extent, .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,   /* we blit into it */
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .preTransform = caps.currentTransform,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = VK_PRESENT_MODE_FIFO_KHR,   /* always supported */
+        .clipped = VK_TRUE };
+    if (vkCreateSwapchainKHR(s->dev, &ci, NULL, &s->swap) != VK_SUCCESS) return -1;
+    vkGetSwapchainImagesKHR(s->dev, s->swap, &s->n_images, NULL);
+    s->images = calloc(s->n_images, sizeof *s->images);
+    vkGetSwapchainImagesKHR(s->dev, s->swap, &s->n_images, s->images);
+    return 0;
+}
+
+static int vulkan_init(const char *title, int cw, int ch)
+{
+    Swap *s = &g_sw;
+    memset(s, 0, sizeof *s);
+    s->cw = cw; s->ch = ch;
+
+    s->win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        cw * 2, ch * 2, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    if (!s->win) { VKLOG("SDL_CreateWindow(VULKAN): %s\n", SDL_GetError()); return -1; }
+
+    unsigned next = 0;
+    SDL_Vulkan_GetInstanceExtensions(s->win, &next, NULL);
+    const char **exts = calloc(next, sizeof *exts);
+    SDL_Vulkan_GetInstanceExtensions(s->win, &next, exts);
+    VkApplicationInfo ai = { .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pApplicationName = "benefactor", .apiVersion = VK_API_VERSION_1_0 };
+    VkInstanceCreateInfo ici = { .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pApplicationInfo = &ai, .enabledExtensionCount = next, .ppEnabledExtensionNames = exts };
+    VkResult r = vkCreateInstance(&ici, NULL, &s->inst);
+    free(exts);
+    if (r != VK_SUCCESS) { VKLOG("vkCreateInstance: %d\n", r); goto fail; }
+
+    if (!SDL_Vulkan_CreateSurface(s->win, s->inst, &s->surface)) {
+        VKLOG("SDL_Vulkan_CreateSurface: %s\n", SDL_GetError()); goto fail; }
+
+    /* pick a physical device with a graphics+present queue family */
+    uint32_t nd = 0; vkEnumeratePhysicalDevices(s->inst, &nd, NULL);
+    VkPhysicalDevice *devs = calloc(nd, sizeof *devs);
+    vkEnumeratePhysicalDevices(s->inst, &nd, devs);
+    for (uint32_t i = 0; i < nd && s->pd == VK_NULL_HANDLE; i++) {
+        uint32_t nq = 0; vkGetPhysicalDeviceQueueFamilyProperties(devs[i], &nq, NULL);
+        VkQueueFamilyProperties *q = calloc(nq, sizeof *q);
+        vkGetPhysicalDeviceQueueFamilyProperties(devs[i], &nq, q);
+        for (uint32_t j = 0; j < nq; j++) {
+            VkBool32 present = 0;
+            vkGetPhysicalDeviceSurfaceSupportKHR(devs[i], j, s->surface, &present);
+            if ((q[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present) {
+                s->pd = devs[i]; s->qfam = j; break;
+            }
+        }
+        free(q);
+    }
+    free(devs);
+    if (s->pd == VK_NULL_HANDLE) { VKLOG("no graphics+present device\n"); goto fail; }
+    { VkPhysicalDeviceProperties p; vkGetPhysicalDeviceProperties(s->pd, &p);
+      VKLOG("windowed device: %s\n", p.deviceName); }
+
+    { float pri = 1.0f;
+      const char *dext[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+      VkDeviceQueueCreateInfo qi = { .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+          .queueFamilyIndex = s->qfam, .queueCount = 1, .pQueuePriorities = &pri };
+      VkDeviceCreateInfo di = { .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+          .queueCreateInfoCount = 1, .pQueueCreateInfos = &qi,
+          .enabledExtensionCount = 1, .ppEnabledExtensionNames = dext };
+      if (vkCreateDevice(s->pd, &di, NULL, &s->dev) != VK_SUCCESS) { VKLOG("vkCreateDevice\n"); goto fail; }
+      vkGetDeviceQueue(s->dev, s->qfam, 0, &s->queue); }
+
+    if (sw_make_swapchain(s, (uint32_t)cw, (uint32_t)ch) != 0) { VKLOG("swapchain\n"); goto fail; }
+
+    { VkCommandPoolCreateInfo pci = { .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = s->qfam };
+      vkCreateCommandPool(s->dev, &pci, NULL, &s->cpool);
+      VkCommandBufferAllocateInfo cai = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = s->cpool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1 };
+      vkAllocateCommandBuffers(s->dev, &cai, &s->cmd); }
+
+    /* source content image (B8G8R8A8) + persistently-mapped upload buffer */
+    { VkImageCreateInfo ii = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D, .format = VK_FORMAT_B8G8R8A8_UNORM,
+        .extent = { (uint32_t)cw, (uint32_t)ch, 1 }, .mipLevels = 1, .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT, .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
+      if (vkCreateImage(s->dev, &ii, NULL, &s->src_img) != VK_SUCCESS) goto fail;
+      VkMemoryRequirements mr; vkGetImageMemoryRequirements(s->dev, s->src_img, &mr);
+      VkMemoryAllocateInfo mai = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mr.size,
+        .memoryTypeIndex = find_mem_type(s->pd, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) };
+      if (vkAllocateMemory(s->dev, &mai, NULL, &s->src_mem) != VK_SUCCESS) goto fail;
+      vkBindImageMemory(s->dev, s->src_img, s->src_mem, 0); }
+    { VkDeviceSize bytes = (VkDeviceSize)cw * ch * 4;
+      VkBufferCreateInfo bi = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = bytes, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
+      if (vkCreateBuffer(s->dev, &bi, NULL, &s->up_buf) != VK_SUCCESS) goto fail;
+      VkMemoryRequirements mr; vkGetBufferMemoryRequirements(s->dev, s->up_buf, &mr);
+      VkMemoryAllocateInfo mai = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mr.size, .memoryTypeIndex = find_mem_type(s->pd, mr.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) };
+      if (vkAllocateMemory(s->dev, &mai, NULL, &s->up_mem) != VK_SUCCESS) goto fail;
+      vkBindBufferMemory(s->dev, s->up_buf, s->up_mem, 0);
+      vkMapMemory(s->dev, s->up_mem, 0, bytes, 0, &s->up_ptr); }
+
+    { VkSemaphoreCreateInfo si = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+      vkCreateSemaphore(s->dev, &si, NULL, &s->sem_acquire);
+      vkCreateSemaphore(s->dev, &si, NULL, &s->sem_done);
+      VkFenceCreateInfo fi = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT };
+      vkCreateFence(s->dev, &fi, NULL, &s->fence); }
+
+    s->ok = 1;
+    return 0;
+fail:
+    return -1;
+}
+
+static void sw_barrier(VkCommandBuffer cb, VkImage img, VkImageLayout from, VkImageLayout to,
+                       VkAccessFlags sa, VkAccessFlags da, VkPipelineStageFlags ss, VkPipelineStageFlags ds)
+{
+    VkImageMemoryBarrier b = { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .oldLayout = from, .newLayout = to, .srcAccessMask = sa, .dstAccessMask = da,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = img, .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 } };
+    vkCmdPipelineBarrier(cb, ss, ds, 0, 0, NULL, 0, NULL, 1, &b);
+}
+
+static void vulkan_present(const uint32_t *argb, int w, int h)
+{
+    Swap *s = &g_sw;
+    if (!s->ok) return;
+    (void)w; (void)h;   /* uploads the content at s->cw x s->ch */
+    memcpy(s->up_ptr, argb, (size_t)s->cw * s->ch * 4);
+
+    vkWaitForFences(s->dev, 1, &s->fence, VK_TRUE, UINT64_MAX);
+
+    uint32_t idx = 0;
+    VkResult ar = vkAcquireNextImageKHR(s->dev, s->swap, UINT64_MAX, s->sem_acquire, VK_NULL_HANDLE, &idx);
+    if (ar == VK_ERROR_OUT_OF_DATE_KHR) {   /* window resized: rebuild swapchain, skip frame */
+        vkDeviceWaitIdle(s->dev);
+        vkDestroySwapchainKHR(s->dev, s->swap, NULL); free(s->images); s->images = NULL;
+        sw_make_swapchain(s, s->extent.width, s->extent.height);
+        return;
+    }
+    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) return;
+    vkResetFences(s->dev, 1, &s->fence);
+
+    vkResetCommandBuffer(s->cmd, 0);
+    VkCommandBufferBeginInfo bi = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
+    vkBeginCommandBuffer(s->cmd, &bi);
+
+    /* upload -> src image, leave it TRANSFER_SRC */
+    sw_barrier(s->cmd, s->src_img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkBufferImageCopy cp = { .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        .imageExtent = { (uint32_t)s->cw, (uint32_t)s->ch, 1 } };
+    vkCmdCopyBufferToImage(s->cmd, s->up_buf, s->src_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
+    sw_barrier(s->cmd, s->src_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    /* swapchain image: UNDEFINED -> TRANSFER_DST, blit (scaled), -> PRESENT_SRC */
+    sw_barrier(s->cmd, s->images[idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkImageBlit blit = {
+        .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        .srcOffsets = { {0,0,0}, { s->cw, s->ch, 1 } },
+        .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        .dstOffsets = { {0,0,0}, { (int)s->extent.width, (int)s->extent.height, 1 } } };
+    vkCmdBlitImage(s->cmd, s->src_img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   s->images[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+    sw_barrier(s->cmd, s->images[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+               VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    vkEndCommandBuffer(s->cmd);
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1, .pWaitSemaphores = &s->sem_acquire, .pWaitDstStageMask = &wait_stage,
+        .commandBufferCount = 1, .pCommandBuffers = &s->cmd,
+        .signalSemaphoreCount = 1, .pSignalSemaphores = &s->sem_done };
+    vkQueueSubmit(s->queue, 1, &si, s->fence);
+
+    VkPresentInfoKHR pi = { .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1, .pWaitSemaphores = &s->sem_done,
+        .swapchainCount = 1, .pSwapchains = &s->swap, .pImageIndices = &idx };
+    VkResult pr = vkQueuePresentKHR(s->queue, &pi);
+    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) {
+        vkDeviceWaitIdle(s->dev);
+        vkDestroySwapchainKHR(s->dev, s->swap, NULL); free(s->images); s->images = NULL;
+        sw_make_swapchain(s, s->extent.width, s->extent.height);
+    }
+}
+
+static void vulkan_toggle_fullscreen(void)
+{
+    uint32_t f = SDL_GetWindowFlags(g_sw.win);
+    SDL_SetWindowFullscreen(g_sw.win, (f & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+}
+
+static SDL_Window *vulkan_window(void) { return g_sw.win; }
+
+static void vulkan_shutdown(void)
+{
+    Swap *s = &g_sw;
+    if (s->dev) vkDeviceWaitIdle(s->dev);
+    if (s->fence) vkDestroyFence(s->dev, s->fence, NULL);
+    if (s->sem_acquire) vkDestroySemaphore(s->dev, s->sem_acquire, NULL);
+    if (s->sem_done) vkDestroySemaphore(s->dev, s->sem_done, NULL);
+    if (s->up_buf) vkDestroyBuffer(s->dev, s->up_buf, NULL);
+    if (s->up_mem) vkFreeMemory(s->dev, s->up_mem, NULL);
+    if (s->src_img) vkDestroyImage(s->dev, s->src_img, NULL);
+    if (s->src_mem) vkFreeMemory(s->dev, s->src_mem, NULL);
+    if (s->cpool) vkDestroyCommandPool(s->dev, s->cpool, NULL);
+    if (s->swap) vkDestroySwapchainKHR(s->dev, s->swap, NULL);
+    free(s->images);
+    if (s->dev) vkDestroyDevice(s->dev, NULL);
+    if (s->surface) vkDestroySurfaceKHR(s->inst, s->surface, NULL);
+    if (s->inst) vkDestroyInstance(s->inst, NULL);
+    if (s->win) SDL_DestroyWindow(s->win);
+    memset(s, 0, sizeof *s);
+}
+
+static const PresentBackend VULKAN_BACKEND = {
+    "vulkan", vulkan_init, vulkan_present, vulkan_toggle_fullscreen, vulkan_window, vulkan_shutdown
+};
+
+/* Returns the Vulkan backend; present_backend_select() handles the case where
+ * vulkan_init() later fails (it returns -1 and hw_init aborts that backend). */
+const PresentBackend *present_backend_vulkan(void) { return &VULKAN_BACKEND; }
 
 #endif /* BENEFACTOR_HAVE_VULKAN */

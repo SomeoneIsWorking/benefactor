@@ -463,8 +463,12 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
          * falls back to sdl if vulkan is unavailable) and let it own the window. */
         s_backend = present_backend_select(getenv("BENEFACTOR_RENDER"));
         if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) {
-            HW_LOG("present backend '%s' init failed: %s\n", s_backend->name, SDL_GetError());
-            return -1;
+            const PresentBackend *sdl = present_backend_sdl();
+            if (s_backend == sdl) return -1;   /* sdl itself failed: nothing to fall back to */
+            HW_LOG("[render] backend '%s' init failed (%s); falling back to sdl\n",
+                   s_backend->name, SDL_GetError());
+            s_backend = sdl;
+            if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) return -1;
         }
         HW_LOG("[render] present backend: %s\n", s_backend->name);
 
