@@ -1105,6 +1105,22 @@ int main(int argc, char **argv)
                 printf("\n");
             }
         }
+        else if (!strcmp(cmd, "scenepal")) {  /* scenepal <y> — print the BenRen per-scanline
+                                                 palette (scene pal_rows[y], 32 ARGB) at output
+                                                 row y. Gameplay palette is per-row/copper, so
+                                                 `pal` (g_state) is empty in-game; use this. */
+            int yy = 0; sscanf(line, "%*s %d", &yy);
+            const Scene *sc = native_render_scene();
+            if (!sc || yy < 0 || yy >= SCENE_MAX_ROWS) { printf("[scenepal] no scene / bad y\n"); }
+            else {
+                printf("[scenepal] row %d (ARGB):\n", yy);
+                for (int i = 0; i < 32; i += 8) {
+                    printf("  %2d:", i);
+                    for (int j = i; j < i + 8; j++) printf(" %06X", sc->pal_rows[yy][j] & 0xFFFFFF);
+                    printf("\n");
+                }
+            }
+        }
         else if (!strcmp(cmd, "audlc")) {  /* audlc — print PC + PUAE per-channel audio sample ptr (AUDxLC),
                                               len, vol, active. Diff a single jump to find the grunt channel. */
             printf("[audlc] PC ");
