@@ -90,11 +90,19 @@ Consumers (each verified headless via offscreen readback — the dev box display
         Verify recipe: build HEAD ref binary (stash the seam edits) and the new binary;
         `printf 'load <abs>/logs/savestate.bin\npc 1\nfbw <tag>\nq\n' | BENEFACTOR_SKIP_PUAE=1
         BENEFACTOR_RENDERER=benren ./build/benefactor-harness Disk.1 Disk.2 Disk.3`; `cmp`.
-- [ ] **P2 SDL per-sprite consumer** — **do this FIRST (user: "get SDL fully set in first").**
-      Same draw list, one `SDL_RenderCopy`/textured draw per quad (palette-resolved or via
-      an indexed texture + palette), so SDL is a real per-sprite renderer, not a blit. This
-      is also the path that makes the renderer independent of the per-pixel CPU loops.
-- [ ] **P3 Vulkan consumer** of the list, verified vs CPU/SDL reference by offscreen readback.
+- [~] **P2 SDL per-sprite consumer** (user: "get SDL fully set in first").
+      - DONE + VERIFIED: `render/scene_sdl.c` — `scene_draw_sdl()` draws each quad as its own
+        SDL texture via `SDL_RenderCopy` (real per-sprite, not a blit). SDL2 has no fragment
+        shader, so the per-row palette is CPU-resolved when baking each quad's texture
+        (transparent -> alpha 0; drawn -> opaque 0xFF|RGB). `scene_sdl_selftest()` diffs it vs
+        the CPU rasterizer via a software renderer + readback (display off). Harness `scenesdl`:
+        34 quads @ 2560x282 = **0 px differ, BYTE-IDENTICAL** over logs/savestate.bin.
+      - NEXT (P2b): **windowed runtime present** — BenRen's SDL backend draws the list straight
+        to the window (background + per-sprite quads) instead of CPU-compositing into s_objlayer
+        and blitting the whole surface. BLOCKED on getting the WHOLE frame on the list (tilemap
+        bg + HUD + banner); until then SDL per-sprite only covers sprites.
+- [ ] **P3 Vulkan consumer** of the list, verified vs CPU/SDL reference by offscreen readback
+      (the per-character-lighting path — SDL2 can't shade, Vulkan can).
 - [ ] **P4 windowed present** renders the list (kill the `vkCmdBlitImage`/texture-upload blit).
 - [ ] **P5 per-character lighting** pass (the original motivation; now has per-sprite quads).
 
