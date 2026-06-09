@@ -95,17 +95,23 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    The real DECORATIONS (torches/teleporter/enemies, `$06xxxx`) go through the object WALKER →
    `$57D8D0` path (cull widened + anim captured in #4) — already handled, not part of this list.
 
-2. **GET READY: all objects/characters missing (everything EXCEPT the player should be
-   VISIBLE).** OPEN. The player being absent during the banner is CORRECT — it teleports
-   in after the banner (user-confirmed; do NOT chase it, even though `wscap` may report
-   the player captured — it still doesn't render during GET READY, which is right). The
-   bug is that everything ELSE (objects, characters, decorations) is also missing.
-   During GET READY the per-frame object loop `$57D79A` does NOT run, and it doesn't build
-   the object queue until AFTER GET READY (`wscap` → `wsobj=wschar=0` the whole time).
-   Vanilla shows the objects because the executors re-blit a queue built ONCE by a SETUP
-   path that bypasses the `$57D8D0`/`$57D3F4` choke points. Retain-last-capture did NOT
-   help (no non-empty capture exists before GET READY ends — tried + reverted). NEXT:
-   find/hook the setup queue-build path (likely shared with issue #1).
+2. **GET READY: all objects/characters missing.** **NOT REPRODUCED 2026-06-09 — likely
+   FIXED; needs user confirmation in normal play.** The player being absent during the
+   banner is CORRECT — it teleports in after the banner (do NOT chase it). The reported bug
+   was that everything ELSE (objects, characters, decorations) was also missing, because the
+   per-frame object loop `$57D79A` supposedly didn't run during GET READY (`wscap` →
+   `wsobj=wschar=0` the whole time). **This symptom no longer occurs in the harness.**
+   Verified (goto L1, `BENEFACTOR_WIDESCREEN=680`, per-frame `wscap`): from the first
+   gameplay frame the walker HAS run (`objwalk=1`) and objects are captured+drawn
+   (`wsobj=11 wschar=4`), and a frame dump during the banner shows "BENEFACTOR / GET READY!"
+   WITH the terrain, objects and characters fully rendered behind it
+   (`scratch/screenshots/b2.png`). So the "walker never runs / queue empty during GET READY"
+   condition is gone — presumably resolved by the object-capture + banner work in the
+   2026-06-05..09 push series. NEXT: have the user confirm it's fixed in normal play
+   (full intro→PLAY GAME start, not `goto`); if it still shows there, the gap is a
+   goto-vs-normal-start difference in when the setup object-build runs, not a missing
+   render path. (Earlier hypothesis — a SETUP queue-build bypassing `$57D8D0`/`$57D3F4`,
+   retain-last-capture tried+reverted — kept here for history.)
 
 3. **GET READY / GAME OVER banners.** FIXED (2026-06-05). Box + teleport animation + text
    composite as a centered top UI overlay (`native_wsbanner_overlay`), drawn while the
