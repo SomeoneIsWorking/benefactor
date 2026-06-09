@@ -332,6 +332,43 @@ int native_wschar_get(int i, int *x, int *y, int *w, int *h,
     return 1;
 }
 
+/* ── Marry-Man build-entry capture (the PROPER, complete resolution) ───────────
+ * The marry man's gfx is resolved by the compositor's build at $57B19E (painted/RED) or
+ * $57B856 (blind/GRAY), reached per-record from handler $57C13A BEFORE the per-object draw
+ * cull. RE'd: both builds index the SAME table $4a72(a5) at (frame + facing), where
+ * facing = +$55 frames when d4 bit1 is CLEAR (else +0), and add a per-variant constant:
+ *   RED:   data = $4a72[(frame+fac)*8].w0 + $EEFA,  mask = .w1 + $12E7E   ($57B19E)
+ *   BLIND: data = .w0 + $13B32,                     mask = .w1 + $17AB6   ($57B856)
+ * (blind = red + $4C38, a stable constant — the earlier "per-level" was comparing different
+ * frames). yoff = .w2, BLTSIZE = .w3. Verified to the byte vs the engine's queue (L9/L11).
+ * Capturing {worldX=d1, worldY=d2, frame=d3, flags=d4, variant} at the build ENTRY gets
+ * EVERY marry man (in view AND culled), with the engine's own frame/facing, so the native
+ * renderer can resolve the exact sprite at the true world position — no queue, no worldY
+ * pairing, no terrain tables, no per-level offset. a1 == $57C13A filters to marry men. */
+typedef struct { int worldX, worldY, frame, flags, blind; } WsBuild;
+#define WS_BUILD_MAX 32
+static WsBuild s_wsbuild[WS_BUILD_MAX];      static int s_wsbuild_n = 0;
+static WsBuild s_wsbuild_done[WS_BUILD_MAX]; static int s_wsbuild_done_n = 0;
+
+int native_wsbuild_count(void) { return s_wsbuild_done_n; }
+int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind)
+{
+    if (i < 0 || i >= s_wsbuild_done_n) return 0;
+    const WsBuild *b = &s_wsbuild_done[i];
+    *x = b->worldX; *y = b->worldY; *frame = b->frame; *flags = b->flags; *blind = b->blind;
+    return 1;
+}
+static void wsbuild_capture(M68KCtx *ctx, int blind)
+{
+    if (ctx->A[1] == 0x57C13Au && s_wsbuild_n < WS_BUILD_MAX)   /* marry-man handler only */
+        s_wsbuild[s_wsbuild_n++] = (WsBuild){
+            (int16_t)(uint16_t)ctx->D[1], (int16_t)(uint16_t)ctx->D[2],
+            (int)(ctx->D[3] & 0xFFFFu), (int)(ctx->D[4] & 0xFFFFu), blind };
+}
+void native_build_red(M68KCtx *ctx)   { wsbuild_capture(ctx, 0); gfn_gpl_57B19E(ctx); }
+void native_build_blind(M68KCtx *ctx) { wsbuild_capture(ctx, 1); gfn_gpl_57B856(ctx); }
+void native_build_clear(M68KCtx *ctx) { s_wsbuild_n = 0; gfn_gpl_57B07C(ctx); }  /* compositor frame start */
+
 void native_char_capture(M68KCtx *ctx)
 {
     g_diag_char++;
@@ -595,6 +632,8 @@ void native_ws_promote(void)
     s_wsobj_done_n = s_wsobj_n;
     memcpy(s_wschar_done, s_wschar, sizeof(WsChar) * (size_t)s_wschar_n);
     s_wschar_done_n = s_wschar_n;
+    memcpy(s_wsbuild_done, s_wsbuild, sizeof(WsBuild) * (size_t)s_wsbuild_n);
+    s_wsbuild_done_n = s_wsbuild_n;
 
     if (s_banner_active) {
         if (s_banner_fresh) { s_banner_objwalk_at = g_diag_objwalk; s_banner_fresh = 0; }
