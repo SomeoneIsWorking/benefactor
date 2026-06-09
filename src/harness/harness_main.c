@@ -353,6 +353,11 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "interact")) {   /* interact [0|1] — hold the dedicated interact key (pickup/lever) */
             sscanf(line, "%*s %d", &interact); printf("[crepl] interact=%d\n", interact);
         }
+        else if (!strcmp(cmd, "pklog")) {  /* pklog [0|1] — log interact-wide pickup/lever decisions */
+            extern int g_pickup_log;
+            int v = !g_pickup_log; sscanf(line, "%*s %d", &v); g_pickup_log = v;
+            printf("[crepl] pklog=%d\n", g_pickup_log);
+        }
         else if (!strcmp(cmd, "goto")) {  /* goto <N> — restart PC coroutine at level N (1..60), bypassing title */
             int n = 0; sscanf(line, "%*s %d", &n);
             if (n < 1 || n > 60) {

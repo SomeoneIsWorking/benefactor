@@ -21,15 +21,92 @@
  * vanilla behavior is exactly preserved everywhere else. The player position is
  * restored immediately after. Set BENEFACTOR_RECOMP_PICKUP=1 to disable.
  *
- * Zone size: PICKUP_RX / PICKUP_RY env (default 18 / 12 px, half-window each side).
+ * Reach: `interact_extend` cfg knob (px, horizontal only). Logging: REPL `pklog`.
  */
 #include "port/port_internal.h"
 
 #define A5_F80   3968u    /* current input bits ($20 = fire)  */
-#define A5_F94   3988u    /* player screen X                  */
-#define A5_F96   3990u    /* player screen Y                  */
+#define A5_F94   3988u    /* player Y (vertical)              */
+#define A5_F96   3990u    /* player X (horizontal)            */
+/* AXIS NOTE (verified live 2026-06-10, savestate gear repro): the object struct is
+ * (a0)+0 = obj X, (a0)+2 = obj Y, and the player pair is $f94 = Y, $f96 = X — the
+ * OPPOSITE of what the old comments (and gameplay-engine-map.md) claimed. The first
+ * version of this override nudged $f94 toward (a0)+2, i.e. extended reach
+ * VERTICALLY, which let the player grab a gear through a platform while hanging
+ * under it. The horizontal pair is $f96 ↔ (a0)+0. */
 
 unsigned long g_native_pickup_hits = 0;
+int g_pickup_log = 0;      /* REPL `pklog` — log interact-wide decisions */
+
+/* Per-handler X-window constants, RE-extracted from the generated handlers
+ * (2026-06-10). Every one of the 30 handlers gates on the SAME pattern:
+ *     move.w $f96(a5),d4 ; sub.w d0,d4 ; cmpi.w #range,d4 ; bhi fail
+ * with d0 = objX + bias (bias = the addq/subq applied to d0 after its last load).
+ * So the handler passes iff  playerX in [objX+bias, objX+bias+range].
+ * A NUDGE TO objX IS OUTSIDE THE WINDOW whenever bias > 0 — that was the
+ * "window moves instead of widening" bug: pulling the player onto objX
+ * overshot past the lower edge, so only players approaching from ≥extend px
+ * right got clamped INTO the window. The nudge must target the NEAREST EDGE
+ * of the real window, and never move a player who is already inside it.
+ * objX source: most read MR16(a0); $595FF4 receives objX in d0 from its
+ * caller; $59B0B0 reads it from $84(a0).
+ * Biases are PATH-verified (a linear scan over the listing double-counts addq's
+ * from mutually exclusive paths — $58A828 has one addq #8 per path, true bias 8;
+ * $589572/$5876C4's subq's sit on paths that jump away before the compare, true
+ * bias 0). $58BCF2 does `add.w (a3),d0` on every path (dynamic base) — its window
+ * can't be tabled, so it has NO entry here and is never nudged (vanilla reach).
+ * $595FE4 is the DISPATCH ENTRY of the lever family whose interior label $595FF4
+ * was wrapped alone at first (the walker calls $595FE4, so the override/extension
+ * never fired for those levers). */
+typedef enum { OBJX_A0 = 0, OBJX_D0, OBJX_A0_84 } ObjXSrc;
+static const struct { uint32_t addr; int bias, range; ObjXSrc src; } s_xwin[] = {
+    { 0x586B1Cu,  4,  8, OBJX_A0 }, { 0x586B2Au,  4,  8, OBJX_A0 },
+    { 0x586C10u,  4,  8, OBJX_A0 }, { 0x586C1Eu,  4,  8, OBJX_A0 },
+    { 0x586D14u, -4, 12, OBJX_A0 }, { 0x586E6Cu,  0, 16, OBJX_A0 },
+    { 0x586ECCu,  0, 16, OBJX_A0 }, { 0x586F9Cu,  0,  9, OBJX_A0 },
+    { 0x587006u,  4,  8, OBJX_A0 }, { 0x5870CEu,  0, 16, OBJX_A0 },
+    { 0x5871F4u,  0, 16, OBJX_A0 }, { 0x587272u,  3,  8, OBJX_A0 },
+    { 0x58733Au,  0, 12, OBJX_A0 }, { 0x58743Cu,  0, 16, OBJX_A0 },
+    { 0x5874FEu,  0, 16, OBJX_A0 }, { 0x587554u,  0, 16, OBJX_A0 },
+    { 0x587616u,  0, 16, OBJX_A0 }, { 0x58766Eu,  0, 16, OBJX_A0 },
+    { 0x5876C4u,  0, 16, OBJX_A0 }, { 0x589572u,  0, 16, OBJX_A0 },
+    { 0x589642u, -8, 16, OBJX_A0 }, { 0x58A828u,  8, 16, OBJX_A0 },
+    { 0x58BF24u,-32, 48, OBJX_A0 },
+    { 0x595FE4u,  4, 10, OBJX_A0 },
+    { 0x595FF4u,  4, 10, OBJX_D0 }, { 0x596064u,  4, 10, OBJX_A0 },
+    { 0x59610Au,  4, 10, OBJX_A0 }, { 0x597548u,  0, 16, OBJX_A0 },
+    { 0x597892u,  4,  8, OBJX_A0 }, { 0x59B0B0u, -8, 20, OBJX_A0_84 },
+};
+
+/* Compute the nudged player X for `addr`'s handler. WE own the interaction
+ * zone (the handler's window stays only the delivery mechanism): the player
+ * can interact when within `extend` px of the OBJECT'S 16px TILE
+ * ([objX, objX+16] — every interactable/collectible is one tile wide), not of
+ * the handler's window. The vanilla windows are arbitrary offset slices of
+ * the tile (the lever's is [objX+4, objX+12] — standing 2px left of the
+ * sprite is 6px out of the window), so measuring reach from the window made
+ * the feel uneven per object. In zone → return a point inside the handler's
+ * window (clamp) so its own check passes; outside → px unchanged (vanilla;
+ * note extend==0 never reaches here, so vanilla stays bit-exact). */
+static int nudged_px(M68KCtx *ctx, uint32_t addr, int px, int extend)
+{
+    for (unsigned i = 0; i < sizeof s_xwin / sizeof s_xwin[0]; i++) {
+        if (s_xwin[i].addr != addr) continue;
+        int objX;
+        switch (s_xwin[i].src) {
+        case OBJX_D0:    objX = (int16_t)ctx->D[0];              break;
+        case OBJX_A0_84: objX = (int16_t)MR16(ctx->A[0] + 0x84u); break;
+        default:         objX = (int16_t)MR16(ctx->A[0]);         break;
+        }
+        if (px < objX - extend || px > objX + 16 + extend)
+            return px;                   /* out of reach: vanilla          */
+        int lo = objX + s_xwin[i].bias, hi = lo + s_xwin[i].range;
+        if (px < lo) return lo;
+        if (px > hi) return hi;
+        return px;                       /* already inside the window      */
+    }
+    return px;                           /* unknown handler: never touch   */
+}
 
 /* Extra HORIZONTAL (X) pickup/interaction reach, in pixels, ON TOP of each handler's
  * own vanilla window. Single knob "interact_extend", resolved live each frame through
@@ -69,17 +146,20 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
      * interact_extend works whether or not modern controls are on. */
     if (!g_modern_controls) {
         uint16_t s_f80 = MR16(ctx->A[5] + A5_F80);
-        uint16_t s_f94 = MR16(ctx->A[5] + A5_F94);
+        uint16_t s_f96 = MR16(ctx->A[5] + A5_F96);
         if (extend > 0 && (s_f80 & 0x20)) {            /* fire held → reach further    */
-            int objX = (int16_t)MR16(ctx->A[0] + 2u);
-            int px   = (int16_t)s_f94;
-            int d    = objX - px;
-            if (d >  extend) d =  extend;
-            if (d < -extend) d = -extend;
-            MW16(ctx->A[5] + A5_F94, (uint16_t)(px + d));
+            int px  = (int16_t)s_f96;
+            int npx = nudged_px(ctx, addr, px, extend);
+            MW16(ctx->A[5] + A5_F96, (uint16_t)npx);
+            if (g_pickup_log)
+                fprintf(stderr, "[interact-v] $%06X a0=%06X objX=%d objY=%d "
+                        "px=%d py=%d npx=%d\n", addr, ctx->A[0],
+                        (int)(int16_t)MR16(ctx->A[0]),
+                        (int)(int16_t)MR16(ctx->A[0] + 2u), px,
+                        (int)(int16_t)MR16(ctx->A[5] + A5_F94), npx);
         }
         rt_call_generated(ctx, addr);
-        MW16(ctx->A[5] + A5_F94, s_f94);               /* restore X (f80 untouched)    */
+        MW16(ctx->A[5] + A5_F96, s_f96);               /* restore X (f80 untouched)    */
         return;
     }
 
@@ -101,14 +181,10 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
     int active = interact && !(latch && s_interact_consumed);
 
     uint16_t s_f80 = MR16(ctx->A[5] + A5_F80);
-    uint16_t s_f94 = MR16(ctx->A[5] + A5_F94);
+    uint16_t s_f96 = MR16(ctx->A[5] + A5_F96);
     if (active) {
-        int objX = (int16_t)MR16(ctx->A[0] + 2u);
-        int px   = (int16_t)s_f94;
-        int d    = objX - px;                          /* nudge toward object (X only) */
-        if (d >  extend) d =  extend;
-        if (d < -extend) d = -extend;
-        MW16(ctx->A[5] + A5_F94, (uint16_t)(px + d));
+        int px = (int16_t)s_f96;
+        MW16(ctx->A[5] + A5_F96, (uint16_t)nudged_px(ctx, addr, px, extend));
         MW16(ctx->A[5] + A5_F80, 0x20);                /* present interact as fire     */
     } else {
         MW16(ctx->A[5] + A5_F80, (uint16_t)(s_f80 & ~0x20));  /* FIRE never interacts  */
@@ -120,11 +196,11 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
     int triggered = active && (MR32(ctx->A[0]) != pre0 || MR32(ctx->A[0] + 4u) != pre4);
 
     MW16(ctx->A[5] + A5_F80, s_f80);                   /* restore input                */
-    MW16(ctx->A[5] + A5_F94, s_f94);
+    MW16(ctx->A[5] + A5_F96, s_f96);
     if (triggered) {
         if (latch) s_interact_consumed = 1;            /* one toggle per key press     */
         g_native_pickup_hits++;
-        if (getenv("PICKUP_LOG"))
+        if (g_pickup_log)
             fprintf(stderr, "[interact] $%06X triggered (extend=%d)\n", addr, extend);
     }
 }
@@ -158,7 +234,7 @@ PK(587554) PK(587616) PK(58766E) PK(5876C4)
  * that read a real world object via `movem.w (a0)` belong here. */
 #define IK(hex) void native_interact_##hex(M68KCtx *ctx) { lever_wide(ctx, 0x##hex##u); }
 IK(589572) IK(589642) IK(58A828) IK(58BCF2) IK(58BF24)
-IK(595FF4) IK(596064) IK(59610A) IK(597548) IK(597892) IK(59B0B0)
+IK(595FE4) IK(595FF4) IK(596064) IK(59610A) IK(597548) IK(597892) IK(59B0B0)
 
 void pickup_register(void)
 {
@@ -191,6 +267,7 @@ void interact_register(void)
     rt_register_override_gp(0x58A828u, native_interact_58A828);
     rt_register_override_gp(0x58BCF2u, native_interact_58BCF2);
     rt_register_override_gp(0x58BF24u, native_interact_58BF24);
+    rt_register_override_gp(0x595FE4u, native_interact_595FE4);
     rt_register_override_gp(0x595FF4u, native_interact_595FF4);
     rt_register_override_gp(0x596064u, native_interact_596064);
     rt_register_override_gp(0x59610Au, native_interact_59610A);
