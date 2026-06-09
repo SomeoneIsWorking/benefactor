@@ -472,6 +472,13 @@ static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
  * old pixels byte-for-byte; the Vulkan/SDL backends will draw the SAME list.
  * See instructions/gpu-renderer-plan.md. */
 static Scene s_scene;
+static int   s_scene_ylo = 0, s_scene_yhi = 0;   /* playfield row span the scene targets */
+
+/* Accessors for the per-sprite backends / headless verification (scene_sdl,
+ * vk consumer). The scene is populated by native_render_wide_bg (BenRen). */
+const Scene *native_render_scene(void) { return &s_scene; }
+void native_render_scene_yrange(int *lo, int *hi) { if (lo) *lo = s_scene_ylo; if (hi) *hi = s_scene_yhi; }
+void native_render_scene_dims(int *w, int *h) { if (w) *w = WS_LAYER_W; if (h) *h = HW_DISPLAY_H; }
 
 /* Copy walk_copper's per-scanline palette into the scene's per-row colour LUT
  * (this engine's palette is copper-driven, so colours are per output row). */
@@ -538,7 +545,7 @@ int ws_view_left(int ow)
 static void native_wsobj_compose(int pf_top, int pf_bot)
 {
     const uint8_t *M = g_mem;
-    memset(s_objlayer, 0, sizeof s_objlayer);
+    (void)pf_bot;
     if (!M || getenv("WS_NOOBJ")) return;
     int n = native_wsobj_count();
     for (int i = 0; i < n; i++) {
@@ -567,9 +574,6 @@ static void native_wsobj_compose(int pf_top, int pf_bot)
         }
         scene_add_quad(&s_scene, x, pf_top + y, wpx, h, idx, wpx);
     }
-    /* Rasterize the object quads into s_objlayer (world X, screen Y), clipped to
-     * the playfield rows — exactly the old loop's clip. */
-    scene_composite_argb(&s_scene, &s_objlayer[0][0], WS_LAYER_W, HW_DISPLAY_H, pf_top, pf_bot);
 }
 
 /* Composite the captured PLAYER ($57A666) into s_objlayer. 16px x 16 rows,
@@ -582,15 +586,16 @@ static void native_wsobj_compose(int pf_top, int pf_bot)
 static void native_wsplayer_compose(int pf_top, int pf_bot)
 {
     const uint8_t *M = g_mem;
+    (void)pf_bot;
     int x, y, black; uint32_t dbase, mbase;
     if (!M || getenv("WS_NOOBJ")) return;
     if (!native_wsplayer_get(&x, &y, &dbase, &mbase, &black)) return;
     if (dbase + WS_PLR_DATA_PSTRIDE * 4u + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) return;
     if (mbase + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) return;
+    uint8_t *idx = scene_alloc_idx(&s_scene, 16u * 16u);
+    if (!idx) return;
     for (int r = 0; r < 16; r++) {
-        int sy = pf_top + y + r;
-        if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-        const uint32_t *pal = s_scan[sy].palette;
+        uint8_t *irow = idx + (size_t)r * 16;
         uint16_t mw = gmem_r16(M, mbase + (uint32_t)r * WS_PLR_ROW_STRIDE);
         uint16_t dw[5];
         for (int p = 0; p < 5; p++)
@@ -598,18 +603,17 @@ static void native_wsplayer_compose(int pf_top, int pf_bot)
                                       + (uint32_t)r * WS_PLR_ROW_STRIDE);
         for (int c = 0; c < 16; c++) {
             int bit = 15 - c;
-            if (!((mw >> bit) & 1u)) continue;           /* cookie-cut: mask gates */
-            int worldX = x + c;
-            if (worldX < 0 || worldX >= WS_LAYER_W) continue;
+            if (!((mw >> bit) & 1u)) { irow[c] = SCENE_TRANSPARENT; continue; }  /* cookie-cut */
             /* Damage-blink black frame: the engine fills the mask silhouette with
              * colour 0 ($57A7E6); else the normal 5-plane data colour. */
             int ci = 0;
             if (!black)
                 for (int p = 0; p < 5; p++)
                     if ((dw[p] >> bit) & 1u) ci |= (1 << p);
-            s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+            irow[c] = (uint8_t)ci;
         }
     }
+    scene_add_quad(&s_scene, x, pf_top + y, 16, 16, idx, 16);
 }
 
 /* Composite captured cookie-cut CHARACTERS ($57D3F4 walkers/enemies) into
@@ -623,6 +627,7 @@ static void native_wsplayer_compose(int pf_top, int pf_bot)
 static void native_wschar_compose(int pf_top, int pf_bot)
 {
     const uint8_t *M = g_mem;
+    (void)pf_bot;
     if (!M || getenv("WS_NOOBJ")) return;
     int n = native_wschar_count();
     for (int i = 0; i < n; i++) {
@@ -641,24 +646,23 @@ static void native_wschar_compose(int pf_top, int pf_bot)
         int wpx = ww * 16;
         if (data + pstride * 5u > RT_MEM_SIZE) continue;
         if (mask + (uint32_t)(h - 1) * (uint32_t)rs + (uint32_t)ww * 2u > RT_MEM_SIZE) continue;
+        uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)wpx * (uint32_t)h);
+        if (!idx) continue;
         for (int r = 0; r < h; r++) {
-            int sy = pf_top + y + r;
-            if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-            const uint32_t *pal = s_scan[sy].palette;
+            uint8_t *irow = idx + (size_t)r * wpx;
             for (int c = 0; c < wpx; c++) {
                 int wo = c >> 4, bit = 15 - (c & 15);
                 uint32_t rowoff = (uint32_t)r * (uint32_t)rs + (uint32_t)wo * 2u;
                 uint16_t mw = gmem_r16(M, mask + rowoff);
-                if (!((mw >> bit) & 1u)) continue;            /* cookie-cut: mask gates */
-                int worldX = x + c;
-                if (worldX < 0 || worldX >= WS_LAYER_W) continue;
+                if (!((mw >> bit) & 1u)) { irow[c] = SCENE_TRANSPARENT; continue; }  /* cookie-cut */
                 int ci = 0;
                 for (int p = 0; p < 5; p++)
                     if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
                         ci |= (1 << p);
-                s_objlayer[sy][worldX] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+                irow[c] = (uint8_t)ci;
             }
         }
+        scene_add_quad(&s_scene, x, pf_top + y, wpx, h, idx, wpx);
     }
 }
 
@@ -711,28 +715,28 @@ uint32_t native_wsstatic_dbg_first(void) { return s_wsstatic_dbg_first; }
 static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
                            int wx0, int worldY, int h, int rs, uint32_t data, uint32_t mask)
 {
+    (void)pf_bot;
     int ww = rs / 2; if (ww < 1) ww = 1;             /* BLTALWM=0 kills the spillover word */
     int wpx = ww * 16;
     uint32_t pstride = (uint32_t)h * (uint32_t)rs;
     if (data + pstride * 4u + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) return;
     if (mask + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) return;
+    uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)wpx * (uint32_t)h);
+    if (!idx) return;
     for (int py = 0; py < h; py++) {
-        int sy = pf_top + worldY + py;
-        if (sy < pf_top || sy >= pf_bot || sy >= HW_DISPLAY_H) continue;
-        const uint32_t *pal = s_scan[sy].palette;
+        uint8_t *irow = idx + (size_t)py * wpx;
         for (int c = 0; c < wpx; c++) {
             int wo = c >> 4, bit = 15 - (c & 15);
             uint32_t rowoff = (uint32_t)py * (uint32_t)rs + (uint32_t)wo * 2u;
-            if (!((gmem_r16(M, mask + rowoff) >> bit) & 1u)) continue;  /* cookie-cut */
-            int wx = wx0 + c;
-            if (wx < 0 || wx >= WS_LAYER_W) continue;
+            if (!((gmem_r16(M, mask + rowoff) >> bit) & 1u)) { irow[c] = SCENE_TRANSPARENT; continue; }  /* cookie-cut */
             int ci = 0;
             for (int p = 0; p < 5; p++)
                 if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
                     ci |= (1 << p);
-            if (ci) s_objlayer[sy][wx] = 0xFF000000u | (pal[ci & 0x1Fu] & 0x00FFFFFFu);
+            irow[c] = ci ? (uint8_t)ci : SCENE_TRANSPARENT;  /* colour 0 also transparent here */
         }
     }
+    scene_add_quad(&s_scene, wx0, pf_top + worldY, wpx, h, idx, wpx);
 }
 
 /* Caged "Marry Men" — resolved from the engine's own BUILD-ENTRY capture, NOT by walking
@@ -990,15 +994,19 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 
     if (pf_top < 0) return;
     /* New frame on the draw list + load this frame's per-scanline palette LUT
-     * (Phase 1 seam — see instructions/gpu-renderer-plan.md). */
+     * (Phase 1 seam — see instructions/gpu-renderer-plan.md). Every sprite pass
+     * APPENDS index quads to s_scene; the single composite below rasterizes them
+     * in insertion order (obj < player < char < static = the old Z-order) into the
+     * object layer. */
     scene_reset(&s_scene);
     scene_load_palrows();
-    /* Fill the object layer from the engine's captured per-object draw list, then
-     * composite the player (drawn by its own routine $57A666, not the object loop). */
+    memset(s_objlayer, 0, sizeof s_objlayer);
     native_wsobj_compose(pf_top, pf_bot);
     native_wsplayer_compose(pf_top, pf_bot);          /* player UNDER characters... */
     native_wschar_compose(pf_top, pf_bot);            /* ...so enemies render OVER the player (vanilla Z-order) */
     native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
+    s_scene_ylo = pf_top; s_scene_yhi = pf_bot;     /* publish the scene's row span */
+    scene_composite_argb(&s_scene, &s_objlayer[0][0], WS_LAYER_W, HW_DISPLAY_H, pf_top, pf_bot);
 
     for (int y = pf_top; y < pf_bot; y++) {
         int dy = y - pf_top;
