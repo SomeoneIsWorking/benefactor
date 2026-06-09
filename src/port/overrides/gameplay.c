@@ -481,6 +481,53 @@ void native_wsrope_build(M68KCtx *ctx)   /* $57DCAE — driver; reset before the
     s_wsrope_n = 0;
     gfn_gpl_57DCAE(ctx);
 }
+/* ANIMATED PAGE PATCHES (water surface line etc.) — the object-list walker's
+ * "multi-tile" path $57D81C (reached from $57D7BC via `bmi` when the object record's
+ * first word is negative) draws a 16px-wide, 2-row, 5-plane patch by CPU `move.w`
+ * straight into the scrolling page (and, every 4th tick per record, into the clean
+ * background buffer $45864 so dirty-rect restores keep it). No blit, no descriptor —
+ * BenRen never sees it, so the animated water surface was missing. The path also
+ * CULLS to the vanilla window (worldX - cam > $150 → skip), so wide margins lose it
+ * even engine-side. Capture each record PRE-cull here, resolving the source pointer
+ * with the engine's own math, and let native_wswater_compose draw all of them.
+ *
+ * Record cursor a0 (stride $20, see $57D890 `lea $1c(a0),a0` after 2 post-incs):
+ *   +0 dest page offset   +2 index into $5A1D18 (scroll-phase column offset)
+ *   +4 a1 advance (per-record gfx select)   +6 worldX
+ * Source: a2 = *(a1+8).l; src = a2 + *((a1+16) + rec4 + phase).w where
+ * phase = -$273e(a5) (global animation phase). Dest: a3 = $67e(a5) page base
+ * + rec0 + *($5A1D18 + rec2).w → page row = off/46, byte col = off%46.
+ * Capture only; the recompiled body then runs unchanged (engine behaviour identical). */
+typedef struct { int16_t worldX; int16_t row; int16_t col; uint32_t src; } WsWater;
+#define WS_WATER_MAX 128
+static WsWater s_wswater[WS_WATER_MAX]; static int s_wswater_n = 0;
+int  native_wswater_count(void) { return s_wswater_n; }
+int  native_wswater_get(int i, int *worldX, int *row, int *col, uint32_t *src)
+{
+    if (i < 0 || i >= s_wswater_n) return 0;
+    *worldX = s_wswater[i].worldX; *row = s_wswater[i].row;
+    *col = s_wswater[i].col;       *src = s_wswater[i].src;
+    return 1;
+}
+void native_wswater_reset(void) { s_wswater_n = 0; }
+void native_anim_patch(M68KCtx *ctx)     /* $57D81C — capture pre-cull, then delegate */
+{
+    uint32_t a0 = ctx->A[0], a1 = ctx->A[1], a5 = ctx->A[5];
+    if (s_wswater_n < WS_WATER_MAX) {
+        uint16_t rec0 = MR16(a0), rec2 = MR16(a0 + 2u), rec4 = MR16(a0 + 4u);
+        int16_t  wx   = (int16_t)MR16(a0 + 6u);
+        uint16_t tbl  = MR16(0x5A1D18u + rec2);                  /* adda.w (a4),a3 */
+        uint16_t off  = (uint16_t)(rec0 + tbl);                  /* page-relative  */
+        uint32_t a2   = MR32(a1 + 8u);                           /* movea.l (a1)+  */
+        uint16_t ph   = MR16(a5 - 0x273Eu);                      /* anim phase     */
+        uint32_t sp   = a1 + 16u + (uint32_t)(int16_t)rec4 + (uint32_t)(int16_t)ph;
+        uint32_t src  = a2 + (uint32_t)(int16_t)MR16(sp);
+        s_wswater[s_wswater_n++] = (WsWater){ wx, (int16_t)(off / 46u),
+                                              (int16_t)(off % 46u), src };
+    }
+    gfn_gpl_57D81C(ctx);
+}
+
 void native_wsrope_seg(M68KCtx *ctx)     /* $57DCD4 — shared clip/emit entry, PRE-cull */
 {
     if (s_wsrope_n < WS_ROPE_MAX)
@@ -606,6 +653,7 @@ void native_objwalk(M68KCtx *ctx)
     g_diag_objwalk++;
     s_wsobj_n  = 0;       /* start a fresh build; the dispatched builders repopulate */
     s_wschar_n = 0;
+    s_wswater_n = 0;      /* animated page patches re-captured each walk ($57D81C) */
 
     /* Faithful port of the $57D79A SETUP (instructions $57D79A..$57D7B6), then jump to
      * the loop top $57D7BC so the per-object override native_objstep ($57D7BC) catches

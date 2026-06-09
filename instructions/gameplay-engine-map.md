@@ -268,6 +268,27 @@ splits to either a jump-table dispatch at `$59AC64` or `adda.w #$645,a7; jmp (a0
 at `$59AC5E` (the path whose status under real play is unknown — see
 [[w6l2-crash-status-unknown]]).
 
+### `$57D81C` multi-tile / animated PAGE PATCH path (RE'd 2026-06-10, owned)
+
+The walker's `bmi` branch at `$57D7C4/C6` (object record's first word negative) goes to
+`$57D81C` — a CPU-write path that draws a **16px-wide, 2-row, 5-plane patch** straight
+into the page with ten `move.w (a2)+,(a3)` (NO blit, no descriptor): write order
+p0r0,p0r1,p1r0,p1r1,… advancing a3 by `$2E` (next row) / `$29DE` (next plane −row).
+This is the **animated water surface line** (and any other animated background strip).
+Per record (cursor a0, stride `$20`): `+0` dest page offset, `+2` index into `$5A1D18`
+(scroll-phase column offset, added via `adda.w (a4),a3`), `+4` a1-advance (per-record gfx
+select), `+6` worldX (cull only: `worldX − $57FDBA > $150` → skip + reset counter 3).
+Source: `a2 = *(a1+8).l`, `src = a2 + *((a1+16) + rec4 + (−$273e(a5) anim phase)).w`.
+Dest base: normally the current page `$67e(a5)`; **every 4th tick per record** (counter
+word in the a4 `$5A43A0` queue) it instead writes the clean background buffer `$45864`
+so dirty-rect restores keep the patch. Page row = (rec0+tbl)/46 = playfield-relative
+worldY (pf_top + row = view y, verified row 188 → y 201).
+**Owned:** `native_anim_patch` (gameplay.c, override of `$57D81C`) captures every record
+PRE-cull and delegates to the recomp body (vanilla byte-identical, verified);
+`native_wswater_compose` (native_renderer.c) draws all patches as opaque 16×2 quads —
+this fixed the water line missing in BenRen (in view AND wide margins). REPL `wswater`
+dumps the capture; `WS_NOWATER=1` disables the compose.
+
 ## Sprite / object DRAW pipeline (RE'd 2026-06-05) — owned by the widescreen capture
 
 The playfield sprites are drawn by THREE distinct producer→queue→executor systems, all

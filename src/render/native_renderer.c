@@ -476,6 +476,16 @@ static int   s_scene_ylo = 0, s_scene_yhi = 0;   /* playfield row span the scene
 
 /* Accessors for the per-sprite backends / headless verification (scene_sdl,
  * vk consumer). The scene is populated by native_render_wide_bg (BenRen). */
+int native_render_line_info(int y, uint32_t pt[5], int *xoff, int *scr1, int *width)
+{
+    if (y < 0 || y >= HW_DISPLAY_H) return 0;
+    for (int p = 0; p < MAX_PLANES; p++) pt[p] = s_line_bplpt[y][p];
+    if (xoff)  *xoff  = s_line_xoff[y];
+    if (scr1)  *scr1  = s_line_scr1[y];
+    if (width) *width = s_line_width[y];
+    return s_line_bpu[y];
+}
+
 const Scene *native_render_scene(void) { return &s_scene; }
 void native_render_scene_yrange(int *lo, int *hi) { if (lo) *lo = s_scene_ylo; if (hi) *hi = s_scene_yhi; }
 void native_render_scene_dims(int *w, int *h) { if (w) *w = WS_LAYER_W; if (h) *h = HW_DISPLAY_H; }
@@ -621,6 +631,41 @@ static void native_wsobj_compose(int pf_top, int pf_bot)
             }
         }
         scene_add_quad(&s_scene, x, pf_top + y, wpx, h, idx, wpx);
+    }
+}
+
+/* ANIMATED PAGE PATCHES (water surface line) — the object walker's multi-tile path
+ * $57D81C CPU-writes a 16px x 2-row, 5-plane patch per record straight into the page
+ * (word order p0r0,p0r1,p1r0,p1r1,...), bypassing the blitter AND culled to the
+ * vanilla window — BenRen missed it entirely. native_anim_patch (gameplay.c) captures
+ * every record PRE-cull with the engine's own source/dest math: worldX (the record's
+ * cull coordinate, same family as the $57D8D0 object worldX), page row (= playfield-
+ * relative worldY, no vertical scroll) and the resolved animated source pointer. The
+ * patch is an OPAQUE overwrite in the page (plain move.w, no mask), so index 0 stays
+ * colour 0 here. Drawn over the tiles, under objects (page write order). */
+static void native_wswater_compose(int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    (void)pf_bot;
+    if (!M || getenv("WS_NOWATER")) return;
+    extern int native_wswater_count(void);
+    extern int native_wswater_get(int, int*, int*, int*, uint32_t*);
+    int n = native_wswater_count();
+    for (int i = 0; i < n; i++) {
+        int wx, row, col; uint32_t src;
+        if (!native_wswater_get(i, &wx, &row, &col, &src)) continue;
+        if (src < 0x1000u || src + 20u > RT_MEM_SIZE) continue;
+        uint8_t *idx = scene_alloc_idx(&s_scene, 16u * 2u);
+        if (!idx) continue;
+        for (int r = 0; r < 2; r++)
+            for (int c = 0; c < 16; c++) {
+                int ci = 0;
+                for (int p = 0; p < 5; p++)
+                    if ((gmem_r16(M, src + (uint32_t)(p * 2 + r) * 2u) >> (15 - c)) & 1u)
+                        ci |= (1 << p);
+                idx[r * 16 + c] = (uint8_t)ci;
+            }
+        scene_add_quad(&s_scene, wx, pf_top + row, 16, 2, idx, 16);
     }
 }
 
@@ -1103,6 +1148,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     scene_load_palrows();
     memset(s_objlayer, 0, sizeof s_objlayer);
     native_wstiles_compose(pf_top, pf_bot, rowstride, mincol, maxcol);   /* terrain background */
+    native_wswater_compose(pf_top, pf_bot);         /* animated page patches (water surface) */
     native_wsobj_compose(pf_top, pf_bot);
     native_wsplayer_compose(pf_top, pf_bot);          /* player UNDER characters... */
     native_wschar_compose(pf_top, pf_bot);            /* ...so enemies render OVER the player (vanilla Z-order) */
