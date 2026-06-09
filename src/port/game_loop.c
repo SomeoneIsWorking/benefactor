@@ -1198,6 +1198,13 @@ int pc_loadstate(const char *path)
     ok &= fread(g_mem,    RT_MEM_SIZE,    1, f) == 1;
     fclose(f);
     if (!ok) { fprintf(stderr, "[pc] loadstate: short read\n"); return -1; }
+    /* Re-establish the loader's constant low-RAM init block ($150..$2A57). The
+     * savestate restores all of g_mem, but a stale/pre-fix save can hold a bad
+     * copy (e.g. $1890.w=0 instead of $0200), which wild-jumps at $59AC38's
+     * level-identity check on the next walk (the W6L2 crash). The block is
+     * level-independent and never mutated by gameplay, so re-applying it is a
+     * no-op for a good save and the fix for a bad one. See overlay_load.c. */
+    { extern void overlay_lowram_reestablish(void); overlay_lowram_reestablish(); }
     /* g_state (incl. s_game_ctx, with resume) + g_mem are now loaded. The old game
      * thread (parked at its own wait on the PRE-load memory) is stale: discard it
      * and spawn a fresh thread that re-enters the steady-gameplay cycle at $577114.

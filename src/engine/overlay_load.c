@@ -11,6 +11,35 @@
 
 extern uint8_t *g_mem;
 
+/* ── Canonical low-RAM init block ($150..$2A57) ────────────────────────────────
+ * Every overlay load copies $2A08 bytes from the boot-decrunch source $6D734 to
+ * $150. That block is CONSTANT engine init (level-independent, never written by
+ * any recompiled code — verified) and includes values the gameplay engine reads
+ * as invariants, e.g. $1890.w = $0200 (the level-identity check at $59AC56 does
+ * `cmp (a3), $1890-$1C4`; with $1890=0 it mis-branches into `jmp(a0)` over object
+ * data — the W6L2 wild-jump). Capture it here so a SAVESTATE LOAD, which bypasses
+ * the loader, can re-establish the invariant: a stale/pre-fix savestate that saved
+ * $1890=0 otherwise wild-jumps on the next walk. Re-applying is a no-op for a good
+ * savestate (the block is identical) and the fix for a bad one. */
+#define LOWRAM_DST  0x150u
+#define LOWRAM_LEN  0x2A08u
+static uint8_t s_lowram_init[LOWRAM_LEN];
+static int     s_lowram_captured = 0;
+
+static void lowram_init_copy(void)
+{
+    memcpy(g_mem + LOWRAM_DST, g_mem + 0x6D734u, LOWRAM_LEN);
+    memcpy(s_lowram_init, g_mem + LOWRAM_DST, LOWRAM_LEN);
+    s_lowram_captured = 1;
+}
+
+/* Re-apply the captured constant low-RAM init block. No-op until the loader has
+ * run at least once this session (always true before a savestate can be loaded). */
+void overlay_lowram_reestablish(void)
+{
+    if (s_lowram_captured) memcpy(g_mem + LOWRAM_DST, s_lowram_init, LOWRAM_LEN);
+}
+
 /* main / intro bank: the boot loader's Load(Disk.1 @$1880, $2442E -> $3000) +
  * ATN! decrunch. Mirrors the step in pc_common_bringup. */
 #include <stdio.h>
@@ -24,6 +53,12 @@ void overlay_load_main(void)
         fprintf(stderr, "[overlay_load_main] disk_boot_load got=%d magic@3000=$%08X (ATN!=$41544E21)\n", got, m);
     }
     atn_decrunch(0x3000u);
+    /* The boot decrunch has now populated the constant low-RAM source at $6D734
+     * (e.g. $6EE74 = $0200, the source for $1890). Capture it before any overlay's
+     * chunk-0 load overwrites $6E000+, so a savestate-first flow (load before the
+     * title/gameplay overlay ever runs) can still re-establish the invariant. */
+    memcpy(s_lowram_init, g_mem + 0x6D734u, LOWRAM_LEN);
+    s_lowram_captured = 1;
 }
 
 /* gp / title bank. The $6D714 block copy ($6D734 -> $150, $2A08 bytes) needs the
@@ -31,7 +66,7 @@ void overlay_load_main(void)
  * two title chunks: E1 raw -> $50000, E2 ATN! -> $3330 (decrunch). */
 void overlay_load_title(void)
 {
-    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
+    lowram_init_copy();
     disk_boot_load(1, 0x0F3780u, 0x00050000u, 0x1880u);    /* E1: raw */
     disk_boot_load(1, 0x026270u, 0x00003330u, 0x2E2E4u);   /* E2: ATN! crunched */
     atn_decrunch(0x00003330u);
@@ -50,7 +85,7 @@ void overlay_load_gameplay(void)
         { 0x0565BAu, 0x003330u, 0x012404u },
         { 0x0689BEu, 0x577000u, 0x012A1Cu },
     };
-    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
+    lowram_init_copy();
     for (int i = 0; i < 3; i++) { disk_boot_load(1, ch[i].off, ch[i].dst, ch[i].len);
                                   atn_decrunch(ch[i].dst); }
     g_mem[0x100]=0x00; g_mem[0x101]=0x06; g_mem[0x102]=0xE0; g_mem[0x103]=0x00;
