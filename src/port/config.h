@@ -27,6 +27,16 @@ void pc_cfg_set (const char *key, const char *val); /* REPL/session override; va
 /* Resolve to a display string + report which source won ("env"/"repl"/"json"/
  * "default"). Returns 1 if a value was found (else *src="default", out=""). */
 int  pc_cfg_show(const char *key, char *out, int cap, const char **src);
+/* Persist a knob to the config file (benefactor.json / $BENEFACTOR_CONFIG),
+ * creating the file if needed, and apply it live (session layer). `json_val` is
+ * the raw JSON token to write: `5`, `true`, `"auto"` (quotes included). */
+void pc_cfg_persist(const char *key, const char *json_val);
+
+/* Per-device modern-controls flags (options menu). Each defaults to the legacy
+ * "modern_controls" knob so existing configs keep working. */
+int  pc_modern_kb(void);     /* "modern_controls_keyboard"   */
+int  pc_modern_pad(void);    /* "modern_controls_controller" */
+int  pc_modern_any(void);
 /* Declared knobs, for `cfg` with no args (discoverability). */
 int          pc_cfg_count(void);
 const char  *pc_cfg_key (int i);

@@ -38,6 +38,45 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
 
 ---
 
+## Options menu + controller + runtime widescreen (2026-06-10)
+
+- **Pause menu has an OPTIONS submenu** (`src/port/pause_menu.c`, pages MAIN /
+  OPTIONS / per-device BINDINGS): widescreen preset, interact-range toggle
+  (0 ↔ 5 px), per-device modern-controls toggles, and key/button rebinding with
+  press-to-capture. Every change applies LIVE and is **persisted to
+  benefactor.json via `pc_cfg_persist()`** (flat-JSON in-place writer in
+  `config.c` — replaces the value token or inserts before the closing `}`).
+- **Widescreen is now a runtime preset** `widescreen_mode` =
+  `disabled|16:9|ultrawide|auto` (auto = follows the window aspect on every
+  resize event). `hw_widescreen_refresh()` (hw.c) resolves it → `s_hw_out_w`;
+  the SDL present backend re-creates its texture/logical size when the content
+  width changes (`sdl_ensure_content`). Legacy `BENEFACTOR_WIDESCREEN=<px>`
+  still works when the mode knob is unset. 16:9 → 500 px, ultrawide → 658 px.
+- **Game controllers: hot-pluggable** (SDL_GameController). All non-keyboard SDL
+  events route through `hw_handle_sdl_event()` (hw.c), called from BOTH event
+  pumps (standalone `hw_present_frame` + harness `input_poll`): device
+  added/removed, buttons, and analog axes (hysteresis 16000/8000 → digital
+  edges, code = `PI_PAD_AXIS_CODE(axis,dir)`). Pad bindings live under `pad_*`
+  config keys; Start pauses (reserved, not bindable). `pc_input` now tracks two
+  device channels (`PI_DEV_KB`/`PI_DEV_PAD`); `pc_input_active` ORs them.
+- **Modern controls are PER DEVICE**: `modern_controls_keyboard` /
+  `modern_controls_controller` (legacy `modern_controls` is the default for
+  both), resolved LIVE via `pc_modern_kb()/pc_modern_pad()/pc_modern_any()`
+  (config.c) so menu toggles need no restart. The `$57DEAC` input override is
+  registered UNCONDITIONALLY now (pure passthrough when both flags are off).
+  Mixed setups work: `hw_get_fire_vanilla()` = fire held on a vanilla-scheme
+  device; that fire keeps its original interact/drop meaning in
+  `interact_wide` (pickup.c) and `native_gameplay_input` (gameplay.c), while a
+  modern device's fire never interacts. Harness `input_force_fire` sets the
+  vanilla flag, so headless driving keeps vanilla semantics.
+- In the bindings pages, a modern device's FIRE row is **split into JUMP
+  (`PI_HOP`) + INTERACT** (+ FIRE (THROW) and DROP rows).
+- Verified: build clean; persistence round-trip unit-tested (valid JSON);
+  900 frames of cavern gameplay at 658 px ultrawide headless, 0 rt-misses;
+  the quit-time core dump in the harness is pre-existing (identical on the
+  baseline build). Controller hardware + the menu UI itself still need a
+  headed manual pass.
+
 ## How to drive the game (CANONICAL — 2026-06-03)
 
 **Invocation is identical to the standalone — disks are POSITIONAL:**

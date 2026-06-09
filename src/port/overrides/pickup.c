@@ -136,15 +136,15 @@ static int s_interact_consumed = 0;
  * per key press (consumed on a real state change); latch=0 (collectibles) every frame. */
 static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
 {
-    extern int hw_get_interact(void);
-    extern int g_modern_controls;
+    extern int hw_get_interact(void), hw_get_fire_vanilla(void);
+    extern int pc_modern_any(void);
 
     /* VANILLA controls: keep FIRE as the trigger and the handler's own semantics —
      * only EXTEND the horizontal reach by `extend` px (nudge the player toward the
      * object while fire is held so the handler's narrow window triggers sooner). No
      * fire-clearing, no latch; with extend==0 this is a pure passthrough. This is why
      * interact_extend works whether or not modern controls are on. */
-    if (!g_modern_controls) {
+    if (!pc_modern_any()) {
         uint16_t s_f80 = MR16(ctx->A[5] + A5_F80);
         uint16_t s_f96 = MR16(ctx->A[5] + A5_F96);
         if (extend > 0 && (s_f80 & 0x20)) {            /* fire held → reach further    */
@@ -186,8 +186,15 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch)
         int px = (int16_t)s_f96;
         MW16(ctx->A[5] + A5_F96, (uint16_t)nudged_px(ctx, addr, px, extend));
         MW16(ctx->A[5] + A5_F80, 0x20);                /* present interact as fire     */
+    } else if (hw_get_fire_vanilla() && (s_f80 & 0x20)) {
+        /* Fire held on a VANILLA-scheme device (mixed setups: e.g. modern pad +
+         * vanilla keyboard, or the harness's forced fire): keep the original
+         * fire-interacts semantics, with the same reach extension. */
+        if (extend > 0)
+            MW16(ctx->A[5] + A5_F96,
+                 (uint16_t)nudged_px(ctx, addr, (int16_t)s_f96, extend));
     } else {
-        MW16(ctx->A[5] + A5_F80, (uint16_t)(s_f80 & ~0x20));  /* FIRE never interacts  */
+        MW16(ctx->A[5] + A5_F80, (uint16_t)(s_f80 & ~0x20));  /* modern FIRE never interacts */
     }
 
     uint32_t pre0 = MR32(ctx->A[0]);                   /* obj +0/+2 (coords / active)  */
