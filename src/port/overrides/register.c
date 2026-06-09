@@ -148,11 +148,15 @@ void pc_register_overrides(void)
     /* Static-placement OBJECTS (caged Marry Men + level sprites) are drawn by walking
      * the object-only queue $5A39EC in native_wsstatic_compose (native_renderer.c) — no
      * override needed (the $57B0EE builder hook was double-emitted/unreliable, removed). */
-    /* Chandelier ROPES (blitter LINE-mode, $57DD42) are drawn by native_wsrope_compose
-     * (native_renderer.c) reading the engine's per-frame segment list at $5ABB5E — no
-     * override needed. (A capture at the emitter entry $57DCD4 to recover the pre-clip
-     * endpoints for margin chandeliers was tried but $57DCD4 is double-emitted, so the
-     * override fired unreliably — see native_wsrope_compose's LIMITATION note.) */
+    /* ROPES (blitter LINE-mode, $57DD42): capture every rope segment's UNCLIPPED world
+     * endpoints at the SHARED clip/emit entry $57DCD4 (= a5-$113e — every rope creator
+     * jmps there via rt_jump, BEFORE the vanilla-window clip/cull), reset at the build
+     * driver $57DCAE. native_wsrope_compose (native_renderer.c) draws from the capture, so
+     * ropes show across the full wide view (incl. creators culled off the vanilla view).
+     * Both super-call the recomp body → vanilla unaffected. */
+    { extern void native_wsrope_build(M68KCtx *ctx), native_wsrope_seg(M68KCtx *ctx);
+      rt_register_override_gp(0x0057DCAEu, native_wsrope_build);
+      rt_register_override_gp(0x0057DCD4u, native_wsrope_seg); }
     /* GET READY / GAME OVER banner: the native wide renderer ignores the engine page,
      * so the banner (drawn there) was invisible. Capture each of its three elements so
      * the renderer can composite them as a centered top UI overlay: the box ($578974),

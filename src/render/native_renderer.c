@@ -840,42 +840,28 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
  * differs from the object camera `cam`=$57FDBA by the known few-px alignment bug, so the
  * banner is anchored on `cam` to match vanilla, not on the bg.) The anim/text hang off
  * the box by their page-offset deltas. */
-/* Chandelier ROPES — the engine draws these with the blitter in LINE mode into the
- * scrolling page ($57DD42), which the wide renderer ignores, so they were missing.
- * Re-draw them natively from the engine's own per-frame line-segment list ($57DCAE
- * builds it; format confirmed live via pcwatch on $5ABB5E):
- *   $5ABB5E.w        = segment count minus 1 ($FFFF/negative = empty; the engine's
- *                      own bmi at $57DD66 — the count drives a dbra loop)
- *   $5ABB60 + i*8    = {x0,y0,x1,y1} s16, WORLD coords
- * worldY is playfield-relative (no vertical scroll). Drawn into s_objlayer keyed by
- * absolute worldX / screen Y = pf_top + worldY, so the main composite loop maps + clips
- * (in_view) them like every other gameplay sprite, in both the wide and the 352 compare
- * path. Colour = the rope brown (WS_ROPE_CI) via the per-scanline palette. NOTE: the
- * blitter draws a textured 2-tone rope (palette 17/19/20/22); this renders a solid 1px
- * line in the main brown (19) — visible + world-correct; the twist texture is a later
- * refinement.
- *
- * LIMITATION: the engine's emitter ($57DCD4) clips each segment to the vanilla window
- * [cam, cam+0x170] and culls any chandelier fully outside it, so the list omits ropes
- * for chandeliers visible ONLY in the wide margins. A clean capture of the pre-clip
- * endpoints is blocked because $57DCD4 is double-emitted (standalone gfn + inlined into
- * gfn_gpl_57DCC4), so an entry override fires unreliably — same class as the removed
- * $57B0EE hook. Fixing margin ropes needs a recompiler de-dup or a reimplemented
- * emitter; see instructions/remaining-issues.md #6. */
-#define WS_ROPELIST 0x5ABB5Eu
+/* ROPES — the engine draws these with the blitter in LINE mode into the scrolling page
+ * ($57DD42), which the wide renderer ignores, so they were missing. We draw them from the
+ * UNCLIPPED segments captured at the engine's shared clip/emit entry $57DCD4 (native_wsrope_*
+ * in gameplay.c) — captured BEFORE the engine clips/culls each segment to the vanilla window
+ * [cam,cam+0x170], so ropes show across the full wide view (incl. creators off the vanilla
+ * view). {x0,y0,x1,y1} are WORLD coords; worldY is playfield-relative (no vertical scroll).
+ * Drawn into s_objlayer keyed by absolute worldX / screen Y = pf_top + worldY, so the main
+ * composite loop maps + clips (in_view) them like every other gameplay sprite, in both the
+ * wide and the 352 compare path. Colour = the rope brown (WS_ROPE_CI) via the per-scanline
+ * palette. NOTE: the blitter draws a textured 2-tone rope (palette 17/19/20/22); this renders
+ * a solid 1px line in the main brown (19) — visible + world-correct; the twist texture is a
+ * later refinement. */
 #define WS_ROPE_CI  19              /* $9C5521 — the rope's main brown (row-35 palette) */
 static void native_wsrope_compose(int pf_top, int pf_bot)
 {
-    const uint8_t *M = g_mem;
-    if (!M || getenv("WS_NOROPE")) return;
-    uint16_t cw = gmem_r16(M, WS_ROPELIST);
-    if (cw & 0x8000u) return;                       /* $FFFF = empty (engine's bmi gate) */
-    int nseg = (int)cw + 1;
-    uint32_t p = WS_ROPELIST + 2;
-    for (int i = 0; i < nseg; i++, p += 8) {
-        if (p + 8u > RT_MEM_SIZE) break;
-        int x0 = (int16_t)gmem_r16(M, p),     y0 = (int16_t)gmem_r16(M, p + 2);
-        int x1 = (int16_t)gmem_r16(M, p + 4), y1 = (int16_t)gmem_r16(M, p + 6);
+    if (getenv("WS_NOROPE")) return;
+    extern int  native_wsrope_count(void);
+    extern void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1);
+    int nseg = native_wsrope_count();
+    for (int i = 0; i < nseg; i++) {
+        int x0, y0, x1, y1;
+        native_wsrope_get(i, &x0, &y0, &x1, &y1);
         int dx =  (x1 > x0 ? x1 - x0 : x0 - x1), sx = x0 < x1 ? 1 : -1;
         int dy = -(y1 > y0 ? y1 - y0 : y0 - y1), sy = y0 < y1 ? 1 : -1;
         int err = dx + dy, x = x0, y = y0;

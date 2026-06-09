@@ -420,6 +420,39 @@ void native_char_capture(M68KCtx *ctx)
     gfn_gpl_57D3F4(ctx);
 }
 
+/* ROPES — the engine builds a per-frame line-segment list ($57DCAE driver) by walking a
+ * handler list ($1292(a5)) in parallel with source records ($2006(a5), stride $20); each
+ * handler computes a segment {x0,y0,x1,y1} (e.g. $59B0A8 just reads it from its record)
+ * and `jmp`s to the SHARED clip/emit code at $57DCD4 (= a5-$113e), which clips the segment
+ * to the vanilla window [cam,cam+0x170] and CULLS any fully outside it before storing to
+ * $5ABB5E. So $5ABB5E omits ropes for anything off the vanilla view — the wide renderer
+ * then misses them. $57DCD4 is the UNIVERSAL choke (every rope creator jmps there via
+ * rt_jump → real dispatch), reached BEFORE the cull, so capture the raw UNCLIPPED endpoints
+ * there. Reset at the driver $57DCAE (rt_jump is a trampoline, so the emit chain runs after
+ * the driver wrapper returns — don't promote here; the renderer reads the buffer at present,
+ * after the whole frame's chain has run). WORLD coords. */
+typedef struct { int16_t x0, y0, x1, y1; } WsRope;
+#define WS_ROPE_MAX 128
+static WsRope s_wsrope[WS_ROPE_MAX];   static int s_wsrope_n = 0;
+int  native_wsrope_count(void) { return s_wsrope_n; }
+void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1)
+{
+    const WsRope *r = &s_wsrope[i];
+    *x0 = r->x0; *y0 = r->y0; *x1 = r->x1; *y1 = r->y1;
+}
+void native_wsrope_build(M68KCtx *ctx)   /* $57DCAE — driver; reset before the emit chain */
+{
+    s_wsrope_n = 0;
+    gfn_gpl_57DCAE(ctx);
+}
+void native_wsrope_seg(M68KCtx *ctx)     /* $57DCD4 — shared clip/emit entry, PRE-cull */
+{
+    if (s_wsrope_n < WS_ROPE_MAX)
+        s_wsrope[s_wsrope_n++] = (WsRope){ (int16_t)ctx->D[0], (int16_t)ctx->D[1],
+                                           (int16_t)ctx->D[2], (int16_t)ctx->D[3] };
+    gfn_gpl_57DCD4(ctx);
+}
+
 /* NOTE: the caged "Marry Men" / static-placement objects are drawn by
  * native_wsstatic_compose (native_renderer.c) walking the object-only queue $5A39EC
  * directly — no override needed here. (An earlier $57B0EE builder hook to capture the
