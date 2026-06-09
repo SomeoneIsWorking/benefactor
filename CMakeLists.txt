@@ -168,7 +168,6 @@ add_executable(benefactor-pc
     src/recomp/hw.c
     src/recomp/hw_audio.c
     src/recomp/hw_blitter.c
-    src/recomp/hw_copper.c
     src/recomp/native_renderer.c
     src/recomp/native_engine_view.c
     src/recomp/disk_boot.c
@@ -450,7 +449,6 @@ set(HARNESS_SOURCES
     src/recomp/hw.c
     src/recomp/hw_audio.c
     src/recomp/hw_blitter.c
-    src/recomp/hw_copper.c
     src/recomp/native_renderer.c
     src/recomp/native_engine_view.c
     src/recomp/disk_boot.c

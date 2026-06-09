@@ -215,7 +215,6 @@ static void hw_compose_output(void)
         native_render_wide_bg(s_out, ow, margin);   /* native playfield (full width) */
     hw_blit_capture_reset();   /* start a fresh object-blit capture for the next frame */
 }
-void hw_execute_copper(void);
 
 /* Beam counter (simulated at 50 Hz) */
 static int s_scanline   = 0;
@@ -512,8 +511,6 @@ void hw_fini(void)
 /* Frame presentation + vsync                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-void hw_execute_copper(void);
-
 int hw_present_frame(void)
 {
     if (s_in_present_frame)
@@ -548,8 +545,8 @@ int hw_present_frame(void)
         }
     }
 
-    /* Execute copper list (updates register shadows), then render natively */
-    hw_execute_copper();
+    /* Render natively: native_render_frame walks the copper list straight from
+     * chip RAM (no separate copper-execute pass — that was the old emulated path). */
     native_render_frame();  /* walks copper list from chip RAM, renders s_fb[] */
 
     /* Harness snap is taken by the caller (pc.c) AFTER the timer interrupt,
@@ -754,8 +751,8 @@ void hw_get_snap(struct FrameState *s)
      * registers not written before the first WAIT, the last post-WAIT write
      * from the previous frame's active scan is retained.
      *
-     * hw_execute_copper() is a no-op so s_regs/s_bplcon0/s_bplptr are never
-     * updated by copper execution; we must derive them from the copper list. */
+     * There is no separate copper-execute pass (the old emulated path is gone), so
+     * s_regs/s_bplcon0/s_bplptr are derived directly from the copper list here. */
     {
 #define _NREGS 14
         static const uint16_t WATCH_REG[_NREGS] = {

@@ -73,6 +73,3 @@ void hw_audio_resync(void);             /* restart all channels from registers  
 void hw_audio_callback(void *userdata, Uint8 *stream, int len);
 int  hw_audio_open(void);
 void hw_audio_close(void);
-
-/* ── Functions provided by hw_copper.c ────────────────────────────────────── */
-/* (hw_execute_copper and hw_render_frame are in hw.h) */

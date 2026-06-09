@@ -123,8 +123,8 @@ static void walk_copper(void)
     s_nanchors = 0;
 
     /* Current display state — use "no planes" for the pre-DIWSTRT border.
-     * s_regs[BPLCON0] after hw_execute_copper() holds the copper list's LAST
-     * BPLCON0 write (star-field DPF mode), which is wrong for border lines.
+     * s_regs[BPLCON0] holds the copper list's LAST BPLCON0 write (star-field DPF
+     * mode), which is wrong for border lines, so we don't seed from it here.
      * Start with bpu=0 so border lines render as COLOR00 background only. */
     uint16_t cur_bplcon0 = 0x0200u;    /* BPLCON0 reset: lores, 0 planes */
     uint16_t cur_bplcon1 = 0x0000u;    /* horizontal scroll */
