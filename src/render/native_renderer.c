@@ -783,7 +783,7 @@ static void native_wschar_compose(int pf_top, int pf_bot)
  * LIMITATION (open): the engine only builds a descriptor when the object is within ~the
  * 320px window, and the page is only 368px wide, so an object scrolled into the WIDE
  * margin has no descriptor → not drawn there (the caged Marry Men still "cull" in the
- * far margin, same family as remaining-issues #4). Full margin coverage needs the gfx
+ * far margin). Full margin coverage needs the gfx
  * resolved from the placement record $5A4562 (stride 64) via the compositor's gfx/
  * collision tables — a larger port, not yet done. */
 /* The static-object queue base (executor $57D6C4 plays it; built by $57B0B4). Fixed

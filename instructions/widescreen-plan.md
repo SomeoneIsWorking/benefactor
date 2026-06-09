@@ -305,8 +305,8 @@ pool), so the `$05xxxx` char builder `$57D3F4` never sees him. The FREED/walking
 becomes a normal `$05xxxx` char (`$10e6(a5)` list → `$57D3F4`) and is already captured. FIX:
 `native_wsstatic_compose` draws each Marry Man once — in view from the engine's exact `$5A39EC`
 descriptor (paired by worldY; correct frame + gray/red variant), off view by natively replaying
-the RED `$4a72` resolution. See remaining-issues.md #1 (incl. the OPEN off-view blind variant,
-`$57B856`, to RE — do not hack). Several earlier attempts here were HACKS that got reverted (page-
+the RED `$4a72` resolution (off-view blind variant since RESOLVED: blind gfx = red + `$4C38`,
+see [[gameplay-engine-map]] "$57B0B4 internals" — do not hack). Several earlier attempts here were HACKS that got reverted (page-
 blit reverse-projection `native_wsmissedchar_compose`/`s_pg`; persistence cache; `$57B0EE` builder
 hook; learned variant offset) — see [[feedback-no-hacks-re-first]].
 

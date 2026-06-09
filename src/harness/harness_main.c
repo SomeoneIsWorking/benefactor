@@ -1063,8 +1063,8 @@ int main(int argc, char **argv)
                                                (multitile $57D81C / animated $57D8B4 / main $57D804 / bit6
                                                fast-path) and whether it PASSes or is CULLed by that branch's
                                                camera window. (Note: the Marry Man is NOT a walker-cull case —
-                                               he's an uncaptured char drawn by executor $57D6C4; see
-                                               remaining-issues #1. This inspects the list-A/B walker only.) */
+                                               he's drawn by executor $57D6C4; see gameplay-engine-map.md.
+                                               This inspects the list-A/B walker only.) */
             extern uint8_t *g_mem;
             if (!g_mem) { printf("[wswalk] no g_mem\n"); }
             else {

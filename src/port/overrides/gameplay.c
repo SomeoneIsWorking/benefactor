@@ -579,7 +579,7 @@ void native_obj_anim_59AC38(M68KCtx *ctx)
  * override fired inconsistently and captured garbage; the renderer's dst-projection is
  * the reliable path for in-view objects. The placement list is at $5A4562, stride 64:
  * +0 type, +2 worldX, +4 worldY — read it directly if margin-coverage of culled objects
- * is ever ported; see instructions/remaining-issues.md #1.) */
+ * is ever ported; see instructions/widescreen-plan.md + gameplay-engine-map.md.) */
 
 /* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask).
  * Set DIRECTLY by native_player_capture and held until the next draw — the engine
