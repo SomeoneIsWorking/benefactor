@@ -14,6 +14,26 @@ The user's actual ask (multiple sessions): **each sprite is a drawable that the 
 Vulkan backend renders itself**, so it "functions like a real PC game" — and per-character
 lighting has per-sprite quads to attach to.
 
+## Two renderer modes (2026-06-09) — Vanilla | BenRen
+
+The frame renderer is now a named, configurable mode (the `renderer` cfg knob;
+`pc_render_mode()` in `port/config.c`). This is the FRAME renderer — distinct from the
+*present backend* (`BENEFACTOR_RENDER=sdl|vulkan`), which is only how the finished surface
+reaches the screen.
+
+- **Vanilla** — `native_render_frame` (copper-walk, bitplane, Amiga-blit-faithful, 352px).
+- **BenRen** — the sprite-based draw-list renderer below (no Amiga blit). **Owns widescreen.**
+
+The old third option, "WSRend" (the per-pixel widescreen compositor `native_render_wide_bg`),
+is **dropped as a mode** — it was just BenRen mid-construction (a draw list that's still
+flattened on the CPU). It keeps the function name for now but is the BenRen compose; the work
+below removes its per-pixel rasterizer in favour of per-sprite consumers.
+
+Selection: `renderer=vanilla|benren` (ENV `BENEFACTOR_RENDERER`, REPL `cfg renderer <v>`, or
+JSON). Unset = AUTO: BenRen when a widescreen width is requested, else Vanilla (so existing
+`BENEFACTOR_WIDESCREEN` users keep the wide render). `BENEFACTOR_WS_CMP` still forces the
+BenRen compose at 352 for the vanilla-vs-benren pixel diff.
+
 ## Why it's feasible (the RE is already done)
 
 Every gameplay drawable is *already* an enumerated descriptor at the compose functions in
@@ -45,12 +65,13 @@ is to move the flatten point *past* the backend boundary.
 
 Consumers (each verified headless via offscreen readback — the dev box display is off):
 
-1. **CPU rasterizer** (`scene_rasterize`) — reproduces today's frame **byte-identical**.
+1. **CPU rasterizer** (`scene_composite_argb`) — reproduces today's frame **byte-identical**.
    This proves the draw list is lossless: the precondition for any GPU backend to be correct.
-2. **Vulkan** — upload each `idx` as an R8 texture + the palette LUT; draw each quad as a
+2. **SDL per-sprite** (do first) — same list, `SDL_RenderCopy` per quad (so SDL is a real
+   per-sprite renderer). This is the user's priority: get SDL fully set before Vulkan.
+3. **Vulkan** — upload each `idx` as an R8 texture + the palette LUT; draw each quad as a
    textured triangle pair; fragment shader: sample index → `discard` if cookie && index==0 →
    else `pal_rows[gl_FragCoord.y][index]`. A real per-sprite GPU draw.
-3. **SDL per-sprite** — same list, `SDL_RenderCopy` per quad (so SDL is also real per-sprite).
 4. Windowed present renders the list straight into the swapchain (deletes `vkCmdBlitImage`).
 
 ## Phasing & status
@@ -62,13 +83,19 @@ Consumers (each verified headless via offscreen readback — the dev box display
       - DONE + VERIFIED: **list-A objects** (`native_wsobj_compose`) emit index quads,
         rasterized into s_objlayer. Byte-identical at 960×282 over logs/savestate.bin
         (cmp logs/fbw_ref.bin vs logs/fbw_new.bin = 0 bytes differ).
-      - NEXT: player → char → static → tilemap → banner, same one-at-a-time verify.
+      - DONE (seam, CPU-rasterized): player, char, static now emit index quads too
+        (the per-pass `s_objlayer` writes were replaced by `scene_add_quad` + a single
+        `scene_composite_argb`). NEXT on the list: **tilemap bg + banner** (still per-pixel
+        in `native_render_wide_bg`), so the WHOLE frame is a draw list.
         Verify recipe: build HEAD ref binary (stash the seam edits) and the new binary;
         `printf 'load <abs>/logs/savestate.bin\npc 1\nfbw <tag>\nq\n' | BENEFACTOR_SKIP_PUAE=1
-        BENEFACTOR_WIDESCREEN=960 ./build/benefactor-harness Disk.1 Disk.2 Disk.3`; `cmp`.
-- [ ] **P2 Vulkan consumer** of the list, verified vs CPU reference by readback.
-- [ ] **P3 SDL per-sprite consumer.**
-- [ ] **P4 windowed present** renders the list (kill the blit).
+        BENEFACTOR_RENDERER=benren ./build/benefactor-harness Disk.1 Disk.2 Disk.3`; `cmp`.
+- [ ] **P2 SDL per-sprite consumer** — **do this FIRST (user: "get SDL fully set in first").**
+      Same draw list, one `SDL_RenderCopy`/textured draw per quad (palette-resolved or via
+      an indexed texture + palette), so SDL is a real per-sprite renderer, not a blit. This
+      is also the path that makes the renderer independent of the per-pixel CPU loops.
+- [ ] **P3 Vulkan consumer** of the list, verified vs CPU/SDL reference by offscreen readback.
+- [ ] **P4 windowed present** renders the list (kill the `vkCmdBlitImage`/texture-upload blit).
 - [ ] **P5 per-character lighting** pass (the original motivation; now has per-sprite quads).
 
 ## Verification

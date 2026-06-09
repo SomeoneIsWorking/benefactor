@@ -32,6 +32,18 @@ int          pc_cfg_count(void);
 const char  *pc_cfg_key (int i);
 const char  *pc_cfg_desc(int i);
 
+/* Frame-renderer mode — WHAT composes the frame (distinct from the present
+ * backend, BENEFACTOR_RENDER=sdl|vulkan, which is only HOW the finished surface
+ * reaches the screen). Resolved from the "renderer" cfg knob:
+ *   "vanilla" — copper-walk bitplane render, Amiga-blit-faithful, 352px.
+ *   "benren"  — the sprite-based draw-list renderer (no Amiga blit); owns
+ *               widescreen.
+ * AUTO (knob unset) = benren when a widescreen width is requested, else vanilla,
+ * so existing BENEFACTOR_WIDESCREEN users keep the wide render without also
+ * having to set renderer=benren. */
+typedef enum { PC_RENDER_AUTO = 0, PC_RENDER_VANILLA, PC_RENDER_BENREN } PcRenderMode;
+PcRenderMode pc_render_mode(void);
+
 /* Legacy JSON-only primitives (no ENV/REPL layer). Prefer pc_cfg_* above. */
 int  pc_config_int (const char *key, int def);      /* number, or def if absent  */
 int  pc_config_bool(const char *key, int def);      /* true/false/1/0, or def    */
