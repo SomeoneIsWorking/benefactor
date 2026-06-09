@@ -4,7 +4,7 @@
 # and compare what each shows. Type commands at the prompt; the window updates on
 # each advance.
 set -e
-cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 cmake -S . -B build >/dev/null
 cmake --build build --target benefactor-harness -j"$(nproc)" 2>&1 | tail -3
 

@@ -5,7 +5,7 @@
 # ALL missed indirect-dispatch targets in one pass instead of aborting on the
 # first), append the new addresses to gpl_seeds.txt, and repeat to a fixpoint.
 set -u
-cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 SEEDS=tools/recomp/gpl_seeds.txt
 ARGS=( harness harness/Benefactor.slave Disk.1 Disk.2 Disk.3 )
 
