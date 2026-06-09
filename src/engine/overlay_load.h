@@ -23,9 +23,4 @@ void overlay_load_title(void);     /* gp/title bank: title overlay */
 void overlay_load_gameplay(void);  /* gpl/gameplay bank: gameplay overlay + relocation */
 void overlay_load_credits(void);   /* credits/end-game bank: Disk.3 overlay -> $3330 */
 
-/* Re-apply the loader's constant low-RAM init block ($150..$2A57). Call after a
- * SAVESTATE LOAD (which bypasses the loader) so a stale savestate can't leave the
- * engine's low-RAM invariants (e.g. $1890.w=$0200) wrong → W6L2 wild-jump. */
-void overlay_lowram_reestablish(void);
-
 #endif
