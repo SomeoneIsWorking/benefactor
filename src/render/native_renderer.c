@@ -840,6 +840,57 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
  * differs from the object camera `cam`=$57FDBA by the known few-px alignment bug, so the
  * banner is anchored on `cam` to match vanilla, not on the bg.) The anim/text hang off
  * the box by their page-offset deltas. */
+/* Chandelier ROPES — the engine draws these with the blitter in LINE mode into the
+ * scrolling page ($57DD42), which the wide renderer ignores, so they were missing.
+ * Re-draw them natively from the engine's own per-frame line-segment list ($57DCAE
+ * builds it; format confirmed live via pcwatch on $5ABB5E):
+ *   $5ABB5E.w        = segment count minus 1 ($FFFF/negative = empty; the engine's
+ *                      own bmi at $57DD66 — the count drives a dbra loop)
+ *   $5ABB60 + i*8    = {x0,y0,x1,y1} s16, WORLD coords
+ * worldY is playfield-relative (no vertical scroll). Drawn into s_objlayer keyed by
+ * absolute worldX / screen Y = pf_top + worldY, so the main composite loop maps + clips
+ * (in_view) them like every other gameplay sprite, in both the wide and the 352 compare
+ * path. Colour = the rope brown (WS_ROPE_CI) via the per-scanline palette. NOTE: the
+ * blitter draws a textured 2-tone rope (palette 17/19/20/22); this renders a solid 1px
+ * line in the main brown (19) — visible + world-correct; the twist texture is a later
+ * refinement.
+ *
+ * LIMITATION: the engine's emitter ($57DCD4) clips each segment to the vanilla window
+ * [cam, cam+0x170] and culls any chandelier fully outside it, so the list omits ropes
+ * for chandeliers visible ONLY in the wide margins. A clean capture of the pre-clip
+ * endpoints is blocked because $57DCD4 is double-emitted (standalone gfn + inlined into
+ * gfn_gpl_57DCC4), so an entry override fires unreliably — same class as the removed
+ * $57B0EE hook. Fixing margin ropes needs a recompiler de-dup or a reimplemented
+ * emitter; see instructions/remaining-issues.md #6. */
+#define WS_ROPELIST 0x5ABB5Eu
+#define WS_ROPE_CI  19              /* $9C5521 — the rope's main brown (row-35 palette) */
+static void native_wsrope_compose(int pf_top, int pf_bot)
+{
+    const uint8_t *M = g_mem;
+    if (!M || getenv("WS_NOROPE")) return;
+    uint16_t cw = gmem_r16(M, WS_ROPELIST);
+    if (cw & 0x8000u) return;                       /* $FFFF = empty (engine's bmi gate) */
+    int nseg = (int)cw + 1;
+    uint32_t p = WS_ROPELIST + 2;
+    for (int i = 0; i < nseg; i++, p += 8) {
+        if (p + 8u > RT_MEM_SIZE) break;
+        int x0 = (int16_t)gmem_r16(M, p),     y0 = (int16_t)gmem_r16(M, p + 2);
+        int x1 = (int16_t)gmem_r16(M, p + 4), y1 = (int16_t)gmem_r16(M, p + 6);
+        int dx =  (x1 > x0 ? x1 - x0 : x0 - x1), sx = x0 < x1 ? 1 : -1;
+        int dy = -(y1 > y0 ? y1 - y0 : y0 - y1), sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy, x = x0, y = y0;
+        for (;;) {
+            int syv = pf_top + y;
+            if (syv >= pf_top && syv < pf_bot && syv < HW_DISPLAY_H && x >= 0 && x < WS_LAYER_W)
+                s_objlayer[syv][x] = 0xFF000000u | (s_scan[syv].palette[WS_ROPE_CI] & 0x00FFFFFFu);
+            if (x == x1 && y == y1) break;
+            int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x += sx; }
+            if (e2 <= dx) { err += dx; y += sy; }
+        }
+    }
+}
+
 static void wsbanner_put(uint32_t *out, int ow, int sy, int ox, uint32_t argb)
 {
     if (sy >= 0 && sy < HW_DISPLAY_H && ox >= 0 && ox < ow)
@@ -1007,6 +1058,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
     s_scene_ylo = pf_top; s_scene_yhi = pf_bot;     /* publish the scene's row span */
     scene_composite_argb(&s_scene, &s_objlayer[0][0], WS_LAYER_W, HW_DISPLAY_H, pf_top, pf_bot);
+    native_wsrope_compose(pf_top, pf_bot);          /* chandelier ropes (blitter LINE mode) */
 
     for (int y = pf_top; y < pf_bot; y++) {
         int dy = y - pf_top;

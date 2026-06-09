@@ -148,6 +148,11 @@ void pc_register_overrides(void)
     /* Static-placement OBJECTS (caged Marry Men + level sprites) are drawn by walking
      * the object-only queue $5A39EC in native_wsstatic_compose (native_renderer.c) — no
      * override needed (the $57B0EE builder hook was double-emitted/unreliable, removed). */
+    /* Chandelier ROPES (blitter LINE-mode, $57DD42) are drawn by native_wsrope_compose
+     * (native_renderer.c) reading the engine's per-frame segment list at $5ABB5E — no
+     * override needed. (A capture at the emitter entry $57DCD4 to recover the pre-clip
+     * endpoints for margin chandeliers was tried but $57DCD4 is double-emitted, so the
+     * override fired unreliably — see native_wsrope_compose's LIMITATION note.) */
     /* GET READY / GAME OVER banner: the native wide renderer ignores the engine page,
      * so the banner (drawn there) was invisible. Capture each of its three elements so
      * the renderer can composite them as a centered top UI overlay: the box ($578974),

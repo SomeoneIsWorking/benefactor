@@ -238,9 +238,23 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    to ~320 (defeats widescreen) — so apply it ONLY to the margin==0 / 352 path, never to
    the wide (margin>0) path. See [[widescreen-plan]] "DIW over-fetch clip" history.
 
-6. **Line-blitter graphics (chandelier chains) not rendered natively.** OPEN (RE'd
-   2026-06-05; port-ready, but unverifiable in-harness — needs the chandelier chamber,
-   which the player can't be reliably driven to). The engine draws chain/rope graphics with
+6. **Line-blitter graphics (chandelier ropes) — PARTLY DONE (2026-06-09).** The ropes now
+   render natively: `native_wsrope_compose` (native_renderer.c) reads the engine's own
+   per-frame line-segment list at **$5ABB5E** ($5ABB5E.w = count-1, $FFFF=empty; then
+   {x0,y0,x1,y1} s16 WORLD coords per segment, confirmed live via `pcwatch`) and draws each
+   as a Bresenham line into s_objlayer (world X / screen Y = pf_top+worldY), so the main
+   composite loop maps + clips them like every sprite. Colour = the rope's main brown
+   (palette index 19 / $9C5521). Verified: ropes draw on/off (WS_NOROPE) over the user's
+   chandelier savestate. **REMAINING:** (a) the engine's emitter ($57DCD4) clips each segment
+   to the vanilla window [cam,cam+0x170] and culls chandeliers fully outside it → ropes are
+   MISSING for chandeliers visible only in the wide margins. A capture of the pre-clip
+   endpoints at $57DCD4 was tried but $57DCD4 is **double-emitted** (standalone gfn + inlined
+   into gfn_gpl_57DCC4) so the entry override fires unreliably (same class as the removed
+   $57B0EE hook) — needs a recompiler de-dup or a reimplemented emitter. (b) the blitter
+   draws a textured 2-tone rope (palette 17/19/20/22); we render a solid 1px line.
+   Below: the original RE of the blitter draw path, for the eventual full port.
+
+   The engine draws chain/rope graphics with
    the blitter in LINE mode; `hw_do_blit` renders them ([[project_blitter_line_fill]]) into
    the engine PAGE, which the native wide renderer ignores → invisible in widescreen.
    **DRAW SUBSYSTEM RE'd:** routine `$57DD42` (gpl bank): `a0=$5ABB5E` = a per-frame line-
