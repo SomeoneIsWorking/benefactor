@@ -78,6 +78,16 @@ destinations and lessons:
 
 ## Debugging Architecture (GDB-centric)
 
+**Config env overrides are STRICTLY `BENEFACTOR_<JSON_KEY uppercased>`** (e.g.
+`interact_extend` → `BENEFACTOR_INTERACT_EXTEND`); an unprefixed env var is SILENTLY
+ignored and the JSON value stays in effect — so when A/B-testing a knob via env, a
+misnamed "off" run is silently not a control (burned 2026-06-10). Prefer the REPL
+`cfg <key> <val>` for runtime knob changes; it can't be misnamed.
+
+**New debug logging must be REPL-gated, not env-gated**: a global flag toggled by a
+REPL command (e.g. `pklog` for the pickup/interact wrapper), never a new
+`getenv("X_LOG")`.
+
 **Trace via the REPL, NOT env-gated logs.** Do investigation/tracing through the
 interactive harness REPL (`./build/benefactor-harness ... Disk.*`) — add a REPL command
 (in `src/harness/harness_main.c`) that prints the state you need (counts, captures,

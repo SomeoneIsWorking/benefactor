@@ -407,13 +407,17 @@ void rt_write32(M68KCtx *ctx, uint32_t addr, uint32_t v)
 
 /* ── Native engine overrides ───────────────────────────────────────────────── */
 
-#define MAX_OVERRIDES 64
-static struct {
+/* Dynamic table — a fixed cap silently dropped registrations once (64 cap,
+ * ~100 registrations: late-registered wrappers never fired, looked like the
+ * feature "didn't work"). Registration happens at startup only, so growth is
+ * cheap; lookup is unchanged. */
+static struct OverrideEnt {
     uint32_t addr;
     NativeFn fn;
     int      gp;     /* 1 = gameplay-bank override (fires only when g_gameplay_active) */
-} g_overrides[MAX_OVERRIDES];
+} *g_overrides = NULL;
 static int g_override_count = 0;
+static int g_override_cap   = 0;
 
 static void rt_register_override_x(uint32_t addr, NativeFn fn, int gp)
 {
@@ -421,9 +425,15 @@ static void rt_register_override_x(uint32_t addr, NativeFn fn, int gp)
         g_override_count = 0;
         return;
     }
-    if (g_override_count >= MAX_OVERRIDES) {
-        RT_LOG("override table full\n");
-        return;
+    if (g_override_count >= g_override_cap) {
+        int ncap = g_override_cap ? g_override_cap * 2 : 128;
+        void *p = realloc(g_overrides, (size_t)ncap * sizeof *g_overrides);
+        if (!p) {
+            fprintf(stderr, "FATAL: out of memory growing override table (%d)\n", ncap);
+            abort();
+        }
+        g_overrides = p;
+        g_override_cap = ncap;
     }
     g_overrides[g_override_count].addr = addr;
     g_overrides[g_override_count].fn   = fn;

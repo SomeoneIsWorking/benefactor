@@ -689,19 +689,35 @@ is one SFX call; the takeoff grunt fires from the grounded/long-jump path simila
 ## Object PICKUP mechanic — RE'd + native-widened (2026-06-03)
 
 Each collectible's per-frame handler collects on: `$f80(a5)==$20` (FIRE alone) AND
-player SCREEN pos (`$f94`=X/`$f96`=Y) within a tiny ONE-SIDED window of the item
-(`(a0)+0`=objY,`(a0)+2`=objX): `0 <= playerY-objY <= rangeY`, `0 <= playerX-objX <=
-rangeX` (unsigned). rangeX≈$6–$f → "must be on top of it." On win: busy flag
+player pos within a tiny ONE-SIDED window of the item. **AXES (corrected 2026-06-10,
+verified live on the hanging-under-a-gear savestate): `$f94(a5)` = player Y,
+`$f96(a5)` = player X, `(a0)+0` = obj X, `(a0)+2` = obj Y** — the earlier note here
+(and the first pickup.c) had both pairs swapped, which made the "horizontal"
+interact_extend actually extend VERTICALLY (grabbing a gear up through a platform
+while hanging under it). Window: `0 <= playerY-objY <= rangeY`, `0 <= playerX-objX
+<= rangeX` (unsigned). rangeX≈$6–$f → "must be on top of it." On win: busy flag
 ($1098/$1094/$108e), `clr -$2(a0)`/`clr (a0)`, `$6c24(a5)` pickup sound via `$775c(a5)`,
 jmp tail `-$1a1e(a5)`. 19 handlers (lea $6c24(a5)): 586B1C 586B2A 586C10 586C1E 586D14
 586E6C 586ECC 586F9C 587006 5870CE 5871F4 587272 58733A 58743C 5874FE 587554 587616
 58766E 5876C4. **$586C10 = universal item** (every level; `PICKUP_SCAN=1` to map per level).
 
-NATIVE port (`src/port/overrides/pickup.c`): own the RADIUS (the only wrong part), reuse
-each item's collect. `pickup_wide` widens+centers the zone (`PICKUP_RX`/`PICKUP_RY`,
-default 18/12 half-window, two-sided); inside it + fire → spoof player pos = item pos,
-`rt_call_generated(handler)` (its narrow test passes → full normal collect), restore.
-Off-screen items have screen coords far outside the window (excluded). Revert:
+NATIVE port (`src/port/overrides/pickup.c`, reworked 2026-06-10): each handler gates X
+on the identical pattern `move.w $f96(a5),d4; sub.w d0,d4; cmpi.w #range,d4; bhi fail`
+with d0 = objX+bias → pass iff playerX ∈ [objX+bias, objX+bias+range]. Per-handler
+(bias, range) constants are RE-extracted into the `s_xwin` table in pickup.c (objX is
+`(a0)` for all but $595FF4 = caller's d0 and $59B0B0 = `$84(a0)`). Biases must be
+PATH-verified, not linear-summed (addq's from mutually exclusive paths double-count);
+$58BCF2 adds a dynamic `(a3)` to d0 so it has no table entry (never nudged). The lever
+family's DISPATCH ENTRY is **$595FE4** ($595FF4 is its interior label — wrapping only
+that never fired). ~130 more handlers share this gate pattern but most are
+hazards/enemies (no $f80 fire gate) — do NOT blanket-wrap them. `interact_extend`
+semantics (we OWN the zone; the handler window is just the delivery mechanism): the
+player interacts when within `extend` px of the object's 16px TILE [objX, objX+16];
+in zone, $f96 is presented clamped into the handler's own window so its check passes.
+(Earlier designs failed: nudging to objX overshoots windows with bias>0 — zone
+SHIFTED right by extend; nudging to the window edge made reach uneven because vanilla
+windows are arbitrary offset slices of the tile, e.g. the lever's [objX+4,objX+12].)
+Y ($f94) is never touched (horizontal-only by design). Logging: REPL `pklog`. Revert:
 `BENEFACTOR_RECOMP_PICKUP=1`.
 
 ### Held-item USE / THROW / DROP system (for the X+Down drop port — task #9)
