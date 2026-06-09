@@ -4,6 +4,7 @@
  * behavior-identical. Also hosts present_backend_select() (always built), which
  * routes to the Vulkan backend when this build has one. */
 #include "render/present_backend.h"
+#include "render/scene_sdl.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -44,6 +45,23 @@ static void sdl_present(const uint32_t *argb, int w, int h)
     SDL_RenderPresent(s_renderer);
 }
 
+/* P4 — windowed PER-SPRITE present: draw the BenRen draw list straight to the
+ * window (base rows + camera-projected world quads + banner) instead of
+ * blitting the composed surface. Verified byte-identical to the composed
+ * surface via scene_sdl_window_selftest (harness `scenewin`). */
+static void sdl_present_scene(const Scene *s, int y_lo, int y_hi,
+                              const uint32_t *base, int w, int h)
+{
+    (void)w;
+    if (scene_draw_sdl_window(s_renderer, s, y_lo, y_hi, base, w, h) != 0) {
+        /* SDL failure mid-frame: fall back to the plain blit so the user
+         * still sees the (identical) composed frame. */
+        sdl_present(base, w, h);
+        return;
+    }
+    SDL_RenderPresent(s_renderer);
+}
+
 static void sdl_toggle_fullscreen(void)
 {
     uint32_t flags = SDL_GetWindowFlags(s_window);
@@ -62,7 +80,8 @@ static void sdl_shutdown(void)
 }
 
 static const PresentBackend SDL_BACKEND = {
-    "sdl", sdl_init, sdl_present, sdl_toggle_fullscreen, sdl_window, sdl_shutdown
+    "sdl", sdl_init, sdl_present, sdl_present_scene,
+    sdl_toggle_fullscreen, sdl_window, sdl_shutdown
 };
 
 const PresentBackend *present_backend_sdl(void) { return &SDL_BACKEND; }

@@ -960,6 +960,30 @@ int main(int argc, char **argv)
                            nd == 0 ? "BYTE-IDENTICAL" : "MISMATCH");
             }
         }
+        else if (!strcmp(cmd, "scenewin")) {  /* scenewin — P4 gate: render the WINDOWED per-sprite
+                                                 frame (base rows + projected world quads + banner)
+                                                 offscreen and byte-diff the full frame vs s_out. */
+            const Scene *sc = native_render_scene();
+            int lo, hi;
+            native_render_scene_yrange(&lo, &hi);
+            extern int native_render_scene_ready(void);
+            if (!sc || !native_render_scene_ready() || hi <= lo) {
+                printf("[scenewin] no fresh scene — run `pc 1` in benren gameplay first\n");
+            } else {
+                extern const uint32_t *hw_get_output_framebuffer(void);
+                extern int hw_output_width(void);
+                int ow = hw_output_width(), mc = 0;
+                long nd = scene_sdl_window_selftest(sc, hw_get_output_framebuffer(),
+                                                    ow, FB_H, lo, hi, &mc);
+                if (nd < 0)
+                    printf("[scenewin] SDL error (software renderer unavailable?)\n");
+                else
+                    printf("[scenewin] %d quads, rows[%d..%d], %dx%d window: %ld px differ "
+                           "vs s_out (max channel diff %d) -> %s\n",
+                           sc->nquads, lo, hi, ow, FB_H, nd, mc,
+                           nd == 0 ? "BYTE-IDENTICAL" : "MISMATCH");
+            }
+        }
         else if (!strcmp(cmd, "blitlog")) {  /* blitlog [minw] — dump EVERY blit of the last stepped frame
                                                 with its capture decision (REPL replacement for BLIT_LOG).
                                                 reason: C=captured u=dest-off p=not-in-pages g=gfx-too-high

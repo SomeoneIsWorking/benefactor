@@ -169,6 +169,8 @@ void pc_toast_show(const char *msg, int is_error)
     s_toast_accent = is_error ? 0xFFFF6048u : 0xFF60FF80u;
 }
 
+int pc_toast_visible(void) { return s_toast_frames > 0 && s_toast[0] != 0; }
+
 void pc_toast_overlay(uint32_t *fb)
 {
     if (s_toast_frames <= 0 || !s_toast[0]) return;

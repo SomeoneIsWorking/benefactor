@@ -97,14 +97,28 @@ Consumers (each verified headless via offscreen readback — the dev box display
         (transparent -> alpha 0; drawn -> opaque 0xFF|RGB). `scene_sdl_selftest()` diffs it vs
         the CPU rasterizer via a software renderer + readback (display off). Harness `scenesdl`:
         34 quads @ 2560x282 = **0 px differ, BYTE-IDENTICAL** over logs/savestate.bin.
-      - NEXT (P2b): **windowed runtime present** — BenRen's SDL backend draws the list straight
-        to the window (background + per-sprite quads) instead of CPU-compositing into s_objlayer
-        and blitting the whole surface. BLOCKED on getting the WHOLE frame on the list (tilemap
-        bg + HUD + banner); until then SDL per-sprite only covers sprites.
-- [ ] **P3 Vulkan consumer** of the list, verified vs CPU/SDL reference by offscreen readback
-      (the per-character-lighting path — SDL2 can't shade, Vulkan can).
-- [ ] **P4 windowed present** renders the list (kill the `vkCmdBlitImage`/texture-upload blit).
-- [ ] **P5 per-character lighting** pass (the original motivation; now has per-sprite quads).
+      - DONE (P2b/P4, 2026-06-10): **windowed per-sprite present.** The whole frame is on the
+        list (tiles 2502cbf; ropes + banner 2044cb3 — banner as SCREEN-space quads via
+        `SCENE_SPACE_SCREEN` + `scene_composite_screen_argb`; the Scene carries the camera
+        view: `view_left` + world clip). `scene_draw_sdl_window()` draws the window frame
+        per-sprite: black clear (void) + non-scene rows (top border/HUD) from `s_out` as the
+        base + world quads camera-projected (`x - view_left`, clipped to the world range) +
+        banner quads on top. Wired as the optional `present_scene` backend hook (SDL only);
+        `hw_present_frame` routes to it for a FRESH BenRen scene with no PC overlay active
+        (pause/level-select/toast read-modify `s_out`, so those frames fall back to the blit —
+        port the overlays to quads to remove the fallback). GATE: harness `scenewin` renders
+        the windowed frame offscreen and byte-diffs vs `s_out` — 0 px on the lever savestate
+        (435 quads) and a level-entry banner frame (440 quads). NOTE: the CPU composite still
+        runs every frame (s_out stays the reference for harness dumps/overlays); skipping it
+        when the per-sprite path presents is a later optimization. Quad textures are also
+        re-baked per frame — cache by `idx` pointer when perf matters.
+- [SHELVED 2026-06-10] **P3 Vulkan consumer** of the list (the per-character-lighting path —
+      SDL2 can't shade, Vulkan can). User decision: bigger priorities; the present_scene seam
+      and the draw list are ready for it whenever it resumes.
+- [x] **P4 windowed present** — done via the SDL per-sprite path above (the Vulkan
+      `vkCmdBlitImage` variant is shelved with P3).
+- [ ] **P5 per-character lighting** pass (the original motivation; needs P3 or an SDL-feasible
+      approximation, e.g. per-quad colour modulation — SDL_SetTextureColorMod is per-sprite).
 
 ## Verification
 

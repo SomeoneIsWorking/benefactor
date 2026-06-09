@@ -219,6 +219,7 @@ static void hw_compose_output(void)
     if (cmp < 0) cmp = getenv("BENEFACTOR_WS_CMP") ? 1 : 0;
     PcRenderMode mode = pc_render_mode();
     int benren = (mode == PC_RENDER_BENREN) || (mode == PC_RENDER_AUTO && ow > HW_DISPLAY_W) || cmp;
+    { extern void native_render_scene_invalidate(void); native_render_scene_invalidate(); }
     if (benren)
         native_render_wide_bg(s_out, ow, margin);   /* BenRen native playfield (full width) */
     hw_blit_capture_reset();   /* start a fresh object-blit capture for the next frame */
@@ -560,7 +561,23 @@ int hw_present_frame(void)
       pc_overlay_set_dims(HW_DISPLAY_W, HW_DISPLAY_H);   /* restore default */ }
 
     if (!s_headless) {
-        s_backend->present(s_out, s_hw_out_w, HW_DISPLAY_H);
+        /* P4 — per-sprite windowed present: when this frame produced a fresh
+         * BenRen draw list and no PC overlay is active (overlays read-modify the
+         * composed surface), draw the scene's quads to the window instead of
+         * blitting s_out. Verified byte-identical to s_out (harness `scenewin`). */
+        extern int  native_render_scene_ready(void);
+        extern const Scene *native_render_scene(void);
+        extern void native_render_scene_yrange(int *, int *);
+        extern int  pc_pause_active(void), pc_toast_visible(void);
+        extern int  g_level_select_visible;
+        int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible;
+        if (s_backend->present_scene && native_render_scene_ready() && !overlay) {
+            int ylo, yhi; native_render_scene_yrange(&ylo, &yhi);
+            s_backend->present_scene(native_render_scene(), ylo, yhi,
+                                     s_out, s_hw_out_w, HW_DISPLAY_H);
+        } else {
+            s_backend->present(s_out, s_hw_out_w, HW_DISPLAY_H);
+        }
 
         /* Pace to PAL 50 Hz (20 ms/frame). s_next_frame_ms self-corrects and
          * resyncs if we fall far behind, so the game runs at the intended speed

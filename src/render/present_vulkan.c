@@ -644,7 +644,8 @@ static void vulkan_shutdown(void)
 }
 
 static const PresentBackend VULKAN_BACKEND = {
-    "vulkan", vulkan_init, vulkan_present, vulkan_toggle_fullscreen, vulkan_window, vulkan_shutdown
+    "vulkan", vulkan_init, vulkan_present, NULL /* per-sprite present: SDL only (P3 shelved) */,
+    vulkan_toggle_fullscreen, vulkan_window, vulkan_shutdown
 };
 
 /* Returns the Vulkan backend; present_backend_select() handles the case where

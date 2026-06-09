@@ -33,4 +33,19 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi);
  * losslessly before it becomes a runtime backend. */
 long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi, int *max_chan);
 
+/* P4 — the WINDOWED per-sprite frame: clear black, draw the non-scene rows
+ * (top border + HUD) from the composed `base` surface, then every WORLD quad
+ * camera-projected (screen_x = x - s->view_left, clipped to the scene's world
+ * clip range and [y_lo, y_hi)), then the SCREEN quads (banner) on top. This is
+ * the routine the SDL present backend calls instead of blitting `base`. */
+int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
+                          const uint32_t *base, int ow, int oh);
+
+/* Headless gate for the windowed path: render scene_draw_sdl_window into an
+ * offscreen software renderer and byte-diff the FULL frame against `base`
+ * (the CPU-composed output, which the windowed path must reproduce exactly).
+ * Returns differing-pixel count (0 = identical), -1 on error. */
+long scene_sdl_window_selftest(const Scene *s, const uint32_t *base,
+                               int ow, int oh, int y_lo, int y_hi, int *max_chan);
+
 #endif /* RENDER_SCENE_SDL_H */
