@@ -16,9 +16,36 @@ tilemap + per-routine sprite captures, ignoring the engine page. Anything drawn 
 into the page by a path we DON'T capture is invisible. Full routine map +
 verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
-1. **Marry Men (rescued creatures) invisible.** **FIXED + VERIFIED (2026-06-09).** Render,
-   don't duplicate, correct colour/variant/facing/animation, IN VIEW **and OFF-VIEW** — the
-   off-view "blind" variant, facing and animation all resolve correctly (see VERIFIED below).
+1. **Marry Men (rescued creatures).** **MACHINE FIXED 2026-06-09 (carried still TODO).** The
+   FREED marry man's whole animation machine — idle/excited/turn/walk/ladder-climb (and, by
+   construction, gap-jump/teleport) — now renders. ROOT CAUSE was a band-aid **handler-range
+   gate** (`a1 in $57C112..$57C2D0`) on the build-entry capture: pose handlers live in TWO
+   discontiguous regions (`$57BA74..$57C61E` AND `$584Exx`), so the guessed range dropped
+   every pose outside it → turning (`$584E8C`), climbing (`$584EB6`/`$584EC2`/`$584EBA`),
+   gap-jump, teleport went invisible. FIX = **delete the gate**: `$57B19E` (red) / `$57B856`
+   (blind) are marry-man-only BY CONSTRUCTION (all 49 `jmp -$3c74(a5)` sites + the `$584Exx`
+   pose handlers funnel through them; nothing else does), so hooking them IS the identification
+   — no filter. VERIFIED (harness L9, logs/savestate.bin): re-derived gfx == the engine's own
+   BlitRec for walk frame 5 (`$00F0BC`) AND climb frame 54 (`$0101BA`); capture count stays
+   clean (1), `wsstatic drawn=1` through turn→walk→climb. Use the `blits` + `wsmm` (re-derived)
+   REPL cmds to re-validate any pose.
+
+   **STILL TODO — CARRIED / held-by-Ben** (separate path, `wsmm`=0): the held MM is a distinct
+   cookie-cut blit (`src=$0129CE mask=$013A42`, h=8, `$01xxxx` creature pool — `blits` b22..b26
+   while held) drawn alongside the player, captured by NONE of wsmm/wschar/wsobj/wsplayer. Needs
+   its draw routine found (`blitskip`/`g_rt_last_call` at that blit) and hooked like
+   `native_char_capture`. It renders correctly in the engine's own 352 view; only the wide
+   margins lose it.
+
+   **ENTITY TAXONOMY (verified live, harness L9 + logs/savestate.bin, 2026-06-09 — do NOT
+   re-confuse these):**
+   - **The L9 `wschar` chr0 ($05C922 @x105) / chr1 ($05E37E @x64) are UNRELATED stationary
+     background characters, and `wsobj` is level objects — NEITHER is the marry man.** Stop
+     tracking the MM by them.
+   - **MM drop = FIRE alone** (Down+Fire = *item* drop). Clears `$10AC` bit `$4000`.
+   - Harness PC-only drive: `BENEFACTOR_SKIP_PUAE=1`; `--level 9` lands on the card — hold
+     fire ~250 frames to reach the cavern; or `load`+`pc 1` on logs/savestate.bin.
+
    The caged Marry Man = the short red-shirt figure inside the **cage** (grey
    two-pillar cell with a cross on the right pillar), NOT the teleporter (the green figure in
    the bottom-left grey structure is the PLAYER — do not chase him).

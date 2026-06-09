@@ -22,6 +22,7 @@
 #include "libretro.h"
 
 #include "engine/hw.h"
+#include "engine/hw_private.h"   /* BlitRec — for the `blits` REPL dump */
 #include "engine/rt.h"
 #include "port/port.h"
 #include "common/game_state.h"   /* g_state + legacy-name macros */
@@ -664,16 +665,43 @@ int main(int argc, char **argv)
             extern int native_wsbuild_count(void);
             extern int native_wsbuild_get(int, int*, int*, int*, int*, int*);
             extern int g_ws_view_left, g_ws_view_w;
+            extern uint32_t native_wsbuild_handler(int);
             int n = native_wsbuild_count();
             printf("[wsmm] %d marry man record(s)  view_left=%d view_w=%d:\n",
                    n, g_ws_view_left, g_ws_view_w);
             for (int k = 0; k < n; k++) {
                 int x, y, fr, fl, bl;
                 if (!native_wsbuild_get(k, &x, &y, &fr, &fl, &bl)) continue;
-                printf("  [%d] worldX=%d (screenX=%d) worldY=%d frame=%d facing(d4)=$%04X(bit1=%d bit0=%d) %s\n",
-                       k, x, x - g_ws_view_left, y, fr, fl & 0xFFFF, (fl >> 1) & 1, fl & 1,
-                       bl ? "BLIND" : "red");
+                uint32_t h = native_wsbuild_handler(k);
+                printf("  [%d] worldX=%d (screenX=%d) worldY=%d frame=%d facing(d4)=$%04X(bit1=%d bit0=%d) hdlr=$%06X %s%s\n",
+                       k, x, x - g_ws_view_left, y, fr, fl & 0xFFFF, (fl >> 1) & 1, fl & 1, h,
+                       bl ? "BLIND" : "red", h == 0x57C13Au ? " (idle)" : " (active)");
+                /* re-derived gfx EXACTLY as native_wsstatic_compose does (frame2=fr+($55 if !bit1);
+                 * e=$4a72(a5)+frame2*8; data=r16(e)+$EEFA(+$4C38 blind)) — compare to `blits` src. */
+                { extern uint8_t *g_mem;
+                  if (g_mem) {
+                    uint32_t a5=0x57EE12u, gtab=a5+0x4A72u;
+                    int frame2 = fr + ((fl & 2) ? 0 : 0x55);
+                    uint32_t e = gtab + (uint32_t)frame2*8u;
+                    uint32_t bd = bl ? 0x4C38u : 0u;
+                    #define R16(a) (((uint32_t)g_mem[(a)]<<8)|g_mem[(a)+1])
+                    uint32_t rdata=(R16(e)+0xEEFAu+bd)&0xFFFFFFu, rmask=(R16(e+2)+0x12E7Eu+bd)&0xFFFFFFu;
+                    uint16_t bsz=R16(e+6);
+                    printf("        re-derived: frame2=%d data=$%06X mask=$%06X bltsize=$%04X (w=%d h=%d)\n",
+                           frame2, rdata, rmask, bsz, bsz&0x3F, bsz>>6);
+                    #undef R16
+                  } }
             }
+        }
+        else if (!strcmp(cmd, "blits")) {  /* blits — dump the engine's captured object blits (BlitRec):
+                                              src/mask/dpt/w/h. The MM's REAL gfx when on-page lives here. */
+            extern int hw_blit_capture_count(void);
+            extern const BlitRec *hw_blit_capture_recs(void);
+            int bn = hw_blit_capture_count(); const BlitRec *br = hw_blit_capture_recs();
+            printf("[blits] %d blit record(s):\n", bn);
+            for (int i = 0; i < bn; i++)
+                printf("  b%2d src=$%06X mask=$%06X dpt=$%06X w=%d h=%d shift=%d con0=$%04X\n",
+                       i, br[i].src, br[i].mask, br[i].dpt, br[i].w, br[i].h, br[i].shift, br[i].con0);
         }
         else if (!strcmp(cmd, "blitskip")) {  /* blitskip <fn-hex|0> — DIAGNOSTIC: drop every blit issued
                                                  by routine <fn> (g_rt_last_call), to confirm which fn draws

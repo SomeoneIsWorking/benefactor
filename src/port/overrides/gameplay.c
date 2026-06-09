@@ -332,20 +332,28 @@ int native_wschar_get(int i, int *x, int *y, int *w, int *h,
     return 1;
 }
 
-/* ── Marry-Man build-entry capture (the PROPER, complete resolution) ───────────
- * The marry man's gfx is resolved by the compositor's build at $57B19E (painted/RED) or
- * $57B856 (blind/GRAY), reached per-record from handler $57C13A BEFORE the per-object draw
- * cull. RE'd: both builds index the SAME table $4a72(a5) at (frame + facing), where
- * facing = +$55 frames when d4 bit1 is CLEAR (else +0), and add a per-variant constant:
- *   RED:   data = $4a72[(frame+fac)*8].w0 + $EEFA,  mask = .w1 + $12E7E   ($57B19E)
- *   BLIND: data = .w0 + $13B32,                     mask = .w1 + $17AB6   ($57B856)
- * (blind = red + $4C38, a stable constant — the earlier "per-level" was comparing different
- * frames). yoff = .w2, BLTSIZE = .w3. Verified to the byte vs the engine's queue (L9/L11).
- * Capturing {worldX=d1, worldY=d2, frame=d3, flags=d4, variant} at the build ENTRY gets
- * EVERY marry man (in view AND culled), with the engine's own frame/facing, so the native
- * renderer can resolve the exact sprite at the true world position — no queue, no worldY
- * pairing, no terrain tables, no per-level offset. a1 == $57C13A filters to marry men. */
-typedef struct { int worldX, worldY, frame, flags, blind; } WsBuild;
+/* ── Marry-Man build-entry capture ────────────────────────────────────────────
+ * A marry man is drawn by the compositor's RED build $57B19E or BLIND build $57B856.
+ * These two routines are reached ONLY from the marry-man code block — every site that
+ * jumps into them (`jmp -$3c74(a5)`/`bmi $57b856`) lives in the contiguous marry-man
+ * builder+pose-handler region $57BA74..$57C61E (verified: all 49 jump sites are in that
+ * block, none outside). So $57B19E/$57B856 are marry-man-only BY CONSTRUCTION — hooking
+ * them IS the identification. There is no handler filter: every call is a marry man, in
+ * EVERY pose (idle/excited/turn/walk/climb/gap-jump/teleport), because they ALL funnel
+ * through these two builds. (The old "a1 in $57C112..$57C2D0" range gate was a band-aid
+ * that dropped every pose whose handler fell outside the guessed range — that is why
+ * turning/climbing/gap-jump/teleport went invisible.)
+ *
+ * Both builds index the same gfx table $4a72(a5) at (frame + facing), facing = +$55 frames
+ * when d4 bit1 is CLEAR; data = entry.w0 + $EEFA (+$4C38 blind), mask = entry.w1 + $12E7E
+ * (+$4C38 blind), yoff = .w2, BLTSIZE = .w3. We capture {worldX=d1, worldY=d2, frame=d3,
+ * flags=d4, variant} at the build ENTRY (after the pose sub-handler has set d3) so the
+ * renderer resolves the exact sprite at the true world position — in view AND culled
+ * off-view (the engine runs gameplay+pose logic for off-view records but culls the on-page
+ * blit, so off-view has no engine descriptor to capture; we resolve it ourselves). frame/
+ * flags/handler are the engine's own values; the re-derived gfx is byte-verified against
+ * the engine's own blit (e.g. walk frame 5 -> $00F0BC, matching BlitRec src). */
+typedef struct { int worldX, worldY, frame, flags, blind; uint32_t handler; } WsBuild;
 #define WS_BUILD_MAX 32
 static WsBuild s_wsbuild[WS_BUILD_MAX];      static int s_wsbuild_n = 0;
 static WsBuild s_wsbuild_done[WS_BUILD_MAX]; static int s_wsbuild_done_n = 0;
@@ -358,12 +366,18 @@ int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind
     *x = b->worldX; *y = b->worldY; *frame = b->frame; *flags = b->flags; *blind = b->blind;
     return 1;
 }
+/* The marry man's CURRENT pose handler (a1 at the build) — diagnostic only (`wsmm` REPL). */
+uint32_t native_wsbuild_handler(int i)
+{
+    return (i >= 0 && i < s_wsbuild_done_n) ? s_wsbuild_done[i].handler : 0u;
+}
+
 static void wsbuild_capture(M68KCtx *ctx, int blind)
 {
-    if (ctx->A[1] == 0x57C13Au && s_wsbuild_n < WS_BUILD_MAX)   /* marry-man handler only */
-        s_wsbuild[s_wsbuild_n++] = (WsBuild){
-            (int16_t)(uint16_t)ctx->D[1], (int16_t)(uint16_t)ctx->D[2],
-            (int)(ctx->D[3] & 0xFFFFu), (int)(ctx->D[4] & 0xFFFFu), blind };
+    if (s_wsbuild_n >= WS_BUILD_MAX) return;
+    s_wsbuild[s_wsbuild_n++] = (WsBuild){
+        (int16_t)(uint16_t)ctx->D[1], (int16_t)(uint16_t)ctx->D[2],
+        (int)(ctx->D[3] & 0xFFFFu), (int)(ctx->D[4] & 0xFFFFu), blind, ctx->A[1] };
 }
 void native_build_red(M68KCtx *ctx)   { wsbuild_capture(ctx, 0); gfn_gpl_57B19E(ctx); }
 void native_build_blind(M68KCtx *ctx) { wsbuild_capture(ctx, 1); gfn_gpl_57B856(ctx); }
