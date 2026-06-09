@@ -16,8 +16,9 @@ tilemap + per-routine sprite captures, ignoring the engine page. Anything drawn 
 into the page by a path we DON'T capture is invisible. Full routine map +
 verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
 
-1. **Marry Men (rescued creatures) invisible.** **MOSTLY FIXED (2026-06-05).** Render, don't
-   duplicate, correct colour IN VIEW; remaining: off-view "blind" variant (see OPEN below).
+1. **Marry Men (rescued creatures) invisible.** **FIXED + VERIFIED (2026-06-09).** Render,
+   don't duplicate, correct colour/variant/facing/animation, IN VIEW **and OFF-VIEW** — the
+   off-view "blind" variant, facing and animation all resolve correctly (see VERIFIED below).
    The caged Marry Man = the short red-shirt figure inside the **cage** (grey
    two-pillar cell with a cross on the right pillar), NOT the teleporter (the green figure in
    the bottom-left grey structure is the PLAYER — do not chase him).
@@ -42,21 +43,20 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    - The **FREED/walking** marry man (cage opened) becomes a NORMAL `$05xxxx` character in the
      `$10e6(a5)` char list, drawn per-frame via `$57D3F4` → ALREADY captured & rendered.
 
-   **ARCHITECTURE (`native_wsstatic_compose`, native_renderer.c).** The `$5A4562` placement
-   list is Marry-Men-ONLY (records: +0 type[0=end], +2 worldX, +4 worldY, +$a LIVE anim cursor,
-   +$c cached handler ptr ==`$57C13A`; stride 64). Each Marry Man is drawn EXACTLY ONCE, paired
-   to the engine's per-frame queue `$5A39EC` by **worldY** (the page row from dst — it never
-   scrolls/wraps, so the match is EXACT; pairing by X was the bug that caused scroll-dependent
-   DUPLICATION, since dst→X is only correct mod the 368px page):
-   - **in view** (a queue descriptor matches its row) → drawn from that descriptor = the engine's
-     EXACT resolved gfx (correct frame AND variant — see the variant note below). Source of truth.
-   - **off view** (no descriptor; engine culls at `$57b4dc` `[cam,cam+$160]`, and the 368px page
-     can't hold the wide margin) → drawn from the placement record, natively resolving the LIVE
-     animation frame: `frame=MR16($5d5a(a5)+cursor)` → `gfx=$4a72(a5)+frame*8` →
-     `{data_off+$EEFA, mask_off+$12E7E, yoff, BLTSIZE}`, cookie-cut, BMOD=-2, left=worldX-8,
-     top=clamp(worldY,$D7)+yoff. Verified numerically (L1 cursor $46→frame 50→data=$010052).
-   An unmatched queue descriptor (far-side page wrap) is DROPPED, never drawn (no phantom). No
-   X-dedup, no learned offset, no persistence cache. Runs only for `ow>352` (default 352 untouched).
+   **ARCHITECTURE — build-entry capture (single source), `native_wsstatic_compose` +
+   pc_overrides_gameplay.c.** The earlier "in-view from queue `$5A39EC` / off-view from placement
+   record `$5A4562`, paired by worldY" DUAL-source design is RETIRED. The override now hooks the
+   compositor's two build entries — `$57B19E` (red, `native_build_red`) and `$57B856` (blind,
+   `native_build_blind`), both reached per-record from the handler `$57C13A` — and snapshots
+   `{worldX=d1, worldY=d2, frame=d3, flags=d4, variant}` for EVERY Marry Man each frame, in view
+   AND culled off-view (the engine resolves the gfx for all records before the draw cull; verified
+   the build is reached for off-view ones). `native_wsstatic_compose` then re-blits each captured
+   record at its true world X across the wide view: `frame2 = frame + ($55 if !d4.bit1)` →
+   `gfx=$4a72(a5)+frame2*8` → `{data_off+$EEFA(+$4C38 blind), mask_off+$12E7E(+$4C38 blind), yoff,
+   BLTSIZE}`, cookie-cut, BMOD=-2, left=worldX-8, top=clamp(worldY,$D7)+yoff. Because d3 is captured
+   AT THE BUILD ENTRY (after `$57C13A`'s per-pose sub-handler has overwritten it), the captured
+   frame already carries the full animation — there is NO table replay here. No X-dedup, no learned
+   offset, no persistence cache, no record-walking. Runs only for `ow>352` (default 352 untouched).
 
    **RESOLVED 2026-06-09 — blind variant gfx = red + $4C38 (a CONSTANT). The earlier "per-level"
    claim was WRONG (falsified).** Variants selected by record **type bit7** (initial handler ptr)
@@ -69,21 +69,21 @@ verified specs in [[widescreen-plan]] "Phase 4 — COMPLETE sprite-routine MAP".
    use. The "+$6AB0 on L11" mismeasurement was a SEPARATE mechanism: `$57B856` special-cases
    resolved frame `$3a` (gated `$10aa(a5)>=$2c` + `$57FEB8`/`$10ad(a5)` parity) to a fixed gfx page
    `#$585138` (`game_gpl_0.c:52981`). Full model in [[gameplay-engine-map]] "$57B0B4 internals".
-   **REMAINING off-view gaps (now small + RE-grounded — the resolution is fully decoded):**
-   - **FACING** = `d4` bit1 for the blitter frame (clear → `+$55` frame block) and `d4` bit0 for
-     the resolve tail. The off-view resolver currently ignores these (always right-facing). Replay
-     the bit from the creature's face-the-player state to fix.
-   - **ANIMATION** (idle-only correct, user-observed): the off-view resolver replays only
-     `$57C13A`'s top-level cursor→frame table; the engine routes the resolved frame `$a(a0)*4`
-     through per-pose sub-handlers (`$526a(a5)` d0≥0 / `$545a(a5)` d0<0 → `$57C194`/`$57C1B8`/…,
-     each walking its own sub-sequence table). Replay that dispatch for correct non-idle frames.
+   **OFF-VIEW gaps — ALL RESOLVED & VERIFIED 2026-06-09 (harness L9, REPL `wsmm`).** The
+   build-entry capture gives the engine's own values, so facing/animation/variant come for free:
    - **VARIANT** = RESOLVED (blind = red + `$4C38`, above).
-   So a correct off-view marry man no longer needs a "large per-level port" — it needs the camera-
-   independent resolver (already in `native_wsstatic_compose`) extended with: the `$4C38` blind
-   add (when d0<0 / type bit7), the `d4` facing bits, and the per-pose anim sub-handler replay.
-   The `$57B19E`/`$57B2B8` terrain-collision pass is NOT needed for DRAW (it feeds the player-
-   overlap hardware sprite + collision, not the blitter gfx). IN-VIEW stays the source of truth
-   (engine queue `$5A39EC`, paired by worldY). Still: derive every value from engine state — the
+   - **FACING** = RESOLVED. `d4` bit1 is captured and applied (`frame2 += $55` when clear). The
+     off-view blind Marry Man on L9 carried `d4=$0042` (bit1 set ⇒ no `+$55`), the engine's own value.
+   - **ANIMATION** = RESOLVED. The old "idle-only" symptom was the SUPERSEDED record-walking
+     resolver replaying only `$57C13A`'s top table. The current code captures `d3` AT THE BUILD
+     ENTRY, after the per-pose sub-handler (`$526a`/`$545a(a5)` → `$57C194`/…) has set it — so the
+     captured frame is the full per-pose frame, nothing to replay. VERIFIED: L9 had two Marry Men,
+     red @worldX 322 and BLIND @worldX 1474 (far off the ~320px narrow view); both captured, both
+     animating (frame cycled 50→53), both with engine facing+variant. (Untested edge: a pose whose
+     sub-handler never reaches the build — it'd be absent both on- and off-screen, matching vanilla.)
+   So the off-view Marry Man is DONE — no large per-level port, no facing/anim replay needed. The
+   `$57B19E`/`$57B2B8` terrain-collision pass is NOT needed for DRAW (it feeds the player-overlap
+   hardware sprite + collision, not the blitter gfx). Every value derives from engine state; the
    `$4C38` is a VERIFIED instruction-stream constant, not a learned delta.
 
    **FALSIFIED prior claims (do NOT re-chase):**

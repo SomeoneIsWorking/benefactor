@@ -713,27 +713,33 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
     }
 }
 
-/* Caged "Marry Men" — drawn ONCE per record from $5A4562, paired to the engine's per-frame
- * queue $5A39EC by worldY. RE (disasm $57B0B4 / handler $57C13A / build $57B19E..$57B558,
- * verified numerically against L1 record [0]):
- *   - Placement records: base $5A4562, stride 64. +0 type (0=end), +2 worldX, +4 worldY,
- *     +$a LIVE anim cursor (engine advances+writes it back for EVERY record each frame BEFORE
- *     the draw cull, so it ticks off-screen), +$c cached handler ptr (==$57C13A ⇒ Marry Man).
- *   - RED variant (native off-view resolver): frame = MR16($5d5a(a5)+cursor); gfx entry =
- *     $4a72(a5)+frame*8 → {data_off, mask_off, yoff, BLTSIZE}; data=data_off+$EEFA,
- *     mask=mask_off+$12E7E; cookie-cut, BMOD=-2; left=worldX-8, top=clamp(worldY,$D7)+yoff.
- *     Verified: L1 cursor $46 → frame 50 → data=$010052 mask=$0131F6 size=$0242.
- *   - BLIND/gray variant = the RED gfx + a HARDCODED $4C38 (RE-grounded, 2026-06-09): the
- *     blind draw path $57B856 is byte-identical to the red path $57B4F6 — same $4a72(a5)
- *     descriptor, same index — except it adds $13B32/$17AB6 (data/mask) where red adds
- *     $EEFA/$12E7E, and both deltas are exactly $4C38. (The earlier "per-level +$4C38/+$6AB0"
- *     claim was FALSIFIED — it was a different mechanism: a frame-$3a special-case that swaps
- *     to a fixed page #$585138. $4C38 is a legitimate instruction-stream constant, not per-level.)
- *   - Facing: d4 bit1 selects the blitter frame block (clear ⇒ +$55 frames); see frame2 below.
- *   STILL OPEN: non-idle ANIMATION. Non-idle poses route through per-pose sub-handlers
- *   ($526a/$545a(a5) → $57C194/…), each with its own sub-sequence table; this resolver only
- *   replays the TOP table, so only idle poses animate correctly off-view. + d4 bit0 (resolve
- *   tail) is not replayed. Both need the sub-handler tables ported into the build capture. */
+/* Caged "Marry Men" — resolved from the engine's own BUILD-ENTRY capture, NOT by walking
+ * the placement records + replaying the anim table here. The override in
+ * pc_overrides_gameplay.c hooks the compositor's build entries ($57B19E red / $57B856 blind,
+ * both reached from the per-record handler $57C13A) and snapshots {worldX=d1, worldY=d2,
+ * frame=d3, flags=d4, variant} for EVERY Marry Man each frame — in view AND culled off-view.
+ * That is the key property: $57C13A reads the top anim table ($5d5a(a5)+cursor) into d3, then
+ * dispatches by pose to a per-pose sub-handler ($526a/$545a(a5) → $57C194/…) which OVERWRITES
+ * d3 with the pose's own sub-sequence frame before it reaches the build. Because we capture d3
+ * AT THE BUILD ENTRY (post-sub-handler), the captured frame already carries the full per-pose
+ * animation — there is nothing to replay here. Facing (d4 bit1) and variant (blind) are the
+ * engine's own values too. So this resolver just re-blits the captured frame at the true world
+ * position across the wide view, applying:
+ *   - frame2 = frame + ($55 when d4 bit1 CLEAR)        (facing block; see below)
+ *   - gfx entry = $4a72(a5)+frame2*8 → {data_off, mask_off, yoff, BLTSIZE}; cookie-cut, BMOD=-2
+ *   - data = data_off + $EEFA (+ $4C38 if blind);  mask = mask_off + $12E7E (+ $4C38 if blind)
+ *   - left = worldX-8,  top = clamp(worldY,$D7)+yoff
+ *   BLIND/gray = RED gfx + a hardcoded $4C38 (RE-grounded, 2026-06-09): $57B856 is byte-identical
+ *   to $57B4F6 except it adds $13B32/$17AB6 where red adds $EEFA/$12E7E — both deltas = $4C38.
+ *   (The earlier "per-level +$4C38/+$6AB0" claim was FALSIFIED: that was a different frame-$3a
+ *   special-case swapping to a fixed page #$585138. $4C38 is a real constant, not per-level.)
+ * VERIFIED 2026-06-09 (harness L9, REPL `wsmm`): two Marry Men — red @worldX 322 and BLIND
+ * @worldX 1474 (far off the ~320px narrow view) — both captured, both ANIMATING (frame cycled
+ * 50→53), both flagged + faced from the engine's d3/d4. The off-view blind variant + facing +
+ * per-pose animation all render correctly; the old "only idle animates / replay the top table"
+ * note described the superseded record-walking resolver and is RETIRED. (Untested: a Marry Man
+ * in a pose whose sub-handler never reaches the build — it would be absent both on-screen and
+ * off, matching vanilla.) Remaining sprite gap is the separate GET READY setup queue, not this. */
 #define WS_REC_BASE   0x5A4562u
 #define WS_REC_STRIDE 64
 #define WS_MM_HANDLER 0x57C13Au
