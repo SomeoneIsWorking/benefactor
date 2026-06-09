@@ -1079,6 +1079,30 @@ void pc_pin_address_space(int argc, char **argv) { (void)argc; (void)argv; }
 #define PC_SAVESTATE_MAGIC 0x42454E53u   /* 'BENS' */
 #define PC_SAVESTATE_VER   6u   /* v6: frame-loop resume (M68KCtx.resume); load respawns at $577114 */
 
+/* Savestate compatibility identity. A save is loadable iff the loading binary was
+ * built from the SAME recompiled gameplay code — that is what makes M68KCtx.resume
+ * and the $577114 re-entry mean the same thing. The OLD identity used &g_state (a
+ * runtime link address), which needlessly differed between the standalone and the
+ * harness even though both link identical generated code — so a save taken in one
+ * could not load in the other. Instead hash the gpl dispatch table's M68K-ADDRESS
+ * column (+count): identical across any binary built from the same generated code,
+ * and it changes whenever the gpl bank is regenerated (which is exactly when resume
+ * indices could shift). FNV-1a over .addr only — NOT .fn, which is a per-binary
+ * link pointer and would reintroduce the same non-portability. */
+static uint64_t pc_savestate_identity(void)
+{
+    extern const GameFnEntry g_fn_table_gpl[];
+    extern const int g_fn_gpl_count;
+    uint64_t h = 1469598103934665603ULL;          /* FNV-1a offset basis */
+    for (int i = 0; i < g_fn_gpl_count; i++) {
+        uint32_t a = g_fn_table_gpl[i].addr;
+        for (int b = 0; b < 4; b++) { h ^= (a >> (b * 8)) & 0xFFu; h *= 1099511628211ULL; }
+    }
+    uint32_t n = (uint32_t)g_fn_gpl_count;
+    for (int b = 0; b < 4; b++) { h ^= (n >> (b * 8)) & 0xFFu; h *= 1099511628211ULL; }
+    return h;
+}
+
 /* Whether a savestate can be taken right now. Only the steady-gameplay frame loop
  * is resumable: the game thread must be parked at the resumable main-loop wait
  * ($577114), which is exactly when s_game_ctx.resume==1 (set by the bracketed wait
@@ -1107,8 +1131,9 @@ int pc_savestate_allowed(const char **reason)
  *   uint32_t magic, ver
  *   uint32_t sizeof(g_state)
  *   uint32_t RT_MEM_SIZE
- *   uint64_t identity (linker addr of g_state — a same-build guard; the recompiled
- *            gameplay code/resume indices must match, so reject other binaries)
+ *   uint64_t identity (hash of the gpl dispatch table's M68K addresses — a
+ *            same-generated-code guard; portable across binaries built from the
+ *            same tree. See pc_savestate_identity.)
  *   GameState g_state
  *   uint8_t   g_mem[RT_MEM_SIZE] */
 
@@ -1120,7 +1145,7 @@ int pc_savestate(const char *path)
     if (!f) { fprintf(stderr, "[pc] savestate: open %s failed\n", path); return -1; }
     uint32_t hdr[4] = { PC_SAVESTATE_MAGIC, PC_SAVESTATE_VER,
                         (uint32_t)sizeof g_state, (uint32_t)RT_MEM_SIZE };
-    uint64_t ident = (uint64_t)(uintptr_t)&g_state;
+    uint64_t ident = pc_savestate_identity();   /* generated-code hash, NOT a link addr */
     int ok = 1;
     ok &= fwrite(hdr,    sizeof hdr,     1, f) == 1;
     ok &= fwrite(&ident, sizeof ident,   1, f) == 1;
@@ -1152,18 +1177,17 @@ int pc_loadstate(const char *path)
         fprintf(stderr, "[pc] loadstate: short read (ident)\n");
         fclose(f); return -1;
     }
-    if (saved_ident != (uint64_t)(uintptr_t)&g_state) {
+    if (saved_ident != pc_savestate_identity()) {
         extern int g_pc_force_load_identity_mismatch;
         if (!g_pc_force_load_identity_mismatch) {
             fprintf(stderr,
-                "[pc] loadstate: savestate %s was written by a DIFFERENT binary\n"
-                "      (saved ident=$%016lx, this binary=$%016lx). Save and load\n"
-                "      must use the SAME executable (don't mix benefactor-pc and\n"
-                "      benefactor-harness, and re-save after a rebuild — the\n"
-                "      recompiled gameplay code/resume indices must match).\n"
-                "      Pass --force-load to bypass for diagnostics.\n",
+                "[pc] loadstate: savestate %s was built from DIFFERENT recompiled code\n"
+                "      (saved ident=$%016lx, this binary=$%016lx). The gpl gameplay\n"
+                "      bank was regenerated since this save — re-save after a rebuild.\n"
+                "      (benefactor-pc and benefactor-harness from the same tree now\n"
+                "      share saves.) Pass --force-load to bypass for diagnostics.\n",
                 path, (unsigned long)saved_ident,
-                (unsigned long)(uintptr_t)&g_state);
+                (unsigned long)pc_savestate_identity());
             fclose(f); return -1;
         }
         fprintf(stderr, "[pc] loadstate: identity mismatch IGNORED (--force-load);"
