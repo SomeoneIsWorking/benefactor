@@ -233,6 +233,34 @@ $57D816: movem.l a2-a4, -(a7); jmp (a1)   ; ← dispatch into the object's handl
 
 The handler at `(a1)` is something like `$59AC38` for "ordinary" objects.
 
+### `$57D8D0` clip + dirty-record persistence (RE'd 2026-06-10, definitive)
+
+The per-object draw choke `$57D8D0` (entered by the handler's `jmp`) does its own
+clip AND a per-object **dirty record** in the a4 queue — 6 bytes per object per
+frame: a long *signature* (compared 32-bit against live `d5`, the anim gfx offset)
+plus a word *counter*:
+
+- `d3=(s16)(d0-cam)` (`cam=$57FDBA`): `<0` → `d6=w+(d3>>4)`; `>0` = **left-clip EMIT**
+  (`$57D960`, writes the `$FFFFFFFF` sentinel then emits the clipped blit via a3),
+  `<=0` = **CULL** (`$57D8F2`, sentinel only, no blit).
+- else `span=((u16)(cam+$160)>>4)-(d0>>4)`: `<=0` CULL; `<w` **right-clip EMIT**
+  (`$57D91C`); `>=w` **in-window dirty check** (`$57D9AE`): signature changed →
+  store + counter=3 + emit; unchanged → emit (counter 2 then 1 = the two page
+  buffers) and at counter==1 → `$57DA1A` writes 1 and emits **nothing** — the page
+  persists the last-emitted pixels. This is why a transient garbage `d0` (the lever
+  during a Marry-Man pull) never shows in vanilla.
+- Stack at `$57D8D0` entry: dispatch `movem.l a2-a4,-(a7)` ⇒ a2@a7+0, a3@+4,
+  **a4 (dirty slot)@+8**, and the per-object walker **node a0 @+12** (pushed at
+  `$57D7CC`; 32-byte stride) — the only instance-unique key. The gfx descriptor A1
+  is SHARED across instances of one object type — never key per-object state by it.
+
+`native_objdraw_capture` (gameplay.c) replicates this decision pre-super-call and
+keeps a node-keyed committed map so BenRen mirrors page persistence exactly
+(EMIT=commit live, PERSIST=render committed, CULL=live for the widescreen margins).
+The map is cleared on level load and `pc_loadstate`. The earlier c70636e attempt
+(descriptor-keyed + a3/a6 stack-peek emit probe) was reverted: instance collisions
+lost/duplicated objects and animated objects were misdetected as skipped.
+
 `$59AC38` itself: object frame-advance handler. Reads 3 words from animation cursor
 (`movem.w (a0), d0-d1/d5` = x, y, frame), advances frame by 2 (wraps at $9A),
 writes frame back to `$4(a0)`, then a level-identity check (the `$1890.w` cmp) that
