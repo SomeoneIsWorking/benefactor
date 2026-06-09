@@ -534,6 +534,46 @@ int ws_view_left(int ow)
     return vl;
 }
 
+/* Tilemap BACKGROUND on the draw list: emit each visible level tile as an OPAQUE
+ * 16x16 colour-index quad (world X = col*16, screen Y = pf_top + r*16), so the whole
+ * gameplay frame — background + sprites — is one scene draw list (the precondition for
+ * a per-sprite SDL/Vulkan present). Decoded exactly as the old per-pixel loop (tilemap
+ * word -> $5A539E gfx -> 5-plane decode), so output stays byte-identical; the consumer
+ * resolves the per-row palette. Emitted FIRST (before the sprite passes) so sprites
+ * composite over the terrain. Tiles outside [mincol,maxcol) or with no gfx emit no quad
+ * -> the void the main loop paints black. */
+static void native_wstiles_compose(int pf_top, int pf_bot, int rowstride, int mincol, int maxcol)
+{
+    const uint8_t *M = g_mem;
+    if (!M || getenv("WS_NOTILES")) return;
+    int nrows = (pf_bot - pf_top + 15) >> 4;
+    for (int r = 0; r < nrows; r++) {
+        for (int col = mincol; col < maxcol; col++) {
+            int wx = col * 16;
+            if (wx < 0 || wx + 16 > WS_LAYER_W) continue;
+            uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
+            if (mo + 1u >= RT_MEM_SIZE) continue;
+            uint16_t w   = gmem_r16(M, mo);
+            uint32_t gfx = gmem_r32(M, WS_GFXTAB + (uint32_t)(w & 0xFFFEu));
+            if (gfx < 0x1000u || gfx + 160u > RT_MEM_SIZE) continue;   /* void: no tile here */
+            uint8_t *idx = scene_alloc_idx(&s_scene, 16u * 16u);
+            if (!idx) continue;
+            for (int ty = 0; ty < 16; ty++) {
+                uint16_t pl[5];
+                for (int p = 0; p < 5; p++)
+                    pl[p] = gmem_r16(M, gfx + (uint32_t)p * 32u + (uint32_t)ty * 2u);
+                uint8_t *irow = idx + (size_t)ty * 16;
+                for (int tx = 0; tx < 16; tx++) {
+                    int bit = 15 - tx, ci = 0;
+                    for (int p = 0; p < 5; p++) if ((pl[p] >> bit) & 1u) ci |= (1 << p);
+                    irow[tx] = (uint8_t)ci;            /* opaque index (0..31); no cookie-cut */
+                }
+            }
+            scene_add_quad(&s_scene, wx, pf_top + r * 16, 16, 16, idx, 16);
+        }
+    }
+}
+
 /* Build s_objlayer from the engine's captured per-object draw list (native_wsobj_*).
  * Each object is a 5-plane plane-major sprite at absolute world (x, y): source word
  * for plane p, row r, hword ω = src + (p*h + r)*w*2 + ω*2 (A-modulo is 0, so planes
@@ -1038,6 +1078,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     scene_reset(&s_scene);
     scene_load_palrows();
     memset(s_objlayer, 0, sizeof s_objlayer);
+    native_wstiles_compose(pf_top, pf_bot, rowstride, mincol, maxcol);   /* terrain background */
     native_wsobj_compose(pf_top, pf_bot);
     native_wsplayer_compose(pf_top, pf_bot);          /* player UNDER characters... */
     native_wschar_compose(pf_top, pf_bot);            /* ...so enemies render OVER the player (vanilla Z-order) */
@@ -1046,78 +1087,35 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     scene_composite_argb(&s_scene, &s_objlayer[0][0], WS_LAYER_W, HW_DISPLAY_H, pf_top, pf_bot);
     native_wsrope_compose(pf_top, pf_bot);          /* chandelier ropes (blitter LINE mode) */
 
+    /* The whole playfield (terrain + sprites) is now in the draw list, rasterized into
+     * s_objlayer in absolute world X. This loop is just the camera projection: map each
+     * output pixel to its world X and copy the composited pixel, clipped to the
+     * camera-reachable columns [mincol,maxcol) (outside = the void the vanilla camera
+     * never scrolls to → BLACK in the wide view; the margin==0 COMPARE path keeps the
+     * s_fb baseline it's diffed against). No per-pixel tile decode here anymore. */
     for (int y = pf_top; y < pf_bot; y++) {
-        int dy = y - pf_top;
-        int r  = dy >> 4;
-        int ty = dy & 15;
-        if (r < 0) continue;
         const ScanState *st = &s_scan[y];
         /* must be the 5-plane single-playfield scanline the scroll buffer drives */
         int bpu = (st->bplcon0 >> 12) & 7;
         if (bpu < 5 || ((st->bplcon0 >> 10) & 1)) continue;   /* skip HUD/dpf lines */
-        const uint32_t *pal = st->palette;
         uint32_t *row = out + (size_t)y * ow;
 
         int x_off   = DDF_TO_X(st->ddfstrt);
         int scroll1 = st->bplcon1 & 0xF;
 
-        /* ONE continuous native renderer: EVERY output pixel maps to an absolute world X
-         * (cam16 + bitplane index) and is decoded straight from the level tilemap — there
-         * is NO centre/margin split and NO clip to the engine's narrow data-fetch window
-         * (that clip is what created a seam at the centre/margin boundary). The only clip
-         * is the real level edge (mincol/maxcol = where the camera physically stops). The
-         * engine's bitplane/page is NOT used for the playfield. */
         for (int x = 0; x < ow; x++) {
-            int worldX;
-            if (margin > 0) {
-                worldX = view_left + x;                       /* wide: 1:1, centered/clamped */
-            } else {
-                int lx = (x - margin) - x_off - scroll1;      /* compare: engine bitplane index */
-                worldX = cam16 + lx;                          /* engine-aligned mapping */
-            }
-            /* Decode the level tile at this world X, if any (the only thing on the
-             * playfield besides objects). drew = a real level pixel was written. */
-            int drew = 0;
-            int in_view = 0;     /* worldX is inside the camera-reachable level columns */
-            if (worldX >= 0) {
+            int worldX = (margin > 0)
+                ? view_left + x                               /* wide: 1:1, centered/clamped */
+                : cam16 + ((x - margin) - x_off - scroll1);   /* compare: engine-aligned */
+            int drawn = 0;
+            if (worldX >= 0 && worldX < WS_LAYER_W) {
                 int col = worldX >> 4;
-                if (col >= mincol && col < maxcol) {
-                    in_view = 1;
-                    int tx = worldX & 15;
-                    uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
-                    if (mo + 1u < RT_MEM_SIZE) {
-                        uint16_t w = gmem_r16(M, mo);
-                        uint32_t gfx = gmem_r32(M, WS_GFXTAB + (uint32_t)(w & 0xFFFEu));
-                        if (gfx >= 0x1000u && gfx + 160u <= RT_MEM_SIZE) {
-                            int ci = 0;
-                            for (int p = 0; p < 5; p++)
-                                if ((gmem_r16(M, gfx + (uint32_t)p * 32u + (uint32_t)ty * 2u) >> (15 - tx)) & 1u)
-                                    ci |= (1 << p);
-                            row[x] = pal[ci & 0x1Fu];
-                            drew = 1;
-                        }
-                    }
+                if (col >= mincol && col < maxcol) {          /* camera-reachable column */
+                    uint32_t o = s_objlayer[y][worldX];
+                    if (o & 0xFF000000u) { row[x] = o; drawn = 1; }
                 }
             }
-            if (!drew) {
-                /* No level pixel here. In the WIDE view this is the void beyond the level
-                 * edge (the engine hides it with DIWSTRT/DIWSTOP) — own the row and paint it
-                 * BLACK, never leave the engine's 352 page copy (which scrolls with the
-                 * VANILLA camera) showing through → that leak was the left-edge artifact.
-                 * The margin==0 COMPARE path keeps the s_fb baseline (it is diffed against). */
-                if (margin > 0) row[x] = 0xFF000000u;
-                else continue;
-            }
-
-            /* Composite the captured gameplay objects (s_objlayer, keyed by absolute
-             * world X — same coordinate as the tile bg). Clip them to the SAME
-             * camera-reachable columns as the terrain: objects beyond the level edge
-             * are in the hidden void the vanilla camera never scrolls to, so they must
-             * stay hidden (this was the floating torch/chest in the black margin). */
-            if (in_view && worldX < WS_LAYER_W) {
-                uint32_t o = s_objlayer[y][worldX];
-                if (o & 0xFF000000u) row[x] = o;
-            }
+            if (!drawn && margin > 0) row[x] = 0xFF000000u;   /* void = black (compare keeps s_fb) */
         }
     }
 
