@@ -23,6 +23,8 @@
 
 #include "engine/hw.h"
 #include "engine/hw_private.h"   /* BlitRec — for the `blits` REPL dump */
+#include "render/native_renderer.h"  /* scene accessors — for `scenesdl` */
+#include "render/scene_sdl.h"        /* scene_sdl_selftest */
 #include "engine/rt.h"
 #include "port/port.h"
 #include "common/game_state.h"   /* g_state + legacy-name macros */
@@ -920,6 +922,29 @@ int main(int argc, char **argv)
                 }
             printf("[bannercmp] region x[%d..%d] y[%d..%d]: %d/%d px differ (%.2f%% match)\n",
                    x0, x1, y0, y1, nd, tot, 100.0 * (tot - nd) / (tot ? tot : 1));
+        }
+        else if (!strcmp(cmd, "scenesdl")) {  /* scenesdl — P2 gate: verify the per-sprite SDL
+                                                 consumer reproduces the CPU rasterizer on the
+                                                 current BenRen scene. Run after `pc 1` with
+                                                 BENEFACTOR_RENDERER=benren (or WS_CMP=1). */
+            const Scene *sc = native_render_scene();
+            int lo, hi, w, h;
+            native_render_scene_yrange(&lo, &hi);
+            native_render_scene_dims(&w, &h);
+            if (!sc || sc->nquads == 0 || hi <= lo) {
+                printf("[scenesdl] empty scene — run `pc 1` in benren mode first "
+                       "(BENEFACTOR_RENDERER=benren)\n");
+            } else {
+                int mc = 0;
+                long nd = scene_sdl_selftest(sc, w, h, lo, hi, &mc);
+                if (nd < 0)
+                    printf("[scenesdl] SDL error (software renderer unavailable?)\n");
+                else
+                    printf("[scenesdl] %d quads, rows[%d..%d], %dx%d: %ld px differ vs CPU "
+                           "rasterizer (max channel diff %d) -> %s\n",
+                           sc->nquads, lo, hi, w, h, nd, mc,
+                           nd == 0 ? "BYTE-IDENTICAL" : "MISMATCH");
+            }
         }
         else if (!strcmp(cmd, "blitlog")) {  /* blitlog [minw] — dump EVERY blit of the last stepped frame
                                                 with its capture decision (REPL replacement for BLIT_LOG).
