@@ -14,6 +14,7 @@ void input_poll(void)
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
         if (ev.type == SDL_QUIT) exit(0);
+        if (hw_handle_sdl_event(&ev)) continue;   /* controllers, window resize */
         if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
             int d = (ev.type == SDL_KEYDOWN);
             /* ESC is handled inside hw_handle_key — it toggles the pause
@@ -39,6 +40,7 @@ void input_force_fire(int on)
 {
     hw_set_fire(on ? 1 : 0);
     hw_set_mouse_lmb(on ? 1 : 0);
+    hw_set_fire_vanilla(on ? 1 : 0);   /* forced fire keeps vanilla interact semantics */
 }
 
 /* Force the joystick directions, for headless harness driving. Preserves the

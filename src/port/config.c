@@ -10,11 +10,16 @@
 
 static char *s_cfg = NULL;     /* whole file text, NUL-terminated */
 
+static const char *cfg_path(void)
+{
+    const char *path = getenv("BENEFACTOR_CONFIG");
+    return (path && *path) ? path : "benefactor.json";
+}
+
 void pc_config_load(void)
 {
     if (s_cfg) return;                    /* idempotent */
-    const char *path = getenv("BENEFACTOR_CONFIG");
-    if (!path || !*path) path = "benefactor.json";
+    const char *path = cfg_path();
     FILE *f = fopen(path, "rb");
     if (!f) return;                       /* no config -> all defaults */
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
@@ -82,9 +87,12 @@ int pc_config_str(const char *key, char *out, int cap)
 /* Declared knobs — only used for `cfg` listing/discoverability; resolution works
  * for ANY key whether declared or not. */
 static const struct { const char *key, *desc; } s_cfg_decl[] = {
-    { "modern_controls", "modern controls: X=interact/pickup, FIRE no longer interacts (bool)" },
+    { "modern_controls", "legacy: default for BOTH per-device modern flags (bool)" },
+    { "modern_controls_keyboard",   "modern controls on the keyboard: X=interact, jump button (bool)" },
+    { "modern_controls_controller", "modern controls on the controller (bool)" },
     { "interact_extend", "extra horizontal pickup/interact reach, px (0 = vanilla)" },
     { "widescreen",      "widescreen output width, px (0 = native 352)" },
+    { "widescreen_mode", "widescreen preset: disabled | 16:9 | ultrawide | auto (window aspect)" },
     { "renderer",        "frame renderer: vanilla (Amiga blit) | benren (sprite-based, widescreen)" },
 };
 int         pc_cfg_count(void)    { return (int)(sizeof s_cfg_decl / sizeof s_cfg_decl[0]); }
@@ -179,6 +187,71 @@ int pc_cfg_show(const char *key, char *out, int cap, const char **src)
     if (src) *src = "default";
     return 0;
 }
+
+/* ── Persistence (options menu) ────────────────────────────────────────────────
+ * Rewrite/insert one flat "key": value pair in the config file. The file is a
+ * flat JSON object (that's all the loader supports), so text-level editing is
+ * the matching writer: replace the existing value token in place, or insert the
+ * pair before the closing '}'. Creates the file if missing. Also refreshes the
+ * in-memory text + session layer so the change is live this frame. */
+void pc_cfg_persist(const char *key, const char *json_val)
+{
+    pc_config_load();
+    const char *old = s_cfg ? s_cfg : "{\n}\n";
+
+    size_t cap = strlen(old) + strlen(key) + strlen(json_val) + 16;
+    char *out = (char *)malloc(cap);
+    if (!out) return;
+
+    const char *v = find_value(key);     /* points at the old value token */
+    if (v) {
+        const char *end = v;
+        if (*end == '"') { end++; while (*end && *end != '"') { if (*end == '\\' && end[1]) end++; end++; } if (*end) end++; }
+        else             { while (*end && !strchr(",}] \t\r\n", *end)) end++; }
+        size_t pre = (size_t)(v - old);
+        snprintf(out, cap, "%.*s%s%s", (int)pre, old, json_val, end);
+    } else {
+        const char *close = strrchr(old, '}');
+        if (close) {
+            /* insert right after the last member (comma on its line), before '}' */
+            const char *q = close;
+            int has_member = 0;
+            while (q > old) { q--; if (!isspace((unsigned char)*q)) { has_member = (*q != '{'); break; } }
+            size_t pre = (size_t)(q + 1 - old);
+            snprintf(out, cap, "%.*s%s\n  \"%s\": %s\n%s",
+                     (int)pre, old, has_member ? "," : "", key, json_val, close);
+        } else {
+            snprintf(out, cap, "{\n  \"%s\": %s\n}\n", key, json_val);
+        }
+    }
+
+    const char *path = cfg_path();
+    FILE *f = fopen(path, "wb");
+    if (f) { fwrite(out, 1, strlen(out), f); fclose(f); }
+    else   { fprintf(stderr, "[config] cannot write %s\n", path); }
+
+    free(s_cfg);
+    s_cfg = out;                          /* adopt as the live file text */
+
+    /* Session layer too, so an active REPL override doesn't mask the new value
+     * (env still wins, by design). Strip quotes for the session token. */
+    char tok[64];
+    cfg_copy_token(json_val, tok, sizeof tok);
+    pc_cfg_set(key, tok);
+}
+
+/* ── Per-device modern controls ──────────────────────────────────────────────
+ * Resolved LIVE (cheap text scan) so the options menu toggles take effect with
+ * no restart. The legacy single "modern_controls" knob is each flag's default. */
+int pc_modern_kb(void)
+{
+    return pc_cfg_bool("modern_controls_keyboard", pc_cfg_bool("modern_controls", 0));
+}
+int pc_modern_pad(void)
+{
+    return pc_cfg_bool("modern_controls_controller", pc_cfg_bool("modern_controls", 0));
+}
+int pc_modern_any(void) { return pc_modern_kb() || pc_modern_pad(); }
 
 PcRenderMode pc_render_mode(void)
 {

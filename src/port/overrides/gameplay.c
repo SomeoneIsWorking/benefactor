@@ -14,10 +14,9 @@
 
 static int s_dbg_endlevel = -1;   /* BENEFACTOR_DBG_ENDLEVEL=1 logs the win/lose trigger state */
 
-/* Master switch for the opt-in modern control scheme (X = interact, X+Down = drop,
- * Hop as its own action). Set once from "modern_controls" in pc_register_overrides;
- * when 0 (default) the modern overrides aren't registered and controls are vanilla. */
-int g_modern_controls = 0;
+/* The opt-in modern control scheme (X = interact, X+Down = drop, Hop as its own
+ * action) is now PER DEVICE: pc_modern_kb()/pc_modern_pad() (config.c), resolved
+ * live so the pause-menu options apply without a restart. */
 
 extern uint32_t hw_get_cop1lc(void);   /* for GO_TRACE diagnostics */
 
@@ -147,7 +146,14 @@ void native_gameplay_input(M68KCtx *ctx)
 {
     extern int hw_get_interact(void), hw_get_fire(void), hw_get_mouse_lmb(void);
     extern int hw_joy_down(void), hw_get_drop(void), hw_joy_up(void), hw_get_hop(void);
+    extern int hw_get_fire_vanilla(void);
     extern void hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_joy_down(int), hw_set_joy_up(int);
+    extern int pc_modern_any(void);
+
+    /* No device on the modern scheme → fully vanilla decode, untouched. (hw.c
+     * gates interact/drop/hop signals to modern devices, so they'd all be 0
+     * here anyway — this also skips the down/fire reshuffling below.) */
+    if (!pc_modern_any()) { gfn_gpl_57DEAC(ctx); return; }
 
     int down = hw_joy_down();
     int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
@@ -179,9 +185,11 @@ void native_gameplay_input(M68KCtx *ctx)
         restore = 1;
     } else if (drop_intent) {
         if (down) { hw_set_joy_down(0); down_strip = 1; }  /* empty-handed: no prone, no flow */
-    } else if (down) {
+    } else if (down && !hw_get_fire_vanilla()) {
+        /* Plain Down with fire held only on MODERN devices → prone, never drop.
+         * Fire from a vanilla-scheme device keeps its original Fire+Down drop. */
         sf = hw_get_fire(); sl = hw_get_mouse_lmb();
-        hw_set_fire(0); hw_set_mouse_lmb(0);               /* plain Down → prone, never drop */
+        hw_set_fire(0); hw_set_mouse_lmb(0);
         restore = 1;
     }
 

@@ -218,22 +218,21 @@ void pc_register_overrides(void)
      *     and extend is resolved LIVE per frame, so a runtime `cfg interact_extend N`
      *     widens the reach with no restart. Debug-only env: PICKUP_SCAN (identify item
      *     handlers), BENEFACTOR_RECOMP_PICKUP (keep recompiled pickup for A/B). */
-    { extern int pc_cfg_bool(const char *, int);
+    { extern int pc_modern_kb(void), pc_modern_pad(void);
       extern void native_gameplay_input(M68KCtx *ctx);
       extern void interact_register(void);
       extern int interact_extend_px(void);
-      extern int g_modern_controls;
 
-      int modern = pc_cfg_bool("modern_controls", 0);
-      g_modern_controls = modern;
-      fprintf(stderr, "[controls] modern_controls=%d interact_extend=%d\n",
-              modern, interact_extend_px());
+      fprintf(stderr, "[controls] modern_keyboard=%d modern_controller=%d interact_extend=%d\n",
+              pc_modern_kb(), pc_modern_pad(), interact_extend_px());
 
       if (getenv("PICKUP_SCAN")) {
           pickup_register_scan();                 /* diagnostic — identify item handlers */
       } else {
-          if (modern)                             /* X+Down drop, hop — modern only */
-              rt_register_override_gp(0x0057DEACu, native_gameplay_input);
+          /* Registered unconditionally: the per-device modern flags are resolved
+           * LIVE inside the overrides (options-menu toggles need no restart) and
+           * with both flags off every one of these is a verified passthrough. */
+          rt_register_override_gp(0x0057DEACu, native_gameplay_input);
           if (!getenv("BENEFACTOR_RECOMP_PICKUP")) {   /* wideners always on (live extend) */
               pickup_register();
               interact_register();

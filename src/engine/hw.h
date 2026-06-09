@@ -84,6 +84,17 @@ int  hw_joy_right(void);
 /* Single shared keyboard→input mapper (SDL keysym). Used by both the standalone
  * and the harness so there is one input path. */
 void hw_handle_key(int sym, int down);
+/* Fire held on a device whose controls are VANILLA (not modern) — that fire
+ * keeps its original interact/drop meaning in the pickup/input overrides. */
+int  hw_get_fire_vanilla(void);
+void hw_set_fire_vanilla(int on);    /* harness forced fire = vanilla semantics */
+/* Shared handler for controller (hot-plug/buttons/axes) + window SDL events;
+ * called from both event pumps (standalone + harness). 1 = consumed. */
+int  hw_handle_sdl_event(const union SDL_Event *ev);
+int  hw_pad_count(void);             /* connected game controllers */
+/* Re-resolve "widescreen_mode" (disabled|16:9|ultrawide|auto) and apply the
+ * output width live (options menu / window resize). */
+void hw_widescreen_refresh(void);
 /* Cycle the standalone's real-time speed (1x/2x/4x) — TAB key. */
 void hw_cycle_speed(void);
 

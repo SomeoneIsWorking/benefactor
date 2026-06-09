@@ -280,6 +280,7 @@ static uint8_t  s_fire_pressed = 0; /* any fire key pressed (active high) */
 static uint8_t  s_interact = 0;     /* dedicated INTERACT key (X) — separate from fire */
 static uint8_t  s_drop = 0;         /* dedicated DROP button — one of the drop bindings */
 static uint8_t  s_hop  = 0;         /* HOP action (separate from the Up direction) */
+static uint8_t  s_fire_vanilla = 0; /* fire held on a device with VANILLA controls */
 void (*g_hw_boot_handoff)(void) = NULL;  /* native disk-boot → frame-loop hand-off */
 
 void hw_set_joystick(int up, int down, int left, int right, int fire)
@@ -289,6 +290,8 @@ void hw_set_joystick(int up, int down, int left, int right, int fire)
     else      { s_joy_buttons &= ~1; s_fire_pressed = 0; }
 }
 int  hw_get_fire(void)     { return s_fire_pressed; }
+int  hw_get_fire_vanilla(void) { return s_fire_vanilla; }
+void hw_set_fire_vanilla(int on) { s_fire_vanilla = !!on; }  /* harness forced fire */
 int  hw_get_mouse_lmb(void) { return s_mouse_lmb; }
 void hw_set_fire(int on)   { s_fire_pressed = on; if (on) s_joy_buttons |= 1; else s_joy_buttons &= ~1; }
 void hw_set_mouse_lmb(int on) { s_mouse_lmb = on; }
@@ -312,16 +315,28 @@ int  hw_joy_right(void) { return s_joy_right; }
  * on-ladder signal that isn't pinned yet; see pc_input + the input task.) */
 static void apply_bound_input(void)
 {
+    /* Directions + fire merge across both devices. The MODERN-scheme actions
+     * (hop/interact/drop) only come from devices with modern controls enabled —
+     * a vanilla device keeps the authentic semantics (fire interacts, Up hops)
+     * with no extra action keys, even while the other device runs modern. */
+    int kbm = pc_modern_kb(), pdm = pc_modern_pad();
     s_joy_left  = pc_input_active(PI_LEFT);
     s_joy_right = pc_input_active(PI_RIGHT);
     s_joy_down  = pc_input_active(PI_DOWN);
     s_joy_up    = pc_input_active(PI_UP);   /* Up direction only; HOP is separate (s_hop) */
-    s_hop       = pc_input_active(PI_HOP);
+    s_hop       = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_HOP)) ||
+                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_HOP));
     int fire    = pc_input_active(PI_FIRE);
     s_fire_pressed = fire; if (fire) s_joy_buttons |= 1; else s_joy_buttons &= ~1;
     s_mouse_lmb = fire;                    /* fire also = port-0/menu select */
-    s_interact  = pc_input_active(PI_INTERACT);
-    s_drop      = pc_input_active(PI_DROP);
+    /* Fire held on a VANILLA-scheme device: that fire is allowed to keep its
+     * original interact/drop meaning in the overrides (hw_get_fire_vanilla). */
+    s_fire_vanilla = (!kbm && pc_input_active_dev(PI_DEV_KB,  PI_FIRE)) ||
+                     (!pdm && pc_input_active_dev(PI_DEV_PAD, PI_FIRE));
+    s_interact  = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_INTERACT)) ||
+                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_INTERACT));
+    s_drop      = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_DROP)) ||
+                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_DROP));
 }
 
 /* Single keyboard→input-state mapper, shared by the standalone
@@ -338,9 +353,20 @@ void hw_handle_key(int sym, int down)
     {
         extern int  pc_pause_active(void);
         extern void pc_pause_toggle(void);
+        extern void pc_pause_escape(void);
         extern void pc_pause_input_up(void);
         extern void pc_pause_input_down(void);
+        extern void pc_pause_input_left(void);
+        extern void pc_pause_input_right(void);
         extern void pc_pause_input_select(void);
+        extern int  pc_pause_capture_active(void);
+        extern void pc_pause_capture_code(int dev, int code);
+        /* Bindings capture ("PRESS A KEY"): the next key press becomes the
+         * binding. ESC cancels (handled inside pc_pause_capture_code). */
+        if (pc_pause_capture_active()) {
+            if (down) pc_pause_capture_code(PI_DEV_KB, sym);
+            return;
+        }
         if (sym == SDLK_ESCAPE) {
             if (down) {
                 /* Title-menu level-select panel: ESC dismisses it without
@@ -351,10 +377,8 @@ void hw_handle_key(int sym, int down)
                     g_level_select_visible = 0;
                     return;
                 }
-                if (pc_pause_active() || g_gameplay_active) {
-                    pc_pause_toggle();
-                    return;
-                }
+                if (pc_pause_active()) { pc_pause_escape(); return; }  /* back/resume */
+                if (g_gameplay_active) { pc_pause_toggle(); return; }
                 exit(0);
             }
             return;
@@ -362,8 +386,10 @@ void hw_handle_key(int sym, int down)
         if (pc_pause_active()) {
             if (!down) return;
             switch (sym) {
-                case SDLK_UP:    pc_pause_input_up();   return;
-                case SDLK_DOWN:  pc_pause_input_down(); return;
+                case SDLK_UP:    pc_pause_input_up();    return;
+                case SDLK_DOWN:  pc_pause_input_down();  return;
+                case SDLK_LEFT:  pc_pause_input_left();  return;
+                case SDLK_RIGHT: pc_pause_input_right(); return;
                 case SDLK_z:
                 case SDLK_LCTRL:
                 case SDLK_SPACE:
@@ -422,6 +448,191 @@ void hw_handle_key(int sym, int down)
     default: break;
     }
 }
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Game controllers (hot-pluggable) + widescreen mode                          */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+#define HW_MAX_PADS 8
+static SDL_GameController *s_pads[HW_MAX_PADS];
+static SDL_JoystickID      s_pad_ids[HW_MAX_PADS];
+static int s_npads = 0;
+/* Per (axis, direction) digital state for analog→action edge detection. */
+static uint8_t s_axis_on[SDL_CONTROLLER_AXIS_MAX][2];
+#define PAD_AXIS_ON_THRESH   16000
+#define PAD_AXIS_OFF_THRESH   8000
+
+int hw_pad_count(void) { return s_npads; }
+
+static void hw_pad_open(int device_index)
+{
+    if (!SDL_IsGameController(device_index) || s_npads >= HW_MAX_PADS) return;
+    SDL_GameController *gc = SDL_GameControllerOpen(device_index);
+    if (!gc) return;
+    SDL_JoystickID id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(gc));
+    for (int i = 0; i < s_npads; i++)
+        if (s_pad_ids[i] == id) { SDL_GameControllerClose(gc); return; }  /* already open */
+    s_pads[s_npads] = gc; s_pad_ids[s_npads] = id; s_npads++;
+    fprintf(stderr, "[pad] connected: %s (%d total)\n", SDL_GameControllerName(gc), s_npads);
+}
+
+static void hw_pad_close(SDL_JoystickID id)
+{
+    for (int i = 0; i < s_npads; i++) {
+        if (s_pad_ids[i] != id) continue;
+        fprintf(stderr, "[pad] disconnected: %s\n", SDL_GameControllerName(s_pads[i]));
+        SDL_GameControllerClose(s_pads[i]);
+        s_pads[i] = s_pads[--s_npads]; s_pad_ids[i] = s_pad_ids[s_npads];
+        if (s_npads == 0) {            /* no pads left: release any held buttons */
+            pc_input_pad_clear();
+            memset(s_axis_on, 0, sizeof s_axis_on);
+            apply_bound_input();
+        }
+        return;
+    }
+}
+
+/* Route one digital pad code (button or axis-direction edge) — the controller
+ * twin of hw_handle_key: pause menu navigation, bindings capture, or gameplay. */
+static void hw_handle_pad_code(int code, int down)
+{
+    extern int  pc_pause_active(void), pc_pause_capture_active(void);
+    extern void pc_pause_capture_code(int dev, int code);
+    extern void pc_pause_toggle(void), pc_pause_escape(void);
+    extern void pc_pause_input_up(void), pc_pause_input_down(void);
+    extern void pc_pause_input_left(void), pc_pause_input_right(void);
+    extern void pc_pause_input_select(void);
+
+    if (pc_pause_capture_active()) {
+        if (down) pc_pause_capture_code(PI_DEV_PAD, code);
+        return;
+    }
+    if (code == SDL_CONTROLLER_BUTTON_START) {
+        if (down) {
+            if (pc_pause_active())       pc_pause_escape();
+            else if (g_gameplay_active)  pc_pause_toggle();
+        }
+        return;
+    }
+    if (pc_pause_active()) {
+        if (!down) return;
+        if      (code == SDL_CONTROLLER_BUTTON_DPAD_UP ||
+                 code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTY, 0))  pc_pause_input_up();
+        else if (code == SDL_CONTROLLER_BUTTON_DPAD_DOWN ||
+                 code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTY, 1))  pc_pause_input_down();
+        else if (code == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
+                 code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTX, 0))  pc_pause_input_left();
+        else if (code == SDL_CONTROLLER_BUTTON_DPAD_RIGHT ||
+                 code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTX, 1))  pc_pause_input_right();
+        else if (code == SDL_CONTROLLER_BUTTON_A)                         pc_pause_input_select();
+        else if (code == SDL_CONTROLLER_BUTTON_B)                         pc_pause_escape();
+        return;
+    }
+    pc_input_load();
+    pc_input_pad_button(code, down);
+    apply_bound_input();
+}
+
+/* ── Widescreen mode ("widescreen_mode": disabled | 16:9 | ultrawide | auto) ──
+ * Resolves the cfg knob to an output width and applies it live: the present
+ * backend re-creates its texture when the content width changes, so this works
+ * at runtime from the pause menu. AUTO derives the width from the actual window
+ * aspect and re-applies on every window resize. When the knob is unset the
+ * legacy BENEFACTOR_WIDESCREEN pixel width (read in hw_init) stays in effect. */
+static int hw_widescreen_mode(void)   /* -1 unset, 0 disabled, 1 16:9, 2 ultrawide, 3 auto */
+{
+    char buf[24]; const char *src;
+    if (!pc_cfg_show("widescreen_mode", buf, sizeof buf, &src) || !buf[0]) return -1;
+    if (!strcasecmp(buf, "disabled") || !strcasecmp(buf, "off"))   return 0;
+    if (!strcmp(buf, "16:9")  || !strcasecmp(buf, "169"))          return 1;
+    if (!strcasecmp(buf, "ultrawide") || !strcmp(buf, "21:9"))     return 2;
+    if (!strcasecmp(buf, "auto"))                                  return 3;
+    fprintf(stderr, "[widescreen] unknown widescreen_mode '%s' (disabled|16:9|ultrawide|auto)\n", buf);
+    return -1;
+}
+
+static int ws_clamp(int w)
+{
+    if (w < HW_DISPLAY_W) w = HW_DISPLAY_W;
+    if (w > HW_OUT_MAX)   w = HW_OUT_MAX;
+    return w & ~1;
+}
+
+void hw_widescreen_refresh(void)
+{
+    int mode = hw_widescreen_mode();
+    if (mode < 0) return;                       /* knob unset: legacy width stays */
+    int w;
+    switch (mode) {
+    case 0:  w = HW_DISPLAY_W;                 break;
+    case 1:  w = HW_DISPLAY_H * 16 / 9;        break;
+    case 2:  w = HW_DISPLAY_H * 21 / 9;        break;
+    default: {                                  /* auto: window aspect */
+        SDL_Window *win = (!s_headless && s_backend) ? s_backend->window() : NULL;
+        if (win) {
+            int ww = 0, wh = 0;
+            SDL_GetWindowSize(win, &ww, &wh);
+            w = (wh > 0) ? (int)((int64_t)HW_DISPLAY_H * ww / wh) : HW_DISPLAY_H * 16 / 9;
+        } else {
+            w = HW_DISPLAY_H * 16 / 9;          /* no window yet (init/headless) */
+        }
+        break;
+    }
+    }
+    w = ws_clamp(w);
+    if (w == s_hw_out_w) return;
+    s_hw_out_w = w;
+    fprintf(stderr, "[widescreen] output width -> %d px\n", w);
+    /* For the fixed presets, match the window to the new aspect (auto follows
+     * the window instead; fullscreen scales within the display). */
+    if (mode != 3 && !s_headless && s_backend) {
+        SDL_Window *win = s_backend->window();
+        if (win && !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP))
+            SDL_SetWindowSize(win, w * 2, HW_DISPLAY_H * 2);
+    }
+}
+
+/* Shared handler for non-keyboard SDL events (controller hot-plug + buttons +
+ * axes, window resize). Called from BOTH event pumps — hw_present_frame's and
+ * the harness input_poll — so controller support works everywhere. Returns 1
+ * if the event was consumed. */
+int hw_handle_sdl_event(const SDL_Event *ev)
+{
+    switch (ev->type) {
+    case SDL_CONTROLLERDEVICEADDED:
+        hw_pad_open(ev->cdevice.which);          /* hot-plug */
+        return 1;
+    case SDL_CONTROLLERDEVICEREMOVED:
+        hw_pad_close(ev->cdevice.which);
+        return 1;
+    case SDL_CONTROLLERBUTTONDOWN:
+    case SDL_CONTROLLERBUTTONUP:
+        hw_handle_pad_code(ev->cbutton.button, ev->type == SDL_CONTROLLERBUTTONDOWN);
+        return 1;
+    case SDL_CONTROLLERAXISMOTION: {
+        int axis = ev->caxis.axis;
+        if (axis < 0 || axis >= SDL_CONTROLLER_AXIS_MAX) return 1;
+        int v = ev->caxis.value;
+        for (int dir = 0; dir < 2; dir++) {      /* 0 = negative, 1 = positive */
+            int mag = dir ? v : -v;
+            int on  = s_axis_on[axis][dir] ? (mag > PAD_AXIS_OFF_THRESH)
+                                           : (mag > PAD_AXIS_ON_THRESH);
+            if (on != s_axis_on[axis][dir]) {    /* hysteresis edge → digital event */
+                s_axis_on[axis][dir] = (uint8_t)on;
+                hw_handle_pad_code(PI_PAD_AXIS_CODE(axis, dir), on);
+            }
+        }
+        return 1;
+    }
+    case SDL_WINDOWEVENT:
+        if (ev->window.event == SDL_WINDOWEVENT_SIZE_CHANGED &&
+            hw_widescreen_mode() == 3)
+            hw_widescreen_refresh();             /* auto: follow the window aspect */
+        return 0;                                /* not exclusive — others may care */
+    default:
+        return 0;
+    }
+}
+
 static uint8_t  s_key_byte = 0xFF;
 /* s_blt_bzero, s_vposr_counter, s_audio[] live on g_state via game_state.h. */
 int      s_copper_writing = 0; /* set during copper MOVE execution */
@@ -450,6 +661,11 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
                if (w < HW_DISPLAY_W) w = HW_DISPLAY_W;
                if (w > HW_OUT_MAX)   w = HW_OUT_MAX;
                s_hw_out_w = w & ~1; } }
+    /* "widescreen_mode" preset (options menu) overrides the legacy pixel width.
+     * Resolved BEFORE the window exists, so auto starts at 16:9 and then follows
+     * the first real window-resize event. */
+    pc_config_load();
+    hw_widescreen_refresh();
 
     if (s_headless) {
         HW_LOG("HEADLESS mode – no SDL video/audio\n");
@@ -461,10 +677,14 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
             return -1;
         }
     } else {
-        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK |
+                     SDL_INIT_GAMECONTROLLER) < 0) {
             HW_LOG("SDL_Init: %s\n", SDL_GetError());
             return -1;
         }
+        /* Controllers already connected at launch (hot-plug arrivals come in as
+         * SDL_CONTROLLERDEVICEADDED events through hw_handle_sdl_event). */
+        for (int i = 0; i < SDL_NumJoysticks(); i++) hw_pad_open(i);
 
         /* Pick the present backend (BENEFACTOR_RENDER=sdl|vulkan, default sdl;
          * falls back to sdl if vulkan is unavailable) and let it own the window. */
@@ -519,6 +739,7 @@ int hw_present_frame(void)
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) { s_in_present_frame = 0; return 1; }
+            if (hw_handle_sdl_event(&ev)) continue;   /* controllers, window resize */
             if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP) {
                 if (ev.button.button == SDL_BUTTON_LEFT)
                     s_mouse_lmb = (ev.type == SDL_MOUSEBUTTONDOWN);

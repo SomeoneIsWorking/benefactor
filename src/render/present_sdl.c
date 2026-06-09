@@ -11,6 +11,22 @@
 static SDL_Window   *s_window   = NULL;
 static SDL_Renderer *s_renderer = NULL;
 static SDL_Texture  *s_texture  = NULL;
+static int s_content_w = 0, s_content_h = 0;
+
+/* The content (output-surface) size can change at runtime — the widescreen
+ * option in the pause menu / auto mode. Recreate the streaming texture and
+ * logical size to match before the next upload. */
+static int sdl_ensure_content(int w, int h)
+{
+    if (w == s_content_w && h == s_content_h && s_texture) return 0;
+    if (s_texture) SDL_DestroyTexture(s_texture);
+    s_texture = SDL_CreateTexture(s_renderer,
+        SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+    if (!s_texture) return -1;
+    SDL_RenderSetLogicalSize(s_renderer, w, h);
+    s_content_w = w; s_content_h = h;
+    return 0;
+}
 
 static int sdl_init(const char *title, int content_w, int content_h)
 {
@@ -27,18 +43,12 @@ static int sdl_init(const char *title, int content_w, int content_h)
         s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_SOFTWARE);
     if (!s_renderer) return -1;
 
-    SDL_RenderSetLogicalSize(s_renderer, content_w, content_h);
-
-    s_texture = SDL_CreateTexture(s_renderer,
-        SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-        content_w, content_h);
-    if (!s_texture) return -1;
-    return 0;
+    return sdl_ensure_content(content_w, content_h);
 }
 
 static void sdl_present(const uint32_t *argb, int w, int h)
 {
-    (void)h;
+    if (sdl_ensure_content(w, h) != 0) return;
     SDL_UpdateTexture(s_texture, NULL, argb, w * 4);
     SDL_RenderClear(s_renderer);
     SDL_RenderCopy(s_renderer, s_texture, NULL, NULL);
@@ -52,7 +62,7 @@ static void sdl_present(const uint32_t *argb, int w, int h)
 static void sdl_present_scene(const Scene *s, int y_lo, int y_hi,
                               const uint32_t *base, int w, int h)
 {
-    (void)w;
+    if (sdl_ensure_content(w, h) != 0) return;
     if (scene_draw_sdl_window(s_renderer, s, y_lo, y_hi, base, w, h) != 0) {
         /* SDL failure mid-frame: fall back to the plain blit so the user
          * still sees the (identical) composed frame. */
@@ -77,6 +87,7 @@ static void sdl_shutdown(void)
     if (s_renderer) SDL_DestroyRenderer(s_renderer);
     if (s_window)   SDL_DestroyWindow(s_window);
     s_texture = NULL; s_renderer = NULL; s_window = NULL;
+    s_content_w = s_content_h = 0;
 }
 
 static const PresentBackend SDL_BACKEND = {

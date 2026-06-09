@@ -1,13 +1,17 @@
 {
-  "_comment": "Copy to benefactor.json (next to the disks) to tune. Precedence: env var (BENEFACTOR_<KEY>) > REPL `cfg` > this file > default.",
+  "_comment": "Copy to benefactor.json (next to the disks) to tune. Precedence: env var (BENEFACTOR_<KEY>) > REPL `cfg` > this file > default. The in-game pause menu (ESC -> OPTIONS) edits this file in place.",
 
-  "_comment0": "Modern controls (X = interact/pickup, X+Down = drop, Hop as its own action, FIRE no longer interacts). OFF by default = authentic Amiga scheme (FIRE does pickup/interact/drop-with-Down, Up = jump). Gates ONLY the input remap + the interact/hop/drop bindings below. interact_extend is INDEPENDENT of this.",
-  "modern_controls": false,
+  "_comment0": "Modern controls (X = interact/pickup, X+Down = drop, Jump as its own button, FIRE no longer interacts), PER DEVICE. OFF by default = authentic Amiga scheme (FIRE does pickup/interact/drop-with-Down, Up = jump). The legacy single 'modern_controls' key is the default for both per-device flags. interact_extend is INDEPENDENT of this.",
+  "modern_controls_keyboard": false,
+  "modern_controls_controller": false,
 
-  "_comment1": "Extra HORIZONTAL reach (px) for pickup + interaction, on top of vanilla (vertical unchanged). Independent of modern_controls — applies in BOTH schemes (vanilla extends Fire's reach; modern moves it to X). 0 = exact original reach. Try 15 if pickups feel too fiddly.",
+  "_comment1": "Extra HORIZONTAL reach (px) for pickup + interaction, on top of vanilla (vertical unchanged). Independent of modern controls — applies in BOTH schemes (vanilla extends Fire's reach; modern moves it to X). 0 = exact original reach. The OPTIONS menu toggle uses 5.",
   "interact_extend": 0,
 
-  "_comment4": "Key bindings. Each value is a comma-separated list of CHORDS; a chord is keys joined by '+'. Names: Up/Down/Left/Right, Space, Return, LShift/RShift, LCtrl/Ctrl/RCtrl, Tab, single letters/digits. Omit any line to keep the default shown.",
+  "_comment2": "Widescreen preset: disabled | 16:9 | ultrawide (21:9) | auto (follows the window aspect). Overrides the legacy 'widescreen' pixel-width knob.",
+  "widescreen_mode": "disabled",
+
+  "_comment4": "Keyboard bindings. Each value is a comma-separated list of CHORDS; a chord is keys joined by '+'. Names: Up/Down/Left/Right, Space, Return, LShift/RShift, LCtrl/Ctrl/RCtrl, Tab, single letters/digits, or any SDL key name. Omit any line to keep the default shown. (bind_hop = the modern-scheme JUMP button.)",
   "bind_left":     "Left",
   "bind_right":    "Right",
   "bind_up":       "Up",
@@ -15,5 +19,15 @@
   "bind_hop":      "Up",
   "bind_fire":     "Z, LCtrl, Space, Return",
   "bind_interact": "X, LShift",
-  "bind_drop":     "X+Down, C, RShift"
+  "bind_drop":     "X+Down, C, RShift",
+
+  "_comment5": "Controller bindings (hot-pluggable; Start pauses). Names: A/B/X/Y, DPUp/DPDown/DPLeft/DPRight, Start/Back, LB/RB, LeftTrigger/RightTrigger, LStick/RStick, and stick directions LeftX-/LeftX+/LeftY-/LeftY+ (RightX/RightY likewise). pad_hop = the modern-scheme JUMP button; pad_fire avoids A so jump never long-jumps.",
+  "pad_left":      "DPLeft, LeftX-",
+  "pad_right":     "DPRight, LeftX+",
+  "pad_up":        "DPUp, LeftY-",
+  "pad_down":      "DPDown, LeftY+",
+  "pad_hop":       "A",
+  "pad_fire":      "B",
+  "pad_interact":  "X",
+  "pad_drop":      "Y"
 }
