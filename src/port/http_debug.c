@@ -177,11 +177,12 @@ static void handle_input(int fd, const char *q)
 /* /pickup?extend=N — live-tune the extra horizontal pickup/interaction reach (px). */
 static void handle_pickup(int fd, const char *q)
 {
-    extern int g_interact_extend;
+    extern int pc_cfg_int(const char *, int);
+    extern void pc_cfg_set(const char *, const char *);
     char b[8];
-    if (query_get(q, "extend", b, sizeof b)) g_interact_extend = atoi(b);
+    if (query_get(q, "extend", b, sizeof b)) pc_cfg_set("interact_extend", b);  /* unified store */
     char body[64];
-    int n = snprintf(body, sizeof body, "{\"interact_extend\":%d}\n", g_interact_extend);
+    int n = snprintf(body, sizeof body, "{\"interact_extend\":%d}\n", pc_cfg_int("interact_extend", 0));
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 

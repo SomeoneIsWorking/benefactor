@@ -614,6 +614,49 @@ int main(int argc, char **argv)
                    native_wsstatic_scanned(), native_wsstatic_drawn(), native_wsstatic_cached(),
                    native_wsstatic_dbg_bp0(), native_wsstatic_dbg_first());
         }
+        else if (!strcmp(cmd, "cfg")) {
+            /* cfg               — list declared knobs + resolved value/source
+             * cfg <key>         — show one
+             * cfg <key> <value> — set a REPL/session override (ENV still wins; outranks JSON)
+             * cfg <key> -       — clear the REPL override (fall back to JSON/default) */
+            extern int  pc_cfg_show(const char *, char *, int, const char **);
+            extern void pc_cfg_set(const char *, const char *);
+            extern int  pc_cfg_count(void);
+            extern const char *pc_cfg_key(int), *pc_cfg_desc(int);
+            char key[48] = {0}, val[48] = {0};
+            int got = sscanf(line, "%*s %47s %47s", key, val);
+            if (got < 1) {
+                printf("[cfg] precedence: ENV > REPL > JSON > default. knobs:\n");
+                for (int i = 0; i < pc_cfg_count(); i++) {
+                    char v[64]; const char *src = "default";
+                    pc_cfg_show(pc_cfg_key(i), v, sizeof v, &src);
+                    printf("  %-18s = %-10s [%s]   %s\n",
+                           pc_cfg_key(i), v[0]?v:"(unset)", src, pc_cfg_desc(i));
+                }
+            } else {
+                if (got >= 2) pc_cfg_set(key, strcmp(val, "-") ? val : NULL);
+                char v[64]; const char *src = "default";
+                pc_cfg_show(key, v, sizeof v, &src);
+                printf("[cfg] %s = %s [%s]\n", key, v[0]?v:"(unset)", src);
+            }
+        }
+        else if (!strcmp(cmd, "tp")) {
+            /* tp <x> [y] — TELEPORT the player to world (x[,y]). Player block is
+             * $10A6(a5)=$57FEB8 (worldX), $57FEBA (worldY), big-endian. Lets us drive
+             * the game into arbitrary states (reach a key, a marry man, etc.) instead
+             * of blind joystick navigation. */
+            extern uint8_t *g_mem;
+            long x = -999999, y = -999999;
+            { const char *p = line; while (*p && *p!=' ') p++; sscanf(p, " %ld %ld", &x, &y); }
+            if (!g_mem) { printf("[crepl] tp: no g_mem\n"); }
+            else {
+                if (x != -999999) { g_mem[0x57FEB8] = (uint8_t)((x>>8)&0xFF); g_mem[0x57FEB9] = (uint8_t)(x&0xFF); }
+                if (y != -999999) { g_mem[0x57FEBA] = (uint8_t)((y>>8)&0xFF); g_mem[0x57FEBB] = (uint8_t)(y&0xFF); }
+                int nx = (int16_t)(uint16_t)(((uint16_t)g_mem[0x57FEB8]<<8)|g_mem[0x57FEB9]);
+                int ny = (int16_t)(uint16_t)(((uint16_t)g_mem[0x57FEBA]<<8)|g_mem[0x57FEBB]);
+                printf("[crepl] tp player -> worldX=%d worldY=%d\n", nx, ny);
+            }
+        }
         else if (!strcmp(cmd, "wsmm")) {
             /* wsmm — dump each captured Marry Man (build-entry capture, $57C13A handler):
              * worldX, worldY, the post-sub-handler animation FRAME (d3), facing flags (d4),
