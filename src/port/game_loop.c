@@ -1198,6 +1198,10 @@ int pc_loadstate(const char *path)
     ok &= fread(g_mem,    RT_MEM_SIZE,    1, f) == 1;
     fclose(f);
     if (!ok) { fprintf(stderr, "[pc] loadstate: short read\n"); return -1; }
+    /* Native-side render caches are NOT part of the savestate: drop the wsobj
+     * committed-page map so persisted objects re-seed from the RESTORED engine
+     * state instead of shadowing it with pre-load entries. */
+    { extern void native_wsobj_commit_reset(void); native_wsobj_commit_reset(); }
     /* g_state (incl. s_game_ctx, with resume) + g_mem are now loaded. The old game
      * thread (parked at its own wait on the PRE-load memory) is stale: discard it
      * and spawn a fresh thread that re-enters the steady-gameplay cycle at $577114.
