@@ -157,9 +157,11 @@ static inline int _hwtrace_enabled(void) {
 /* Internal state                                                               */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-static SDL_Window   *s_window   = NULL;
-static SDL_Renderer *s_renderer = NULL;
-static SDL_Texture  *s_texture  = NULL;
+/* Present is delegated to a render backend (SDL by default, Vulkan opt-in) —
+ * see src/render/present_backend.h. hw.c still composes s_out, pumps events, and
+ * paces frames; the backend owns the window + how s_out reaches the screen. */
+#include "render/present_backend.h"
+static const PresentBackend *s_backend = NULL;
 
 /* OCS shadow registers (s_regs/s_dmacon/s_intena/s_intreq/s_bplcon0/s_bplptr/
  * s_sprpt/s_palette/s_diwstrt/s_diwstop) all live on g_state via game_state.h
@@ -457,27 +459,14 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
             return -1;
         }
 
-        s_window = SDL_CreateWindow(title,
-            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            s_hw_out_w * 2, HW_DISPLAY_H * 2,
-            SDL_WINDOW_RESIZABLE);
-        if (!s_window) return -1;
-
-        /* No PRESENTVSYNC: vsync would lock the game to the monitor's refresh
-         * (e.g. 60 Hz → 20% too fast). We pace to the PAL 50 Hz rate manually
-         * in hw_present_frame instead. */
-        s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_ACCELERATED);
-        if (!s_renderer)
-            s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_SOFTWARE);
-        if (!s_renderer) return -1;
-
-        SDL_RenderSetLogicalSize(s_renderer, s_hw_out_w, HW_DISPLAY_H);
-
-        s_texture = SDL_CreateTexture(s_renderer,
-            SDL_PIXELFORMAT_ARGB8888,
-            SDL_TEXTUREACCESS_STREAMING,
-            s_hw_out_w, HW_DISPLAY_H);
-        if (!s_texture) return -1;
+        /* Pick the present backend (BENEFACTOR_RENDER=sdl|vulkan, default sdl;
+         * falls back to sdl if vulkan is unavailable) and let it own the window. */
+        s_backend = present_backend_select(getenv("BENEFACTOR_RENDER"));
+        if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) {
+            HW_LOG("present backend '%s' init failed: %s\n", s_backend->name, SDL_GetError());
+            return -1;
+        }
+        HW_LOG("[render] present backend: %s\n", s_backend->name);
 
         hw_audio_open();
     }
@@ -499,11 +488,7 @@ void hw_fini(void)
 {
     hw_audio_close();
     for (int i = 0; i < s_n_disks; i++) free(s_disk_paths[i]);
-    if (!s_headless) {
-        if (s_texture)  SDL_DestroyTexture(s_texture);
-        if (s_renderer) SDL_DestroyRenderer(s_renderer);
-        if (s_window)   SDL_DestroyWindow(s_window);
-    }
+    if (!s_headless && s_backend) s_backend->shutdown();
     SDL_Quit();
 }
 
@@ -533,11 +518,7 @@ int hw_present_frame(void)
                  * menu in gameplay, falls back to exit(0) elsewhere. Don't
                  * short-circuit return 1 here or pause never engages. */
                 if (ev.key.keysym.sym == SDLK_F11) {
-                    if (!s_headless && down) {
-                        uint32_t flags = SDL_GetWindowFlags(s_window);
-                        SDL_SetWindowFullscreen(s_window,
-                            (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-                    }
+                    if (!s_headless && down && s_backend) s_backend->toggle_fullscreen();
                 } else {
                     hw_handle_key(ev.key.keysym.sym, down);
                 }
@@ -569,10 +550,7 @@ int hw_present_frame(void)
       pc_overlay_set_dims(HW_DISPLAY_W, HW_DISPLAY_H);   /* restore default */ }
 
     if (!s_headless) {
-        SDL_UpdateTexture(s_texture, NULL, s_out, s_hw_out_w * 4);
-        SDL_RenderClear(s_renderer);
-        SDL_RenderCopy(s_renderer, s_texture, NULL, NULL);
-        SDL_RenderPresent(s_renderer);
+        s_backend->present(s_out, s_hw_out_w, HW_DISPLAY_H);
 
         /* Pace to PAL 50 Hz (20 ms/frame). s_next_frame_ms self-corrects and
          * resyncs if we fall far behind, so the game runs at the intended speed
