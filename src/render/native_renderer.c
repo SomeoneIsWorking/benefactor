@@ -723,9 +723,17 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
  *     $4a72(a5)+frame*8 → {data_off, mask_off, yoff, BLTSIZE}; data=data_off+$EEFA,
  *     mask=mask_off+$12E7E; cookie-cut, BMOD=-2; left=worldX-8, top=clamp(worldY,$D7)+yoff.
  *     Verified: L1 cursor $46 → frame 50 → data=$010052 mask=$0131F6 size=$0242.
- *   - IN VIEW the engine's $5A39EC descriptor is the source of truth (it has the correct frame
- *     AND variant — the BLIND/gray variant uses a different terrain-gfx path $57B856 we don't
- *     resolve yet, so off-view blind still renders red; RE $57B856 to finish, do NOT hack it). */
+ *   - BLIND/gray variant = the RED gfx + a HARDCODED $4C38 (RE-grounded, 2026-06-09): the
+ *     blind draw path $57B856 is byte-identical to the red path $57B4F6 — same $4a72(a5)
+ *     descriptor, same index — except it adds $13B32/$17AB6 (data/mask) where red adds
+ *     $EEFA/$12E7E, and both deltas are exactly $4C38. (The earlier "per-level +$4C38/+$6AB0"
+ *     claim was FALSIFIED — it was a different mechanism: a frame-$3a special-case that swaps
+ *     to a fixed page #$585138. $4C38 is a legitimate instruction-stream constant, not per-level.)
+ *   - Facing: d4 bit1 selects the blitter frame block (clear ⇒ +$55 frames); see frame2 below.
+ *   STILL OPEN: non-idle ANIMATION. Non-idle poses route through per-pose sub-handlers
+ *   ($526a/$545a(a5) → $57C194/…), each with its own sub-sequence table; this resolver only
+ *   replays the TOP table, so only idle poses animate correctly off-view. + d4 bit0 (resolve
+ *   tail) is not replayed. Both need the sub-handler tables ported into the build capture. */
 #define WS_REC_BASE   0x5A4562u
 #define WS_REC_STRIDE 64
 #define WS_MM_HANDLER 0x57C13Au
@@ -733,6 +741,7 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
 #define WS_ANIM_TABLE 0x5D5Au          /* a5-relative: $584B6C ($57C13A anim) */
 #define WS_GFX_DATA_ADD 0xEEFAu
 #define WS_GFX_MASK_ADD 0x12E7Eu
+#define WS_GFX_BLIND_ADD 0x4C38u       /* blind/gray = red gfx + $4C38 (RE: $57B856 vs $57B4F6) */
 
 /* Build-entry capture of the Marry Men (pc_overrides_gameplay.c $57B19E/$57B856). */
 extern int native_wsbuild_count(void);
@@ -768,8 +777,9 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
         if (w <= 0 || h <= 0 || w > 64 || h > 256) continue;
         int rs = w * 2 - 2; if (rs <= 0) continue;          /* BMOD = -2 */
         int yoff = (int16_t)gmem_r16(M, e + 4u);
-        uint32_t data = (gmem_r16(M, e)      + (blind ? 0x13B32u : WS_GFX_DATA_ADD)) & 0xFFFFFFu;
-        uint32_t mask = (gmem_r16(M, e + 2u) + (blind ? 0x17AB6u : WS_GFX_MASK_ADD)) & 0xFFFFFFu;
+        uint32_t bdelta = blind ? WS_GFX_BLIND_ADD : 0u;    /* blind/gray = red + $4C38 */
+        uint32_t data = (gmem_r16(M, e)      + WS_GFX_DATA_ADD + bdelta) & 0xFFFFFFu;
+        uint32_t mask = (gmem_r16(M, e + 2u) + WS_GFX_MASK_ADD + bdelta) & 0xFFFFFFu;
         if (worldY > 0xD7) worldY = 0xD7;                   /* engine clamps d2 to $D7 */
         ws_draw_static(M, pf_top, pf_bot, worldX - 8, worldY + yoff, h, rs, data, mask);
         s_wsstatic_drawn++;
