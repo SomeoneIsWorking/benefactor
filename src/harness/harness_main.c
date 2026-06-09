@@ -785,6 +785,20 @@ int main(int argc, char **argv)
                 printf("\n");
             }
         }
+        else if (!strcmp(cmd, "mpset")) {  /* mpset <hex addr> <hex val> [w|l] — poke PC g_mem
+                                              (byte default; w=word, l=long; big-endian). For testing
+                                              bad-state scenarios, e.g. `load; mpset 1890 0 w` then walk
+                                              to reproduce the W6L2 wild-jump from a corrupt $1890. */
+            extern uint8_t *g_mem;
+            unsigned a = 0; unsigned long v = 0; char sz = 'b';
+            if (sscanf(line, "%*s %x %lx %c", &a, &v, &sz) >= 2) {
+                a &= 0x7FFFFF;
+                int n = (sz == 'l') ? 4 : (sz == 'w') ? 2 : 1;
+                for (int i = 0; i < n; i++)                       /* big-endian */
+                    g_mem[(a + i) & 0x7FFFFF] = (uint8_t)(v >> (8 * (n - 1 - i)));
+                printf("[crepl] PC  $%06X <- %0*lX (%c)\n", a, n * 2, v, sz);
+            } else printf("[crepl] usage: mpset <hex addr> <hex val> [w|l]\n");
+        }
         else if (!strcmp(cmd, "wscmp")) {  /* wscmp [frames] — per-frame diff native(s_out) vs vanilla(s_fb)
                                               while scrolling right then left. Needs BENEFACTOR_WS_CMP=1. */
             extern const uint32_t *hw_get_framebuffer(void);
