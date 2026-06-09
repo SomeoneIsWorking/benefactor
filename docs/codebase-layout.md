@@ -64,6 +64,13 @@ src/
                       # engine state the wide renderer may read — and NOTHING else
                       # (no copper/displayed-output reverse-projection). See
                       # docs/working-agreements.md "No bandaids".
+    present_backend.h # the present seam: PresentBackend (how the composed surface
+                      # reaches the screen). Selected by BENEFACTOR_RENDER=sdl|vulkan.
+    present_sdl.c     # default backend: SDL_Renderer + streaming texture.
+    present_vulkan.c  # Vulkan backend (built only when CMake finds Vulkan): device +
+                      # fullscreen-quad pipeline (the future per-character lighting
+                      # home). `--vk-selftest` runs an offscreen render→readback check.
+                      # shaders/ holds the GLSL (embedded as SPIR-V via glslc).
 
   common/           # shared headers: log.h, game_state.h
 

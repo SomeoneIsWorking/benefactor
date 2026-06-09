@@ -1,10 +1,36 @@
-/* pc_main.c – Native PC game entry point (single path: native disk boot) */
+/* main.c – Native PC game entry point (single path: native disk boot) */
 #include "port/port.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <signal.h>
 #include <unistd.h>
+
+/* Headless Vulkan self-test (no window/disks): render a gradient through the
+ * offscreen Vulkan pipeline and compare the readback to the input. Proves the
+ * GPU present path works with the display off. Returns process exit code. */
+static int run_vk_selftest(void)
+{
+#ifdef BENEFACTOR_HAVE_VULKAN
+    extern int present_vulkan_selftest(const uint32_t *argb, int w, int h);
+    int w = 480, h = 282;
+    uint32_t *img = malloc((size_t)w * h * 4);
+    if (!img) return 1;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+            img[y * w + x] = 0xFF000000u | ((uint32_t)(x * 255 / w) << 16)
+                           | ((uint32_t)(y * 255 / h) << 8) | (uint32_t)((x ^ y) & 0xFF);
+    int d = present_vulkan_selftest(img, w, h);
+    free(img);
+    if (d < 0) { fprintf(stderr, "[vk-selftest] FAILED (Vulkan error)\n"); return 1; }
+    printf("[vk-selftest] max channel diff = %d -> %s\n", d, d <= 1 ? "PASS" : "FAIL");
+    return d <= 1 ? 0 : 1;
+#else
+    fprintf(stderr, "[vk-selftest] this build has no Vulkan (-DBENEFACTOR_HAVE_VULKAN off)\n");
+    return 1;
+#endif
+}
 
 static volatile int s_running = 1;
 /* SIGINT/SIGTERM: exit promptly. The old handler only set s_running, which nothing
@@ -29,6 +55,7 @@ int main(int argc, char **argv)
      * "--load <path>" loads a savestate immediately after init (replaces the
      * full intro/title boot; the game resumes at the saved coroutine yield). */
     for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--vk-selftest")) return run_vk_selftest();
         if (!strcmp(argv[i], "--disk")) continue;
         if (!strcmp(argv[i], "--level") && i + 1 < argc) {
             direct_level = atoi(argv[++i]);

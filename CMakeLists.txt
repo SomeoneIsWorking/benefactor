@@ -30,6 +30,38 @@ endif()
 # SDL2
 find_package(SDL2 REQUIRED)
 
+# Vulkan (OPTIONAL — the present-vulkan backend / groundwork). When absent, the
+# build is unchanged and present_backend_select() falls back to SDL. When present,
+# compile src/render/present_vulkan.c, embed the blit shaders as SPIR-V (glslc
+# -mfmt=num -> .inc included into a uint32_t[]), and define BENEFACTOR_HAVE_VULKAN.
+find_package(Vulkan QUIET)
+if(Vulkan_FOUND)
+    if(Vulkan_GLSLC_EXECUTABLE)
+        set(GLSLC "${Vulkan_GLSLC_EXECUTABLE}")
+    else()
+        find_program(GLSLC glslc)
+    endif()
+    if(GLSLC)
+        set(SHADER_GEN_DIR "${CMAKE_BINARY_DIR}/shaders")
+        file(MAKE_DIRECTORY "${SHADER_GEN_DIR}")
+        set(SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/render/shaders")
+        add_custom_command(OUTPUT "${SHADER_GEN_DIR}/blit.vert.inc"
+            COMMAND ${GLSLC} -mfmt=num "${SHADER_SRC}/blit.vert" -o "${SHADER_GEN_DIR}/blit.vert.inc"
+            DEPENDS "${SHADER_SRC}/blit.vert" VERBATIM)
+        add_custom_command(OUTPUT "${SHADER_GEN_DIR}/blit.frag.inc"
+            COMMAND ${GLSLC} -mfmt=num "${SHADER_SRC}/blit.frag" -o "${SHADER_GEN_DIR}/blit.frag.inc"
+            DEPENDS "${SHADER_SRC}/blit.frag" VERBATIM)
+        add_custom_target(benefactor_shaders
+            DEPENDS "${SHADER_GEN_DIR}/blit.vert.inc" "${SHADER_GEN_DIR}/blit.frag.inc")
+        set(BENEFACTOR_VULKAN ON)
+        message(STATUS "Vulkan found — building the Vulkan present backend (glslc: ${GLSLC})")
+    else()
+        message(STATUS "Vulkan found but glslc missing — skipping the Vulkan backend")
+    endif()
+else()
+    message(STATUS "Vulkan not found — SDL-only present (set up the Vulkan SDK to enable it)")
+endif()
+
 # ── PUAE chip dump input ──────────────────────────────────────────────────────
 # Canonical source: chip_ram_dump.bin at repository root.
 # Generate/update it from ROMs + WHDLoad disks with:
@@ -533,3 +565,17 @@ target_link_libraries(benefactor-harness PRIVATE
     ${SDL2_LIBRARIES}
     m pthread dl
 )
+
+# ── Vulkan present backend wiring (optional; see find_package(Vulkan) above) ───
+# Appended after the targets so target_sources can extend them. present_vulkan.c
+# is compiled into both executables only when Vulkan + glslc are available; the
+# embedded-SPIR-V .inc files live in ${SHADER_GEN_DIR} (added to the include path).
+if(BENEFACTOR_VULKAN)
+    foreach(_t benefactor-pc benefactor-harness)
+        target_sources(${_t} PRIVATE src/render/present_vulkan.c)
+        target_compile_definitions(${_t} PRIVATE BENEFACTOR_HAVE_VULKAN)
+        target_include_directories(${_t} PRIVATE "${SHADER_GEN_DIR}")
+        target_link_libraries(${_t} PRIVATE Vulkan::Vulkan)
+        add_dependencies(${_t} benefactor_shaders)
+    endforeach()
+endif()
