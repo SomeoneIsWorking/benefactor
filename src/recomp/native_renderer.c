@@ -18,6 +18,7 @@
  *                          BPL1MOD=40 (constant); BPL2MOD varies per copper WAIT
  */
 #include "hw_private.h"   /* pulls in rt.h → g_mem, and amiga_to_argb(), s_regs, etc. */
+#include "native_engine_view.h"  /* the wide renderer's only engine-state input (the firewall) */
 #include <string.h>
 #include <stdlib.h>
 
@@ -435,8 +436,6 @@ void native_render_frame(void)
  * Tilemap (~$552A0) and tile gfx (~$5D9xxx, >512KB) are read straight from g_mem
  * (they don't change within a level), NOT via the 512KB chip_r16 window. */
 #define WS_TILEMAP  0x000552A0u
-#define WS_TILEROW  0xF4u            /* tilemap row stride FALLBACK (L9); real one is per-level */
-#define WS_PHASETAB 0x0057F4BCu      /* row-offset/phase table; entry[1].d2adj = row stride */
 #define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
 int g_ws_view_left = 0, g_ws_view_w = 0;   /* last wide-render view mapping (worldX = view_left + x) */
 /* ============================================================================
@@ -467,9 +466,6 @@ int g_ws_view_left = 0, g_ws_view_w = 0;   /* last wide-render view mapping (wor
 static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
 
 #define WS_GFXTAB   0x005A539Eu
-#define WS_CAMERA   0x0057FDBAu
-#define WS_EDGE_LO  0x0057FE8Cu
-#define WS_EDGE_HI  0x0057FE8Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
 /* Per-object draw params captured at the engine's $57D8D0 choke point (before its
@@ -500,15 +496,16 @@ static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a)
  * follow the engine camera, clamped to the level edges. */
 int ws_view_left(int ow)
 {
-    const uint8_t *M = g_mem;
-    int cam      = M ? (int16_t)gmem_r16(M, WS_CAMERA) : 0;
-    int cmin     = (M ? (int)gmem_r16(M, WS_EDGE_LO) : 0x90) - 0x90;
-    int cmax     = (M ? (int)gmem_r16(M, WS_EDGE_HI) : 0x100) - 0x100;
-    int level_lo = ((cmin < 0 ? 0 : cmin) >> 4) * 16;
-    int level_hi = ((cmax + 320) >> 4) * 16;
+    EngineView ev;
+    if (!engine_view_capture(&ev)) return 0;   /* no sourced state -> no view (no fudge) */
+    /* World column span the camera can ever reveal, from the engine's own clamp
+     * range (ev.level_lo/hi already include the engine clamp biases). level_lo can
+     * be slightly negative at the left edge; the visible world starts at column 0. */
+    int level_lo = (ev.level_lo < 0 ? 0 : ev.level_lo) & ~15;
+    int level_hi = (ev.level_hi + 320) & ~15;
     int level_w  = level_hi - level_lo;
     if (level_w <= ow) return level_lo - (ow - level_w) / 2;   /* center narrow level */
-    int vl = (cam + 16) - (ow - 320) / 2;                      /* follow player */
+    int vl = (ev.camera + 16) - (ow - 320) / 2;                /* follow player */
     if (vl < level_lo)      vl = level_lo;
     if (vl > level_hi - ow) vl = level_hi - ow;
     return vl;
@@ -737,85 +734,47 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
 #define WS_GFX_DATA_ADD 0xEEFAu
 #define WS_GFX_MASK_ADD 0x12E7Eu
 
+/* Build-entry capture of the Marry Men (pc_overrides_gameplay.c $57B19E/$57B856). */
+extern int native_wsbuild_count(void);
+extern int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind);
+
 static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
 {
     const uint8_t *M = g_mem;
     s_wsstatic_drawn = 0; s_wsstatic_scanned = 0; s_wsstatic_cached = 0;
-    if (!M || getenv("WS_NOOBJ") || s_nanchors < 1) return;
-    uint32_t bp0 = s_anchors[0].ptr[0];
-    s_wsstatic_dbg_bp0 = bp0; s_wsstatic_dbg_first = gmem_r32(M, WS_STATIC_QUEUE + 0x10u);
-    uint32_t a5 = 0x57EE12u, gtab = a5 + WS_GFX_TABLE, anim = a5 + WS_ANIM_TABLE;
+    if (!M || getenv("WS_NOOBJ")) return;
+    (void)cam16;
+    s_wsstatic_dbg_bp0 = (s_nanchors >= 1) ? s_anchors[0].ptr[0] : 0u;
+    s_wsstatic_dbg_first = 0;
+    uint32_t a5 = 0x57EE12u, gtab = a5 + WS_GFX_TABLE;
 
-    /* The $5A39EC queue holds the engine's resolved descriptor for each IN-VIEW Marry Man
-     * (correct frame AND variant — gray "blind" vs red "painted" — which the engine selects
-     * through a terrain-gfx path, $57B856, we don't replicate). It is the SOURCE OF TRUTH
-     * while a Marry Man is on screen. Each Marry Man is drawn EXACTLY ONCE:
-     *   - in view  → from its queue descriptor (exact gfx);
-     *   - off view → from its placement record, natively resolving the live animation frame
-     *                ($5d5a→$4a72, the RED gfx) so it stays visible across the wide margin.
-     * Record↔queue are paired by worldY (the page ROW — it never scrolls or wraps, so the
-     * match is EXACT; pairing by the X position is what produced the scroll-dependent
-     * duplicate, because dst→X is only correct mod the 368px page). No X-dedup, no learned
-     * offset: a Marry Man is queue-drawn xor record-drawn, never both. */
-    struct { int wx, top, h, rs; uint32_t data, mask; int hasq; } mm[16];
-    int nmm = 0;
-    for (int k = 0; k < 64 && nmm < 16; k++) {
-        uint32_t rec = WS_REC_BASE + (uint32_t)k * WS_REC_STRIDE;
-        if (rec + 0x10u > RT_MEM_SIZE) break;
-        if (gmem_r16(M, rec) == 0) break;                          /* end of list */
-        if (gmem_r32(M, rec + 0x0Cu) != WS_MM_HANDLER) continue;   /* not a Marry Man */
-        int worldX = (int16_t)gmem_r16(M, rec + 2u);
-        int worldY = (int16_t)gmem_r16(M, rec + 4u);
-        uint16_t cursor = gmem_r16(M, rec + 0x0Au);                /* LIVE anim cursor */
-        if (anim + cursor + 2u > RT_MEM_SIZE) continue;
-        int frame = gmem_r16(M, anim + cursor);
-        uint32_t e = gtab + (uint32_t)frame * 8u;
+    /* Resolve each captured Marry Man EXACTLY as the engine does (RE'd in pc_overrides_
+     * gameplay.c wsbuild_capture): the build indexes $4a72(a5) at (frame + facing), where
+     * facing = +$55 frames when d4 bit1 is CLEAR, and adds a per-variant constant. So the
+     * frame, facing AND variant are all the engine's own (captured at the build entry for
+     * EVERY Marry Man — in view and culled), and we draw the resolved sprite at its true
+     * world position across the wide view. No queue, no worldY pairing, no per-level offset. */
+    int n = native_wsbuild_count();
+    s_wsstatic_scanned = n;
+    for (int i = 0; i < n; i++) {
+        int worldX, worldY, frame, flags, blind;
+        if (!native_wsbuild_get(i, &worldX, &worldY, &frame, &flags, &blind)) continue;
+        int frame2 = frame + ((flags & 2) ? 0 : 0x55);     /* facing: +$55 when d4 bit1 clear */
+        if (frame2 < 0) continue;
+        uint32_t e = gtab + (uint32_t)frame2 * 8u;
         if (e + 8u > RT_MEM_SIZE) continue;
         uint16_t bsz = gmem_r16(M, e + 6u);
         int w = bsz & 0x3F, h = bsz >> 6;
         if (w <= 0 || h <= 0 || w > 64 || h > 256) continue;
-        int rs = w * 2 - 2; if (rs <= 0) continue;                 /* BMOD = -2 */
+        int rs = w * 2 - 2; if (rs <= 0) continue;          /* BMOD = -2 */
         int yoff = (int16_t)gmem_r16(M, e + 4u);
-        if (worldY > 0xD7) worldY = 0xD7;                          /* engine clamps d2 to $D7 */
-        mm[nmm].wx = worldX - 8; mm[nmm].top = worldY + yoff;
-        mm[nmm].h = h; mm[nmm].rs = rs; mm[nmm].hasq = 0;
-        mm[nmm].data = (gmem_r16(M, e)      + WS_GFX_DATA_ADD) & 0xFFFFFFu;  /* RED resolver */
-        mm[nmm].mask = (gmem_r16(M, e + 2u) + WS_GFX_MASK_ADD) & 0xFFFFFFu;
-        nmm++;
+        uint32_t data = (gmem_r16(M, e)      + (blind ? 0x13B32u : WS_GFX_DATA_ADD)) & 0xFFFFFFu;
+        uint32_t mask = (gmem_r16(M, e + 2u) + (blind ? 0x17AB6u : WS_GFX_MASK_ADD)) & 0xFFFFFFu;
+        if (worldY > 0xD7) worldY = 0xD7;                   /* engine clamps d2 to $D7 */
+        ws_draw_static(M, pf_top, pf_bot, worldX - 8, worldY + yoff, h, rs, data, mask);
+        s_wsstatic_drawn++;
     }
-
-    /* Pair each queue descriptor to a Marry Man by worldY (page row from dst) and take its
-     * EXACT gfx. Descriptor (24B, executor $57D6C4 with a6=$dff000): +0 data, +4 mask, +10
-     * dst, +16 BLTSIZE (==0 ends). The queue is built into the BACK buffer, so dst is usually
-     * in the OTHER page than bp0 — derive the row from the descriptor's own page base. The
-     * queue is Marry-Men-only, so an unmatched descriptor (a far-side page wrap) is dropped,
-     * not drawn (that is the phantom we must never emit). */
-    for (int gi = 0; gi < 48; gi++) {
-        uint32_t q = WS_STATIC_QUEUE + (uint32_t)gi * WS_STATIC_DESC;
-        if (q + WS_STATIC_DESC > RT_MEM_SIZE) break;
-        uint16_t bltsize = gmem_r16(M, q + 0x16u);
-        if (bltsize == 0) break;                         /* queue terminator */
-        s_wsstatic_scanned++;
-        uint32_t dpt = gmem_r32(M, q + 0x10u) & ~1u;
-        uint32_t desc_buf = (dpt >= 0x038628u) ? 0x038628u : 0x02B3ECu;
-        if (dpt < desc_buf || dpt >= desc_buf + WS_PLANE_STRIDE) continue;
-        int row = (int)(dpt - desc_buf) / WS_ROWSTRIDE;  /* page row == worldY (no wrap) */
-        int best = -1, bestd = 5;
-        for (int i = 0; i < nmm; i++) {
-            int d = abs(mm[i].top - row);
-            if (!mm[i].hasq && d < bestd) { bestd = d; best = i; }
-        }
-        if (best >= 0) { mm[best].hasq = 1;
-                         mm[best].data = gmem_r32(M, q + 0x00u);
-                         mm[best].mask = gmem_r32(M, q + 0x04u); }
-    }
-
-    /* Draw each Marry Man once (queue gfx if in view, else the native red resolver). */
-    for (int i = 0; i < nmm; i++) {
-        if (mm[i].hasq) s_wsstatic_drawn++;
-        ws_draw_static(M, pf_top, pf_bot, mm[i].wx, mm[i].top, mm[i].h, mm[i].rs, mm[i].data, mm[i].mask);
-    }
-    s_wsstatic_cached = nmm;
+    s_wsstatic_cached = n;
 }
 
 /* Composite the GET READY / GAME OVER banner as a CENTERED top UI overlay drawn
@@ -945,34 +904,21 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
     if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only (margin 0 = compare-at-352) */
     const uint8_t *M = g_mem;
-    if (!M || WS_GFXTAB + 4u >= RT_MEM_SIZE) return;
+    EngineView ev;
+    if (!M || !engine_view_capture(&ev)) return;   /* firewall: engine state only, no fudge */
 
-    int cam    = (int16_t)gmem_r16(M, WS_CAMERA);   /* camera is SIGNED (can be -16 etc.) */
+    int cam       = ev.camera;        /* signed screen-left world X */
+    int rowstride = ev.row_stride;    /* per-level tilemap row stride, sourced (no L9 fallback) */
 
-    /* Tilemap row stride is PER-LEVEL (narrow levels have fewer columns/row), so it
-     * must NOT be hardcoded. The engine stores a row-offset table at $57F4BC whose
-     * entry[k].d2adj = k * rowstride (16-byte fine-scroll phase table, {d2adj.w,
-     * a3adj.w} x 16). entry[1].d2adj = the per-level row stride in bytes (L1=64,
-     * L9=244=$F4). Hardcoding $F4 made every non-L9 level decode the wrong rows. */
-    int rowstride = (int16_t)gmem_r16(M, WS_PHASETAB + 4);
-    if (rowstride < 0) rowstride = -rowstride;
-    if (rowstride <= 0) rowstride = (int)WS_TILEROW;   /* fallback to L9 if unreadable */
-    /* World X of the displayed left coarse column. Deriving it from cam arithmetic is
-     * direction-asymmetric (the engine's coarse update is hysteretic — verified: a cam
-     * formula tears the bg for one frame at boundaries while scrolling LEFT). Instead read
-     * the coarse straight from the copper BPL pointer the engine displays — frame-locked
-     * and correct in both directions. ptr = page_base + col*2 (page is full level width). */
-    int cam16;
-    {
-        if (s_nanchors < 1) return;
-        uint32_t bp0 = s_anchors[0].ptr[0];
-        uint32_t pbase = (bp0 >= 0x038628u) ? 0x038628u : 0x02B3ECu;
-        cam16 = (int)((bp0 - pbase) / 2u) * 16;
-    }
-    int cmin   = (int)gmem_r16(M, WS_EDGE_LO) - 0x90;
-    int cmax   = (int)gmem_r16(M, WS_EDGE_HI) - 0x100;
-    int mincol = (cmin < 0 ? 0 : cmin) >> 4;
-    int maxcol = (cmax + 320) >> 4;                      /* last valid level column */
+    /* World X of the displayed left coarse column, DERIVED FROM THE CAMERA — not
+     * reverse-projected from the displayed copper BPL pointer. The engine sets that
+     * pointer FROM this same camera ($57FDBA); reading it back out of the copper was
+     * the old bandaid (it gave the renderer a second source of truth to curve-fit
+     * against). cam16 is used only by the margin==0 compare path; the real widescreen
+     * path keys off view_left (ws_view_left), also camera-derived. */
+    int cam16  = cam & ~15;
+    int mincol = (ev.level_lo < 0 ? 0 : ev.level_lo) >> 4;
+    int maxcol = (ev.level_hi + 320) >> 4;               /* last valid level column */
 
     /* Wide camera (the margin>0 = real-widescreen path). The view must stay CLAMPED to
      * the level's world bounds (never reveal void past an edge) and, when the level is
@@ -982,7 +928,6 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
      * scroll comes from the signed camera's fine bits (no page coarse/fine hysteresis since
      * we read the tilemap directly). The margin==0 COMPARE path keeps the exact
      * engine-aligned mapping in the loop below so wsdiff stays a valid pixel check. */
-    (void)cam; (void)mincol; (void)maxcol;
     int view_left = ws_view_left(ow);                     /* shared with the object-cull overrides */
 
     { extern int g_ws_view_left, g_ws_view_w; g_ws_view_left = view_left; g_ws_view_w = ow; }
@@ -1012,20 +957,6 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     native_wsplayer_compose(pf_top, pf_bot);          /* player UNDER characters... */
     native_wschar_compose(pf_top, pf_bot);            /* ...so enemies render OVER the player (vanilla Z-order) */
     native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
-
-    if (getenv("WS_DBG")) {
-        int scroll1 = s_scan[pf_top].bplcon1 & 0xF;
-        /* Consistency: the engine's displayed fine scroll (copper bplcon1) must equal
-         * 15-(cam&15) if my camera source matches the displayed frame. A mismatch during
-         * scroll = cam ($57FDBA) is out of sync with the copper that produced s_fb. Also
-         * compare cam-coarse vs the BPL-ptr coarse the copper actually points at. */
-        uint32_t bp0 = s_anchors[0].ptr[0];
-        fprintf(stderr, "[WS_DBG] cam=%d cam&15=%d  copper_scroll1=%d  15-(cam&15)=%d  %s   "
-                "cam16=%d bplpt0=%06X x_off=%d pf_top=%d pf_bot=%d\n",
-                cam, cam & 15, scroll1, 15 - (cam & 15),
-                ((cam & 15) == (15 - scroll1)) ? "OK" : "*** MISMATCH ***",
-                cam16, bp0, DDF_TO_X(s_scan[pf_top].ddfstrt), pf_top, pf_bot);
-    }
 
     for (int y = pf_top; y < pf_bot; y++) {
         int dy = y - pf_top;
