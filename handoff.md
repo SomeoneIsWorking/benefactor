@@ -1,10 +1,14 @@
-# Session handoff — renderer port (2026-06-09)
+# Session handoff — renderer port (2026-06-10)
 
 Working tree is clean; everything below is committed & pushed to `main`. Build with
 `TMPDIR=scratch/tmp ./scripts/build.sh` (TMPDIR off /tmp is required — tmpfs quota).
 
 ## What this session landed (newest first)
 
+- `1e87a63` **Lever-pull X glitch FIXED** — BenRen now mirrors the engine's page
+  persistence: `native_objdraw_capture` checks whether `$57D8D0` actually emitted a blit
+  (a3/a6 queue advance) and, for an in-window object the engine dirty-rect-skipped, reuses
+  the object's last-emitted entry instead of the transient capture. See "Open bugs" below.
 - `2502cbf` **Tilemap background on the BenRen draw list.** The terrain was the last
   per-pixel loop in `native_render_wide_bg`; now `native_wstiles_compose` emits each
   visible tile as an opaque 16×16 colour-index quad, and the main loop is a pure camera
@@ -66,19 +70,21 @@ draw list and the SDL consumer reproduces it byte-identical, the next steps:
 
 ## Open bugs / notes
 
-- **Lever-pull single-frame X glitch — BENREN ONLY (open).** When a Marry Man pulls a lever,
-  for one frame the lever (a list-A object) is drawn at the **wrong X** — displaced left/up
-  of the Marry Man. **Vanilla renders it correctly; only BenRen shows it**, so it is a real
-  BenRen bug (not faithful). It is the `native_wsobj` pass; the object is captured at
-  `$57D8D0` (`native_objdraw_capture`, worldX = `ctx->D[0]`). Hypothesis: our captured
-  `worldX` diverges from where the engine/blitter actually placed the lever for that
-  transition frame (capture-timing, or the lever's draw uses a different X than D0 during the
-  pull). Repro: the savestate in `logs/savestate.bin` shows it at frame 41 of a no-input
-  resume (`load; pc 41; fbw …`, 960-wide benren) — and because the resume is frozen mid-pull,
-  it's **persistent** in that render (frames 40–42 identical), so it's deterministic to debug.
-  Isolate object pixels by diffing a normal frame vs `WS_NOOBJ`. Next: trace the lever's D0 at
-  `$57D8D0` vs where Vanilla (`native_render_frame`, reads the blitter-drawn page) puts it,
-  and find why BenRen's worldX is off for that frame.
+- **Lever-pull single-frame X glitch — FIXED 2026-06-10.** Root cause was NOT a capture
+  bug. The lever (a list-A object) has an embedded handler that, while a Marry Man pulls it,
+  computes a transient garbage `worldX` (D0=2 vs the real 144) for exactly one frame.
+  The engine's `$57D8D0` dirty-rect / incremental redraw **skips the blit** that frame
+  (measured: real-blit queues a3/a6 do not advance → `realblit_bytes=0`), so the page —
+  and Vanilla — keep the lever at its last-committed 144. BenRen has no page; it rebuilt the
+  whole frame from captures and drew the transient X=2. **Fix** (`native_objdraw_capture`):
+  measure whether the engine actually emitted a blit (a3 saved on the stack at the dispatch
+  movem `$57D816/$57D8CA` → read `MR32(a7+4)` at `$57D8D0` entry; a6 read directly). If it
+  skipped AND the object is inside the original 320px window (dirty-rect "unchanged", not an
+  off-screen cull), reuse the object's **last-emitted** entry by identity (the descriptor
+  ptr `ctx->A[1]`, now stored as `WsObj.id`) — i.e. mirror page persistence. Outside the
+  window = a widescreen-margin sprite the engine never blits → draw at current (so margin
+  sprites still animate). Verified: void ghost gone, lever renders at 144 matching Vanilla
+  (`load; mpset 1890 200 w; pc 41; fbw …`).
 - **W6L2 / corrupt-savestate handling (done, by design).** `$59AC38` is an object handler
   whose gate at `$59AC56` checks the loader low-RAM invariant (`$1890==$0200`). A stale
   savestate that bypassed the loader has `$1890=0`, the gate fails, and the engine bails to
