@@ -614,6 +614,24 @@ int main(int argc, char **argv)
                    native_wsstatic_scanned(), native_wsstatic_drawn(), native_wsstatic_cached(),
                    native_wsstatic_dbg_bp0(), native_wsstatic_dbg_first());
         }
+        else if (!strcmp(cmd, "wsmm")) {
+            /* wsmm — dump each captured Marry Man (build-entry capture, $57C13A handler):
+             * worldX, worldY, the post-sub-handler animation FRAME (d3), facing flags (d4),
+             * variant. Watch FRAME across several `pc`/`s` steps to confirm animation. */
+            extern int native_wsbuild_count(void);
+            extern int native_wsbuild_get(int, int*, int*, int*, int*, int*);
+            extern int g_ws_view_left, g_ws_view_w;
+            int n = native_wsbuild_count();
+            printf("[wsmm] %d marry man record(s)  view_left=%d view_w=%d:\n",
+                   n, g_ws_view_left, g_ws_view_w);
+            for (int k = 0; k < n; k++) {
+                int x, y, fr, fl, bl;
+                if (!native_wsbuild_get(k, &x, &y, &fr, &fl, &bl)) continue;
+                printf("  [%d] worldX=%d (screenX=%d) worldY=%d frame=%d facing(d4)=$%04X(bit1=%d bit0=%d) %s\n",
+                       k, x, x - g_ws_view_left, y, fr, fl & 0xFFFF, (fl >> 1) & 1, fl & 1,
+                       bl ? "BLIND" : "red");
+            }
+        }
         else if (!strcmp(cmd, "blitskip")) {  /* blitskip <fn-hex|0> — DIAGNOSTIC: drop every blit issued
                                                  by routine <fn> (g_rt_last_call), to confirm which fn draws
                                                  a sprite by watching it vanish. 0 = disable. */
