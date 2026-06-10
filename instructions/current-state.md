@@ -104,6 +104,16 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
   Harness REPL `fcam <0|1> [dx]` for headless tests. VERIFIED: pan shifts the
   wide view (82k px diff at +300, snap-back clean) and the camera icon
   renders; narrow levels are centered so panning is a no-op there by design.
+  **The ORIGINAL game has a native view-map mode** (manual p.6 KEYBOARD
+  CONTROLS, scratch/docs/benefactor_manual.pdf: M = "View map", joystick
+  scrolls, magnifying-glass icon top-left; P = pause; ESC = exit level).
+  The engine-side handler is un-RE'd — our port never feeds raw Amiga
+  keycodes to the CIA model (`s_key_byte` in hw.c is never written), so M/P
+  are dead in-port. Worth RE'ing: the engine's own map-scroll may inform or
+  replace parts of native freecam (it proves engine-native camera detach).
+  Manual also confirms: Fire+Down = drop, Fire alone = interact verbs, NO
+  item throw (matches the falsified THROW note); carrying-MM UP = throw MM
+  up onto platform.
 - **Merry-man pickup on INTERACT (2026-06-10, fully verified headless)**: the
   MM lift is an INLINE chain in the player handler ($579750: `f80==$20`
   exactly + `$108e` cooldown==0 + `$5A4564` record-overlap scan → `$f70` ←
