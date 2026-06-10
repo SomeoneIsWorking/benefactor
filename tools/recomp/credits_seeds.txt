@@ -13,3 +13,26 @@
 #   move.l #$351c, $78.w    LVL6 CIA-B timer
 350A
 351C
+
+# Credits MUSIC driver ISRs (rt-misses observed 2026-06-10 from the game-win
+# savestate; without them the cutscene is silent). Same two-phase CIA-B
+# pattern as the title's $3160/$58C2: $3AD2 = LVL6 timer RTE handler (re-arms
+# CIA-B, bumps the $78 vector slot), $3B02 = the Paula register-copy leg
+# (AUDxLC/LEN/PER/VOL writes). Installed by vector poke, so static descent
+# never sees them.
+3AD2
+3B02
+
+# discover_indirect 2026-06-10 iter 1 — victory cutscene (game-win savestate):
+003B7A
+003C72
+0041BE
+00430C
+004838
+0048DE
+
+# discover_indirect 2026-06-10 iter 2 — victory cutscene (game-win savestate):
+003E20
+00402A
+004088
+00409A

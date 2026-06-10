@@ -710,6 +710,11 @@ int main(int argc, char **argv)
                            frame2, rdata, rmask, bsz, bsz&0x3F, bsz>>6);
                     #undef R16
                   } }
+                { extern int native_wsbuild_cloud(int, int*, int*, int*);
+                  int cx, cy, ci;
+                  if (native_wsbuild_cloud(k, &cx, &cy, &ci))
+                      printf("        cloud: recX=%d recY=%d idx=$%02X\n", cx, cy, ci);
+                }
             }
         }
         else if (!strcmp(cmd, "wswater")) {  /* wswater — dump captured animated page patches ($57D81C) */
@@ -1039,15 +1044,15 @@ int main(int argc, char **argv)
                                                 with its capture decision (REPL replacement for BLIT_LOG).
                                                 reason: C=captured u=dest-off p=not-in-pages g=gfx-too-high
                                                 o=cap-off f=full. minw filters by width-in-words. */
-            typedef struct { uint32_t apt,bpt,cpt,dpt; uint16_t con0,con1; int w,h; char reason; } Lr;
+            typedef struct { uint32_t apt,bpt,cpt,dpt; uint16_t con0,con1; int w,h; char reason; uint32_t fn; } Lr;
             extern int hw_blitlog_count(void); extern const Lr *hw_blitlog_recs(void);
             unsigned minw = 0; sscanf(line, "%*s %u", &minw);
             const Lr *L = hw_blitlog_recs(); int nL = hw_blitlog_count();
             printf("[blitlog] %d blits last frame (minw=%u)\n", nL, minw);
             for (int k = 0; k < nL; k++) {
                 if ((unsigned)L[k].w < minw) continue;
-                printf("  con0=%04X con1=%04X %dx%d apt=%06X bpt=%06X cpt=%06X dpt=%06X cap=%c\n",
-                       L[k].con0, L[k].con1, L[k].w, L[k].h, L[k].apt, L[k].bpt, L[k].cpt, L[k].dpt, L[k].reason);
+                printf("  con0=%04X con1=%04X %dx%d apt=%06X bpt=%06X cpt=%06X dpt=%06X cap=%c fn=$%06X\n",
+                       L[k].con0, L[k].con1, L[k].w, L[k].h, L[k].apt, L[k].bpt, L[k].cpt, L[k].dpt, L[k].reason, L[k].fn);
             }
         }
         else if (!strcmp(cmd, "wscap")) {  /* wscap — widescreen capture state: object/char counts + player */

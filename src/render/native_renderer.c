@@ -876,6 +876,16 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot,
 /* Build-entry capture of the Marry Men (pc_overrides_gameplay.c $57B19E/$57B856). */
 extern int native_wsbuild_count(void);
 extern int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind);
+extern int native_wsbuild_cloud(int i, int *x, int *y, int *idx);
+
+/* REPAIR DUST-CLOUD overlay (red build tail $57B562, see WsBuild in gameplay.c):
+ * phase table $57B61C (word, byte-indexed by rec+$A) → gfx triple at $57B700
+ * {stride-unit w0, BLTSIZE, yoff}; data = 5*w0 + $1876A, mask = w0 + $19A3E,
+ * BMOD=-2; x = recX-12, y = recY + yoff (no $D7 clamp on this leg). */
+#define WS_CLOUD_PHASE_TBL 0x57B61Cu
+#define WS_CLOUD_GFX_TBL   0x57B700u   /* = a5 - $3712 */
+#define WS_CLOUD_DATA_ADD  0x1876Au
+#define WS_CLOUD_MASK_ADD  0x19A3Eu
 
 static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
 {
@@ -913,6 +923,26 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
         if (worldY > 0xD7) worldY = 0xD7;                   /* engine clamps d2 to $D7 */
         ws_draw_static(M, pf_top, pf_bot, worldX - 8, worldY + yoff, h, rs, data, mask);
         s_wsstatic_drawn++;
+
+        /* Repair dust-cloud overlay: drawn after (= over) the man, like the
+         * engine's queue order. All inputs resolved the engine's way. */
+        int cx, cy, cidx;
+        if (native_wsbuild_cloud(i, &cx, &cy, &cidx)) {
+            uint32_t d7 = gmem_r16(M, WS_CLOUD_PHASE_TBL + (uint32_t)cidx);
+            uint32_t t  = WS_CLOUD_GFX_TBL + d7;
+            uint16_t w0  = gmem_r16(M, t);
+            uint16_t cbsz = gmem_r16(M, t + 2u);
+            int16_t  cyoff = (int16_t)gmem_r16(M, t + 4u);
+            int cw = cbsz & 0x3F, chh = cbsz >> 6;
+            int crs = cw * 2 - 2;
+            if (cw > 0 && chh > 0 && cw <= 64 && chh <= 256 && crs > 0) {
+                uint32_t cdata = (5u * w0 + WS_CLOUD_DATA_ADD) & 0xFFFFFFu;
+                uint32_t cmask = (w0 + WS_CLOUD_MASK_ADD) & 0xFFFFFFu;
+                ws_draw_static(M, pf_top, pf_bot, cx - 12, cy + cyoff,
+                               chh, crs, cdata, cmask);
+                s_wsstatic_drawn++;
+            }
+        }
     }
     s_wsstatic_cached = n;
 }

@@ -456,7 +456,17 @@ int native_wschar_get(int i, int *x, int *y, int *w, int *h,
  * blit, so off-view has no engine descriptor to capture; we resolve it ourselves). frame/
  * flags/handler are the engine's own values; the re-derived gfx is byte-verified against
  * the engine's own blit (e.g. walk frame 5 -> $00F0BC, matching BlitRec src). */
-typedef struct { int worldX, worldY, frame, flags, blind; uint32_t handler; } WsBuild;
+/* cloud*: the REPAIR DUST-CLOUD overlay (RE 2026-06-10, red build tail $57B562):
+ * when the placement record's $9(a0) bit5 is set, the red build pushes a SECOND
+ * descriptor — the cartoon dust cloud over the repairing man. Its inputs are pure
+ * record fields, so capture them raw: cloudX/Y = rec+2/rec+4 (cloud x = recX-12),
+ * cloudIdx = rec+$A (byte offset into the phase table $57B61C). The renderer
+ * resolves gfx exactly like the engine: d7=word($57B61C+idx) → triple at
+ * (a5-$3712)=$57B700+d7 {stride-unit w0, BLTSIZE, yoff}; data=5*w0+$1876A,
+ * mask=w0+$19A3E, BMOD=-2. Blind build has no cloud tail (verified: the
+ * btst#5,$9(a0) encoding appears once in the bank). */
+typedef struct { int worldX, worldY, frame, flags, blind; uint32_t handler;
+                 int cloud, cloudX, cloudY, cloudIdx; } WsBuild;
 #define WS_BUILD_MAX 32
 static WsBuild s_wsbuild[WS_BUILD_MAX];      static int s_wsbuild_n = 0;
 static WsBuild s_wsbuild_done[WS_BUILD_MAX]; static int s_wsbuild_done_n = 0;
@@ -469,6 +479,15 @@ int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind
     *x = b->worldX; *y = b->worldY; *frame = b->frame; *flags = b->flags; *blind = b->blind;
     return 1;
 }
+
+/* Repair dust-cloud overlay of build i (see WsBuild). Returns 0 when none. */
+int native_wsbuild_cloud(int i, int *x, int *y, int *idx)
+{
+    if (i < 0 || i >= s_wsbuild_done_n || !s_wsbuild_done[i].cloud) return 0;
+    const WsBuild *b = &s_wsbuild_done[i];
+    *x = b->cloudX; *y = b->cloudY; *idx = b->cloudIdx;
+    return 1;
+}
 /* The marry man's CURRENT pose handler (a1 at the build) — diagnostic only (`wsmm` REPL). */
 uint32_t native_wsbuild_handler(int i)
 {
@@ -478,9 +497,23 @@ uint32_t native_wsbuild_handler(int i)
 static void wsbuild_capture(M68KCtx *ctx, int blind)
 {
     if (s_wsbuild_n >= WS_BUILD_MAX) return;
+    /* At the build entry a0 = the pose-HANDLER SLOT inside the placement record
+     * (= rec+$C; verified live: a0=$5A456E with rec0=$5A4562). The cloud-tail
+     * $57B562 sees a0 rewound to the record base; here it's still the slot. */
+    uint32_t rec = ctx->A[0] - 0xCu;               /* placement record (stride $40) */
+    int cloud = !blind && (MR8(rec + 9u) & 0x20u); /* $57B562 btst #5,$9(a0) */
+    { extern int g_pickup_log; if (g_pickup_log)
+        fprintf(stderr, "[wsbuild] a0=%06X a1=%06X a2=%06X a3=%06X d1=%d d2=%d d4=%04X "
+                "rec?=%06X bytes@a2-2: %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X\n",
+                ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3],
+                (int16_t)ctx->D[1], (int16_t)ctx->D[2], ctx->D[4]&0xFFFF, rec,
+                MR8(rec),MR8(rec+1),MR8(rec+2),MR8(rec+3),MR8(rec+4),MR8(rec+5),
+                MR8(rec+6),MR8(rec+7),MR8(rec+8),MR8(rec+9),MR8(rec+10),MR8(rec+11)); }
     s_wsbuild[s_wsbuild_n++] = (WsBuild){
         (int16_t)(uint16_t)ctx->D[1], (int16_t)(uint16_t)ctx->D[2],
-        (int)(ctx->D[3] & 0xFFFFu), (int)(ctx->D[4] & 0xFFFFu), blind, ctx->A[1] };
+        (int)(ctx->D[3] & 0xFFFFu), (int)(ctx->D[4] & 0xFFFFu), blind, ctx->A[1],
+        cloud, (int16_t)MR16(rec + 2u), (int16_t)MR16(rec + 4u),
+        (int)MR16(rec + 0xAu) };
 }
 void native_build_red(M68KCtx *ctx)   { wsbuild_capture(ctx, 0); gfn_gpl_57B19E(ctx); }
 void native_build_blind(M68KCtx *ctx) { wsbuild_capture(ctx, 1); gfn_gpl_57B856(ctx); }
