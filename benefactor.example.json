@@ -14,6 +14,12 @@
   "_comment3": "Game speed: normal | turbo (= 1.2x) | hyper (= 1.5x; pause OPTIONS menu). The separate FAST FORWARD binding below runs 5x while HELD. Music + SFX always play at normal real-time speed regardless.",
   "game_speed": "normal",
 
+  "_commentP": "Player progress (completed levels) lives in a separate profile.json, written automatically on each level win. unlock_all_levels (OPTIONS -> MORE) makes every level selectable; otherwise LEVEL SELECT unlocks up to the highest completed level + 1 and shows ?????? for the rest.",
+  "unlock_all_levels": false,
+
+  "_comment3c": "Skip the intro/crawl on boot and go straight to the main-menu poster (OPTIONS -> MORE).",
+  "skip_intro": false,
+
   "_comment3b": "Free cam (toggle: C / pad Back, gameplay only, needs widescreen): detach the camera and pan with Left/Right; the player stands idle. false = game keeps running while panning, true = game pauses.",
   "freecam_pause": false,
 

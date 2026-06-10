@@ -332,17 +332,27 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
             if (liw < 0)        liw = 0;
             if (liw > liw_max)  liw = liw_max;
 
-            /* UP/DOWN navigate level within current world (clamped, no wrap). */
+            /* UP/DOWN navigate level within current world (clamped, no wrap).
+             * LOCKED targets refuse (pc_profile_try_select): the cursor can
+             * only reach completed levels + the next one (or anything with
+             * the unlock_all_levels knob on). */
             if (u && !prev_u && liw > 0)
-                pc_set_start_level(pc_world_first_level(world) + (liw - 1));
+                pc_profile_try_select(pc_world_first_level(world) + (liw - 1));
             if (d && !prev_d && liw < liw_max)
-                pc_set_start_level(pc_world_first_level(world) + (liw + 1));
+                pc_profile_try_select(pc_world_first_level(world) + (liw + 1));
 
-            /* LEFT/RIGHT cycle worlds with wrap; reset to liw 0 of new world. */
+            /* LEFT/RIGHT cycle worlds with wrap; reset to liw 0 of new world.
+             * A world whose first level is locked can't be navigated to —
+             * keep scanning in the pressed direction so unlocked worlds
+             * remain reachable across a locked gap (wrap-around). */
             if (lt && !prev_l)
-                pc_set_start_level(pc_world_first_level((world + PC_NUM_WORLDS - 1) % PC_NUM_WORLDS));
+                for (int k = 1; k < PC_NUM_WORLDS; k++)
+                    if (pc_profile_try_select(pc_world_first_level(
+                            (world + PC_NUM_WORLDS - k) % PC_NUM_WORLDS))) break;
             if (rt && !prev_r)
-                pc_set_start_level(pc_world_first_level((world + 1) % PC_NUM_WORLDS));
+                for (int k = 1; k < PC_NUM_WORLDS; k++)
+                    if (pc_profile_try_select(pc_world_first_level(
+                            (world + k) % PC_NUM_WORLDS))) break;
 
             prev_u = u; prev_d = d; prev_l = lt; prev_r = rt;
             if (f) break;

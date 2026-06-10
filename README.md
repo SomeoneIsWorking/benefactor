@@ -196,7 +196,15 @@ These change what the player can do — features that didn't exist in the 1994 r
 
 - **Game controller support** — hot-pluggable SDL game controllers with full rebinding.
 
-- **Free cam (C / pad Back)** — detach the camera and pan around the level (widescreen only); a camera icon shows top-left. By default the game keeps running; an option pauses it while you look around.
+- **Free cam (C / pad Back)** — detach the camera and pan around the level (widescreen only); a camera icon shows top-left. By default the game keeps running (REALTIME); the PAUSED option freezes it while you look around.
+
+- **Level progress + locks** — completed levels are tracked in `profile.json` (written on every win) and get a green marker in LEVEL SELECT; locked levels show `??????` and can't be navigated to (unlocked = up to your highest completion + 1, or everything with the UNLOCK ALL LEVELS toggle in OPTIONS → MORE).
+
+- **Difficulty selector restored** — ←/→ on PLAY GAME cycles EASY / NORMAL / HARD (the original's selector; its handlers had never been wired in the port).
+
+- **SKIP INTRO** (OPTIONS → MORE) — boot straight to the main-menu poster.
+
+- **LEVEL COMPLETE banner text** — the win banner shows "LEVEL COMPLETE" (vanilla showed the next level's password, which this port doesn't use).
 
 - **Turbo & fast forward** — TURBO / HYPER options run the game at 1.2× / 1.5×; holding the fast-forward key runs it at 5× with a ▶▶ icon. Music and SFX always play at normal speed.
 
@@ -211,7 +219,6 @@ These wrap the binary, not the game logic:
 
 ## TODO
 
-- **Progress-aware LEVEL SELECT.** Track which levels the player has completed; undiscovered levels appear as `??????` and undiscovered worlds can't be navigated to.
 - **Save slots with screenshots** *(maybe)*. A proper Save / Load UI on top of the existing savestate format — multiple named slots, each with a framebuffer thumbnail and timestamp. Replaces the all-purpose `logs/savestate.bin` with a real UX.
 - **Rewind** *(cheat)*. Ring-buffer of recent savestates with a hold-to-rewind hotkey.
 

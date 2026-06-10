@@ -226,17 +226,26 @@ void pc_level_select_overlay(uint32_t *fb)
     int wx = px + (pw - w_text_len) / 2;
     draw_text(fb, wx, py + 18, wbuf, 1, 0xFFFFD040);
 
-    /* Level list: rows are 1..liw_count, with cursor marker on row==liw. */
+    /* Level list: rows are 1..liw_count, with cursor marker on row==liw.
+     * LOCKED levels (not yet reachable — see pc_profile_unlocked) render as
+     * ?????? in a darker grey; COMPLETED levels get a green tick square. */
     int list_y0 = py + 33;
     for (int i = 0; i < liw_count; i++) {
         int row_level = pc_world_first_level(world) + i;
-        uint32_t col = (i == liw) ? 0xFFFFD040 : 0xFFB0B0B0;
+        int unlocked  = pc_profile_unlocked(row_level);
+        int completed = pc_profile_completed(row_level);
+        uint32_t col = (i == liw) ? 0xFFFFD040
+                     : unlocked   ? 0xFFB0B0B0 : 0xFF606070;
         int ry = list_y0 + i * row_h;
         if (i == liw) draw_text(fb, px + 8, ry, ">", 1, col);
         char rbuf[64];
-        const char *nm = pc_static_level_name(row_level);
+        const char *nm = unlocked ? pc_static_level_name(row_level) : "??????";
         snprintf(rbuf, sizeof rbuf, "%2d. %s", row_level, nm);
         draw_text(fb, px + 20, ry, rbuf, 1, col);
+        if (completed) {                    /* cleared marker: green square */
+            fill_rect(fb, px + pw - 16, ry + 1, 6, 6, 0xFF40C040);
+            fill_rect(fb, px + pw - 15, ry + 2, 4, 4, 0xFF70E070);
+        }
     }
 
     /* Footer. */
