@@ -524,11 +524,11 @@ void hw_handle_key(int sym, int down)
             if (cur < 1) cur = 1;
             int w, liw; pc_level_split(cur, &w, &liw);
             if (w < 0 || w >= PC_NUM_WORLDS) w = 0;
-            switch (sym) {
-                case SDLK_UP:    pc_set_start_level(cur - 1); break;
-                case SDLK_DOWN:  pc_set_start_level(cur + 1); break;
-                case SDLK_LEFT:  pc_set_start_level(pc_world_first_level(w > 0 ? w - 1 : 0)); break;
-                case SDLK_RIGHT: pc_set_start_level(pc_world_first_level(w < PC_NUM_WORLDS - 1 ? w + 1 : w)); break;
+            switch (sym) {   /* locked targets refuse (pc_profile_try_select) */
+                case SDLK_UP:    pc_profile_try_select(cur - 1); break;
+                case SDLK_DOWN:  pc_profile_try_select(cur + 1); break;
+                case SDLK_LEFT:  pc_profile_try_select(pc_world_first_level(w > 0 ? w - 1 : 0)); break;
+                case SDLK_RIGHT: pc_profile_try_select(pc_world_first_level(w < PC_NUM_WORLDS - 1 ? w + 1 : w)); break;
             }
             return;
         }

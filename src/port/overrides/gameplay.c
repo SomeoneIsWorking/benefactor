@@ -1152,4 +1152,15 @@ void native_lc_text_set(void)
         g_mem[base + 2u + i] = (uint8_t)txt[i];
 }
 void native_password_build(M68KCtx *ctx) { gfn_gpl_57901E(ctx); native_lc_text_set(); }
-void native_levelcomplete_text_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x64FCu, gfn_gpl_5788DE); }
+void native_levelcomplete_text_capture(M68KCtx *ctx)
+{
+    /* This routine runs exactly on a WIN (lose/game-over banners are separate
+     * paths), so it is the completion signal for the player profile. By banner
+     * time $20.w has ALREADY advanced to the NEXT level — that is the whole
+     * point of this banner (vanilla shows the next level's password, generated
+     * by $57901E from $20) — so the level just won is $20 - 1. Verified live:
+     * winning level 3 reads $20 == 4 here. */
+    extern uint8_t *g_mem;
+    pc_profile_mark_completed((int)((g_mem[0x20] << 8) | g_mem[0x21]) - 1);
+    banner_text_capture(ctx, GP_A5 - 0x64FCu, gfn_gpl_5788DE);
+}

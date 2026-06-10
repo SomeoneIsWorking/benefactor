@@ -66,6 +66,13 @@ const char *pc_world_name(int world);
 const char *pc_static_level_name(int level);  /* name of global level 1..60 */
 const char *pc_current_level_name(void);      /* name of the level in $20.w */
 
+/* Player progress (profile.json — src/port/profile.c). */
+int  pc_profile_completed(int level);          /* level 1..60 won at least once  */
+int  pc_profile_highest_completed(void);       /* 0 if none                      */
+void pc_profile_mark_completed(int level);     /* idempotent; saves profile.json */
+int  pc_profile_unlocked(int level);           /* selectable in LEVEL SELECT     */
+int  pc_profile_try_select(int level);         /* set start level iff unlocked   */
+
 /* Pending level-select choice, applied at the $150 hand-off. */
 void pc_set_start_level(int n);
 int  pc_get_start_level(void);
