@@ -13,6 +13,14 @@ A work-in-progress native PC port of the Amiga game *Benefactor* (1994, Psygnosi
   <img src="screenshots/level-complete.png" alt="Level Complete banner with the level password" width="320" />
 </p>
 
+**Widescreen** — the engine simulates the whole level; the native renderer re-derives the world beyond the original 320px window (16:9 above, 21:9 below), with the in-game OPTIONS menu to switch live:
+
+<p align="center">
+  <img src="screenshots/widescreen-16x9.png" alt="16:9 widescreen gameplay" width="500" />
+  <img src="screenshots/widescreen-ultrawide.png" alt="21:9 ultrawide gameplay" width="658" />
+  <img src="screenshots/options-menu.png" alt="In-game OPTIONS menu (widescreen, speed, controls, bindings)" width="500" />
+</p>
+
 <p align="center">
   <img src="screenshots/title-card-egypt.png" alt="Tombs of Egypt title card" width="240" />
   <img src="screenshots/title-card-treetop.png" alt="Treetop Rescue title card" width="240" />
@@ -83,14 +91,19 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 |-----|--------|
 | Arrows | Move (also: navigate menus; ←/→ cycles level in the LEVEL SELECT panel) |
 | Z / Ctrl / Space / Return | Fire / Action / Jump / Menu select. With default (vanilla) controls, Fire also picks up items, pulls levers, and drops with Down. |
-| X / Left Shift | **Interact** — pick up items, pull levers (*requires `modern_controls: true`*; separate from Fire, so you can long-jump while standing on an item) |
-| X + Down, or C / Right Shift | **Drop** the carried item (*requires `modern_controls: true`*). Down alone still goes prone — dropping never triggers prone, and Fire+Down no longer drops |
-| Esc | In-game **pause menu** (Resume / Retry / Exit to main menu / Quit); elsewhere it quits |
-| TAB | Cycle real-time speed (1× / 2× / 4×) |
+| X / Left Shift | **Interact** — pick up items *and merry men*, pull levers (*modern controls*; separate from Fire, so you can long-jump while standing on an item) |
+| X + Down, or Right Shift | **Drop** the carried item (*modern controls*). Down alone still goes prone — dropping never triggers prone, and Fire+Down no longer drops |
+| Esc | In-game **pause menu** (Resume / **Options** / Retry / Exit to main menu / Quit); elsewhere it quits |
+| TAB (hold) | **Fast forward** (5×) while held — a ▶▶ icon shows top-left; music keeps normal speed |
+| C | **Free cam** toggle (widescreen only) — detach the camera and pan with ←/→ while a camera icon shows; toggle again to snap back |
 | S / D | Save / load a savestate (`logs/savestate.bin`) |
 | F11 | Toggle fullscreen |
 | L | Debug: trigger LEVEL COMPLETE |
 | O | Debug: trigger GAME OVER |
+
+### Controller
+
+Hot-pluggable SDL game controllers (connect/disconnect any time). Defaults: dpad / left stick = move, **A** (or B) = fire, **Start** = pause menu, **Back** = free cam, **RightTrigger** (hold) = fast forward; with modern controls on the controller, **X** = interact and **Y** = drop. Everything is rebindable in the in-game OPTIONS → CONTROLLER BINDINGS page (or the `pad_*` JSON keys).
 
 ## Configuration
 
@@ -99,9 +112,14 @@ Optional tunables live in a JSON file `benefactor.json` next to the disks (copy
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `modern_controls` | `false` | **Opt-in modern control scheme.** `false` = authentic Amiga controls (Fire does pickup/interact/drop-with-Down, Up = jump). `true` enables X = interact/pickup, X+Down = drop, a separate Hop action, and Fire no longer interacts. The interact/hop/drop bindings only apply when this is on. *(Known gap: a few interactions — e.g. picking up / carrying merry men — still respond to Fire in modern mode.)* |
-| `interact_extend` | `5` | Extra **horizontal** (X) reach in pixels for pickup + interaction, on top of each object's vanilla window (vertical reach unchanged). Applies in **both** schemes — in vanilla it just extends Fire's reach; in modern it also moves the trigger to X. Set `0` for the exact original reach. |
-| `bind_left/right/up/down/hop/fire/interact/drop` | see below | **Key bindings.** Each value is a comma-separated list of *chords*; a chord is keys joined by `+` (e.g. `"X+Down, C, RShift"`). Names: `Up/Down/Left/Right`, `Space`, `Return`, `LShift/RShift`, `LCtrl/Ctrl/RCtrl`, `Tab`, single letters/digits. Omit a line to keep its default. `interact`/`hop`/`drop` only do anything with `modern_controls: true`; `hop` is a separate jump trigger (the Up direction stays fully vanilla — jump / enter door / climb / menu). |
+| `widescreen_mode` | `"disabled"` | Widescreen preset: `disabled` (original 4:3) \| `16:9` \| `ultrawide` (21:9) \| `auto` (follows the window aspect on every resize). Switchable live in the OPTIONS menu. |
+| `game_speed` | `"normal"` | `normal` \| `turbo` (1.2×). Music and SFX always play at normal speed. The hold-to-fast-forward binding (5×) is separate. |
+| `freecam_pause` | `false` | Free cam behaviour: `false` = game keeps running while the camera is detached, `true` = game pauses while panning. |
+| `modern_controls_keyboard` / `modern_controls_controller` | `false` | **Opt-in modern control scheme, per device.** `false` = authentic Amiga controls (Fire does pickup/interact/drop-with-Down, Up = jump). `true` enables Interact (incl. picking up merry men), a dedicated Drop, and Fire no longer interacts. Mixed setups work — each device keeps its own scheme. (Legacy `modern_controls` sets the default for both.) |
+| `interact_extend` | `0` | Extra **horizontal** (X) reach in pixels for pickup + interaction, on top of each object's vanilla window (vertical reach unchanged). Applies in **both** schemes. The OPTIONS toggle uses 5. |
+| `bind_*` / `pad_*` | see `benefactor.example.json` | **Bindings** for keyboard (`bind_left/right/up/down/hop/fire/interact/drop/ffwd/freecam`) and controller (`pad_…`). Each value is a comma-separated list of *chords*; a chord is keys joined by `+` (e.g. `"X+Down, RShift"`). Keyboard names: `Up/Down/Left/Right`, `Space`, `Return`, shifts/ctrls, `Tab`, letters/digits, or any SDL key name. Controller names: `A/B/X/Y`, `DPUp/…`, `Start/Back`, `LB/RB`, `LeftTrigger/RightTrigger`, stick directions `LeftX-/LeftX+/…`. Rebind in-game via OPTIONS → … BINDINGS (press-to-capture). |
+
+All of the OPTIONS-menu settings are written back to `benefactor.json` automatically.
 
 ## How it runs
 
@@ -155,24 +173,36 @@ These change *how* the game runs, but the player still does the same things — 
 
 These change what the player can do — features that didn't exist in the 1994 release.
 
-- **In-game pause menu (ESC)** — overlay with four options:
+- **In-game pause menu (ESC / pad Start)** — overlay with five options:
 
   | Option | Effect |
   |--------|--------|
   | **Resume** | Continue play. |
+  | **Options** | The OPTIONS submenu (below). |
   | **Retry** | Restart the current level at its title card. |
   | **Exit to main menu** | Drop straight into the cover-art / poster screen. |
   | **Quit to desktop** | `exit(0)`. |
 
-  Navigate with ↑/↓, select with Fire (Z / Ctrl / Space / Return).
+  Navigate with ↑/↓ (←/→ cycles option values), select with Fire / pad A; ESC or pad B backs out a page.
 
 - **Main-menu LEVEL SELECT** — replaces the original "ENTER PASSWORD" row. Fire on it to open a per-world panel, ←/→ cycle through 60 levels, fire again to play. No password typing.
+
+- **OPTIONS menu (in the pause menu)** — live, persisted to `benefactor.json`: widescreen preset, game speed, free-cam mode, interact range, per-device modern controls, and full key/button rebinding pages with press-to-capture.
+
+- **Widescreen (16:9 / ultrawide / auto)** — the native renderer re-derives the level tilemap, objects, characters and merry men beyond the original 320px window, so you genuinely see more of the world (no stretching). `auto` follows the window aspect as you resize. Switchable at runtime.
+
+- **Modern controls, per device** — Interact (items, levers, **merry men**) and Drop move off Fire onto their own buttons, independently for keyboard and controller; the authentic scheme remains the default and the two can be mixed.
+
+- **Game controller support** — hot-pluggable SDL game controllers with full rebinding.
+
+- **Free cam (C / pad Back)** — detach the camera and pan around the level (widescreen only); a camera icon shows top-left. By default the game keeps running; an option pauses it while you look around.
+
+- **Turbo & fast forward** — TURBO option runs the game at 1.2×; holding the fast-forward key runs it at 5× with a ▶▶ icon. Music and SFX always play at normal speed.
 
 ## Executable / dev features
 
 These wrap the binary, not the game logic:
 
-- **Turbo** — TAB cycles real-time speed (1× / 2× / 4×).
 - **Savestate (S/D)** — dumps the full game state (M68K register file, coroutine + 4 MB stack, custom-chip shadows, audio channels, bank-routing flags) plus 8 MB of M68K memory to `logs/savestate.bin`; D reloads. The format is bound to the exact binary that wrote it: ASLR is pinned at startup so the file survives process restarts, and an identity word in the header rejects loads from a different build. `--load <path>` does the same from CLI.
 - **Direct level entry** — `--level N` jumps the standalone to level N (1..60) without going through the title flow.
 - **Headless mode** — `--headless` runs the standalone with no SDL window (used by automation).
@@ -180,8 +210,6 @@ These wrap the binary, not the game logic:
 
 ## TODO
 
-- **Widescreen (in progress).** The output surface can widen beyond the 4:3 playfield and pillarboxes the centered render; native wide-background tiles + objects in the L/R margins (to actually show more of the level) are next.
-- **Controller support.** Gamepad input (SDL2 `GameController`) — currently keyboard-only.
 - **Progress-aware LEVEL SELECT.** Track which levels the player has completed; undiscovered levels appear as `??????` and undiscovered worlds can't be navigated to.
 - **Save slots with screenshots** *(maybe)*. A proper Save / Load UI on top of the existing savestate format — multiple named slots, each with a framebuffer thumbnail and timestamp. Replaces the all-purpose `logs/savestate.bin` with a real UX.
 - **Rewind** *(cheat)*. Ring-buffer of recent savestates with a hold-to-rewind hotkey.
