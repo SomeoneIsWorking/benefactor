@@ -764,8 +764,16 @@ The held item's behaviour comes from the **action table at `$5834de`** (chip RAM
 indexed by item type → a per-item action descriptor; `$4(descr)` is an allowed-input
 mask). `$579A00` is the held-item action DISPATCHER: reads `$f84`, indexes `$5834de`,
 `d0 = 3 & d4 & $4(a2)` (direction bits ∧ item mask) → if non-zero switches the player
-action to the throw/place state (`$579eb0`/`$57c522`…). Direction selects the action:
-**DOWN = place-at-feet (drop); LEFT/RIGHT = throw.** `d4` = decoded input flags (built
+action to the place state (`$579eb0`/`$57c522`…). The `3 &` means only d4 bits 0-1 are
+ever tested; bit1 = DOWN = place-at-feet (drop), runtime-confirmed via the `$57EB20`
+probe. **FALSIFIED (2026-06-11): the earlier "LEFT/RIGHT = throw" claim** — two bits
+can't encode left+right alongside down, and there is NO sideways item throw in the
+game (user ground truth; the MM toss-up is UP via the carry path, not this table).
+Live mask dump (savestate, `mp $5834de` + descriptors at `$582Axx`): most carryable
+types have mask `$8004` (bit2 only → zeroed by the `3 &`, i.e. no directional action
+here); a few types carry bit0/bit1 in the low pair — what bit0 maps to is unverified.
+"FIRE (THROW)" in old bindings labels came from this falsified inference. `d4` =
+decoded input flags (built
 in `$57DF78`/`$57DEAC`); the **whole held-item-use flow is entered by FIRE** (the
 player fire-action), exactly like the old fire-pickup — which is the conflict with the
 long-jump.
