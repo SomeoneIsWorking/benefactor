@@ -114,13 +114,23 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
   presenting fire or the post-pickup press THROWS the man = the "hangs in
   mid-air" bug); (b) bare modern fire is blocked by arming the engine's own
   pickup cooldown `$108e=2` for the frame (self-clears via the $5771A2
-  per-frame decrement), scoped to empty-handed bare modern fire. **Hands-full
-  = `$109c(a5).l != 0`** (carried descriptor ptr, item AND merry man; cleared
-  on drop). FALSIFIED: `$1094` covers items only; `$fa2` bit15 latches on
-  first pickup but never clears (NOT a carry flag); the `$5A452E` slot grid
-  read garbage in the test level (NOT a liftability signal). Verified live:
-  X picks up / held X safe / follows / fire drops / re-pickup works / modern
-  fire blocked / vanilla fire untouched (savestate scene, wsmm + $109c).
+  per-frame decrement), scoped to empty-handed bare modern fire. **MM-carried
+  = bit14 of `$10AC(a5)`** (mirror `$10B6`): `$0002` free → `$4002` across the
+  lift → `$0002` after the fire-drop (verified live 2026-06-10, savestate on
+  top of an idle MM). FALSIFIED (2026-06-10, was the "pickup key flips after a
+  drop" bug): **`$109c` is NOT a carry flag** — it is the LIFT-CANDIDATE
+  descriptor, set (`$580118`) by the idle-MM handler `$57C13A` while a
+  liftable MM overlaps the player and **0 while the man is carried**; reading
+  it as hands-full inverted both modern gates exactly when a fresh MM was
+  underfoot. The engine consumes `$109c` as the lift linkage — poking it to 0
+  before a lift produces a frozen detached MM record; never write it. Also
+  FALSIFIED earlier: `$1094` covers items only; `$fa2` bit15 latches on first
+  pickup but never clears (NOT a carry flag); the `$5A452E` slot grid read
+  garbage in the test level (NOT a liftability signal). Note the engine's own
+  post-drop pickup cooldown `$108e` runs ~50 frames — a re-lift (any key,
+  vanilla too) only works after it expires. Verified live (harness, savestate
+  on MM): X lifts / MM follows / bare fire blocked / fire (held ≥2f) drops /
+  X re-lifts after cooldown — same key every cycle.
 - Verified: build clean; persistence round-trip unit-tested (valid JSON);
   900 frames of cavern gameplay at 658 px ultrawide headless, 0 rt-misses;
   the quit-time core dump in the harness is pre-existing (identical on the
