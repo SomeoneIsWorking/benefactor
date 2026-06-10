@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>   /* strcasecmp */
 #include "common/game_state.h"   /* g_state + g_gameplay_active / g_credits_active /
                            * g_enter_gameplay / g_gameplay_entry macros */
 #include "port/config.h"
@@ -56,7 +57,7 @@ static int s_page   = PG_MAIN;
 static int s_cursor = 0;                   /* per current page */
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
-enum { OO_WIDESCREEN = 0, OO_INTERACT, OO_MODERN_KB, OO_MODERN_PAD,
+enum { OO_WIDESCREEN = 0, OO_SPEED, OO_INTERACT, OO_MODERN_KB, OO_MODERN_PAD,
        OO_BIND_KB, OO_BIND_PAD, OO_BACK, NUM_OPTS_PAGE };
 
 /* Bindings capture: which device/action the next press is assigned to. */
@@ -152,6 +153,27 @@ static void ws_mode_set(int idx)
     hw_widescreen_refresh();
 }
 
+/* Game speed: 1x / 2x / 4x / turbo ("game_speed" knob; audio stays real-time). */
+static const char *k_speed_vals[4]   = { "1", "2", "4", "turbo" };
+static const char *k_speed_labels[4] = { "1X", "2X", "4X", "TURBO" };
+
+static int speed_index(void)
+{
+    char buf[16];
+    if (!pc_cfg_show("game_speed", buf, sizeof buf, NULL) || !buf[0]) return 0;
+    for (int i = 0; i < 4; i++) if (!strcasecmp(buf, k_speed_vals[i])) return i;
+    return 0;
+}
+
+static void speed_set(int idx)
+{
+    extern void hw_speed_refresh(void);
+    char json[16];
+    snprintf(json, sizeof json, "\"%s\"", k_speed_vals[(idx % 4 + 4) % 4]);
+    pc_cfg_persist("game_speed", json);
+    hw_speed_refresh();
+}
+
 /* "Extend interaction range": disabled / enabled (enabled = 5 px). */
 #define INTERACT_EXTEND_ON 5
 static int  interact_enabled(void) { return pc_cfg_int("interact_extend", 0) > 0; }
@@ -169,6 +191,7 @@ static void options_cycle(int row, int dir)
 {
     switch (row) {
         case OO_WIDESCREEN: ws_mode_set(ws_mode_index() + dir);        break;
+        case OO_SPEED:      speed_set(speed_index() + dir);            break;
         case OO_INTERACT:   interact_set(!interact_enabled());         break;
         case OO_MODERN_KB:  modern_set(PI_DEV_KB,  !pc_modern_kb());   break;
         case OO_MODERN_PAD: modern_set(PI_DEV_PAD, !pc_modern_pad());  break;
@@ -397,6 +420,10 @@ void pc_pause_menu_overlay(uint32_t *fb)
             case OO_WIDESCREEN:
                 label = "WIDESCREEN";
                 value = k_ws_labels[ws_mode_index()];
+                break;
+            case OO_SPEED:
+                label = "GAME SPEED";
+                value = k_speed_labels[speed_index()];
                 break;
             case OO_INTERACT:
                 label = "INTERACT RANGE";

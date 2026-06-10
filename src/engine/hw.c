@@ -35,6 +35,7 @@ static inline int _hwtrace_enabled(void) {
 
 #include <SDL2/SDL.h>
 #include <string.h>
+#include <strings.h>   /* strcasecmp */
 #include <stdio.h>
 #include <stdlib.h>
 #include "port/input.h"
@@ -248,19 +249,66 @@ static int s_in_present_frame = 0;
  * go at full CPU speed (the interactive harness paces separately). */
 void hw_set_no_pace(int on) { s_no_pace = on; }
 
-/* Real-time speed multiplier for the standalone (1x/2x/4x). Only changes the
- * 50Hz pacing delay — the per-frame game logic is unchanged, so the game simply
- * advances faster in wall-clock time. Cycled by the speed key. */
+/* Real-time speed ("game_speed" cfg knob: 1 | 2 | 4 | turbo). Only changes the
+ * 50Hz pacing delay (turbo = no pacing + presentation frame-skip) — the
+ * per-frame game logic is unchanged, so the game simply advances faster in
+ * wall-clock time. MUSIC AND AUDIO ARE NOT SPED UP: pc_step gates its music
+ * ticks + PCM render on hw_audio_frame_due(), which runs them on a wall-clock
+ * 20ms cadence whenever speed != 1x. Cycled by the speed key (TAB) and the
+ * pause menu's GAME SPEED option — both persist the knob and call
+ * hw_speed_refresh(), so there is one source of truth. */
 static int s_speed_mult  = 1;
 static int s_speed_turbo = 0;
+
+void hw_speed_refresh(void)
+{
+    int mult = 1, turbo = 0;
+    char buf[16];
+    if (pc_cfg_show("game_speed", buf, sizeof buf, NULL) && buf[0]) {
+        if (!strcasecmp(buf, "turbo")) turbo = 1;
+        else {
+            mult = atoi(buf);
+            if (mult < 1)  mult = 1;
+            if (mult > 16) mult = 16;
+        }
+    }
+    if (mult == s_speed_mult && turbo == s_speed_turbo) return;
+    s_speed_mult = mult; s_speed_turbo = turbo;
+    if (turbo) fprintf(stderr, "[speed] TURBO (no pacing)\n");
+    else       fprintf(stderr, "[speed] %dx\n", mult);
+    fflush(stderr);
+}
+
+int hw_speed_turbo(void) { return s_speed_turbo; }
+
 void hw_cycle_speed(void)
 {
-    if (s_speed_turbo)            { s_speed_turbo = 0; s_speed_mult = 1; }
-    else if (s_speed_mult >= 16)  { s_speed_turbo = 1; }
-    else                          { s_speed_mult = s_speed_mult < 4 ? s_speed_mult * 2 : 16; }
-    if (s_speed_turbo) fprintf(stderr, "[speed] TURBO (no pacing)\n");
-    else               fprintf(stderr, "[speed] %dx\n", s_speed_mult);
-    fflush(stderr);
+    const char *next = s_speed_turbo     ? "\"1\""
+                     : s_speed_mult >= 4 ? "\"turbo\""
+                     : s_speed_mult == 2 ? "\"4\"" : "\"2\"";
+    pc_cfg_persist("game_speed", next);
+    hw_speed_refresh();
+    { extern void pc_toast_show(const char *, int);
+      pc_toast_show(s_speed_turbo ? "SPEED: TURBO"
+                  : s_speed_mult == 4 ? "SPEED: 4X"
+                  : s_speed_mult == 2 ? "SPEED: 2X" : "SPEED: 1X", 0); }
+}
+
+/* True when a real-time (wall-clock 20ms) music/audio frame is due. At exactly
+ * 1x this is ALWAYS true — one audio frame per game frame, the original
+ * deterministic path (the harness never changes speed, so its compare runs are
+ * untouched). At 2x/4x/turbo, game frames outpace real time; music ticks + PCM
+ * render only fire on the 50Hz wall-clock grid, so the soundtrack keeps its
+ * normal tempo and the SDL queue is fed at exactly the rate it drains. */
+int hw_audio_frame_due(void)
+{
+    if (s_speed_mult == 1 && !s_speed_turbo) return 1;
+    static uint64_t s_next_ms = 0;
+    uint64_t now = SDL_GetTicks64();
+    if (s_next_ms == 0 || now > s_next_ms + 200) s_next_ms = now;  /* (re)sync */
+    if (now < s_next_ms) return 0;
+    s_next_ms += 20;
+    return 1;
 }
 
 /* Harness owns the SDL event queue (its input_poll is the sole reader). When
@@ -666,6 +714,7 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
      * the first real window-resize event. */
     pc_config_load();
     hw_widescreen_refresh();
+    hw_speed_refresh();    /* "game_speed" knob (1|2|4|turbo) */
 
     if (s_headless) {
         HW_LOG("HEADLESS mode – no SDL video/audio\n");
@@ -756,6 +805,26 @@ int hw_present_frame(void)
                 }
             }
         }
+    }
+
+    /* TURBO frame-skip: rendering + presenting every frame is what actually
+     * capped the old turbo (texture upload at game rate). Run the game at full
+     * CPU speed but only render/present a ~60fps sample of it; events were
+     * already polled above so TAB/ESC always respond. The blit capture is still
+     * reset per frame (it is per-frame data — letting it accumulate across
+     * skipped frames would overflow into the next rendered one). Turbo is a
+     * standalone interactive feature: the harness paths (frame hooks/headless
+     * compare) never enable it, so their captures are untouched. */
+    if (s_speed_turbo && !s_headless && !g_harness_frame_hook && !s_ext_input) {
+        static uint64_t s_last_present_ms = 0;
+        uint64_t now = SDL_GetTicks64();
+        if (now - s_last_present_ms < 16) {
+            hw_blit_capture_reset();
+            s_frame_num++;
+            s_in_present_frame = 0;
+            return 0;
+        }
+        s_last_present_ms = now;
     }
 
     /* Render natively: native_render_frame walks the copper list straight from

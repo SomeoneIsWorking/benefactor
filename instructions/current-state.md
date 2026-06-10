@@ -71,6 +71,19 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
   vanilla flag, so headless driving keeps vanilla semantics.
 - In the bindings pages, a modern device's FIRE row is **split into JUMP
   (`PI_HOP`) + INTERACT** (+ FIRE (THROW) and DROP rows).
+- **Game speed is the `game_speed` knob** (`1|2|4|turbo`), in OPTIONS and on
+  TAB (`hw_cycle_speed` persists + `hw_speed_refresh` re-reads — one source of
+  truth; TAB shows a toast). Two root causes of the old "finicky turbo" fixed:
+  (1) audio was rendered+queued PER GAME FRAME, so any speed-up multiplied the
+  music tempo and overflowed the SDL queue (which then got force-cleared every
+  frame → garbling). Now `pc_step`'s whole music-tick + PCM block is gated on
+  `hw_audio_frame_due()` — always true at 1x (deterministic harness path
+  unchanged), wall-clock 20ms grid otherwise, so **speed does not affect music**.
+  (2) turbo still rendered+presented every frame (texture upload capped it);
+  now turbo frame-skips presentation to ~60fps (events still polled; blit
+  capture still reset per skipped frame; harness/headless paths excluded).
+  Side effect of (1): anything gated on the music ISR (e.g. jingle-driven
+  banner auto-advance) waits in real time at high speeds — intended.
 - Verified: build clean; persistence round-trip unit-tested (valid JSON);
   900 frames of cavern gameplay at 658 px ultrawide headless, 0 rt-misses;
   the quit-time core dump in the harness is pre-existing (identical on the
