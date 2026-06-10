@@ -546,7 +546,12 @@ int ws_view_left(int ow)
     int level_hi = (ev.level_hi + 320) & ~15;
     int level_w  = level_hi - level_lo;
     if (level_w <= ow) return level_lo - (ow - level_w) / 2;   /* center narrow level */
-    int vl = (ev.camera + 16) - (ow - 320) / 2;                /* follow player */
+    /* FREE CAM (src/port/freecam.c): a detached, user-panned follow-point
+     * replaces the engine camera. Same clamps below, so it can't leave the
+     * level; the object-cull overrides share this view so margins re-derive. */
+    extern int pc_freecam_active(void), pc_freecam_x(void);
+    int follow = pc_freecam_active() ? pc_freecam_x() : ev.camera + 16;
+    int vl = follow - (ow - 320) / 2;                          /* follow player/cam */
     if (vl < level_lo)      vl = level_lo;
     if (vl > level_hi - ow) vl = level_hi - ow;
     return vl;

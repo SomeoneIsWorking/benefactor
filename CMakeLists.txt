@@ -193,6 +193,8 @@ add_executable(benefactor-pc
     src/port/input.c
     src/port/level_select_ui.c
     src/port/pause_menu.c
+    src/port/freecam.c
+    src/port/hud_icons.c
     src/port/http_debug.c
     src/port/port.h
     src/port/port_internal.h
@@ -504,6 +506,8 @@ set(HARNESS_SOURCES
     src/port/input.c
     src/port/level_select_ui.c
     src/port/pause_menu.c
+    src/port/freecam.c
+    src/port/hud_icons.c
     ${GAME_SRCS}
     ${GP_GAME_SRCS}
 )

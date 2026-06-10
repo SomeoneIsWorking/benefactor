@@ -642,7 +642,8 @@ int pc_step(void)
      * Still call hw_present_frame so the pause overlay stays visible and
      * SDL events keep flowing (so the user can navigate the menu). */
     extern int pc_pause_active(void);
-    if (pc_pause_active()) {
+    extern int pc_freecam_paused(void);   /* free cam in "pauses game" mode */
+    if (pc_pause_active() || pc_freecam_paused()) {
         if (g_harness_prerender_hook) g_harness_prerender_hook();
         if (hw_present_frame() != 0) return 1;
         if (g_harness_frame_hook) g_harness_frame_hook();

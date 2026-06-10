@@ -87,6 +87,22 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
 - **Controller defaults (rev 2)**: pad A = FIRE (`pad_fire: "A, B"`); the
   dedicated pad JUMP (`pad_hop`) has NO default and no menu row — the earlier
   A=jump default was a mis-map; keyboard JUMP stays.
+- **Free cam + HUD icons (2026-06-10)**: `PI_FREECAM` toggle (default C / pad
+  Back; the C drop-binding default was removed for it), gameplay-only, needs
+  widescreen (vanilla 352 can't pan — toast). `src/port/freecam.c`: the
+  follow-point substitutes the engine camera inside `ws_view_left()`
+  (native_renderer.c), so the wide bg, all sprite passes AND the cull
+  overrides pan together; engine level clamps still apply; toggle-off snaps
+  back. While active all engine input is zeroed (player idles) and LEFT/RIGHT
+  pan (6px, 16px with FFWD held; ticked in `hw_present_frame` so it works in
+  pause mode too). `freecam_pause` knob (OPTIONS "FREE CAM: GAME RUNS|PAUSES
+  GAME", default runs) freezes pc_step like the pause menu. HUD status icons
+  (`src/port/hud_icons.c`, vector-rasterised, top-left): fast-forward ▶▶
+  while PI_FFWD held, camera while free cam active; icon-active forces the
+  blit present path (the per-sprite scene present bypasses s_out overlays).
+  Harness REPL `fcam <0|1> [dx]` for headless tests. VERIFIED: pan shifts the
+  wide view (82k px diff at +300, snap-back clean) and the camera icon
+  renders; narrow levels are centered so panning is a no-op there by design.
 - **Merry-man pickup on INTERACT (2026-06-10, fully verified headless)**: the
   MM lift is an INLINE chain in the player handler ($579750: `f80==$20`
   exactly + `$108e` cooldown==0 + `$5A4564` record-overlap scan → `$f70` ←
