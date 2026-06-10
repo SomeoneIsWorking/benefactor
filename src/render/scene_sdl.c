@@ -1,6 +1,7 @@
 /* scene_sdl.c — per-sprite SDL consumer of the BenRen draw list. See scene_sdl.h. */
 #include "render/scene_sdl.h"
 #include <stdlib.h>
+#include <string.h>
 
 /* Bake one quad's index bitmap into an ARGB streaming texture, resolving the
  * per-output-row palette on the CPU (SDL2 has no fragment shader). `dy0` is the
@@ -58,10 +59,101 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi)
     return rc;
 }
 
-int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
-                          const uint32_t *base, int ow, int oh)
+#define SCENE_SDL_ATLAS_W 1024
+#define SCENE_SDL_ATLAS_H 2048
+
+void scene_sdl_cache_free(SceneSdlCache *c)
 {
-    if (!r || !s || !base) return -1;
+    if (!c) return;
+    if (c->atlas) SDL_DestroyTexture(c->atlas);
+    if (c->base)  SDL_DestroyTexture(c->base);
+    c->atlas = NULL; c->base = NULL; c->r = NULL; c->base_w = c->base_h = 0;
+}
+
+/* Ensure the cache's textures exist for renderer `r` and base size ow x oh.
+ * If the renderer changed, the old textures died with it — just drop them. */
+static int cache_ensure(SceneSdlCache *c, SDL_Renderer *r, int ow, int oh)
+{
+    if (c->r != r) { c->atlas = NULL; c->base = NULL; c->r = r; c->base_w = c->base_h = 0; }
+    if (!c->atlas) {
+        c->atlas = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888,
+                                     SDL_TEXTUREACCESS_STREAMING,
+                                     SCENE_SDL_ATLAS_W, SCENE_SDL_ATLAS_H);
+        if (!c->atlas) return -1;
+        SDL_SetTextureBlendMode(c->atlas, SDL_BLENDMODE_BLEND);
+    }
+    if (c->base && (c->base_w != ow || c->base_h != oh)) {
+        SDL_DestroyTexture(c->base); c->base = NULL;
+    }
+    if (!c->base) {
+        c->base = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888,
+                                    SDL_TEXTUREACCESS_STREAMING, ow, oh);
+        if (!c->base) return -1;
+        SDL_SetTextureBlendMode(c->base, SDL_BLENDMODE_NONE);
+        c->base_w = ow; c->base_h = oh;
+    }
+    return 0;
+}
+
+/* Shelf-pack every drawable quad of `s` into the atlas and bake its texels
+ * (same per-output-row palette resolve as quad_texture) under ONE lock.
+ * Packed positions go to pos[] ({x,y} per quad; w/h come from the quad).
+ * Returns 0, or -1 when the quads don't fit / SDL fails (caller falls back). */
+static int atlas_pack_bake(SceneSdlCache *c, const Scene *s, SDL_Rect *pos)
+{
+    int cur_x = 0, cur_y = 0, shelf_h = 0, max_y = 0;
+    for (int i = 0; i < s->nquads; i++) {
+        const SceneQuad *q = &s->quads[i];
+        pos[i].w = 0;                                    /* mark not-packed */
+        if (q->w <= 0 || q->h <= 0) continue;
+        if (q->w > SCENE_SDL_ATLAS_W) return -1;
+        if (cur_x + q->w > SCENE_SDL_ATLAS_W) {          /* new shelf */
+            cur_x = 0; cur_y += shelf_h; shelf_h = 0;
+        }
+        if (cur_y + q->h > SCENE_SDL_ATLAS_H) return -1; /* atlas full */
+        pos[i] = (SDL_Rect){ cur_x, cur_y, q->w, q->h };
+        cur_x += q->w;
+        if (q->h > shelf_h) shelf_h = q->h;
+        if (cur_y + q->h > max_y) max_y = cur_y + q->h;
+    }
+    if (max_y == 0) return 0;                            /* nothing to bake */
+
+    SDL_Rect lock = { 0, 0, SCENE_SDL_ATLAS_W, max_y };
+    void *pixels; int pitch;
+    if (SDL_LockTexture(c->atlas, &lock, &pixels, &pitch) != 0) return -1;
+    for (int i = 0; i < s->nquads; i++) {
+        const SceneQuad *q = &s->quads[i];
+        if (pos[i].w == 0) continue;
+        for (int rr = 0; rr < q->h; rr++) {
+            int dy = q->y + rr;             /* output row this texel lands on */
+            const uint32_t *pal = (dy >= 0 && dy < SCENE_MAX_ROWS) ? s->pal_rows[dy]
+                                                                   : s->pal_rows[0];
+            const uint8_t *src = q->idx + (size_t)rr * q->stride;
+            uint32_t *dst = (uint32_t *)((uint8_t *)pixels
+                          + (size_t)(pos[i].y + rr) * pitch) + pos[i].x;
+            for (int col = 0; col < q->w; col++) {
+                uint8_t v = src[col];
+                dst[col] = (v == SCENE_TRANSPARENT)
+                         ? 0u
+                         : (0xFF000000u | (pal[v & (SCENE_PAL - 1)] & 0x00FFFFFFu));
+            }
+        }
+    }
+    SDL_UnlockTexture(c->atlas);
+    return 0;
+}
+
+int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
+                          const uint32_t *base, int ow, int oh,
+                          SceneSdlCache *cache)
+{
+    if (!r || !s || !base || !cache) return -1;
+    if (cache_ensure(cache, r, ow, oh) != 0) return -1;
+
+    SDL_Rect *pos = (SDL_Rect *)malloc(sizeof(SDL_Rect) * (size_t)(s->nquads ? s->nquads : 1));
+    if (!pos) return -1;
+    if (atlas_pack_bake(cache, s, pos) != 0) { free(pos); return -1; }
+
     int rc = 0;
 
     /* Whole frame starts black (the playfield void outside the world clip). */
@@ -70,22 +162,16 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
     SDL_RenderClear(r);
 
     /* Base layer: the rows the scene does NOT own (top border + HUD) come from
-     * the composed output surface unchanged — they are still the vanilla render. */
-    {
-        SDL_Texture *bt = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888,
-                                            SDL_TEXTUREACCESS_STREAMING, ow, oh);
-        if (!bt) return -1;
-        SDL_UpdateTexture(bt, NULL, base, ow * 4);
-        SDL_SetTextureBlendMode(bt, SDL_BLENDMODE_NONE);
-        if (y_lo > 0) {
-            SDL_Rect rr = { 0, 0, ow, y_lo };
-            if (SDL_RenderCopy(r, bt, &rr, &rr) != 0) rc = -1;
-        }
-        if (y_hi < oh) {
-            SDL_Rect rr = { 0, y_hi, ow, oh - y_hi };
-            if (SDL_RenderCopy(r, bt, &rr, &rr) != 0) rc = -1;
-        }
-        SDL_DestroyTexture(bt);
+     * the composed output surface unchanged — rect-update just those bands. */
+    if (y_lo > 0) {
+        SDL_Rect rr = { 0, 0, ow, y_lo };
+        if (SDL_UpdateTexture(cache->base, &rr, base, ow * 4) != 0 ||
+            SDL_RenderCopy(r, cache->base, &rr, &rr) != 0) rc = -1;
+    }
+    if (y_hi < oh) {
+        SDL_Rect rr = { 0, y_hi, ow, oh - y_hi };
+        if (SDL_UpdateTexture(cache->base, &rr, base + (size_t)y_hi * ow, ow * 4) != 0 ||
+            SDL_RenderCopy(r, cache->base, &rr, &rr) != 0) rc = -1;
     }
 
     /* World quads: per-sprite, camera-projected (screen_x = x - view_left),
@@ -99,13 +185,9 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
             SDL_RenderSetClipRect(r, &clip);
             for (int i = 0; i < s->nquads && rc == 0; i++) {
                 const SceneQuad *q = &s->quads[i];
-                if (q->space != SCENE_SPACE_WORLD) continue;
-                if (q->w <= 0 || q->h <= 0) continue;
-                SDL_Texture *tex = quad_texture(r, s, q);
-                if (!tex) { rc = -1; break; }
+                if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0) continue;
                 SDL_Rect d = { q->x - s->view_left, q->y, q->w, q->h };
-                if (SDL_RenderCopy(r, tex, NULL, &d) != 0) rc = -1;
-                SDL_DestroyTexture(tex);
+                if (SDL_RenderCopy(r, cache->atlas, &pos[i], &d) != 0) rc = -1;
             }
             SDL_RenderSetClipRect(r, NULL);
         }
@@ -114,14 +196,11 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
     /* Screen quads (the banner): screen-fixed UI on top, no camera, full frame. */
     for (int i = 0; i < s->nquads && rc == 0; i++) {
         const SceneQuad *q = &s->quads[i];
-        if (q->space != SCENE_SPACE_SCREEN) continue;
-        if (q->w <= 0 || q->h <= 0) continue;
-        SDL_Texture *tex = quad_texture(r, s, q);
-        if (!tex) { rc = -1; break; }
+        if (q->space != SCENE_SPACE_SCREEN || pos[i].w == 0) continue;
         SDL_Rect d = { q->x, q->y, q->w, q->h };
-        if (SDL_RenderCopy(r, tex, NULL, &d) != 0) rc = -1;
-        SDL_DestroyTexture(tex);
+        if (SDL_RenderCopy(r, cache->atlas, &pos[i], &d) != 0) rc = -1;
     }
+    free(pos);
     return rc;
 }
 
@@ -188,8 +267,10 @@ long scene_sdl_window_selftest(const Scene *s, const uint32_t *base,
     SDL_Renderer *r = surf ? SDL_CreateSoftwareRenderer(surf) : NULL;
     if (!r) { if (surf) SDL_FreeSurface(surf); return -1; }
 
-    int drc = scene_draw_sdl_window(r, s, y_lo, y_hi, base, ow, oh);
+    SceneSdlCache cache = {0};
+    int drc = scene_draw_sdl_window(r, s, y_lo, y_hi, base, ow, oh, &cache);
     SDL_RenderPresent(r);
+    scene_sdl_cache_free(&cache);   /* before the renderer goes away */
 
     long ndiff = (drc != 0) ? -1 : 0;
     if (drc == 0) {

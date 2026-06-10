@@ -12,6 +12,7 @@ static SDL_Window   *s_window   = NULL;
 static SDL_Renderer *s_renderer = NULL;
 static SDL_Texture  *s_texture  = NULL;
 static int s_content_w = 0, s_content_h = 0;
+static SceneSdlCache s_scene_cache = {0};   /* persistent atlas/base for present_scene */
 
 /* The content (output-surface) size can change at runtime — the widescreen
  * option in the pause menu / auto mode. Recreate the streaming texture and
@@ -63,7 +64,8 @@ static void sdl_present_scene(const Scene *s, int y_lo, int y_hi,
                               const uint32_t *base, int w, int h)
 {
     if (sdl_ensure_content(w, h) != 0) return;
-    if (scene_draw_sdl_window(s_renderer, s, y_lo, y_hi, base, w, h) != 0) {
+    if (scene_draw_sdl_window(s_renderer, s, y_lo, y_hi, base, w, h,
+                              &s_scene_cache) != 0) {
         /* SDL failure mid-frame: fall back to the plain blit so the user
          * still sees the (identical) composed frame. */
         sdl_present(base, w, h);
@@ -83,6 +85,7 @@ static SDL_Window *sdl_window(void) { return s_window; }
 
 static void sdl_shutdown(void)
 {
+    scene_sdl_cache_free(&s_scene_cache);
     if (s_texture)  SDL_DestroyTexture(s_texture);
     if (s_renderer) SDL_DestroyRenderer(s_renderer);
     if (s_window)   SDL_DestroyWindow(s_window);
