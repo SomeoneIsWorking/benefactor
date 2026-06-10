@@ -136,20 +136,20 @@ static void parse_binding(int dev, const char *p, Binding *b)
     }
 }
 
-/* Defaults. Pad: A = fire (primary button, like the Amiga stick); there is NO
- * default pad JUMP binding — Up/DPad-up jumps as on hardware, and a dedicated
- * pad hop button needs more mapping work (it mis-mapped; bind pad_hop in JSON
- * to experiment). Keyboard hop default Up = vanilla. */
+/* Defaults. Pad: A = fire (primary button, like the Amiga stick). The control
+ * set is deliberately minimal — ONE fire, ONE interact; DROP is always
+ * interact+Down (no binding) and HOP has no dedicated key (Up/DPad-up jumps,
+ * as on hardware). The hop/drop ACTIONS still parse from JSON (bind_hop /
+ * bind_drop / pad_…) for power users, they just have no defaults. */
 static const struct { int act; const char *key[PI_NUM_DEV]; const char *def[PI_NUM_DEV]; } k_defaults[] = {
     {PI_LEFT,  {"bind_left",  "pad_left"},  {"Left",  "DPLeft, LeftX-"}},
     {PI_RIGHT, {"bind_right", "pad_right"}, {"Right", "DPRight, LeftX+"}},
     {PI_UP,    {"bind_up",    "pad_up"},    {"Up",    "DPUp, LeftY-"}},
     {PI_DOWN,  {"bind_down",  "pad_down"},  {"Down",  "DPDown, LeftY+"}},
-    {PI_HOP,   {"bind_hop",   "pad_hop"},   {"Up",    ""}},    /* Up also hops (vanilla) */
+    {PI_HOP,   {"bind_hop",   "pad_hop"},   {"",      ""}},
     {PI_FIRE,  {"bind_fire",  "pad_fire"},  {"Z, LCtrl, Space, Return", "A, B"}},
     {PI_INTERACT, {"bind_interact", "pad_interact"}, {"X, LShift", "X"}},
-    /* C left the drop defaults when it became the free-cam toggle. */
-    {PI_DROP,  {"bind_drop",  "pad_drop"},  {"X+Down, RShift", "Y"}},
+    {PI_DROP,  {"bind_drop",  "pad_drop"},  {"",      ""}},
     {PI_FFWD,  {"bind_ffwd",  "pad_ffwd"},  {"Tab",   "RightTrigger"}},
     {PI_FREECAM, {"bind_freecam", "pad_freecam"}, {"C", "Back"}},
 };

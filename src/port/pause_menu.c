@@ -87,25 +87,18 @@ void pc_pause_toggle(void)
 }
 
 /* ── Bindings-page row model ───────────────────────────────────────────────────
- * Row list depends on the device's modern flag: with modern controls the single
- * FIRE is SPLIT into JUMP + INTERACT (FIRE remains as the throw/long-jump
- * button, DROP gets its own row). Last row is BACK (action = -1). */
+ * ONE FIRE and (with modern controls) ONE INTERACT — nothing else. There is no
+ * DROP row: dropping the carried item/man is always interact+Down. The hop and
+ * drop ACTIONS still exist for JSON power users but get no menu row and no
+ * defaults. Last row is BACK (action = -1). */
 static int bind_rows(int dev, int *actions /* >= 14 */)
 {
     int n = 0;
     int modern = (dev == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
     actions[n++] = PI_LEFT; actions[n++] = PI_RIGHT;
     actions[n++] = PI_UP;   actions[n++] = PI_DOWN;
-    if (modern) {
-        /* No pad JUMP row: the dedicated hop action is keyboard-only for now
-         * (the pad mapping was wrong; pad Up/DPad-up jumps, as on hardware). */
-        if (dev == PI_DEV_KB) actions[n++] = PI_HOP;   /* JUMP */
-        actions[n++] = PI_INTERACT;
-        actions[n++] = PI_FIRE;       /* throw / long-jump */
-        actions[n++] = PI_DROP;
-    } else {
-        actions[n++] = PI_FIRE;
-    }
+    actions[n++] = PI_FIRE;
+    if (modern) actions[n++] = PI_INTERACT;
     actions[n++] = PI_FFWD;           /* hold-to-fast-forward, both schemes */
     actions[n++] = PI_FREECAM;        /* free-cam toggle */
     actions[n++] = -1;                /* BACK */
@@ -114,10 +107,9 @@ static int bind_rows(int dev, int *actions /* >= 14 */)
 
 static const char *bind_row_label(int dev, int action)
 {
+    (void)dev;
     if (action < 0) return "BACK";
-    int modern = (dev == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
-    if (modern && action == PI_FIRE) return "FIRE (THROW)";
-    return pc_input_action_name(action);   /* JUMP for PI_HOP, etc. */
+    return pc_input_action_name(action);
 }
 
 static int page_rows(int page)
@@ -439,7 +431,7 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 break;
             case OO_FREECAM:
                 label = "FREE CAM";
-                value = pc_cfg_bool("freecam_pause", 0) ? "PAUSES GAME" : "GAME RUNS";
+                value = pc_cfg_bool("freecam_pause", 0) ? "PAUSED" : "REALTIME";
                 break;
             case OO_INTERACT:
                 label = "INTERACT RANGE";
