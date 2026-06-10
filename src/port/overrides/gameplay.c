@@ -299,6 +299,8 @@ void native_wsobj_commit_reset(void);   /* defined with the wsobj capture below 
 void native_level_load(M68KCtx *ctx)
 {
     native_wsobj_commit_reset();        /* object nodes are per-level */
+    { extern void native_lc_text_set(void);
+      native_lc_text_set(); }           /* re-pin "LEVEL COMPLETE" over the password text */
     if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
     if (s_dbg_endlevel) {
         fprintf(stderr, "[level-load] $59DC02: d0=%08X d1=%08X a0=%08X a1=%08X a2=%08X a3=%08X\n",
@@ -1129,3 +1131,25 @@ static void banner_text_capture(M68KCtx *ctx, uint32_t strbase, void (*super)(M6
 }
 void native_getready_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x6584u, gfn_gpl_578860); }
 void native_gameover_text_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x6542u, gfn_gpl_57889C); }
+
+/* LEVEL COMPLETE banner text ($5788DE, string a5-$64FC = $578916): vanilla
+ * draws "PASSWORD: xxxxxxxxxx" (the x's = the NEXT level's password, generated
+ * by $57901E from $20/$1C). This port replaced passwords with LEVEL SELECT, so
+ * the banner says "LEVEL COMPLETE" instead: the string buffer is rewritten
+ * (centered: 14 chars at pos 14 vs vanilla's 20 at 11) AFTER each $57901E run
+ * (it would otherwise refill the digit area) and on every level load (the
+ * buffer ships inside the gpl overlay, so a load restores the vanilla text —
+ * and the BenRen capture reads the position word at $5788DE ENTRY, before
+ * $57901E runs, so it must already be ours). $5788DE is also captured for the
+ * BenRen banner like its GET READY / GAME OVER siblings. */
+void native_lc_text_set(void)
+{
+    static const char txt[] = "LEVEL COMPLETE";
+    extern uint8_t *g_mem;
+    uint32_t base = GP_A5 - 0x64FCu;                      /* $578916 */
+    g_mem[base] = 0; g_mem[base + 1] = 14;                /* centered position word */
+    for (uint32_t i = 0; i < sizeof txt; i++)             /* incl. the NUL */
+        g_mem[base + 2u + i] = (uint8_t)txt[i];
+}
+void native_password_build(M68KCtx *ctx) { gfn_gpl_57901E(ctx); native_lc_text_set(); }
+void native_levelcomplete_text_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x64FCu, gfn_gpl_5788DE); }
