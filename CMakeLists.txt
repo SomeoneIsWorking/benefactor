@@ -435,6 +435,7 @@ set(PUAE_DEPS_SOURCES
     ${PUAE_DEPS}/libz/unzip.c
     ${PUAE_DEPS}/libz/ioapi.c
     ${PUAE_DEPS}/libz/adler32.c
+    ${PUAE_DEPS}/libz/compress.c
     ${PUAE_DEPS}/libz/crc32.c
     ${PUAE_DEPS}/libz/deflate.c
     ${PUAE_DEPS}/libz/gzclose.c
@@ -477,6 +478,7 @@ set(PUAE_DEPS_SOURCES
 
 set(HARNESS_SOURCES
     src/harness/harness_main.c
+    src/harness/png_dump.c
     src/harness/harness_puae.c
     src/harness/harness_compare.c
     src/harness/harness_frontend.c
