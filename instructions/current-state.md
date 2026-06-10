@@ -650,46 +650,42 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 - New control-snapshot diagnostics (added to `FrameState` + harness compare) show no direct `BPLCON1/2`, `DIW*`, or `DDF*` mismatches at the failing frame; remaining divergence is in renderer interpretation, not obvious control-register value mismatch.
 - Bitplane snapshot timing probe (`BENEFACTOR_BPL_SNAP_OFFSET`) is high-sensitivity: offsets `+1/+2` materially move the metric (e.g. baseline-only `5499 -> 5462/5305`; with mode offsets best seen around `5046`), reinforcing that line-start timing/modeling is a key unresolved component.
 
-## Next Tasks (user TODO, 2026-06-10 — do not start unprompted)
+## Next Tasks (user TODO, updated 2026-06-10 — do not start unprompted)
 
 **Testing workflow note:** the user runs the game themselves and asks us to
 probe via the HTTP debug server (`BENEFACTOR_HTTP`) — don't drive long headed
 repros ourselves unless asked.
 
-1. **Vestigial password field on the main menu** — still drawn ("3MQLGPQLGP")
-   even though passwords are unused. Known hard case: its renderer `$003DAA`
-   is double-emitted (standalone fn + inline in `gfn_gp_003872`); the menu
-   reaches it via the inline fall-through, so an entry override doesn't catch
-   it (see CLAUDE.md TODO).
-2. **OPTIONS from the main menu** — ESC/Start opening the options directly on
-   the title screen could work; an explicit OPTIONS menu entry wouldn't hurt.
-   (Pause/OPTIONS currently exists only in gameplay.)
+Done & committed (kept for context): password-field erase (77bcf0d), OPTIONS
+from title + MORE/SKIP INTRO (f948da7), difficulty selector fix (51afc4a),
+profile.json level tracking + locked LEVEL SELECT + unlock-all (a5b9647),
+LEVEL COMPLETE banner text (fbf6198).
+
+### TODOs
+
+1. **Credits fire-skip** — during the victory credits, a FIRE press shows a
+   toast ("press fire again to skip"-style); a second press (while the toast
+   is up) skips the credits and returns to the main-menu poster
+   (`pc_request_cold_restart` is the existing poster entry). Detect with a
+   fire edge in the main loop while `g_credits_active`; `pc_toast_show` /
+   `pc_toast_visible` already exist.
+2. **Main menu work** — deferred by the user (details TBD when picked up).
 3. **Simplify modern bindings: ONE FIRE + ONE INTERACT, nothing else** — drop
    the DROP binding (and row) entirely: DROP ITEM is always interact+Down.
    "FIRE (THROW)" labeling is wrong/unknown — no separate THROW concept; the
    bindings pages should list just FIRE and INTERACT (plus movement/FF/etc.).
 4. **Freecam option wording** — values should be `REALTIME` / `PAUSED`, not
    "GAME RUNS"/"PAUSES GAME" (not videogame-speak).
-5. **MORE submenu under OPTIONS** — first entry: **SKIP INTRO** (same effect
-   as Exit to Main Menu: jump straight to the main-menu poster on boot).
-6. **Difficulty modifier broken** — the game has a built-in difficulty
-   selector: LEFT/RIGHT while hovering PLAY on the main menu. Suspect our
-   menu input mapping never routes left/right there (incorrectly mapped).
-   RE + fix.
-7. **Track completed levels** — persist to a `profile.json` (separate from
-   benefactor.json settings).
-8. **Locked levels in LEVEL SELECT** — show `??????` for not-yet-unlocked
-   levels; worlds with nothing unlocked can't be navigated to. Unlocked =
-   up to highest-completed + 1.
-9. **UNLOCK ALL LEVELS toggle (MORE submenu)** — when ON, every level is
-   selectable; when OFF, only up to highest-completed+1 (others show `???`).
-   In BOTH cases cleared levels get a completed indicator.
-10. **BenRen: LEVEL COMPLETE banner has no text** — vanilla shows the NEXT
-    level's password there; since passwords are unused, render "LEVEL
-    COMPLETE" instead (native banner-text path).
-11. **Optional: keep the password system** (an option to re-enable the
-    original password entry). User is conflicted — passwords are painful to
-    enter with a controller; park until decided.
+
+### PROPOSALS (not committed to — discuss before starting)
+
+- **Rewind** — hold a key to rewind recent gameplay (ring buffer of
+  savestates; g_mem+ctx snapshots are cheap and already serializable).
+- **Save states (user-facing)** — polished multi-slot save/load in the pause
+  menu (the S/D logs/savestate.bin flow is a debug tool, not a feature).
+- **Password restore** — an option to re-enable the original password entry
+  system. User is conflicted — passwords are painful to enter with a
+  controller; park until decided.
 
 ---
 
