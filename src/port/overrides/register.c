@@ -64,20 +64,21 @@ void pc_register_overrides(void)
      *                   beq.s  end   ; if cursor 0, do nothing
      *                   subq.w #1,$E742(a5)
      *
-     *   $003C6E / $003C9A handle LEFT/RIGHT — more complex (test a bit at
-     *   low-mem $1F, shifts). The menu has 3 vertical options so LEFT/RIGHT
-     *   are no-ops in normal play; we delegate them to gfn_gp_003872 (which
-     *   handles a no-op pass safely).
+     *   $003C6E / $003C9A handle LEFT/RIGHT — the DIFFICULTY selector on the
+     *   PLAY GAME row (rotate the bit in $1E.w, clamped by $1F bits 0/2).
+     *   They were stubbed to gfn_gp_003872 for a long time, which is why
+     *   left/right appeared dead — now direct C ports (native_menu_diff_*).
      *
      * Recompiler crashes on these (IndexError in emitter._pre_rd) so we
      * implement them natively here. */
     { extern void native_menu_cursor_down(M68KCtx *ctx);
       extern void native_menu_cursor_up(M68KCtx *ctx);
-      extern void gfn_gp_003872(M68KCtx *ctx);
+      extern void native_menu_diff_left(M68KCtx *ctx);
+      extern void native_menu_diff_right(M68KCtx *ctx);
       rt_register_override(0x00003C5Au, native_menu_cursor_down);
       rt_register_override(0x00003C88u, native_menu_cursor_up);
-      rt_register_override(0x00003C6Eu, gfn_gp_003872);
-      rt_register_override(0x00003C9Au, gfn_gp_003872); }
+      rt_register_override(0x00003C6Eu, native_menu_diff_left);
+      rt_register_override(0x00003C9Au, native_menu_diff_right); }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */
     rt_register_override_gp(0x00577B8Cu, native_gp_disk_read);
