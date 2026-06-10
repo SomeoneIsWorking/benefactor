@@ -669,7 +669,11 @@ LEVEL COMPLETE banner text (fbf6198).
    (`pc_request_cold_restart` is the existing poster entry). Detect with a
    fire edge in the main loop while `g_credits_active`; `pc_toast_show` /
    `pc_toast_visible` already exist.
-2. **Main menu work** — deferred by the user (details TBD when picked up).
+2. **Main menu: real OPTIONS entry** — ESC/Start already opens OPTIONS from
+   the title (f948da7), but the originally-requested visible **OPTIONS item in
+   the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
+   LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
+   (native_menu_setup / fire-dispatch). Deferred by the user for now.
 3. **Simplify modern bindings: ONE FIRE + ONE INTERACT, nothing else** — drop
    the DROP binding (and row) entirely: DROP ITEM is always interact+Down.
    "FIRE (THROW)" labeling is wrong/unknown — no separate THROW concept; the
