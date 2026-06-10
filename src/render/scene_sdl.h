@@ -33,13 +33,32 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi);
  * losslessly before it becomes a runtime backend. */
 long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi, int *max_chan);
 
+/* Persistent SDL resources for the windowed per-sprite present. Creating and
+ * destroying a texture PER QUAD PER FRAME (the original P4 code) collapsed on
+ * quad-heavy scenes (1600+ quads → visible slowdown; the F3 overlay "fixed" it
+ * only because overlays force the plain-blit present). Instead all quads are
+ * baked into ONE persistent streaming ATLAS (single lock per frame, shelf
+ * packing) and drawn with per-quad RenderCopy from atlas rects; the base
+ * surface texture persists too (rect-updated, only the non-scene rows).
+ * Textures belong to one SDL_Renderer: free with scene_sdl_cache_free() while
+ * that renderer is still alive. Zero-initialize the struct before first use. */
+typedef struct SceneSdlCache {
+    SDL_Renderer *r;                 /* owning renderer (cache auto-resets if it changes) */
+    SDL_Texture  *atlas;             /* SCENE_SDL_ATLAS_W x _H, BLEND, streaming */
+    SDL_Texture  *base;              /* composed-output copy for non-scene rows  */
+    int base_w, base_h;
+} SceneSdlCache;
+void scene_sdl_cache_free(SceneSdlCache *c);
+
 /* P4 — the WINDOWED per-sprite frame: clear black, draw the non-scene rows
  * (top border + HUD) from the composed `base` surface, then every WORLD quad
  * camera-projected (screen_x = x - s->view_left, clipped to the scene's world
  * clip range and [y_lo, y_hi)), then the SCREEN quads (banner) on top. This is
- * the routine the SDL present backend calls instead of blitting `base`. */
+ * the routine the SDL present backend calls instead of blitting `base`.
+ * `cache` (required) holds the persistent atlas/base textures. */
 int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
-                          const uint32_t *base, int ow, int oh);
+                          const uint32_t *base, int ow, int oh,
+                          SceneSdlCache *cache);
 
 /* Headless gate for the windowed path: render scene_draw_sdl_window into an
  * offscreen software renderer and byte-diff the FULL frame against `base`
