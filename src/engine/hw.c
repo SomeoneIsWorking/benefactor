@@ -272,6 +272,7 @@ void hw_speed_refresh(void)
     char buf[16];
     if (pc_cfg_show("game_speed", buf, sizeof buf, NULL) && buf[0]) {
         if      (!strcasecmp(buf, "turbo"))  pct = 120;
+        else if (!strcasecmp(buf, "hyper"))  pct = 150;
         else if (!strcasecmp(buf, "normal")) pct = 100;
         else {                       /* numeric multiplier (legacy "1"/"2"/"4") */
             int m = atoi(buf);
