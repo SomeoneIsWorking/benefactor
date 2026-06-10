@@ -659,7 +659,8 @@ repros ourselves unless asked.
 Done & committed (kept for context): password-field erase (77bcf0d), OPTIONS
 from title + MORE/SKIP INTRO (f948da7), difficulty selector fix (51afc4a),
 profile.json level tracking + locked LEVEL SELECT + unlock-all (a5b9647),
-LEVEL COMPLETE banner text (fbf6198).
+LEVEL COMPLETE banner text (fbf6198), bindings = one FIRE + one INTERACT
+(no DROP row) + freecam values REALTIME/PAUSED (79525ca).
 
 ### TODOs
 
@@ -684,17 +685,11 @@ LEVEL COMPLETE banner text (fbf6198).
    the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
    LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
    (native_menu_setup / fire-dispatch). Deferred by the user for now.
-3. **Simplify modern bindings: ONE FIRE + ONE INTERACT, nothing else** — drop
-   the DROP binding (and row) entirely: DROP ITEM is always interact+Down.
-   "FIRE (THROW)" labeling is wrong/unknown — no separate THROW concept; the
-   bindings pages should list just FIRE and INTERACT (plus movement/FF/etc.).
-4. **Freecam option wording** — values should be `REALTIME` / `PAUSED`, not
-   "GAME RUNS"/"PAUSES GAME" (not videogame-speak).
-5. **Main menu: PLAY GAME → CONTINUE** — rename the item and make it start
+3. **Main menu: PLAY GAME → CONTINUE** — rename the item and make it start
    the FIRST UNCLEARED level (from profile.json progress) instead of level 1.
-6. **Paused freecam must NOT pause the music** — currently the PAUSED mode
+4. **Paused freecam must NOT pause the music** — currently the PAUSED mode
    silences the music with the game; keep the replayer ticking while frozen.
-7. **Freecam return animation** — on exiting freecam, the camera either SNAPS
+5. **Freecam return animation** — on exiting freecam, the camera either SNAPS
    BACK (animated pan to the player) or FADES out + back in (1s total),
    whichever takes LESS time for the current distance. Snapback speed = our
    choice (pick something brisk; the crossover distance falls out of it).

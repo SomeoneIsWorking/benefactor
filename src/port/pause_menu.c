@@ -13,8 +13,8 @@
  *   BINDINGS — one page per device (keyboard / controller). Selecting a row
  *              enters CAPTURE: the next key/button pressed on that device
  *              becomes the binding (single key; chords stay JSON-editable).
- *              With modern controls ON for the device, the single FIRE row is
- *              split into JUMP and INTERACT (+ FIRE (THROW) and DROP).
+ *              With modern controls ON for the device, an INTERACT row is
+ *              added next to FIRE (no DROP row — drop is always interact+Down).
  *
  * Pause is only available DURING gameplay (g_gameplay_active=1). Outside
  * gameplay ESC keeps its old "quit immediately" behaviour. Inside the menu,
