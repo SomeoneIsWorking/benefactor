@@ -26,12 +26,28 @@ void overlay_load_main(void)
     atn_decrunch(0x3000u);
 }
 
-/* gp / title bank. The $6D714 block copy ($6D734 -> $150, $2A08 bytes) needs the
- * boot-decrunch source, so a fresh overlay_load_main() must precede this. Then
- * two title chunks: E1 raw -> $50000, E2 ATN! -> $3330 (decrunch). */
+/* The $6D714 block copy ($6D734 -> $150, $2A08 bytes) relocates the loader
+ * body + low-RAM engine state words ($1890.w = $0200 from source $6EE74,
+ * etc.). On hardware it runs ONCE, at boot, while $6D734..$7013B still holds
+ * the pristine boot-decrunch image. The port re-runs it on every overlay
+ * (re)load — level entry, retry/game-over, exit-to-menu — by which time the
+ * engine has legitimately reused the source tail ($6E000+ = reloc table, then
+ * streamed level data). Copying from THAT poisoned low RAM: $1890 became 0
+ * and $59AC38's level-identity gate wild-jumped into object data (the
+ * recurring W6L2 / level-60 crash). So the copy must never trust current
+ * memory: re-decrunch the boot image first, every time, making each loader
+ * self-sufficient instead of contracting "overlay_load_main() must precede". */
+static void loader_block_copy(void)
+{
+    overlay_load_main();
+    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
+}
+
+/* gp / title bank: loader block copy, then two title chunks:
+ * E1 raw -> $50000, E2 ATN! -> $3330 (decrunch). */
 void overlay_load_title(void)
 {
-    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
+    loader_block_copy();
     disk_boot_load(1, 0x0F3780u, 0x00050000u, 0x1880u);    /* E1: raw */
     disk_boot_load(1, 0x026270u, 0x00003330u, 0x2E2E4u);   /* E2: ATN! crunched */
     atn_decrunch(0x00003330u);
@@ -40,9 +56,10 @@ void overlay_load_title(void)
     g_mem[0x104] = 0x00; g_mem[0x105] = 0x00; g_mem[0x106] = 0x33; g_mem[0x107] = 0x30;
 }
 
-/* gpl / gameplay bank. $6D714 block copy first (fresh overlay_load_main() must
- * precede), then 3 ATN! chunks (reloc table -> $6E000, code/data -> $3330,
- * code -> $577000), then the two-pass pointer relocation the loader runs. */
+/* gpl / gameplay bank. Loader block copy first (the copy MUST come before
+ * chunk 0 overwrites its source tail at $6E000), then 3 ATN! chunks (reloc
+ * table -> $6E000, code/data -> $3330, code -> $577000), then the two-pass
+ * pointer relocation the loader runs. */
 void overlay_load_gameplay(void)
 {
     static const struct { uint32_t off, dst, len; } ch[3] = {
@@ -50,7 +67,7 @@ void overlay_load_gameplay(void)
         { 0x0565BAu, 0x003330u, 0x012404u },
         { 0x0689BEu, 0x577000u, 0x012A1Cu },
     };
-    memcpy(g_mem + 0x150u, g_mem + 0x6D734u, 0x2A08u);
+    loader_block_copy();
     for (int i = 0; i < 3; i++) { disk_boot_load(1, ch[i].off, ch[i].dst, ch[i].len);
                                   atn_decrunch(ch[i].dst); }
     g_mem[0x100]=0x00; g_mem[0x101]=0x06; g_mem[0x102]=0xE0; g_mem[0x103]=0x00;
