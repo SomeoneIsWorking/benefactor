@@ -759,10 +759,20 @@ int main(int argc, char **argv)
             pc_debug_game_over();
             printf("[crepl] forced PC game-over flag\n");
         }
-        else if (!strcmp(cmd, "pause")) {  /* toggle in-game pause-menu overlay */
-            extern void pc_pause_toggle(void);
-            pc_pause_toggle();
-            printf("[crepl] toggled pause-menu overlay\n");
+        else if (!strcmp(cmd, "pause")) {  /* pause [up|down|left|right|sel|esc] — toggle the
+                                            * pause menu, or drive its navigation (screenshots) */
+            extern void pc_pause_toggle(void), pc_pause_escape(void);
+            extern void pc_pause_input_up(void), pc_pause_input_down(void);
+            extern void pc_pause_input_left(void), pc_pause_input_right(void);
+            extern void pc_pause_input_select(void);
+            char nav[16] = {0}; sscanf(line, "%*s %15s", nav);
+            if      (!nav[0])              { pc_pause_toggle(); printf("[crepl] toggled pause-menu overlay\n"); }
+            else if (!strcmp(nav, "up"))    pc_pause_input_up();
+            else if (!strcmp(nav, "down"))  pc_pause_input_down();
+            else if (!strcmp(nav, "left"))  pc_pause_input_left();
+            else if (!strcmp(nav, "right")) pc_pause_input_right();
+            else if (!strcmp(nav, "sel"))   pc_pause_input_select();
+            else if (!strcmp(nav, "esc"))   pc_pause_escape();
         }
         else if (!strcmp(cmd, "joy")) {   /* joy <up> <down> <left> <right> (held until changed) */
             ju = jd = jl = jr = 0;
