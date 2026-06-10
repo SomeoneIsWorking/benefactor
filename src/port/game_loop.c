@@ -665,6 +665,14 @@ int pc_step(void)
             pc_toast_show("SAVE FAILED", 1);
     }
 
+    /* Music + audio run on REAL time, not game time: at 1x hw_audio_frame_due()
+     * is always true (one audio frame per game frame — the original,
+     * deterministic path the harness compares against). At 2x/4x/turbo it gates
+     * this whole block to the wall-clock 50Hz grid, so the music ISR keeps its
+     * normal tempo and the SDL queue receives exactly what it drains — speeding
+     * the game no longer speeds (or garbles) the soundtrack. */
+    if (!hw_audio_frame_due()) return r;
+
     short ab[PC_AUD_SPF * 2];
     if (g_overlay_active || g_gameplay_active || g_credits_active) {
         /* The overlay music player (menu, level card, gameplay, credits — all the
