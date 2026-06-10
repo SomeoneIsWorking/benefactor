@@ -203,7 +203,7 @@ void native_gameplay_input(M68KCtx *ctx)
      * pose re-writes $10AC bit14 every frame from INLINE code, $57EA76 is not
      * on that path. Bare fire then cleared bit14 without freeing the record =
      * frozen detached man.) */
-    int bare_fire = (hw_get_fire() || hw_get_mouse_lmb()) &&
+    int bare_fire = 0 && (hw_get_fire() || hw_get_mouse_lmb()) &&
                     !interact && !hw_get_fire_vanilla() &&
                     !down && !hw_joy_left() && !hw_joy_right() && !hw_joy_up();
 
@@ -628,13 +628,20 @@ void native_obj_anim_59AC38(M68KCtx *ctx)
     uint16_t gate = MR16(a3);                               /* $59AC56 cmp.w (a3),d2 */
     if (gate == d2) { gfn_gpl_59AC38(ctx); return; }        /* beq: normal anim+draw dispatch */
 
-    /* bne bail with a0=object → wild jump into data. Corrupt low-RAM init. */
+    /* bne bail with a0=object → wild jump into data. Corrupt low-RAM init.
+     * Historic cause (FIXED 2026-06-10): every overlay reload re-ran the
+     * $6D734->$150 block copy AFTER gameplay had reused the source tail at
+     * $6E000+, so retry/exit-to-menu/level-select-after-play poisoned $1890
+     * (and the rest of the low-RAM block). overlay_load.c's loader_block_copy
+     * now re-decrunches the boot image first. A savestate captured while
+     * poisoned still trips this; re-save from a clean run. */
     fprintf(stderr,
         "\n*** [obj $59AC38] corrupt low-RAM init: $1890=$%04X (expected $0200), "
         "gate (a5-$f22)->$%04X != d2 $%04X.\n"
-        "    The object handler would jmp(a0=$%06X) into object DATA. This is a BAD/STALE "
-        "engine state (e.g. a savestate that bypassed the loader's $6D734->$150 block copy),\n"
-        "    NOT a recompiler bug — broken states aren't supported. (a0=$%06X a5=$%06X)\n",
+        "    The object handler would jmp(a0=$%06X) into object DATA. The engine state was "
+        "poisoned by a stale $6D734->$150 block copy (fixed in overlay_load.c 2026-06-10)\n"
+        "    or this is a savestate captured while poisoned — re-save from a clean run. "
+        "NOT a recompiler bug. (a0=$%06X a5=$%06X)\n",
         MR16(0x1890u), gate, d2, ctx->A[0], ctx->A[0], ctx->A[5]);
     abort();
 }

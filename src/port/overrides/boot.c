@@ -113,13 +113,14 @@ void native_boot_anim_iterator(M68KCtx *ctx)
  * (the W6L2 cold-boot crash).
  *
  * The copy goes IN-PLACE in the post-decrunch chip RAM, so the source bytes
- * at `$6D734` must already be valid by the time we copy. The disk_boot_load
- * + atn_decrunch above populates them. */
+ * at `$6D734` must be the pristine boot-decrunch image when we copy —
+ * overlay_load.c's loader_block_copy() re-decrunches it itself. */
 void native_overlay_load(void)
 {
     /* Pure load lives in overlay_load.c (shared with the standalone bank dumper).
-     * The block copy ($6D734 -> $150) needs the boot decrunch to have populated
-     * $6D734 — true at every call site (boot, or exit-to-menu after a reload). */
+     * It re-decrunches the boot image itself before the $6D734 -> $150 block
+     * copy, so it is safe from ANY state (boot, exit-to-menu after gameplay
+     * reused $6E000+, retry, …). */
     overlay_load_title();
     g_pc_screen = PC_SCR_OVERLAY;
 }
@@ -146,9 +147,9 @@ void native_overlay_loader(M68KCtx *ctx)
 void native_overlay_load_d0(void)
 {
     /* Pure load (3 ATN! chunks + 2-pass relocation) lives in overlay_load.c,
-     * shared with the standalone bank dumper. The $6D714 block copy inside it
-     * needs the boot-decrunch source at $6D734 (present after pc_common_bringup);
-     * it runs before chunk 0 overwrites $6E000.. so the source is still valid. */
+     * shared with the standalone bank dumper. It re-decrunches the boot image
+     * before the $6D714 block copy, so re-entry from a state where gameplay
+     * already reused $6E000+ (retry, level select after play) stays correct. */
     overlay_load_gameplay();
     g_pc_screen = PC_SCR_OVERLAY;
 }

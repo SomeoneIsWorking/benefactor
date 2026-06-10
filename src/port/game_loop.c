@@ -853,13 +853,13 @@ int pc_dump_banks_from_disk(const char **disks, int n_disks, const char *out_dir
     snprintf(p, sizeof p, "%s/chip_ram_dump.bin", out_dir);
     if (dump_region(p, 0, 0x80000u) < 0) return -1;
 
-    /* gp / title bank: fresh decrunch, then the title overlay load. */
-    overlay_load_main();  overlay_load_title();
+    /* gp / title bank (overlay_load_title re-decrunches the boot image itself). */
+    overlay_load_title();
     snprintf(p, sizeof p, "%s/chip_flow_gp.bin", out_dir);
     if (dump_region(p, 0, 0x80000u) < 0) return -1;
 
-    /* gpl / gameplay bank: fresh decrunch, then the gameplay overlay load. */
-    overlay_load_main();  overlay_load_gameplay();
+    /* gpl / gameplay bank (self-sufficient, as above). */
+    overlay_load_gameplay();
     snprintf(p, sizeof p, "%s/gmem_after_load.bin", out_dir);
     if (dump_region(p, 0, 0x600000u) < 0) return -1;
 
