@@ -181,7 +181,13 @@ void pc_register_overrides(void)
       rt_register_override_gp(0x00578974u, native_banner_capture);
       rt_register_override_gp(0x00578B94u, native_telanim_capture);
       rt_register_override_gp(0x00578860u, native_getready_capture);
-      rt_register_override_gp(0x0057889Cu, native_gameover_text_capture); }
+      rt_register_override_gp(0x0057889Cu, native_gameover_text_capture);
+      /* LEVEL COMPLETE banner: capture its text like the siblings + replace the
+       * vanilla "PASSWORD: ..." with "LEVEL COMPLETE" after each build. */
+      { extern void native_levelcomplete_text_capture(M68KCtx *ctx);
+        extern void native_password_build(M68KCtx *ctx);
+        rt_register_override_gp(0x005788DEu, native_levelcomplete_text_capture);
+        rt_register_override_gp(0x0057901Eu, native_password_build); } }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled
