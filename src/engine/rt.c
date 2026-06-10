@@ -463,7 +463,7 @@ static NativeFn override_lookup(uint32_t addr)
     int allow_in_menu = (addr == 0x003C5Au || addr == 0x003C6Eu ||
                          addr == 0x003C88u || addr == 0x003C9Au ||
                          addr == 0x000039D0u || addr == 0x000049B6u ||
-                         addr == 0x00003872u);
+                         addr == 0x00003872u || addr == 0x00003700u);
     if (!want_gp && g_overlay_active && addr >= 0x3294u && !allow_in_menu)
         return NULL;
     /* First pass: prefer an exact bank match (gp=1 in gameplay, gp=0 outside).

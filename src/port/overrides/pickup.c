@@ -284,14 +284,20 @@ void native_mm_pickup_gate(M68KCtx *ctx)
 {
     extern int pc_modern_any(void);
     extern int hw_get_interact(void), hw_get_fire_vanilla(void);
-    int carrying = MR16(ctx->A[5] + 4244u) != 0 ||          /* item ($1094)   */
-                   native_hands_full(ctx);                  /* item or MM     */
     if (g_pickup_log && (ctx->D[4] & 0x4000u))
-        fprintf(stderr, "[mm] $57EA76 d4=%08X carry=%d int=%d vfire=%d\n",
-                ctx->D[4], carrying, hw_get_interact(), hw_get_fire_vanilla());
-    if (pc_modern_any() && !carrying &&
-        !(hw_get_interact() || hw_get_fire_vanilla()))
-        ctx->D[4] &= ~0x4000u;            /* modern FIRE alone: no MM pickup */
+        fprintf(stderr, "[mm] $57EA76 d4=%08X held=%d int=%d vfire=%d\n",
+                ctx->D[4], native_hands_full(ctx), hw_get_interact(),
+                hw_get_fire_vanilla());
+    /* Strip the "thing here" flag for BARE modern fire in EVERY carry state:
+     * empty-handed it blocks the lift, while carrying it blocks the LET-GO
+     * (verified live 2026-06-10: the fire let-go of a held MM runs through
+     * THIS rt-called entry — pcwatch attributed the $108e=$28 write at
+     * $57EA7C to it — unlike the lift, which uses the inline twin and is
+     * blocked via the $108e arm in native_gameplay_input). The interact
+     * bridge presents fire WITH hw_get_interact() still true, so it always
+     * passes; vanilla-device fire keeps its original semantics. */
+    if (pc_modern_any() && !(hw_get_interact() || hw_get_fire_vanilla()))
+        ctx->D[4] &= ~0x4000u;
     gfn_gpl_57EA76(ctx);
 }
 
