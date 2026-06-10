@@ -170,33 +170,42 @@ void native_gameplay_input(M68KCtx *ctx)
      * frame and let the engine's own pose machine perform the pickup (it edge-
      * detects via $f7e/$f80). No directions held → the presented fire can't
      * become a long-jump or throw. The $57EA76 gate is the other half: bare
-     * modern FIRE no longer grabs. */
+     * modern FIRE no longer grabs.
+     *
+     * The LET-GO is the same fire-alone pose-action while carried ($10AC
+     * bit14), so the same one-shot bridge covers it: interact while carrying
+     * the man presents fire for one frame → the engine sets him down. So
+     * interact = pick up AND put down, symmetric. Stationary-only in BOTH
+     * states: with a direction held the presented fire would decode as a
+     * long jump, not a lift/let-go ($f80 != $20). */
     extern int native_hands_full(M68KCtx *ctx);   /* $10AC bit14: merry man held */
     static int s_mm_intent_consumed = 0;
     int interact = hw_get_interact();
     int mm_carried = native_hands_full(ctx);
     if (!interact) s_mm_intent_consumed = 0;               /* release → rearm */
-    int mm_pickup_intent = interact && !s_mm_intent_consumed &&
-                           !carrying && !mm_carried &&
+    int mm_pickup_intent = interact && !s_mm_intent_consumed && !carrying &&
                            !down && !hw_joy_left() && !hw_joy_right();
     if (interact) s_mm_intent_consumed = 1;                /* one shot per press */
 
-    /* And the reverse: bare MODERN fire must NOT grab a merry man. The lift
-     * decision is INLINE in the player handler ($579750: f80==$20 exactly +
-     * $108e cooldown==0 + record-overlap scan) — $57EA76 is only its double-
-     * emitted standalone twin, so an entry override never sees the real path.
-     * Gate it through the engine's own mechanism instead: arm the pickup
-     * cooldown $108e for this frame (the main loop at $5771A2 decrements it
-     * every frame, so it self-clears). Scoped to EMPTY-HANDED bare modern fire
-     * — never armed when interact is held, when the fire is from a vanilla
-     * device, or while carrying (so throw/drop of a held item/man and the
-     * engine's own larger cooldowns are untouched). Value 2 survives one
-     * engine decrement in case it runs before the player handler this frame. */
-    if ((hw_get_fire() || hw_get_mouse_lmb()) &&
-        !interact && !hw_get_fire_vanilla() &&
-        !carrying && !mm_carried &&
-        MR16(ctx->A[5] + 0x108Eu) == 0)
-        MW16(ctx->A[5] + 0x108Eu, 2);
+    /* And the reverse: bare MODERN fire must trigger NEITHER the lift NOR the
+     * let-go. Both are "fire ALONE" pose actions — every site (the inline
+     * $579750 lift chain, the rt-called $57EA76 twin, and the carry pose's
+     * let-go) gates on $f80 == $20 EXACTLY, i.e. fire with no direction bits.
+     * So block them all at the single input source: strip a bare directionless
+     * modern fire before the decode (restored after). Fire+direction (long
+     * jump) is untouched — a direction bit already makes $f80 != $20, so the
+     * lift/let-go can never fire from it; the one-frame interact bridge runs
+     * with hw_get_interact() true, so it is never stripped; vanilla-device
+     * fire keeps its original semantics.
+     * (REPLACES two earlier partial blocks, both falsified live 2026-06-10:
+     * arming the $108e cooldown only delayed the let-go — the count reaches 0
+     * mid-hold; and the $57EA76 entry strip missed it entirely — the carry
+     * pose re-writes $10AC bit14 every frame from INLINE code, $57EA76 is not
+     * on that path. Bare fire then cleared bit14 without freeing the record =
+     * frozen detached man.) */
+    int bare_fire = (hw_get_fire() || hw_get_mouse_lmb()) &&
+                    !interact && !hw_get_fire_vanilla() &&
+                    !down && !hw_joy_left() && !hw_joy_right() && !hw_joy_up();
 
     /* HOP: a dedicated Hop binding ORs into the up/jump input. The Up *direction* is left
      * fully vanilla — it hops, enters doors, climbs ladders and drives menus, exactly as
@@ -231,6 +240,11 @@ void native_gameplay_input(M68KCtx *ctx)
     } else if (down && !hw_get_fire_vanilla()) {
         /* Plain Down with fire held only on MODERN devices → prone, never drop.
          * Fire from a vanilla-scheme device keeps its original Fire+Down drop. */
+        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
+        hw_set_fire(0); hw_set_mouse_lmb(0);
+        restore = 1;
+    } else if (bare_fire) {
+        /* Bare directionless modern fire → no lift / no let-go (see above). */
         sf = hw_get_fire(); sl = hw_get_mouse_lmb();
         hw_set_fire(0); hw_set_mouse_lmb(0);
         restore = 1;

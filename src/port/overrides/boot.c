@@ -399,6 +399,12 @@ void native_menu_setup(M68KCtx *ctx)
     for (uint32_t i = 0; i < sizeof kItem1; i++)   /* includes the NUL terminator */
         MW8(dst + i, (uint8_t)kItem1[i]);
 
+    /* Vestigial password FIELD: page 1 is handled by the $3700 unpack override
+     * (native_menu_art_unpack); page 2 ships PRE-RENDERED inside the title
+     * overlay (never CPU-written), so erase it here on every menu entry. */
+    { extern void native_menu_pwfield_erase(uint32_t page);
+      native_menu_pwfield_erase(0x59000u); }
+
     extern void gfn_gp_003872(M68KCtx *ctx);
     gfn_gp_003872(ctx);                            /* engine builds/draws/loops the menu */
 }
@@ -458,6 +464,60 @@ void native_menu_diff_left(M68KCtx *ctx)
     if (MR8(0x1Fu) & 0x01u) return;                /* lowest already   */
     uint16_t v = MR16(0x1Eu);
     MW16(0x1Eu, (uint16_t)((v >> 1) | (v << 15))); /* ror.w #1 */
+}
+
+/* ── Vestigial password FIELD ("3MQLGPQLGP") beside LEVEL SELECT — RE'd ───────
+ * Full RE (2026-06-10), correcting the old "double-emit / inline fall-through"
+ * theory in CLAUDE.md, which was FALSE:
+ *
+ *  - The field's default text is NOT drawn by any text routine at menu time:
+ *    its glyphs are BAKED INTO THE MENU ARTWORK. The menu shows a DOUBLE-
+ *    BUFFERED pre-rendered screen: page 2 ($59000) ships fully rendered inside
+ *    the title overlay on disk (no CPU write ever touches it — pcwatch-proof),
+ *    and page 1 ($49000) is unpacked from the compressed art at $1339A by
+ *    gfn_gp_003872's first act (`bsr $3700`, the art unpacker — the only call
+ *    site in the bank). A byte-search for the text row places the glyphs at
+ *    page+$4B19 ($4DB19/$5DB19); the $3DAA page-copy cell at page+$3E99 is
+ *    only the EDITING machinery (typed-char updates), as are the $3D9F char
+ *    buffer and the -$13B4(a5) callback — none draw the initial field.
+ *  - Why every earlier entry override "didn't fire": rt.c's override_lookup
+ *    SKIPS title-bank overrides at addresses >= $3294 while g_overlay_active,
+ *    unless allow-listed (the menu allow-list). $3DAA/$3700 simply weren't on
+ *    the list — nothing was inline. $3700 is allow-listed now.
+ *
+ * Erase = copy the background weave from 16 rows below the glyph block (the
+ * clean gap before the LOAD EXTRA LEVELS row) over the field cells (10 chars +
+ * shift spill, 16 rows, full $C8-stride rows covering all 5 bitplanes at
+ * +$00/$28/$50/$78/$A0). Applied to page 1 right after each unpack (below)
+ * and to the disk-pre-rendered page 2 once per menu entry (native_menu_setup).
+ * Passwords are replaced by LEVEL SELECT in this port. */
+#define MENU_ART_SRC      0x1339Au
+#define MENU_PWFIELD_OFF  0x3E99u    /* field glyph block offset within a page:
+                                      * rows 0..15 normal text, 16..31 the
+                                      * highlighted variant, 32..39 clean weave
+                                      * (LOAD EXTRA LEVELS text starts at 40) */
+#define MENU_PWFIELD_W    11u        /* 10 chars + the d6 shift spill column     */
+void native_menu_pwfield_erase(uint32_t page)
+{
+    extern uint8_t *g_mem;
+    uint32_t field = page + MENU_PWFIELD_OFF;
+    /* Cover BOTH pre-rendered text blocks (normal + highlighted) by tiling the
+     * 8 clean weave rows from the gap below; the texture is aperiodic noise
+     * (verified), so the vertical tiling shows no seam. */
+    for (uint32_t row = 0; row < 32u; row++)
+        for (uint32_t pl = 0; pl <= 0xA0u; pl += 0x28u)
+            memcpy(g_mem + field + row * 0xC8u + pl,
+                   g_mem + field + (32u + (row & 7u)) * 0xC8u + pl,
+                   MENU_PWFIELD_W);
+}
+
+void native_menu_art_unpack(M68KCtx *ctx)
+{
+    extern void gfn_gp_003700(M68KCtx *ctx);
+    int is_menu_art = (ctx->A[0] == MENU_ART_SRC);   /* any page of the menu art */
+    uint32_t dst = ctx->A[1];
+    gfn_gp_003700(ctx);
+    if (is_menu_art) native_menu_pwfield_erase(dst);
 }
 
 void native_menu_diff_right(M68KCtx *ctx)
