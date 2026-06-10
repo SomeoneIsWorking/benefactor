@@ -43,7 +43,8 @@ static int     s_blitcap_on = 1;
  * "why was this blit not captured?"). Double-buffered like s_blitcap so a STEP_PC leaves
  * the just-rendered frame's log readable. reason: 'C'=captured, 'u'=dest-disabled,
  * 'p'=dest-not-in-pages, 'g'=gfx-src-too-high, 'o'=capture-off, 'f'=buffer-full. */
-typedef struct { uint32_t apt,bpt,cpt,dpt; uint16_t con0,con1; int w,h; char reason; } BlitLogRec;
+typedef struct { uint32_t apt,bpt,cpt,dpt; uint16_t con0,con1; int w,h; char reason;
+                 uint32_t fn; /* g_rt_last_call: recompiled fn that issued the blit */ } BlitLogRec;
 static BlitLogRec s_blitlog[BLIT_CAP_MAX];      int s_blitlog_n = 0;
 static BlitLogRec s_blitlog_prev[BLIT_CAP_MAX]; int s_blitlog_prev_n = 0;
 int               hw_blitlog_count(void)        { return s_blitlog_prev_n; }
@@ -315,6 +316,7 @@ void hw_do_blit(void)
             BlitLogRec *L = &s_blitlog[s_blitlog_n++];
             L->apt=apt; L->bpt=bpt; L->cpt=cpt; L->dpt=dpt; L->con0=bltcon0; L->con1=bltcon1;
             L->w=width_words; L->h=height; L->reason=why;
+            { extern volatile uint32_t g_rt_last_call; L->fn = g_rt_last_call; }
         }
         if (s_blitcap_on && used && dest_in_pages && gsrc < 0x400000u
             && s_blitcap_n < BLIT_CAP_MAX) {

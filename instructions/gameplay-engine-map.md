@@ -198,6 +198,28 @@ the jump table at `$59AC6C` and the level-engine state byte at `$1890.w` — alm
 certainly get populated here.** RE this function next when chasing any "per-level
 state missing" symptom.
 
+## Repair DUST-CLOUD overlay (RE'd 2026-06-10, ported to BenRen/wide)
+
+When a freed red Marry Man repairs the rainbow machine (win sequence), the red
+build's TAIL at `$57B562` checks placement-record bit5 (`btst #5,$9(a0)`) and
+pushes a SECOND descriptor — the cartoon dust cloud over the man:
+
+- `movem.w $2(a0),d1-d5`: d1=recX(+2), d2=recY(+4), d5=phase idx(+$A)
+- cloud x = recX − 12; `d7 = word($57B61C + idx)` (phase table, byte-indexed,
+  values step by 6) → gfx triple at `(a5-$3712)=$57B700+d7`:
+  `{stride-unit w0, BLTSIZE, yoff}`; y = recY + yoff (no $D7 clamp here)
+- data = 5·w0 + `$1876A`, mask = w0 + `$19A3E`, BMOD=−2, con0 `$xFCA`
+- pushed to the static queue `$5A39EC`, played by executor `$57D6C4`.
+  The BLIND build (`$57B856`) has NO cloud tail (encoding appears once).
+
+Register map at the BUILD ENTRY (`$57B19E`/`$57B856`), verified live:
+**a0 = the pose-handler SLOT inside the placement record (= rec+$C)** — so
+rec = a0 − $C; a2 points at a separate x/y cache struct, NOT the record.
+`wsbuild_capture` (gameplay.c) captures rec bit5/x/y/idx; the wide renderer
+resolves + draws the cloud after the man (native_wsstatic_compose). Repair
+anim sequence table (frames) for the MM pose itself is at `$58501C` (data,
+not code — it shows up as the wsmm "handler" because a1 points at it).
+
 ## Object / animation system
 
 Reached from per-frame loop call #10 (`$57D79A`):
@@ -542,7 +564,12 @@ the gameplay/overlay path so the credits-engine's own LVL3/LVL6 vectors fire
 each frame.
 
 Seeds live in `tools/recomp/credits_seeds.txt` — extend if rt-misses surface
-during the credits run.
+during the credits run. 2026-06-10: the victory-cutscene MUSIC driver was
+missing (silent credits) — its ISRs are installed by vector poke ($3AD2 LVL6
+timer RTE + $3B02 Paula register-copy leg) plus 10 jump-table replayer
+handlers; all found to fixpoint with the rewritten
+`tools/recomp/discover_indirect.py --seeds tools/recomp/credits_seeds.txt
+--script <repl-file>` (collect [rt-miss] → append seeds → rebuild loop).
 
 Status: with the user's "marry-man-with-gear" savestate, the credits engine
 runs clean to natural exit (0 rt-misses). Exits by calling `$150 d0=2` which
