@@ -420,6 +420,45 @@ void native_menu_cursor_up(M68KCtx *ctx)
     if (cur != 0) MW16(ctx->A[5] - 6334u, cur - 1);
 }
 
+/* ── $003C6E / $003C9A — main-menu LEFT/RIGHT: the DIFFICULTY selector ────────
+ * Direct ports of the live disassembly (capstone over the loaded title
+ * overlay; these two never recompiled — they were stubbed to a no-op, which
+ * is why left/right on PLAY GAME did nothing):
+ *
+ *   $003C6E (LEFT):  move.w #$384,$2BE2(a5)
+ *                    tst.w  -$18BE(a5)   ; only on the PLAY GAME row
+ *                    bne.s  end
+ *                    btst   #0,$1F.w     ; already at the lowest setting?
+ *                    bne.s  end
+ *                    ror.w  $1E.w        ; rotate the difficulty bit right
+ *
+ *   $003C9A (RIGHT): same with btst #2 (highest) + rol.w $1E.w, then falls
+ *                    through to $3CB2: `cmpi.w #1,-$18BE(a5)` → the password-
+ *                    FIELD entry init (cursor into the text field). Cursor 1
+ *                    is LEVEL SELECT in this port (no password field), so the
+ *                    tail is intentionally NOT ported.
+ *
+ * Difficulty = the single set bit in the word at $1E (1=lowest, 2, 4=highest;
+ * the menu loop's `and.w #7,$1E.w; lsl #2` indexes a per-difficulty record at
+ * -$18C0(a5), so the row label/art follows automatically). */
+void native_menu_diff_left(M68KCtx *ctx)
+{
+    MW16(ctx->A[5] + 0x2BE2u, 0x0384);
+    if (MR16(ctx->A[5] - 6334u) != 0) return;      /* not on PLAY GAME */
+    if (MR8(0x1Fu) & 0x01u) return;                /* lowest already   */
+    uint16_t v = MR16(0x1Eu);
+    MW16(0x1Eu, (uint16_t)((v >> 1) | (v << 15))); /* ror.w #1 */
+}
+
+void native_menu_diff_right(M68KCtx *ctx)
+{
+    MW16(ctx->A[5] + 0x2BE2u, 0x0384);
+    if (MR16(ctx->A[5] - 6334u) != 0) return;      /* not on PLAY GAME */
+    if (MR8(0x1Fu) & 0x04u) return;                /* highest already  */
+    uint16_t v = MR16(0x1Eu);
+    MW16(0x1Eu, (uint16_t)((v << 1) | (v >> 15))); /* rol.w #1 */
+}
+
 void native_overlay_loader_reloc(M68KCtx *ctx)
 {
     extern uint8_t *g_mem;
