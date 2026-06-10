@@ -50,15 +50,22 @@ extern int  hw_pad_count(void);
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 
-enum { PG_MAIN = 0, PG_OPTIONS, PG_BIND_KB, PG_BIND_PAD };
+enum { PG_MAIN = 0, PG_OPTIONS, PG_MORE, PG_BIND_KB, PG_BIND_PAD };
 
 static int s_paused = 0;
 static int s_page   = PG_MAIN;
 static int s_cursor = 0;                   /* per current page */
+/* Opened from OUTSIDE gameplay (title/menu/intro, via ESC/Start): the menu
+ * starts on the OPTIONS page, the MAIN page (Resume/Retry/Exit) is never
+ * shown, and a QUIT row is appended (ESC no longer quits directly there). */
+static int s_title_mode = 0;
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
+/* OPTIONS-page row ids (rows are built per-mode by options_rows). */
 enum { OO_WIDESCREEN = 0, OO_SPEED, OO_FREECAM, OO_INTERACT, OO_MODERN_KB,
-       OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_BACK, NUM_OPTS_PAGE };
+       OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK, OO_QUIT };
+/* MORE-page row ids. */
+enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_BACK };
 
 /* Bindings capture: which device/action the next press is assigned to. */
 static int s_capture = 0, s_capture_dev = 0, s_capture_action = 0;
@@ -79,11 +86,25 @@ void pc_pause_toggle(void)
         s_pending_action = ACT_RESUME;
     } else {
         s_paused = 1;
+        s_title_mode = 0;
         s_page   = PG_MAIN;
         s_cursor = OPT_RESUME;
         s_capture = 0;
         s_pending_action = ACT_NONE;
     }
+}
+
+/* ESC/Start OUTSIDE gameplay: open straight into the OPTIONS page (the game/
+ * attract loop freezes exactly like the in-game pause; closing resumes it). */
+void pc_pause_open_options(void)
+{
+    if (s_paused) return;
+    s_paused = 1;
+    s_title_mode = 1;
+    s_page   = PG_OPTIONS;
+    s_cursor = 0;
+    s_capture = 0;
+    s_pending_action = ACT_NONE;
 }
 
 /* ── Bindings-page row model ───────────────────────────────────────────────────
@@ -112,12 +133,35 @@ static const char *bind_row_label(int dev, int action)
     return pc_input_action_name(action);
 }
 
+/* OPTIONS-page rows, built per mode: title mode appends QUIT (there is no MAIN
+ * page outside gameplay, and ESC no longer quits directly — it opens this). */
+static int options_rows(int *rows /* >= 14 */)
+{
+    int n = 0;
+    rows[n++] = OO_WIDESCREEN; rows[n++] = OO_SPEED;     rows[n++] = OO_FREECAM;
+    rows[n++] = OO_INTERACT;   rows[n++] = OO_MODERN_KB; rows[n++] = OO_MODERN_PAD;
+    rows[n++] = OO_BIND_KB;    rows[n++] = OO_BIND_PAD;  rows[n++] = OO_MORE;
+    rows[n++] = OO_BACK;
+    if (s_title_mode) rows[n++] = OO_QUIT;
+    return n;
+}
+
+static int more_rows(int *rows /* >= 14 */)
+{
+    int n = 0;
+    rows[n++] = MO_SKIP_INTRO;
+    rows[n++] = MO_UNLOCK_ALL;
+    rows[n++] = MO_BACK;
+    return n;
+}
+
 static int page_rows(int page)
 {
     int acts[14];
     switch (page) {
         case PG_MAIN:    return NUM_MAIN;
-        case PG_OPTIONS: return NUM_OPTS_PAGE;
+        case PG_OPTIONS: return options_rows(acts);
+        case PG_MORE:    return more_rows(acts);
         default:         return bind_rows(page == PG_BIND_PAD, acts);
     }
 }
@@ -186,19 +230,31 @@ static void modern_set(int dev, int on)
                    on ? "true" : "false");
 }
 
+/* Toggle a persisted bool knob. */
+static void bool_knob_toggle(const char *key)
+{
+    pc_cfg_persist(key, pc_cfg_bool(key, 0) ? "false" : "true");
+}
+
 /* Cycle an OPTIONS row's value by `dir` (+1 right/select, -1 left). */
 static void options_cycle(int row, int dir)
 {
     switch (row) {
         case OO_WIDESCREEN: ws_mode_set(ws_mode_index() + dir);        break;
         case OO_SPEED:      speed_set(speed_index() + dir);            break;
-        case OO_FREECAM:
-            pc_cfg_persist("freecam_pause",
-                           pc_cfg_bool("freecam_pause", 0) ? "false" : "true");
-            break;
+        case OO_FREECAM:    bool_knob_toggle("freecam_pause");         break;
         case OO_INTERACT:   interact_set(!interact_enabled());         break;
         case OO_MODERN_KB:  modern_set(PI_DEV_KB,  !pc_modern_kb());   break;
         case OO_MODERN_PAD: modern_set(PI_DEV_PAD, !pc_modern_pad());  break;
+        default: break;
+    }
+}
+
+static void more_cycle(int row)
+{
+    switch (row) {
+        case MO_SKIP_INTRO: bool_knob_toggle("skip_intro");        break;
+        case MO_UNLOCK_ALL: bool_knob_toggle("unlock_all_levels"); break;
         default: break;
     }
 }
@@ -221,12 +277,34 @@ void pc_pause_input_down(void)
 
 void pc_pause_input_left(void)
 {
-    if (s_paused && !s_capture && s_page == PG_OPTIONS) options_cycle(s_cursor, -1);
+    if (!s_paused || s_capture) return;
+    if (s_page == PG_OPTIONS) {
+        int rows[14]; int n = options_rows(rows);
+        if (s_cursor < n) options_cycle(rows[s_cursor], -1);
+    } else if (s_page == PG_MORE) {
+        int rows[14]; int n = more_rows(rows);
+        if (s_cursor < n) more_cycle(rows[s_cursor]);
+    }
 }
 
 void pc_pause_input_right(void)
 {
-    if (s_paused && !s_capture && s_page == PG_OPTIONS) options_cycle(s_cursor, +1);
+    if (!s_paused || s_capture) return;
+    if (s_page == PG_OPTIONS) {
+        int rows[14]; int n = options_rows(rows);
+        if (s_cursor < n) options_cycle(rows[s_cursor], +1);
+    } else if (s_page == PG_MORE) {
+        int rows[14]; int n = more_rows(rows);
+        if (s_cursor < n) more_cycle(rows[s_cursor]);
+    }
+}
+
+/* Cursor restore helper: position the OPTIONS cursor on a given row id. */
+static void enter_options_at(int row_id)
+{
+    int rows[14]; int n = options_rows(rows);
+    enter_page(PG_OPTIONS);
+    for (int i = 0; i < n; i++) if (rows[i] == row_id) { s_cursor = i; break; }
 }
 
 void pc_pause_input_select(void)
@@ -242,14 +320,29 @@ void pc_pause_input_select(void)
             case OPT_QUIT:          s_pending_action = ACT_QUIT;          break;
         }
         break;
-    case PG_OPTIONS:
-        switch (s_cursor) {
+    case PG_OPTIONS: {
+        int rows[14]; int n = options_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
+        switch (rows[s_cursor]) {
             case OO_BIND_KB:  enter_page(PG_BIND_KB);  break;
             case OO_BIND_PAD: enter_page(PG_BIND_PAD); break;
-            case OO_BACK:     enter_page(PG_MAIN); s_cursor = OPT_OPTIONS; break;
-            default:          options_cycle(s_cursor, +1); break;
+            case OO_MORE:     enter_page(PG_MORE);     break;
+            case OO_BACK:
+                if (s_title_mode) s_pending_action = ACT_RESUME;   /* close */
+                else { enter_page(PG_MAIN); s_cursor = OPT_OPTIONS; }
+                break;
+            case OO_QUIT:     s_pending_action = ACT_QUIT;        break;
+            default:          options_cycle(rows[s_cursor], +1);  break;
         }
         break;
+    }
+    case PG_MORE: {
+        int rows[14]; int n = more_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
+        if (rows[s_cursor] == MO_BACK) enter_options_at(OO_MORE);
+        else                           more_cycle(rows[s_cursor]);
+        break;
+    }
     case PG_BIND_KB:
     case PG_BIND_PAD: {
         int acts[14];
@@ -257,8 +350,7 @@ void pc_pause_input_select(void)
         int n = bind_rows(dev, acts);
         if (s_cursor >= n) s_cursor = n - 1;
         if (acts[s_cursor] < 0) {                       /* BACK */
-            enter_page(PG_OPTIONS);
-            s_cursor = (dev == PI_DEV_PAD) ? OO_BIND_PAD : OO_BIND_KB;
+            enter_options_at(dev == PI_DEV_PAD ? OO_BIND_PAD : OO_BIND_KB);
         } else {
             s_capture = 1;
             s_capture_dev = dev;
@@ -269,16 +361,22 @@ void pc_pause_input_select(void)
     }
 }
 
-/* ESC / pad B: cancel capture, back out one page, or resume from the main page. */
+/* ESC / pad B: cancel capture, back out one page, or resume from the main page.
+ * In title mode (opened via ESC/Start outside gameplay) OPTIONS is the root —
+ * backing out of it closes the menu. */
 void pc_pause_escape(void)
 {
     if (!s_paused) return;
     if (s_capture) { s_capture = 0; return; }
     switch (s_page) {
-        case PG_BIND_KB:  enter_page(PG_OPTIONS); s_cursor = OO_BIND_KB;   break;
-        case PG_BIND_PAD: enter_page(PG_OPTIONS); s_cursor = OO_BIND_PAD;  break;
-        case PG_OPTIONS:  enter_page(PG_MAIN);    s_cursor = OPT_OPTIONS;  break;
-        default:          s_pending_action = ACT_RESUME;                   break;
+        case PG_BIND_KB:  enter_options_at(OO_BIND_KB);   break;
+        case PG_BIND_PAD: enter_options_at(OO_BIND_PAD);  break;
+        case PG_MORE:     enter_options_at(OO_MORE);      break;
+        case PG_OPTIONS:
+            if (s_title_mode) s_pending_action = ACT_RESUME;
+            else { enter_page(PG_MAIN); s_cursor = OPT_OPTIONS; }
+            break;
+        default:          s_pending_action = ACT_RESUME;  break;
     }
 }
 
@@ -413,14 +511,16 @@ void pc_pause_menu_overlay(uint32_t *fb)
     }
 
     if (s_page == PG_OPTIONS) {
+        int rows[14]; int n = options_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
         const int pw = 230;
-        const int ph = 22 + NUM_OPTS_PAGE * row_h + 8;
+        const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
         draw_panel(fb, px, py, pw, ph, "OPTIONS");
-        for (int i = 0; i < NUM_OPTS_PAGE; i++) {
+        for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
             char vbuf[24];
-            switch (i) {
+            switch (rows[i]) {
             case OO_WIDESCREEN:
                 label = "WIDESCREEN";
                 value = k_ws_labels[ws_mode_index()];
@@ -454,7 +554,40 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 else { snprintf(vbuf, sizeof vbuf, "%d PAD%s", hw_pad_count(),
                                 hw_pad_count() > 1 ? "S" : ""); value = vbuf; }
                 break;
+            case OO_MORE:
+                label = "MORE";
+                break;
             case OO_BACK:
+                label = "BACK";
+                break;
+            case OO_QUIT:
+                label = "QUIT TO DESKTOP";
+                break;
+            }
+            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+        }
+        return;
+    }
+
+    if (s_page == PG_MORE) {
+        int rows[14]; int n = more_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
+        const int pw = 230;
+        const int ph = 22 + n * row_h + 8;
+        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
+        draw_panel(fb, px, py, pw, ph, "MORE");
+        for (int i = 0; i < n; i++) {
+            const char *label = "", *value = NULL;
+            switch (rows[i]) {
+            case MO_SKIP_INTRO:
+                label = "SKIP INTRO";
+                value = pc_cfg_bool("skip_intro", 0) ? "ON" : "OFF";
+                break;
+            case MO_UNLOCK_ALL:
+                label = "UNLOCK ALL LEVELS";
+                value = pc_cfg_bool("unlock_all_levels", 0) ? "ON" : "OFF";
+                break;
+            case MO_BACK:
                 label = "BACK";
                 break;
             }

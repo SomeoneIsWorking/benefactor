@@ -491,7 +491,10 @@ void hw_handle_key(int sym, int down)
                 }
                 if (pc_pause_active()) { pc_pause_escape(); return; }  /* back/resume */
                 if (g_gameplay_active) { pc_pause_toggle(); return; }
-                exit(0);
+                /* Outside gameplay (title/menu/intro): ESC opens the OPTIONS
+                 * page directly — quitting moved to its QUIT TO DESKTOP row. */
+                { extern void pc_pause_open_options(void);
+                  pc_pause_open_options(); }
             }
             return;
         }
@@ -619,6 +622,8 @@ static void hw_handle_pad_code(int code, int down)
         if (down) {
             if (pc_pause_active())       pc_pause_escape();
             else if (g_gameplay_active)  pc_pause_toggle();
+            else { extern void pc_pause_open_options(void);
+                   pc_pause_open_options(); }   /* title: straight to OPTIONS */
         }
         return;
     }
