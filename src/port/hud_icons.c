@@ -13,10 +13,13 @@
  */
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
+#include "engine/hw.h"   /* g_hw_perf / g_hw_perf_overlay (F3 profiler) */
 
 extern int pc_overlay_w(void), pc_overlay_h(void);
 extern int hw_ffwd_active(void);
 extern int pc_freecam_active(void);
+extern int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb);
 
 #define ICON_W   22
 #define ICON_H   16
@@ -31,7 +34,7 @@ extern int pc_freecam_active(void);
  * path, since the per-sprite scene present bypasses s_out overlays). */
 int pc_hud_icons_active(void)
 {
-    return hw_ffwd_active() || pc_freecam_active();
+    return hw_ffwd_active() || pc_freecam_active() || g_hw_perf_overlay;
 }
 
 /* ── Shape coverage tests (icon-local px) ──────────────────────────────────── */
@@ -107,4 +110,26 @@ void pc_hud_icons_overlay(uint32_t *fb)
     }
     if (pc_freecam_active())
         draw_icon(fb, ow, oh, x, ICON_Y, cam_shape, cam_hole);
+
+    /* F3 frame-time profiler, top-right: fps + per-section milliseconds.
+     * "game" = the engine step minus the measured render/compose/present
+     * (pc_step_threaded brackets the whole frame incl. presentation). */
+    if (g_hw_perf_overlay) {
+        const HwPerf *p = &g_hw_perf;
+        uint32_t rcp = p->render_us + p->compose_us + p->present_us;
+        uint32_t game = p->game_us > rcp ? p->game_us - rcp : 0;
+        char line[96];
+        snprintf(line, sizeof line,
+                 "FPS %d  GAME %u.%u  RENDER %u.%u  COMPOSE %u.%u  PRESENT %u.%u MS",
+                 p->fps,
+                 game / 1000, game % 1000 / 100,
+                 p->render_us / 1000, p->render_us % 1000 / 100,
+                 p->compose_us / 1000, p->compose_us % 1000 / 100,
+                 p->present_us / 1000, p->present_us % 1000 / 100);
+        int len = 0; while (line[len]) len++;
+        int x0 = ow - len * 6 - 6;          /* right-align: 5px glyphs + 1px gap */
+        if (x0 < 2) x0 = 2;
+        pc_draw_text(fb, x0 + 1, 3, line, 1, 0xFF000000);   /* drop shadow */
+        pc_draw_text(fb, x0, 2, line, 1, 0xFF80FF80);
+    }
 }

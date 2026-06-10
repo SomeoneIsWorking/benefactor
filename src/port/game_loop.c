@@ -651,7 +651,9 @@ int pc_step(void)
     }
 
     hw_watchdog_arm("PC", 2);          /* catch an infinite loop in one frame */
+    uint64_t perf_t = hw_perf_now_us();
     int r = pc_step_threaded();        /* release the game thread for one frame */
+    hw_perf_acc(&g_hw_perf.game_us, perf_t);
     hw_watchdog_disarm();
     if (g_pc_pending_save) {
         g_pc_pending_save = 0;
