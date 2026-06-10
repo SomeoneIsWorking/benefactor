@@ -99,13 +99,15 @@ static void handle_state(int fd)
     extern int pc_savestate_allowed(const char **);
     const char *why = NULL;
     int saveable = pc_savestate_allowed(&why);
+    extern int hw_get_frame_num(void);
     char body[640];
     int n = snprintf(body, sizeof body,
-        "{\"level\":%u,\"cop1lc\":\"%06X\","
+        "{\"frame\":%d,\"level\":%u,\"cop1lc\":\"%06X\","
         "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
         "\"saveable\":%d,\"save_reason\":\"%s\","
         "\"player_block\":[%u,%u,%u,%u]}\n",
-        level, cop1lc, g_gameplay_active, g_overlay_active, g_credits_active,
+        hw_get_frame_num(), level, cop1lc,
+        g_gameplay_active, g_overlay_active, g_credits_active,
         saveable, why ? why : "", p0, p1, p2, p3);
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
@@ -162,6 +164,8 @@ static void handle_input(int fd, const char *q)
     int r = query_get(q, "r", b, sizeof b) ? atoi(b) : 0;
     int drop = query_get(q, "drop", b, sizeof b) ? atoi(b) : 0;
     int hop  = query_get(q, "hop", b, sizeof b) ? atoi(b) : 0;
+    { extern void hw_set_ffwd(int);            /* hold-to-fast-forward (speed tests) */
+      if (query_get(q, "ffwd", b, sizeof b)) hw_set_ffwd(atoi(b)); }
     hw_set_joystick(u, d, l, r, fire);
     hw_set_mouse_lmb(fire);
     hw_set_interact(interact);
