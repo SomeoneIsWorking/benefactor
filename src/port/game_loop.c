@@ -3,6 +3,7 @@
  * Override implementations live in pc_overrides.c.
  */
 #include "port/port_internal.h"
+#include "port/config.h"
 /* game.h is included here ONLY for GAME_FN_COUNT (dispatch table size).
  * Do NOT call any gfn_* functions directly from this file. */
 #include "engine/generated/game.h"
@@ -919,6 +920,16 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay,
 int pc_init_from_disk(const char **disks, int n_disks)
 {
     if (pc_common_bringup(disks, n_disks) < 0) return -1;
+    /* SKIP INTRO (OPTIONS → MORE): boot straight to the poster/main menu —
+     * the exact entry "Exit to main menu" uses ($003330 attract, gp a5=$511E),
+     * with the title overlay loaded the same way. */
+    if (pc_cfg_bool("skip_intro", 0)) {
+        extern void native_overlay_load(void);
+        native_overlay_load();
+        pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
+        fprintf(stderr, "[pc] disk boot: skip_intro -> poster ($003330)\n");
+        return 0;
+    }
     /* The cold-start ($3000) drives the whole flow (intro → logos → title → menu
      * → gameplay) on the game thread; each frame wait (hw_vblank_wait) parks it
      * and pc_step_threaded releases it one frame at a time. */
