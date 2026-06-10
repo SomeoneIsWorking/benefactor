@@ -95,12 +95,12 @@ int  hw_pad_count(void);             /* connected game controllers */
 /* Re-resolve "widescreen_mode" (disabled|16:9|ultrawide|auto) and apply the
  * output width live (options menu / window resize). */
 void hw_widescreen_refresh(void);
-/* Cycle the standalone's real-time speed (1x/2x/4x/turbo) — TAB key. Persists
- * the "game_speed" cfg knob; hw_speed_refresh re-reads it (options menu). */
-void hw_cycle_speed(void);
+/* Re-read the "game_speed" cfg knob (normal=100% | turbo=120%); the options
+ * menu calls this after persisting a change. hw_set_ffwd is the hold-to-fast-
+ * forward (500%) action, driven from the PI_FFWD binding. */
 void hw_speed_refresh(void);
-int  hw_speed_turbo(void);
-/* 1 when a wall-clock 20ms music/audio frame is due. Always 1 at 1x speed
+void hw_set_ffwd(int held);
+/* 1 when a wall-clock 20ms music/audio frame is due. Always 1 at 100% speed
  * (per-game-frame, the deterministic harness path); at faster speeds music
  * ticks + PCM render are held to real time so audio doesn't speed up. */
 int  hw_audio_frame_due(void);

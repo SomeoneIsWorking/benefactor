@@ -24,6 +24,7 @@
  * Reach: `interact_extend` cfg knob (px, horizontal only). Logging: REPL `pklog`.
  */
 #include "port/port_internal.h"
+#include "engine/generated/game_gpl.h"   /* gfn_gpl_57EA76 (MM pickup gate super-call) */
 
 #define A5_F80   3968u    /* current input bits ($20 = fire)  */
 #define A5_F94   3988u    /* player Y (vertical)              */
@@ -243,8 +244,52 @@ PK(587554) PK(587616) PK(58766E) PK(5876C4)
 IK(589572) IK(589642) IK(58A828) IK(58BCF2) IK(58BF24)
 IK(595FE4) IK(595FF4) IK(596064) IK(59610A) IK(597548) IK(597892) IK(59B0B0)
 
+/* ── $57EA76 — MERRY-MAN pickup pose-action ──────────────────────────────────
+ * Reached from the player handler $579690's FIRE pose dispatch (verified live:
+ * `pcwatch $57FD82` at the pickup attributes the $f70 lift-action install
+ * ($57A018) to this function). Gates on d4 bit14 — the "merry man here"
+ * collision flag the player handler computes. The carry STATE is $109c(a5)
+ * (see native_hands_full below); the held MM record handler becomes $57C4E2
+ * and tracks the player. NOTE: $1094(a5) is the ITEM carry only — a held
+ * merry man does NOT set it; and $fa2 bit15 latches on first pickup but never
+ * clears on drop (NOT a carry flag).
+ *
+ * CAVEAT (verified live): the real lift path is the INLINE double-emitted copy
+ * of this code inside the player handler ($579750 chain) — this entry override
+ * never fires for it, so it CANNOT gate bare modern fire by itself. The actual
+ * modern-fire block is the $108e pickup-cooldown arm in native_gameplay_input
+ * (gameplay.c), which also hosts the one-shot interact→fire edge bridge that
+ * makes the interact key trigger the pickup. This override stays registered as
+ * defense-in-depth for any path that DOES rt_call $57EA76: same policy (strip
+ * d4 bit14 for empty-handed bare modern fire). */
+/* Hands occupied (item OR merry man): $109c(a5) = the carried object's
+ * descriptor pointer, set by both pickup flows and cleared on drop/throw.
+ * (Verified live: 0 → $580118 across an MM pickup, back to 0 after the
+ * fire-drop. $1094 covers only items; $fa2 bit15 was FALSIFIED as a carry
+ * flag — it stays set after the drop.) */
+int native_hands_full(M68KCtx *ctx)
+{
+    return MR32(ctx->A[5] + 4252u) != 0;                    /* $109c(a5).l */
+}
+
+void native_mm_pickup_gate(M68KCtx *ctx)
+{
+    extern int pc_modern_any(void);
+    extern int hw_get_interact(void), hw_get_fire_vanilla(void);
+    int carrying = MR16(ctx->A[5] + 4244u) != 0 ||          /* item ($1094)   */
+                   native_hands_full(ctx);                  /* item or MM     */
+    if (g_pickup_log && (ctx->D[4] & 0x4000u))
+        fprintf(stderr, "[mm] $57EA76 d4=%08X carry=%d int=%d vfire=%d\n",
+                ctx->D[4], carrying, hw_get_interact(), hw_get_fire_vanilla());
+    if (pc_modern_any() && !carrying &&
+        !(hw_get_interact() || hw_get_fire_vanilla()))
+        ctx->D[4] &= ~0x4000u;            /* modern FIRE alone: no MM pickup */
+    gfn_gpl_57EA76(ctx);
+}
+
 void pickup_register(void)
 {
+    rt_register_override_gp(0x57EA76u, native_mm_pickup_gate);
     rt_register_override_gp(0x586B1Cu, native_pickup_586B1C);
     rt_register_override_gp(0x586B2Au, native_pickup_586B2A);
     rt_register_override_gp(0x586C10u, native_pickup_586C10);

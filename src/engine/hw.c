@@ -249,60 +249,52 @@ static int s_in_present_frame = 0;
  * go at full CPU speed (the interactive harness paces separately). */
 void hw_set_no_pace(int on) { s_no_pace = on; }
 
-/* Real-time speed ("game_speed" cfg knob: 1 | 2 | 4 | turbo). Only changes the
- * 50Hz pacing delay (turbo = no pacing + presentation frame-skip) — the
- * per-frame game logic is unchanged, so the game simply advances faster in
- * wall-clock time. MUSIC AND AUDIO ARE NOT SPED UP: pc_step gates its music
- * ticks + PCM render on hw_audio_frame_due(), which runs them on a wall-clock
- * 20ms cadence whenever speed != 1x. Cycled by the speed key (TAB) and the
- * pause menu's GAME SPEED option — both persist the knob and call
- * hw_speed_refresh(), so there is one source of truth. */
-static int s_speed_mult  = 1;
-static int s_speed_turbo = 0;
+/* Real-time speed, in PERCENT of PAL 50Hz. Two sources:
+ *   - "game_speed" cfg knob ("normal" = 100 | "turbo" = 120), the persistent
+ *     setting in the pause OPTIONS menu;
+ *   - a HOLD-to-fast-forward action (PI_FFWD binding, default Tab /
+ *     RightTrigger) = 500% while held.
+ * Only the pacing target changes — per-frame game logic is untouched, the game
+ * just advances faster in wall-clock time (in heavy/large levels the engine+
+ * render cost may cap the real rate below the target; pacing simply stops
+ * sleeping). MUSIC AND AUDIO ARE NOT SPED UP: pc_step gates its music ticks +
+ * PCM render on hw_audio_frame_due(), which runs them on a wall-clock 20ms
+ * cadence whenever the effective speed != 100%. */
+static int s_speed_pct = 100;   /* persistent knob: normal=100, turbo=120 */
+static int s_ffwd_held = 0;     /* fast-forward action currently held */
+#define HW_FFWD_PCT 500
+
+static int hw_speed_eff_pct(void) { return s_ffwd_held ? HW_FFWD_PCT : s_speed_pct; }
 
 void hw_speed_refresh(void)
 {
-    int mult = 1, turbo = 0;
+    int pct = 100;
     char buf[16];
     if (pc_cfg_show("game_speed", buf, sizeof buf, NULL) && buf[0]) {
-        if (!strcasecmp(buf, "turbo")) turbo = 1;
-        else {
-            mult = atoi(buf);
-            if (mult < 1)  mult = 1;
-            if (mult > 16) mult = 16;
+        if      (!strcasecmp(buf, "turbo"))  pct = 120;
+        else if (!strcasecmp(buf, "normal")) pct = 100;
+        else {                       /* numeric multiplier (legacy "1"/"2"/"4") */
+            int m = atoi(buf);
+            if (m >= 1 && m <= 16) pct = m * 100;
         }
     }
-    if (mult == s_speed_mult && turbo == s_speed_turbo) return;
-    s_speed_mult = mult; s_speed_turbo = turbo;
-    if (turbo) fprintf(stderr, "[speed] TURBO (no pacing)\n");
-    else       fprintf(stderr, "[speed] %dx\n", mult);
+    if (pct == s_speed_pct) return;
+    s_speed_pct = pct;
+    fprintf(stderr, "[speed] %d%%\n", pct);
     fflush(stderr);
 }
 
-int hw_speed_turbo(void) { return s_speed_turbo; }
-
-void hw_cycle_speed(void)
-{
-    const char *next = s_speed_turbo     ? "\"1\""
-                     : s_speed_mult >= 4 ? "\"turbo\""
-                     : s_speed_mult == 2 ? "\"4\"" : "\"2\"";
-    pc_cfg_persist("game_speed", next);
-    hw_speed_refresh();
-    { extern void pc_toast_show(const char *, int);
-      pc_toast_show(s_speed_turbo ? "SPEED: TURBO"
-                  : s_speed_mult == 4 ? "SPEED: 4X"
-                  : s_speed_mult == 2 ? "SPEED: 2X" : "SPEED: 1X", 0); }
-}
+void hw_set_ffwd(int held) { s_ffwd_held = !!held; }
 
 /* True when a real-time (wall-clock 20ms) music/audio frame is due. At exactly
- * 1x this is ALWAYS true — one audio frame per game frame, the original
+ * 100% this is ALWAYS true — one audio frame per game frame, the original
  * deterministic path (the harness never changes speed, so its compare runs are
- * untouched). At 2x/4x/turbo, game frames outpace real time; music ticks + PCM
- * render only fire on the 50Hz wall-clock grid, so the soundtrack keeps its
- * normal tempo and the SDL queue is fed at exactly the rate it drains. */
+ * untouched). Faster, game frames outpace real time; music ticks + PCM render
+ * only fire on the 50Hz wall-clock grid, so the soundtrack keeps its normal
+ * tempo and the SDL queue is fed at exactly the rate it drains. */
 int hw_audio_frame_due(void)
 {
-    if (s_speed_mult == 1 && !s_speed_turbo) return 1;
+    if (hw_speed_eff_pct() == 100) return 1;
     static uint64_t s_next_ms = 0;
     uint64_t now = SDL_GetTicks64();
     if (s_next_ms == 0 || now > s_next_ms + 200) s_next_ms = now;  /* (re)sync */
@@ -385,6 +377,7 @@ static void apply_bound_input(void)
                   (pdm && pc_input_active_dev(PI_DEV_PAD, PI_INTERACT));
     s_drop      = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_DROP)) ||
                   (pdm && pc_input_active_dev(PI_DEV_PAD, PI_DROP));
+    s_ffwd_held = pc_input_active(PI_FFWD);   /* hold-to-fast-forward, any device */
 }
 
 /* Single keyboard→input-state mapper, shared by the standalone
@@ -479,9 +472,6 @@ void hw_handle_key(int sym, int down)
         break;
     case SDLK_o:   /* debug: force GAME OVER (death) */
         if (down) { extern void pc_debug_game_over(void); pc_debug_game_over(); }
-        break;
-    case SDLK_TAB: /* cycle real-time speed 1x -> 2x -> 4x */
-        if (down) hw_cycle_speed();
         break;
     case SDLK_s: /* save: defer to the main-thread frame boundary in pc_step (the
                   * game thread must be parked so its M68K ctx + chip RAM are
@@ -807,15 +797,16 @@ int hw_present_frame(void)
         }
     }
 
-    /* TURBO frame-skip: rendering + presenting every frame is what actually
-     * capped the old turbo (texture upload at game rate). Run the game at full
-     * CPU speed but only render/present a ~60fps sample of it; events were
-     * already polled above so TAB/ESC always respond. The blit capture is still
-     * reset per frame (it is per-frame data — letting it accumulate across
-     * skipped frames would overflow into the next rendered one). Turbo is a
-     * standalone interactive feature: the harness paths (frame hooks/headless
-     * compare) never enable it, so their captures are untouched. */
-    if (s_speed_turbo && !s_headless && !g_harness_frame_hook && !s_ext_input) {
+    /* FAST-FORWARD frame-skip: rendering + presenting every frame is what
+     * actually capped the old turbo (texture upload at game rate). At >=2x
+     * effective speed, run the game at full rate but only render/present a
+     * ~60fps sample of it; events were already polled above so keys always
+     * respond. The blit capture is still reset per frame (it is per-frame
+     * data — letting it accumulate across skipped frames would overflow into
+     * the next rendered one). This is a standalone interactive feature: the
+     * harness paths (frame hooks/headless compare) never speed up, so their
+     * captures are untouched. */
+    if (hw_speed_eff_pct() >= 200 && !s_headless && !g_harness_frame_hook && !s_ext_input) {
         static uint64_t s_last_present_ms = 0;
         uint64_t now = SDL_GetTicks64();
         if (now - s_last_present_ms < 16) {
@@ -869,17 +860,18 @@ int hw_present_frame(void)
             s_backend->present(s_out, s_hw_out_w, HW_DISPLAY_H);
         }
 
-        /* Pace to PAL 50 Hz (20 ms/frame). s_next_frame_ms self-corrects and
-         * resyncs if we fall far behind, so the game runs at the intended speed
-         * regardless of monitor refresh. */
-        if (!s_no_pace && !s_speed_turbo) {
-            static uint64_t s_next_frame_ms = 0;
-            uint64_t now = SDL_GetTicks64();
-            if (s_next_frame_ms == 0 || now > s_next_frame_ms + 100)
-                s_next_frame_ms = now;          /* first frame or big stall: resync */
-            s_next_frame_ms += 20u / (unsigned)s_speed_mult;   /* 50 Hz / speed */
-            if (now < s_next_frame_ms)
-                SDL_Delay((uint32_t)(s_next_frame_ms - now));
+        /* Pace to PAL 50 Hz (20 ms/frame), scaled by the effective speed.
+         * Microsecond accumulator so fractional targets (turbo 120% = 16.67ms)
+         * pace exactly; self-corrects and resyncs if we fall far behind, so the
+         * game runs at the intended speed regardless of monitor refresh. */
+        if (!s_no_pace) {
+            static uint64_t s_next_frame_us = 0;
+            uint64_t now_us = SDL_GetTicks64() * 1000ull;
+            if (s_next_frame_us == 0 || now_us > s_next_frame_us + 100000ull)
+                s_next_frame_us = now_us;       /* first frame or big stall: resync */
+            s_next_frame_us += 2000000ull / (unsigned)hw_speed_eff_pct();
+            if (now_us < s_next_frame_us)
+                SDL_Delay((uint32_t)((s_next_frame_us - now_us) / 1000ull));
         }
     }
     s_in_present_frame = 0;
