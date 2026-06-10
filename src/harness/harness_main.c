@@ -9,6 +9,7 @@
  */
 
 #include <stdio.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -1307,6 +1308,50 @@ int main(int argc, char **argv)
             q = fopen(pupath, "wb");
             if (q) { fwrite(s_puae_fb, 4, FB_W * FB_H, q); fclose(q); }
             printf("[crepl] wrote %s + %s\n", pcpath, pupath);
+        }
+        else if (!strcmp(cmd, "shot")) {  /* shot [tag] [x y w h [scale]] — PNG of the WIDE output
+                                             (s_out) to scratch/screenshots/<tag>.png. Crop+zoom
+                                             optional. `shot eng ...` uses the 352 engine fb. */
+            extern int png_dump_region(const char *, const uint32_t *, int,
+                                       int, int, int, int, int);
+            extern const uint32_t *hw_get_output_framebuffer(void);
+            extern const uint32_t *hw_get_framebuffer(void);
+            extern int hw_output_width(void);
+            char tag[64] = "shot"; int x = 0, y = 0, w = 0, h = 0, sc = 1;
+            sscanf(line, "%*s %63s %d %d %d %d %d", tag, &x, &y, &w, &h, &sc);
+            const uint32_t *src; int stride;
+            if (!strcmp(tag, "eng")) { src = hw_get_framebuffer(); stride = HW_DISPLAY_W;
+                                       sscanf(line, "%*s %*s %63s %d %d %d %d %d", tag, &x, &y, &w, &h, &sc); }
+            else                     { src = hw_get_output_framebuffer(); stride = hw_output_width(); }
+            if (w <= 0) { x = y = 0; w = stride; h = FB_H; }
+            if (h <= 0) h = FB_H - y;
+            if (x < 0 || y < 0 || x + w > stride || y + h > FB_H || sc < 1) {
+                printf("[crepl] shot: bad region (%d,%d %dx%d) for %dx%d\n", x, y, w, h, stride, FB_H);
+            } else {
+                char path[192];
+                mkdir("scratch", 0755); mkdir("scratch/screenshots", 0755);
+                snprintf(path, sizeof path, "scratch/screenshots/%s.png", tag);
+                printf("[crepl] %s %s (%dx%d @%d,%d x%d)\n",
+                       png_dump_region(path, src, stride, x, y, w, h, sc) == 0 ? "wrote" : "FAILED",
+                       path, w, h, x, y, sc);
+            }
+        }
+        else if (!strcmp(cmd, "scan")) {  /* scan [lo [hi]] — per-scanline bplcon0/1, mods, ddf
+                                             of the last rendered frame (runs of equal state) */
+            extern int native_scanline_info(int, uint16_t*, uint16_t*, int*, int*, uint16_t*);
+            int lo = 0, hi = 282; sscanf(line, "%*s %d %d", &lo, &hi);
+            uint16_t pc0 = 0, pc1 = 0, pdf = 0; int pm1 = 0, pm2 = 0, runs = 0;
+            for (int y = lo; y < hi; y++) {
+                uint16_t c0, c1, df; int m1, m2;
+                if (!native_scanline_info(y, &c0, &c1, &m1, &m2, &df)) break;
+                if (y == lo || c0 != pc0 || c1 != pc1 || m1 != pm1 || m2 != pm2 || df != pdf) {
+                    extern uint32_t native_scanline_color0(int);
+                    printf("  y=%3d con0=%04X con1=%04X mod1=%d mod2=%d ddfstrt=%02X color0=%06X\n",
+                           y, c0, c1, m1, m2, df, native_scanline_color0(y));
+                    pc0 = c0; pc1 = c1; pm1 = m1; pm2 = m2; pdf = df; runs++;
+                }
+            }
+            printf("[scan] %d state runs in [%d,%d)\n", runs, lo, hi);
         }
         else if (!strcmp(cmd, "fbw")) {   /* fbw [tag] — dump the WIDE output surface */
             extern int hw_output_width(void);

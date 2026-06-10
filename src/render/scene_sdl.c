@@ -156,10 +156,32 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
 
     int rc = 0;
 
-    /* Whole frame starts black (the playfield void outside the world clip). */
+    /* Whole frame starts black, then the scene rows take their per-scanline
+     * COLOR00 (pal_rows[y][0]) as the void colour — black in normal play, but
+     * the victory fade is a COLOR00 curtain and the CPU compose paints the
+     * void with it (byte-identity requires the same here). Fill in runs of
+     * equal colour (normally one black run = nothing to draw). */
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
     SDL_RenderClear(r);
+    {
+        int y = y_lo;
+        while (y < y_hi) {
+            uint32_t c0 = (y >= 0 && y < SCENE_MAX_ROWS) ? s->pal_rows[y][0] : 0;
+            int y1 = y + 1;
+            while (y1 < y_hi) {
+                uint32_t c1 = (y1 >= 0 && y1 < SCENE_MAX_ROWS) ? s->pal_rows[y1][0] : 0;
+                if ((c1 & 0xFFFFFF) != (c0 & 0xFFFFFF)) break;
+                y1++;
+            }
+            if (c0 & 0xFFFFFF) {
+                SDL_SetRenderDrawColor(r, (c0 >> 16) & 0xFF, (c0 >> 8) & 0xFF, c0 & 0xFF, 255);
+                SDL_Rect band = { 0, y, ow, y1 - y };
+                if (SDL_RenderFillRect(r, &band) != 0) rc = -1;
+            }
+            y = y1;
+        }
+    }
 
     /* Base layer: the rows the scene does NOT own (top border + HUD) come from
      * the composed output surface unchanged — rect-update just those bands. */

@@ -488,6 +488,35 @@ int native_render_line_info(int y, uint32_t pt[5], int *xoff, int *scr1, int *wi
 
 const Scene *native_render_scene(void) { return &s_scene; }
 void native_render_scene_yrange(int *lo, int *hi) { if (lo) *lo = s_scene_ylo; if (hi) *hi = s_scene_yhi; }
+
+/* Per-scanline background colour (COLOR00) of the last rendered frame. The
+ * victory fade is a COLOR00 "curtain": the engine steps the background colour
+ * (planes-off rows + border show it), so every place the wide output paints
+ * VOID must use this instead of hardcoded black or the margins/void stay
+ * black against the curtain (the "missed corners"). Black normally. */
+uint32_t native_scanline_bgcolor(int y)
+{
+    if (y < 0 || y >= HW_DISPLAY_H) return 0xFF000000u;
+    return s_scan[y].palette[0] | 0xFF000000u;
+}
+
+/* REPL `scan` inspector: per-scanline copper-walk state of the LAST rendered
+ * frame (bplcon0/1, mods, ddf) — for diagnosing playfield-extent decisions
+ * (e.g. the victory-curtain rows that run with a different BPLCON0). */
+int native_scanline_info(int y, uint16_t *con0, uint16_t *con1,
+                         int *mod1, int *mod2, uint16_t *ddfstrt)
+{
+    if (y < 0 || y >= HW_DISPLAY_H) return 0;
+    *con0 = s_scan[y].bplcon0; *con1 = s_scan[y].bplcon1;
+    *mod1 = s_scan[y].bpl1mod; *mod2 = s_scan[y].bpl2mod;
+    *ddfstrt = s_scan[y].ddfstrt;
+    return 1;
+}
+
+uint32_t native_scanline_color0(int y)
+{
+    return (y >= 0 && y < HW_DISPLAY_H) ? (s_scan[y].palette[0] & 0xFFFFFFu) : 0u;
+}
 void native_render_scene_dims(int *w, int *h) { if (w) *w = WS_LAYER_W; if (h) *h = HW_DISPLAY_H; }
 
 /* Scene freshness: the windowed per-sprite present must only consume a scene
@@ -1226,7 +1255,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                     if (o & 0xFF000000u) { row[x] = o; drawn = 1; }
                 }
             }
-            if (!drawn && margin > 0) row[x] = 0xFF000000u;   /* void = black (compare keeps s_fb) */
+            if (!drawn && margin > 0)
+                row[x] = st->palette[0] | 0xFF000000u;  /* void = COLOR00 (curtain-aware; black normally) */
         }
     }
 

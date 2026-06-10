@@ -203,12 +203,17 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin);   /* native_rende
 static void hw_compose_output(void)
 {
     int ow = s_hw_out_w;
-    int margin = (ow - HW_DISPLAY_W) / 2;        /* black bars L/R by default */
+    int margin = (ow - HW_DISPLAY_W) / 2;
+    /* L/R bars take the scanline's COLOR00 (the border colour the vanilla
+     * render shows) — black normally, but the victory fade is a COLOR00
+     * curtain and hardcoded black left the margins/corners unfaded. */
+    extern uint32_t native_scanline_bgcolor(int y);
     for (int y = 0; y < HW_DISPLAY_H; y++) {
         uint32_t *dst = s_out + y * ow;
-        for (int x = 0; x < margin; x++) dst[x] = 0xFF000000u;
+        uint32_t bg = native_scanline_bgcolor(y);
+        for (int x = 0; x < margin; x++) dst[x] = bg;
         memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
-        for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = 0xFF000000u;
+        for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = bg;
     }
     /* BenRen = the sprite-based renderer (no Amiga blit): it composes the gameplay
      * playfield + margins natively across the full output width. Vanilla leaves
