@@ -22,6 +22,7 @@
 enum {
     PI_LEFT = 0, PI_RIGHT, PI_UP, PI_DOWN,
     PI_HOP, PI_FIRE, PI_INTERACT, PI_DROP,
+    PI_FFWD,                              /* hold-to-fast-forward (5x) */
     PI_NUM
 };
 

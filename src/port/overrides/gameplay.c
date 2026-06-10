@@ -159,6 +159,45 @@ void native_gameplay_input(M68KCtx *ctx)
     int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
     int drop_intent = (hw_get_interact() && down) || hw_get_drop();
 
+    /* MERRY-MAN pickup on the interact key: the MM grab is a FIRE pose-action
+     * inside the player handler ($579690 → $57EA76, see native_mm_pickup_gate
+     * in pickup.c), not an object-walker handler, so the per-handler interact
+     * wrappers can't reach it. Bridge it the same way as drop: on the FIRST
+     * frame of an interact press (ONE-SHOT — a held key must never keep
+     * presenting fire, or the press that follows a pickup throws the carried
+     * man, the "MM hangs in the air" bug) while standing still and carrying
+     * nothing (item $1094 OR merry man $fa2 bit15), present FIRE for that one
+     * frame and let the engine's own pose machine perform the pickup (it edge-
+     * detects via $f7e/$f80). No directions held → the presented fire can't
+     * become a long-jump or throw. The $57EA76 gate is the other half: bare
+     * modern FIRE no longer grabs. */
+    extern int native_hands_full(M68KCtx *ctx);   /* $109c: item OR merry man */
+    static int s_mm_intent_consumed = 0;
+    int interact = hw_get_interact();
+    int mm_carried = native_hands_full(ctx);
+    if (!interact) s_mm_intent_consumed = 0;               /* release → rearm */
+    int mm_pickup_intent = interact && !s_mm_intent_consumed &&
+                           !carrying && !mm_carried &&
+                           !down && !hw_joy_left() && !hw_joy_right();
+    if (interact) s_mm_intent_consumed = 1;                /* one shot per press */
+
+    /* And the reverse: bare MODERN fire must NOT grab a merry man. The lift
+     * decision is INLINE in the player handler ($579750: f80==$20 exactly +
+     * $108e cooldown==0 + record-overlap scan) — $57EA76 is only its double-
+     * emitted standalone twin, so an entry override never sees the real path.
+     * Gate it through the engine's own mechanism instead: arm the pickup
+     * cooldown $108e for this frame (the main loop at $5771A2 decrements it
+     * every frame, so it self-clears). Scoped to EMPTY-HANDED bare modern fire
+     * — never armed when interact is held, when the fire is from a vanilla
+     * device, or while carrying (so throw/drop of a held item/man and the
+     * engine's own larger cooldowns are untouched). Value 2 survives one
+     * engine decrement in case it runs before the player handler this frame. */
+    if ((hw_get_fire() || hw_get_mouse_lmb()) &&
+        !interact && !hw_get_fire_vanilla() &&
+        !carrying && !mm_carried &&
+        MR16(ctx->A[5] + 0x108Eu) == 0)
+        MW16(ctx->A[5] + 0x108Eu, 2);
+
     /* HOP: a dedicated Hop binding ORs into the up/jump input. The Up *direction* is left
      * fully vanilla — it hops, enters doors, climbs ladders and drives menus, exactly as
      * the engine intends. (An earlier grounded-gate that suppressed up-hop while standing
@@ -178,7 +217,11 @@ void native_gameplay_input(M68KCtx *ctx)
      *     held-item flow (nothing to drop).
      *   - plain Down (no drop intent) → strip Fire so a real Fire+Down can't drop. */
     int restore = 0, sf = 0, sl = 0, down_add = 0, down_strip = 0;
-    if (drop_intent && carrying) {
+    if (mm_pickup_intent) {
+        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
+        hw_set_fire(1); hw_set_mouse_lmb(1);               /* interact → MM pickup */
+        restore = 1;
+    } else if (drop_intent && carrying) {
         sf = hw_get_fire(); sl = hw_get_mouse_lmb();
         hw_set_fire(1); hw_set_mouse_lmb(1);
         if (!down) { hw_set_joy_down(1); down_add = 1; }   /* button-only press supplies Down */

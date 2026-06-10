@@ -136,17 +136,20 @@ static void parse_binding(int dev, const char *p, Binding *b)
     }
 }
 
-/* Defaults. Pad FIRE deliberately avoids A: with modern controls JUMP=A, and a
- * chord overlap would turn every jump-while-running into a long-jump (fire+dir). */
+/* Defaults. Pad: A = fire (primary button, like the Amiga stick); there is NO
+ * default pad JUMP binding — Up/DPad-up jumps as on hardware, and a dedicated
+ * pad hop button needs more mapping work (it mis-mapped; bind pad_hop in JSON
+ * to experiment). Keyboard hop default Up = vanilla. */
 static const struct { int act; const char *key[PI_NUM_DEV]; const char *def[PI_NUM_DEV]; } k_defaults[] = {
     {PI_LEFT,  {"bind_left",  "pad_left"},  {"Left",  "DPLeft, LeftX-"}},
     {PI_RIGHT, {"bind_right", "pad_right"}, {"Right", "DPRight, LeftX+"}},
     {PI_UP,    {"bind_up",    "pad_up"},    {"Up",    "DPUp, LeftY-"}},
     {PI_DOWN,  {"bind_down",  "pad_down"},  {"Down",  "DPDown, LeftY+"}},
-    {PI_HOP,   {"bind_hop",   "pad_hop"},   {"Up",    "A"}},   /* Up also hops (vanilla) */
-    {PI_FIRE,  {"bind_fire",  "pad_fire"},  {"Z, LCtrl, Space, Return", "B"}},
+    {PI_HOP,   {"bind_hop",   "pad_hop"},   {"Up",    ""}},    /* Up also hops (vanilla) */
+    {PI_FIRE,  {"bind_fire",  "pad_fire"},  {"Z, LCtrl, Space, Return", "A, B"}},
     {PI_INTERACT, {"bind_interact", "pad_interact"}, {"X, LShift", "X"}},
     {PI_DROP,  {"bind_drop",  "pad_drop"},  {"X+Down, C, RShift", "Y"}},
+    {PI_FFWD,  {"bind_ffwd",  "pad_ffwd"},  {"Tab",   "RightTrigger"}},
 };
 
 static const char *binding_cfg_key(int dev, int action)
@@ -219,7 +222,8 @@ int pc_input_active(int action)
 const char *pc_input_action_name(int action)
 {
     static const char *names[PI_NUM] = {
-        "LEFT", "RIGHT", "UP", "DOWN", "JUMP", "FIRE", "INTERACT", "DROP"
+        "LEFT", "RIGHT", "UP", "DOWN", "JUMP", "FIRE", "INTERACT", "DROP",
+        "FAST FORWARD"
     };
     return (action >= 0 && action < PI_NUM) ? names[action] : "?";
 }

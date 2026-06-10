@@ -71,19 +71,40 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
   vanilla flag, so headless driving keeps vanilla semantics.
 - In the bindings pages, a modern device's FIRE row is **split into JUMP
   (`PI_HOP`) + INTERACT** (+ FIRE (THROW) and DROP rows).
-- **Game speed is the `game_speed` knob** (`1|2|4|turbo`), in OPTIONS and on
-  TAB (`hw_cycle_speed` persists + `hw_speed_refresh` re-reads — one source of
-  truth; TAB shows a toast). Two root causes of the old "finicky turbo" fixed:
-  (1) audio was rendered+queued PER GAME FRAME, so any speed-up multiplied the
-  music tempo and overflowed the SDL queue (which then got force-cleared every
-  frame → garbling). Now `pc_step`'s whole music-tick + PCM block is gated on
-  `hw_audio_frame_due()` — always true at 1x (deterministic harness path
-  unchanged), wall-clock 20ms grid otherwise, so **speed does not affect music**.
-  (2) turbo still rendered+presented every frame (texture upload capped it);
-  now turbo frame-skips presentation to ~60fps (events still polled; blit
-  capture still reset per skipped frame; harness/headless paths excluded).
-  Side effect of (1): anything gated on the music ISR (e.g. jingle-driven
-  banner auto-advance) waits in real time at high speeds — intended.
+- **Game speed (2026-06-10 rev 2)**: `game_speed` = `normal|turbo` (turbo =
+  120%) in OPTIONS, plus a HOLD-to-fast-forward action `PI_FFWD` (= 500% while
+  held; defaults Tab / RightTrigger, in the bindings pages). TAB no longer
+  cycles speeds — it IS the fast-forward hold via the binding. Speed is in
+  percent (`hw_speed_eff_pct`, µs pacing accumulator so 120% paces exactly).
+  Two root causes of the old "finicky turbo" fixed: (1) audio was
+  rendered+queued PER GAME FRAME — `pc_step`'s music-tick + PCM block is now
+  gated on `hw_audio_frame_due()` (always true at 100% = deterministic harness
+  path unchanged; wall-clock 20ms grid otherwise) so **speed never affects
+  music**; (2) presentation capped the speed — ≥200% frame-skips present to
+  ~60fps (events still polled; blit capture still reset per skipped frame). In
+  big/heavy levels the engine+render CPU cost may still cap the real rate
+  below 5x — pacing just stops sleeping; that is inherent, not a bug.
+- **Controller defaults (rev 2)**: pad A = FIRE (`pad_fire: "A, B"`); the
+  dedicated pad JUMP (`pad_hop`) has NO default and no menu row — the earlier
+  A=jump default was a mis-map; keyboard JUMP stays.
+- **Merry-man pickup on INTERACT (2026-06-10, fully verified headless)**: the
+  MM lift is an INLINE chain in the player handler ($579750: `f80==$20`
+  exactly + `$108e` cooldown==0 + `$5A4564` record-overlap scan → `$f70` ←
+  $57A018, record handler → $57C4E2 carried/tracking). $57EA76 is its
+  double-emitted standalone twin — an entry override never fires for the real
+  path (kept registered as defense-in-depth only). Native port (modern
+  controls): (a) one-shot interact→fire edge bridge in `native_gameplay_input`
+  (one frame, standing, hands empty — a HELD interact must never keep
+  presenting fire or the post-pickup press THROWS the man = the "hangs in
+  mid-air" bug); (b) bare modern fire is blocked by arming the engine's own
+  pickup cooldown `$108e=2` for the frame (self-clears via the $5771A2
+  per-frame decrement), scoped to empty-handed bare modern fire. **Hands-full
+  = `$109c(a5).l != 0`** (carried descriptor ptr, item AND merry man; cleared
+  on drop). FALSIFIED: `$1094` covers items only; `$fa2` bit15 latches on
+  first pickup but never clears (NOT a carry flag); the `$5A452E` slot grid
+  read garbage in the test level (NOT a liftability signal). Verified live:
+  X picks up / held X safe / follows / fire drops / re-pickup works / modern
+  fire blocked / vanilla fire untouched (savestate scene, wsmm + $109c).
 - Verified: build clean; persistence round-trip unit-tested (valid JSON);
   900 frames of cavern gameplay at 658 px ultrawide headless, 0 rt-misses;
   the quit-time core dump in the harness is pre-existing (identical on the

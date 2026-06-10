@@ -11,8 +11,8 @@
   "_comment2": "Widescreen preset: disabled | 16:9 | ultrawide (21:9) | auto (follows the window aspect). Overrides the legacy 'widescreen' pixel-width knob.",
   "widescreen_mode": "disabled",
 
-  "_comment3": "Game speed: 1 | 2 | 4 | turbo (TAB cycles it in-game; also in the pause OPTIONS menu). Music + SFX always play at normal real-time speed regardless.",
-  "game_speed": "1",
+  "_comment3": "Game speed: normal | turbo (= 1.2x; pause OPTIONS menu). The separate FAST FORWARD binding below runs 5x while HELD. Music + SFX always play at normal real-time speed regardless.",
+  "game_speed": "normal",
 
   "_comment4": "Keyboard bindings. Each value is a comma-separated list of CHORDS; a chord is keys joined by '+'. Names: Up/Down/Left/Right, Space, Return, LShift/RShift, LCtrl/Ctrl/RCtrl, Tab, single letters/digits, or any SDL key name. Omit any line to keep the default shown. (bind_hop = the modern-scheme JUMP button.)",
   "bind_left":     "Left",
@@ -23,14 +23,15 @@
   "bind_fire":     "Z, LCtrl, Space, Return",
   "bind_interact": "X, LShift",
   "bind_drop":     "X+Down, C, RShift",
+  "bind_ffwd":     "Tab",
 
-  "_comment5": "Controller bindings (hot-pluggable; Start pauses). Names: A/B/X/Y, DPUp/DPDown/DPLeft/DPRight, Start/Back, LB/RB, LeftTrigger/RightTrigger, LStick/RStick, and stick directions LeftX-/LeftX+/LeftY-/LeftY+ (RightX/RightY likewise). pad_hop = the modern-scheme JUMP button; pad_fire avoids A so jump never long-jumps.",
+  "_comment5": "Controller bindings (hot-pluggable; Start pauses). Names: A/B/X/Y, DPUp/DPDown/DPLeft/DPRight, Start/Back, LB/RB, LeftTrigger/RightTrigger, LStick/RStick, and stick directions LeftX-/LeftX+/LeftY-/LeftY+ (RightX/RightY likewise). A = fire, the primary button. pad_hop (the dedicated JUMP) has NO default — Up/DPad-up jumps; bind it here to experiment.",
   "pad_left":      "DPLeft, LeftX-",
   "pad_right":     "DPRight, LeftX+",
   "pad_up":        "DPUp, LeftY-",
   "pad_down":      "DPDown, LeftY+",
-  "pad_hop":       "A",
-  "pad_fire":      "B",
+  "pad_fire":      "A, B",
   "pad_interact":  "X",
-  "pad_drop":      "Y"
+  "pad_drop":      "Y",
+  "pad_ffwd":      "RightTrigger"
 }

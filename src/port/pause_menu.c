@@ -90,20 +90,23 @@ void pc_pause_toggle(void)
  * Row list depends on the device's modern flag: with modern controls the single
  * FIRE is SPLIT into JUMP + INTERACT (FIRE remains as the throw/long-jump
  * button, DROP gets its own row). Last row is BACK (action = -1). */
-static int bind_rows(int dev, int *actions /* >= 10 */)
+static int bind_rows(int dev, int *actions /* >= 12 */)
 {
     int n = 0;
     int modern = (dev == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
     actions[n++] = PI_LEFT; actions[n++] = PI_RIGHT;
     actions[n++] = PI_UP;   actions[n++] = PI_DOWN;
     if (modern) {
-        actions[n++] = PI_HOP;        /* JUMP  */
+        /* No pad JUMP row: the dedicated hop action is keyboard-only for now
+         * (the pad mapping was wrong; pad Up/DPad-up jumps, as on hardware). */
+        if (dev == PI_DEV_KB) actions[n++] = PI_HOP;   /* JUMP */
         actions[n++] = PI_INTERACT;
         actions[n++] = PI_FIRE;       /* throw / long-jump */
         actions[n++] = PI_DROP;
     } else {
         actions[n++] = PI_FIRE;
     }
+    actions[n++] = PI_FFWD;           /* hold-to-fast-forward, both schemes */
     actions[n++] = -1;                /* BACK */
     return n;
 }
@@ -118,7 +121,7 @@ static const char *bind_row_label(int dev, int action)
 
 static int page_rows(int page)
 {
-    int acts[10];
+    int acts[12];
     switch (page) {
         case PG_MAIN:    return NUM_MAIN;
         case PG_OPTIONS: return NUM_OPTS_PAGE;
@@ -153,23 +156,23 @@ static void ws_mode_set(int idx)
     hw_widescreen_refresh();
 }
 
-/* Game speed: 1x / 2x / 4x / turbo ("game_speed" knob; audio stays real-time). */
-static const char *k_speed_vals[4]   = { "1", "2", "4", "turbo" };
-static const char *k_speed_labels[4] = { "1X", "2X", "4X", "TURBO" };
+/* Game speed: normal / turbo (=1.2x). Audio/music stay real-time regardless;
+ * the hold-to-fast-forward binding (5x) is separate and always available. */
+static const char *k_speed_vals[2]   = { "normal", "turbo" };
+static const char *k_speed_labels[2] = { "NORMAL", "TURBO (1.2X)" };
 
 static int speed_index(void)
 {
     char buf[16];
     if (!pc_cfg_show("game_speed", buf, sizeof buf, NULL) || !buf[0]) return 0;
-    for (int i = 0; i < 4; i++) if (!strcasecmp(buf, k_speed_vals[i])) return i;
-    return 0;
+    return !strcasecmp(buf, "turbo") ? 1 : 0;
 }
 
 static void speed_set(int idx)
 {
     extern void hw_speed_refresh(void);
     char json[16];
-    snprintf(json, sizeof json, "\"%s\"", k_speed_vals[(idx % 4 + 4) % 4]);
+    snprintf(json, sizeof json, "\"%s\"", k_speed_vals[(idx % 2 + 2) % 2]);
     pc_cfg_persist("game_speed", json);
     hw_speed_refresh();
 }
@@ -248,7 +251,7 @@ void pc_pause_input_select(void)
         break;
     case PG_BIND_KB:
     case PG_BIND_PAD: {
-        int acts[10];
+        int acts[12];
         int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
         int n = bind_rows(dev, acts);
         if (s_cursor >= n) s_cursor = n - 1;
@@ -458,7 +461,7 @@ void pc_pause_menu_overlay(uint32_t *fb)
     /* Bindings page (keyboard / controller). */
     {
         int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
-        int acts[10];
+        int acts[12];
         int n = bind_rows(dev, acts);
         if (s_cursor >= n) s_cursor = n - 1;   /* modern toggle may shrink the list */
         const int pw = 300;   /* room for multi-chord defaults ("Z, LCtrl, Space, Return") */
