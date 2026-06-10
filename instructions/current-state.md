@@ -69,8 +69,9 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
   `interact_wide` (pickup.c) and `native_gameplay_input` (gameplay.c), while a
   modern device's fire never interacts. Harness `input_force_fire` sets the
   vanilla flag, so headless driving keeps vanilla semantics.
-- In the bindings pages, a modern device's FIRE row is **split into JUMP
-  (`PI_HOP`) + INTERACT** (+ FIRE (THROW) and DROP rows).
+- The bindings pages list **FIRE + (with modern controls) INTERACT** — no DROP
+  row (drop = interact+Down), no "THROW" (79525ca; the THROW concept was a
+  falsified RE inference, see gameplay-engine-map.md held-item section).
 - **Game speed (2026-06-10 rev 2)**: `game_speed` = `normal|turbo` (turbo =
   120%) in OPTIONS, plus a HOLD-to-fast-forward action `PI_FFWD` (= 500% while
   held; defaults Tab / RightTrigger, in the bindings pages). TAB no longer
