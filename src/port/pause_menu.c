@@ -157,23 +157,27 @@ static void ws_mode_set(int idx)
     hw_widescreen_refresh();
 }
 
-/* Game speed: normal / turbo (=1.2x). Audio/music stay real-time regardless;
- * the hold-to-fast-forward binding (5x) is separate and always available. */
-static const char *k_speed_vals[2]   = { "normal", "turbo" };
-static const char *k_speed_labels[2] = { "NORMAL", "TURBO (1.2X)" };
+/* Game speed: normal / turbo (=1.2x) / hyper (=1.5x). Audio/music stay
+ * real-time regardless; the hold-to-fast-forward binding (5x) is separate. */
+#define NUM_SPEEDS 3
+static const char *k_speed_vals[NUM_SPEEDS]   = { "normal", "turbo", "hyper" };
+static const char *k_speed_labels[NUM_SPEEDS] = { "NORMAL", "TURBO (1.2X)", "HYPER (1.5X)" };
 
 static int speed_index(void)
 {
     char buf[16];
     if (!pc_cfg_show("game_speed", buf, sizeof buf, NULL) || !buf[0]) return 0;
-    return !strcasecmp(buf, "turbo") ? 1 : 0;
+    for (int i = 1; i < NUM_SPEEDS; i++)
+        if (!strcasecmp(buf, k_speed_vals[i])) return i;
+    return 0;
 }
 
 static void speed_set(int idx)
 {
     extern void hw_speed_refresh(void);
     char json[16];
-    snprintf(json, sizeof json, "\"%s\"", k_speed_vals[(idx % 2 + 2) % 2]);
+    snprintf(json, sizeof json, "\"%s\"",
+             k_speed_vals[(idx % NUM_SPEEDS + NUM_SPEEDS) % NUM_SPEEDS]);
     pc_cfg_persist("game_speed", json);
     hw_speed_refresh();
 }

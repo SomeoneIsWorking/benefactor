@@ -11,7 +11,7 @@
   "_comment2": "Widescreen preset: disabled | 16:9 | ultrawide (21:9) | auto (follows the window aspect). Overrides the legacy 'widescreen' pixel-width knob.",
   "widescreen_mode": "disabled",
 
-  "_comment3": "Game speed: normal | turbo (= 1.2x; pause OPTIONS menu). The separate FAST FORWARD binding below runs 5x while HELD. Music + SFX always play at normal real-time speed regardless.",
+  "_comment3": "Game speed: normal | turbo (= 1.2x) | hyper (= 1.5x; pause OPTIONS menu). The separate FAST FORWARD binding below runs 5x while HELD. Music + SFX always play at normal real-time speed regardless.",
   "game_speed": "normal",
 
   "_comment3b": "Free cam (toggle: C / pad Back, gameplay only, needs widescreen): detach the camera and pan with Left/Right; the player stands idle. false = game keeps running while panning, true = game pauses.",

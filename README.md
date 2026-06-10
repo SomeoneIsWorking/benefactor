@@ -113,7 +113,7 @@ Optional tunables live in a JSON file `benefactor.json` next to the disks (copy
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `widescreen_mode` | `"disabled"` | Widescreen preset: `disabled` (original 4:3) \| `16:9` \| `ultrawide` (21:9) \| `auto` (follows the window aspect on every resize). Switchable live in the OPTIONS menu. |
-| `game_speed` | `"normal"` | `normal` \| `turbo` (1.2×). Music and SFX always play at normal speed. The hold-to-fast-forward binding (5×) is separate. |
+| `game_speed` | `"normal"` | `normal` \| `turbo` (1.2×) \| `hyper` (1.5×). Music and SFX always play at normal speed. The hold-to-fast-forward binding (5×) is separate. |
 | `freecam_pause` | `false` | Free cam behaviour: `false` = game keeps running while the camera is detached, `true` = game pauses while panning. |
 | `modern_controls_keyboard` / `modern_controls_controller` | `false` | **Opt-in modern control scheme, per device.** `false` = authentic Amiga controls (Fire does pickup/interact/drop-with-Down, Up = jump). `true` enables Interact (incl. picking up merry men), a dedicated Drop, and Fire no longer interacts. Mixed setups work — each device keeps its own scheme. (Legacy `modern_controls` sets the default for both.) |
 | `interact_extend` | `0` | Extra **horizontal** (X) reach in pixels for pickup + interaction, on top of each object's vanilla window (vertical reach unchanged). Applies in **both** schemes. The OPTIONS toggle uses 5. |
@@ -197,7 +197,7 @@ These change what the player can do — features that didn't exist in the 1994 r
 
 - **Free cam (C / pad Back)** — detach the camera and pan around the level (widescreen only); a camera icon shows top-left. By default the game keeps running; an option pauses it while you look around.
 
-- **Turbo & fast forward** — TURBO option runs the game at 1.2×; holding the fast-forward key runs it at 5× with a ▶▶ icon. Music and SFX always play at normal speed.
+- **Turbo & fast forward** — TURBO / HYPER options run the game at 1.2× / 1.5×; holding the fast-forward key runs it at 5× with a ▶▶ icon. Music and SFX always play at normal speed.
 
 ## Executable / dev features
 
