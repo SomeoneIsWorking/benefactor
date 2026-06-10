@@ -293,6 +293,24 @@ int  hw_ffwd_active(void)  { return s_ffwd_held; }   /* HUD icon */
  * untouched). Faster, game frames outpace real time; music ticks + PCM render
  * only fire on the 50Hz wall-clock grid, so the soundtrack keeps its normal
  * tempo and the SDL queue is fed at exactly the rate it drains. */
+/* Pace one frame to PAL 50 Hz scaled by the effective speed (microsecond
+ * accumulator so fractional targets like turbo 120% = 16.67ms pace exactly;
+ * self-corrects and resyncs if we fall far behind). Called for EVERY game
+ * frame — including the fast-forward frames whose render/present is skipped;
+ * the early-skip path previously returned before pacing, which made
+ * fast-forward effectively unbounded instead of 5x. */
+static void hw_pace_frame(void)
+{
+    if (s_no_pace) return;
+    static uint64_t s_next_frame_us = 0;
+    uint64_t now_us = SDL_GetTicks64() * 1000ull;
+    if (s_next_frame_us == 0 || now_us > s_next_frame_us + 100000ull)
+        s_next_frame_us = now_us;           /* first frame or big stall: resync */
+    s_next_frame_us += 2000000ull / (unsigned)hw_speed_eff_pct();
+    if (now_us < s_next_frame_us)
+        SDL_Delay((uint32_t)((s_next_frame_us - now_us) / 1000ull));
+}
+
 int hw_audio_frame_due(void)
 {
     if (hw_speed_eff_pct() == 100) return 1;
@@ -830,6 +848,7 @@ int hw_present_frame(void)
             hw_blit_capture_reset();
             s_frame_num++;
             s_in_present_frame = 0;
+            hw_pace_frame();      /* skipped frames still pace — FF is 5x, not unbounded */
             return 0;
         }
         s_last_present_ms = now;
@@ -885,19 +904,7 @@ int hw_present_frame(void)
             s_backend->present(s_out, s_hw_out_w, HW_DISPLAY_H);
         }
 
-        /* Pace to PAL 50 Hz (20 ms/frame), scaled by the effective speed.
-         * Microsecond accumulator so fractional targets (turbo 120% = 16.67ms)
-         * pace exactly; self-corrects and resyncs if we fall far behind, so the
-         * game runs at the intended speed regardless of monitor refresh. */
-        if (!s_no_pace) {
-            static uint64_t s_next_frame_us = 0;
-            uint64_t now_us = SDL_GetTicks64() * 1000ull;
-            if (s_next_frame_us == 0 || now_us > s_next_frame_us + 100000ull)
-                s_next_frame_us = now_us;       /* first frame or big stall: resync */
-            s_next_frame_us += 2000000ull / (unsigned)hw_speed_eff_pct();
-            if (now_us < s_next_frame_us)
-                SDL_Delay((uint32_t)((s_next_frame_us - now_us) / 1000ull));
-        }
+        hw_pace_frame();   /* PAL 50 Hz scaled by the effective speed */
     }
     s_in_present_frame = 0;
 
