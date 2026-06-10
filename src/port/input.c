@@ -148,8 +148,10 @@ static const struct { int act; const char *key[PI_NUM_DEV]; const char *def[PI_N
     {PI_HOP,   {"bind_hop",   "pad_hop"},   {"Up",    ""}},    /* Up also hops (vanilla) */
     {PI_FIRE,  {"bind_fire",  "pad_fire"},  {"Z, LCtrl, Space, Return", "A, B"}},
     {PI_INTERACT, {"bind_interact", "pad_interact"}, {"X, LShift", "X"}},
-    {PI_DROP,  {"bind_drop",  "pad_drop"},  {"X+Down, C, RShift", "Y"}},
+    /* C left the drop defaults when it became the free-cam toggle. */
+    {PI_DROP,  {"bind_drop",  "pad_drop"},  {"X+Down, RShift", "Y"}},
     {PI_FFWD,  {"bind_ffwd",  "pad_ffwd"},  {"Tab",   "RightTrigger"}},
+    {PI_FREECAM, {"bind_freecam", "pad_freecam"}, {"C", "Back"}},
 };
 
 static const char *binding_cfg_key(int dev, int action)
@@ -223,7 +225,7 @@ const char *pc_input_action_name(int action)
 {
     static const char *names[PI_NUM] = {
         "LEFT", "RIGHT", "UP", "DOWN", "JUMP", "FIRE", "INTERACT", "DROP",
-        "FAST FORWARD"
+        "FAST FORWARD", "FREE CAM"
     };
     return (action >= 0 && action < PI_NUM) ? names[action] : "?";
 }

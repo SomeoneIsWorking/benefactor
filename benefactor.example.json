@@ -14,6 +14,9 @@
   "_comment3": "Game speed: normal | turbo (= 1.2x; pause OPTIONS menu). The separate FAST FORWARD binding below runs 5x while HELD. Music + SFX always play at normal real-time speed regardless.",
   "game_speed": "normal",
 
+  "_comment3b": "Free cam (toggle: C / pad Back, gameplay only, needs widescreen): detach the camera and pan with Left/Right; the player stands idle. false = game keeps running while panning, true = game pauses.",
+  "freecam_pause": false,
+
   "_comment4": "Keyboard bindings. Each value is a comma-separated list of CHORDS; a chord is keys joined by '+'. Names: Up/Down/Left/Right, Space, Return, LShift/RShift, LCtrl/Ctrl/RCtrl, Tab, single letters/digits, or any SDL key name. Omit any line to keep the default shown. (bind_hop = the modern-scheme JUMP button.)",
   "bind_left":     "Left",
   "bind_right":    "Right",
@@ -22,8 +25,9 @@
   "bind_hop":      "Up",
   "bind_fire":     "Z, LCtrl, Space, Return",
   "bind_interact": "X, LShift",
-  "bind_drop":     "X+Down, C, RShift",
+  "bind_drop":     "X+Down, RShift",
   "bind_ffwd":     "Tab",
+  "bind_freecam":  "C",
 
   "_comment5": "Controller bindings (hot-pluggable; Start pauses). Names: A/B/X/Y, DPUp/DPDown/DPLeft/DPRight, Start/Back, LB/RB, LeftTrigger/RightTrigger, LStick/RStick, and stick directions LeftX-/LeftX+/LeftY-/LeftY+ (RightX/RightY likewise). A = fire, the primary button. pad_hop (the dedicated JUMP) has NO default — Up/DPad-up jumps; bind it here to experiment.",
   "pad_left":      "DPLeft, LeftX-",
@@ -33,5 +37,6 @@
   "pad_fire":      "A, B",
   "pad_interact":  "X",
   "pad_drop":      "Y",
-  "pad_ffwd":      "RightTrigger"
+  "pad_ffwd":      "RightTrigger",
+  "pad_freecam":   "Back"
 }

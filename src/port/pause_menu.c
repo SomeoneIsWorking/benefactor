@@ -57,8 +57,8 @@ static int s_page   = PG_MAIN;
 static int s_cursor = 0;                   /* per current page */
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
-enum { OO_WIDESCREEN = 0, OO_SPEED, OO_INTERACT, OO_MODERN_KB, OO_MODERN_PAD,
-       OO_BIND_KB, OO_BIND_PAD, OO_BACK, NUM_OPTS_PAGE };
+enum { OO_WIDESCREEN = 0, OO_SPEED, OO_FREECAM, OO_INTERACT, OO_MODERN_KB,
+       OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_BACK, NUM_OPTS_PAGE };
 
 /* Bindings capture: which device/action the next press is assigned to. */
 static int s_capture = 0, s_capture_dev = 0, s_capture_action = 0;
@@ -90,7 +90,7 @@ void pc_pause_toggle(void)
  * Row list depends on the device's modern flag: with modern controls the single
  * FIRE is SPLIT into JUMP + INTERACT (FIRE remains as the throw/long-jump
  * button, DROP gets its own row). Last row is BACK (action = -1). */
-static int bind_rows(int dev, int *actions /* >= 12 */)
+static int bind_rows(int dev, int *actions /* >= 14 */)
 {
     int n = 0;
     int modern = (dev == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
@@ -107,6 +107,7 @@ static int bind_rows(int dev, int *actions /* >= 12 */)
         actions[n++] = PI_FIRE;
     }
     actions[n++] = PI_FFWD;           /* hold-to-fast-forward, both schemes */
+    actions[n++] = PI_FREECAM;        /* free-cam toggle */
     actions[n++] = -1;                /* BACK */
     return n;
 }
@@ -121,7 +122,7 @@ static const char *bind_row_label(int dev, int action)
 
 static int page_rows(int page)
 {
-    int acts[12];
+    int acts[14];
     switch (page) {
         case PG_MAIN:    return NUM_MAIN;
         case PG_OPTIONS: return NUM_OPTS_PAGE;
@@ -195,6 +196,10 @@ static void options_cycle(int row, int dir)
     switch (row) {
         case OO_WIDESCREEN: ws_mode_set(ws_mode_index() + dir);        break;
         case OO_SPEED:      speed_set(speed_index() + dir);            break;
+        case OO_FREECAM:
+            pc_cfg_persist("freecam_pause",
+                           pc_cfg_bool("freecam_pause", 0) ? "false" : "true");
+            break;
         case OO_INTERACT:   interact_set(!interact_enabled());         break;
         case OO_MODERN_KB:  modern_set(PI_DEV_KB,  !pc_modern_kb());   break;
         case OO_MODERN_PAD: modern_set(PI_DEV_PAD, !pc_modern_pad());  break;
@@ -251,7 +256,7 @@ void pc_pause_input_select(void)
         break;
     case PG_BIND_KB:
     case PG_BIND_PAD: {
-        int acts[12];
+        int acts[14];
         int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
         int n = bind_rows(dev, acts);
         if (s_cursor >= n) s_cursor = n - 1;
@@ -428,6 +433,10 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 label = "GAME SPEED";
                 value = k_speed_labels[speed_index()];
                 break;
+            case OO_FREECAM:
+                label = "FREE CAM";
+                value = pc_cfg_bool("freecam_pause", 0) ? "PAUSES GAME" : "GAME RUNS";
+                break;
             case OO_INTERACT:
                 label = "INTERACT RANGE";
                 value = interact_enabled() ? "EXTENDED" : "VANILLA";
@@ -461,7 +470,7 @@ void pc_pause_menu_overlay(uint32_t *fb)
     /* Bindings page (keyboard / controller). */
     {
         int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
-        int acts[12];
+        int acts[14];
         int n = bind_rows(dev, acts);
         if (s_cursor >= n) s_cursor = n - 1;   /* modern toggle may shrink the list */
         const int pw = 300;   /* room for multi-chord defaults ("Z, LCtrl, Space, Return") */

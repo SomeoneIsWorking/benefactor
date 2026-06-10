@@ -285,6 +285,7 @@ void hw_speed_refresh(void)
 }
 
 void hw_set_ffwd(int held) { s_ffwd_held = !!held; }
+int  hw_ffwd_active(void)  { return s_ffwd_held; }   /* HUD icon */
 
 /* True when a real-time (wall-clock 20ms) music/audio frame is due. At exactly
  * 100% this is ALWAYS true — one audio frame per game frame, the original
@@ -378,6 +379,22 @@ static void apply_bound_input(void)
     s_drop      = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_DROP)) ||
                   (pdm && pc_input_active_dev(PI_DEV_PAD, PI_DROP));
     s_ffwd_held = pc_input_active(PI_FFWD);   /* hold-to-fast-forward, any device */
+
+    /* FREE CAM toggle (edge) + input redirect: while detached, the directions
+     * pan the camera (pc_freecam_tick) and the player gets NO input at all, so
+     * he stands idle wherever you left him. Fast-forward stays available. */
+    { extern void pc_freecam_toggle(void);
+      extern int  pc_freecam_active(void);
+      static int prev_fc = 0;
+      int fc = pc_input_active(PI_FREECAM);
+      if (fc && !prev_fc) pc_freecam_toggle();
+      prev_fc = fc;
+      if (pc_freecam_active()) {
+          s_joy_left = s_joy_right = s_joy_up = s_joy_down = 0;
+          s_hop = s_interact = s_drop = 0;
+          s_fire_pressed = 0; s_joy_buttons &= ~1; s_mouse_lmb = 0;
+          s_fire_vanilla = 0;
+      } }
 }
 
 /* Single keyboard→input-state mapper, shared by the standalone
@@ -818,6 +835,10 @@ int hw_present_frame(void)
         s_last_present_ms = now;
     }
 
+    /* Free-cam pan: ticked here (not in pc_step) so the camera keeps moving
+     * while freecam_pause has the game frozen. */
+    { extern void pc_freecam_tick(void); pc_freecam_tick(); }
+
     /* Render natively: native_render_frame walks the copper list straight from
      * chip RAM (no separate copper-execute pass — that was the old emulated path). */
     native_render_frame();  /* walks copper list from chip RAM, renders s_fb[] */
@@ -835,8 +856,10 @@ int hw_present_frame(void)
       extern void pc_level_select_overlay(uint32_t *fb);
       extern void pc_pause_menu_overlay(uint32_t *fb);
       extern void pc_toast_overlay(uint32_t *fb);
+      extern void pc_hud_icons_overlay(uint32_t *fb);
       pc_overlay_set_dims(s_hw_out_w, HW_DISPLAY_H);
       pc_level_select_overlay(s_out);
+      pc_hud_icons_overlay(s_out);    /* fast-forward / free-cam status icons */
       pc_pause_menu_overlay(s_out);
       pc_toast_overlay(s_out);
       pc_overlay_set_dims(HW_DISPLAY_W, HW_DISPLAY_H);   /* restore default */ }
@@ -850,8 +873,10 @@ int hw_present_frame(void)
         extern const Scene *native_render_scene(void);
         extern void native_render_scene_yrange(int *, int *);
         extern int  pc_pause_active(void), pc_toast_visible(void);
+        extern int  pc_hud_icons_active(void);
         extern int  g_level_select_visible;
-        int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible;
+        int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible
+                   || pc_hud_icons_active();
         if (s_backend->present_scene && native_render_scene_ready() && !overlay) {
             int ylo, yhi; native_render_scene_yrange(&ylo, &yhi);
             s_backend->present_scene(native_render_scene(), ylo, yhi,

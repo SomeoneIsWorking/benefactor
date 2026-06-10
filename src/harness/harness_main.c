@@ -353,6 +353,13 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "interact")) {   /* interact [0|1] — hold the dedicated interact key (pickup/lever) */
             sscanf(line, "%*s %d", &interact); printf("[crepl] interact=%d\n", interact);
         }
+        else if (!strcmp(cmd, "fcam")) {   /* fcam <0|1> [dx] — toggle free cam / nudge its X (testing) */
+            extern void pc_freecam_debug(int on, int dx);
+            extern int  pc_freecam_active(void), pc_freecam_x(void);
+            int on = 1, dx = 0; sscanf(line, "%*s %d %d", &on, &dx);
+            pc_freecam_debug(on, dx);
+            printf("[fcam] active=%d x=%d\n", pc_freecam_active(), pc_freecam_x());
+        }
         else if (!strcmp(cmd, "pklog")) {  /* pklog [0|1] — log interact-wide pickup/lever decisions */
             extern int g_pickup_log;
             int v = !g_pickup_log; sscanf(line, "%*s %d", &v); g_pickup_log = v;
