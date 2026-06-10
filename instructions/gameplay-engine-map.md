@@ -726,6 +726,13 @@ Carrying state: `$1094(a5)` = carried item id (0 = empty), `$109c(a5)` = carried
 ptr, `$f84(a5)` = held item TYPE (index into the action table). When you pick up a
 carryable item the item object is deactivated (`clr.w (a0)`) and these are set.
 
+MERRY-MAN carry is DIFFERENT (verified live 2026-06-10): the carried flag is **bit14
+of `$10AC(a5)`** (mirror `$10B6`). For MMs, `$109c` is the **lift-candidate**
+descriptor — set by the idle handler `$57C13A` while a liftable MM overlaps the
+player, 0 while carried — and the lift consumes it as linkage (poking it to 0
+pre-lift detaches/freezes the MM record; never write it). Post-drop the engine arms
+a ~50-frame pickup cooldown in `$108e` before any re-lift.
+
 The held item's behaviour comes from the **action table at `$5834de`** (chip RAM,
 indexed by item type → a per-item action descriptor; `$4(descr)` is an allowed-input
 mask). `$579A00` is the held-item action DISPATCHER: reads `$f84`, indexes `$5834de`,

@@ -262,14 +262,22 @@ IK(595FE4) IK(595FF4) IK(596064) IK(59610A) IK(597548) IK(597892) IK(59B0B0)
  * makes the interact key trigger the pickup. This override stays registered as
  * defense-in-depth for any path that DOES rt_call $57EA76: same policy (strip
  * d4 bit14 for empty-handed bare modern fire). */
-/* Hands occupied (item OR merry man): $109c(a5) = the carried object's
- * descriptor pointer, set by both pickup flows and cleared on drop/throw.
- * (Verified live: 0 → $580118 across an MM pickup, back to 0 after the
- * fire-drop. $1094 covers only items; $fa2 bit15 was FALSIFIED as a carry
- * flag — it stays set after the drop.) */
+/* Carrying a merry man: bit14 of $10AC(a5) (mirror at $10B6). Verified live
+ * (2026-06-10, savestate on top of an idle MM): $10AC = $0002 free → $4002
+ * across the lift → $0002 after the fire-drop, and again 0 after walking away.
+ *
+ * $109c(a5) was FALSIFIED as a carry flag (the previous version of this
+ * function): it is the LIFT-CANDIDATE descriptor — set ($580118) by the idle
+ * MM handler ($57C13A) while a liftable MM overlaps the player, and 0 WHILE
+ * the man is actually carried. Reading it as "hands full" inverted both
+ * modern-control gates (interact pickup blocked / bare fire allowed exactly
+ * when a fresh MM was underfoot — the "pickup key flips after a drop" bug).
+ * The engine also consumes $109c as the lift linkage: poking it to 0 before
+ * a lift produced a frozen, detached MM record. Do not write it.
+ * ($1094 covers only items; $fa2 bit15 latches on first lift, never clears.) */
 int native_hands_full(M68KCtx *ctx)
 {
-    return MR32(ctx->A[5] + 4252u) != 0;                    /* $109c(a5).l */
+    return (MR16(ctx->A[5] + 0x10ACu) & 0x4000u) != 0;
 }
 
 void native_mm_pickup_gate(M68KCtx *ctx)

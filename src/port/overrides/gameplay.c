@@ -171,7 +171,7 @@ void native_gameplay_input(M68KCtx *ctx)
      * detects via $f7e/$f80). No directions held → the presented fire can't
      * become a long-jump or throw. The $57EA76 gate is the other half: bare
      * modern FIRE no longer grabs. */
-    extern int native_hands_full(M68KCtx *ctx);   /* $109c: item OR merry man */
+    extern int native_hands_full(M68KCtx *ctx);   /* $10AC bit14: merry man held */
     static int s_mm_intent_consumed = 0;
     int interact = hw_get_interact();
     int mm_carried = native_hands_full(ctx);
