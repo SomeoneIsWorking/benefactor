@@ -105,6 +105,15 @@ void hw_set_ffwd(int held);
  * ticks + PCM render are held to real time so audio doesn't speed up. */
 int  hw_audio_frame_due(void);
 
+/* Frame-time profiler (F3 overlay): EMA (1/32) microseconds per section +
+ * once-per-second fps. pc_step times the game step; hw_present_frame times
+ * render/compose/present. */
+typedef struct { uint32_t game_us, render_us, compose_us, present_us; int fps; } HwPerf;
+extern HwPerf g_hw_perf;
+extern int g_hw_perf_overlay;
+uint64_t hw_perf_now_us(void);
+void     hw_perf_acc(uint32_t *ema_us, uint64_t t0_us);
+
 /* ── Disk load (replaces ILLEGAL intercept) ────────────────────────────────── */
 
 /*

@@ -312,6 +312,41 @@ static void hw_pace_frame(void)
         SDL_Delay((uint32_t)((s_next_frame_us - now_us) / 1000ull));
 }
 
+/* ── Frame-time profiler (F3 overlay) ─────────────────────────────────────────
+ * Exponential moving averages (1/32) of where each frame's wall time goes, in
+ * microseconds, plus a once-per-second fps counter. Sections: the game step
+ * (recompiled engine + audio, measured by pc_step), the native render, the
+ * BenRen compose, and the SDL present. Built to diagnose "speed X doesn't
+ * reach its target on level Y / machine Z" without guessing. */
+HwPerf g_hw_perf;
+int g_hw_perf_overlay = 0;            /* F3 toggles */
+
+uint64_t hw_perf_now_us(void)
+{
+    return SDL_GetPerformanceCounter() * 1000000ull / SDL_GetPerformanceFrequency();
+}
+
+void hw_perf_acc(uint32_t *ema_us, uint64_t t0_us)
+{
+    uint64_t dt = hw_perf_now_us() - t0_us;
+    if (dt > 10000000ull) dt = 10000000ull;     /* clamp pathological stalls */
+    int32_t d = (int32_t)dt - (int32_t)*ema_us;
+    *ema_us = (uint32_t)((int32_t)*ema_us + d / 32);   /* EMA, alpha = 1/32 */
+}
+
+static void hw_perf_fps_tick(void)
+{
+    static uint64_t s_sec_start = 0;
+    static int s_sec_frames = 0;
+    s_sec_frames++;
+    uint64_t now = hw_perf_now_us();
+    if (s_sec_start == 0) s_sec_start = now;
+    if (now - s_sec_start >= 1000000ull) {
+        g_hw_perf.fps = (int)((uint64_t)s_sec_frames * 1000000ull / (now - s_sec_start));
+        s_sec_start = now; s_sec_frames = 0;
+    }
+}
+
 int hw_audio_frame_due(void)
 {
     if (hw_speed_eff_pct() == 100) return 1;
@@ -826,6 +861,8 @@ int hw_present_frame(void)
                  * short-circuit return 1 here or pause never engages. */
                 if (ev.key.keysym.sym == SDLK_F11) {
                     if (!s_headless && down && s_backend) s_backend->toggle_fullscreen();
+                } else if (ev.key.keysym.sym == SDLK_F3) {
+                    if (down) g_hw_perf_overlay = !g_hw_perf_overlay;
                 } else {
                     hw_handle_key(ev.key.keysym.sym, down);
                 }
@@ -849,6 +886,7 @@ int hw_present_frame(void)
             hw_blit_capture_reset();
             s_frame_num++;
             s_in_present_frame = 0;
+            hw_perf_fps_tick();   /* skipped frames count toward the fps readout */
             hw_pace_frame();      /* skipped frames still pace — FF is 5x, not unbounded */
             return 0;
         }
@@ -861,12 +899,16 @@ int hw_present_frame(void)
 
     /* Render natively: native_render_frame walks the copper list straight from
      * chip RAM (no separate copper-execute pass — that was the old emulated path). */
+    uint64_t perf_t = hw_perf_now_us();
     native_render_frame();  /* walks copper list from chip RAM, renders s_fb[] */
+    hw_perf_acc(&g_hw_perf.render_us, perf_t);
 
     /* Harness snap is taken by the caller (pc.c) AFTER the timer interrupt,
      * to match PUAE's ordering where VBlank fires after copper and before snap. */
 
+    perf_t = hw_perf_now_us();
     hw_compose_output();   /* 352 content -> wide output (pillarbox margins) */
+    hw_perf_acc(&g_hw_perf.compose_us, perf_t);
 
     /* PC-native overlays — drawn into the FINAL composited output (s_out) AFTER the wide
      * playfield, so they stack on top of everything (the wide renderer would otherwise
@@ -897,6 +939,7 @@ int hw_present_frame(void)
         extern int  g_level_select_visible;
         int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible
                    || pc_hud_icons_active();
+        perf_t = hw_perf_now_us();
         if (s_backend->present_scene && native_render_scene_ready() && !overlay) {
             int ylo, yhi; native_render_scene_yrange(&ylo, &yhi);
             s_backend->present_scene(native_render_scene(), ylo, yhi,
@@ -904,6 +947,8 @@ int hw_present_frame(void)
         } else {
             s_backend->present(s_out, s_hw_out_w, HW_DISPLAY_H);
         }
+        hw_perf_acc(&g_hw_perf.present_us, perf_t);
+        hw_perf_fps_tick();
 
         hw_pace_frame();   /* PAL 50 Hz scaled by the effective speed */
     }

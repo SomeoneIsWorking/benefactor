@@ -98,6 +98,7 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 | C | **Free cam** toggle (widescreen only) — detach the camera and pan with ←/→ while a camera icon shows; toggle again to snap back |
 | S / D | Save / load a savestate (`logs/savestate.bin`) |
 | F11 | Toggle fullscreen |
+| F3 | Frame-time profiler overlay (fps + game/render/compose/present ms) |
 | L | Debug: trigger LEVEL COMPLETE |
 | O | Debug: trigger GAME OVER |
 

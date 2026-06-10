@@ -353,6 +353,11 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "interact")) {   /* interact [0|1] — hold the dedicated interact key (pickup/lever) */
             sscanf(line, "%*s %d", &interact); printf("[crepl] interact=%d\n", interact);
         }
+        else if (!strcmp(cmd, "perf")) {   /* perf [0|1] — toggle the F3 frame-time overlay */
+            extern int g_hw_perf_overlay;
+            int v = !g_hw_perf_overlay; sscanf(line, "%*s %d", &v); g_hw_perf_overlay = v;
+            printf("[crepl] perf overlay=%d\n", g_hw_perf_overlay);
+        }
         else if (!strcmp(cmd, "fcam")) {   /* fcam <0|1> [dx] — toggle free cam / nudge its X (testing) */
             extern void pc_freecam_debug(int on, int dx);
             extern int  pc_freecam_active(void), pc_freecam_x(void);
