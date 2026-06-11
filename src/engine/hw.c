@@ -487,6 +487,7 @@ void hw_handle_key(int sym, int down)
          * binding. ESC cancels (handled inside pc_pause_capture_code). */
         if (pc_pause_capture_active()) {
             if (down) pc_pause_capture_code(PI_DEV_KB, sym);
+            else { pc_input_load(); pc_input_key(sym, 0); apply_bound_input(); }
             return;
         }
         if (sym == SDLK_ESCAPE) {
@@ -509,7 +510,15 @@ void hw_handle_key(int sym, int down)
             return;
         }
         if (pc_pause_active()) {
-            if (!down) return;
+            /* Key RELEASES must still reach the game's input shadow: the fire
+             * press that opened/entered this menu otherwise stays latched and
+             * re-triggers the engine menu the frame after the menu closes. */
+            if (!down) {
+                pc_input_load();
+                pc_input_key(sym, 0);
+                apply_bound_input();
+                return;
+            }
             switch (sym) {
                 case SDLK_UP:    pc_pause_input_up();    return;
                 case SDLK_DOWN:  pc_pause_input_down();  return;
@@ -626,6 +635,7 @@ static void hw_handle_pad_code(int code, int down)
 
     if (pc_pause_capture_active()) {
         if (down) pc_pause_capture_code(PI_DEV_PAD, code);
+        else { pc_input_load(); pc_input_pad_button(code, 0); apply_bound_input(); }
         return;
     }
     if (code == SDL_CONTROLLER_BUTTON_START) {
@@ -638,7 +648,14 @@ static void hw_handle_pad_code(int code, int down)
         return;
     }
     if (pc_pause_active()) {
-        if (!down) return;
+        /* Same as the keyboard path: releases still reach the input shadow so
+         * the press that entered the menu can't stay latched across close. */
+        if (!down) {
+            pc_input_load();
+            pc_input_pad_button(code, 0);
+            apply_bound_input();
+            return;
+        }
         if      (code == SDL_CONTROLLER_BUTTON_DPAD_UP ||
                  code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTY, 0))  pc_pause_input_up();
         else if (code == SDL_CONTROLLER_BUTTON_DPAD_DOWN ||

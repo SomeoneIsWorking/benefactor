@@ -735,10 +735,10 @@ int pc_step(void)
     extern int pc_pause_active(void);
     extern int pc_freecam_paused(void);   /* free cam in "pauses game" mode */
     if (pc_pause_active() || pc_freecam_paused()) {
-        /* Freecam PAUSED mode freezes the GAME but not the SOUNDTRACK — the
+        /* Both pause modes freeze the GAME but not the SOUNDTRACK — the
          * music ISR is vblank/CIA-driven, independent of the game loop (same
-         * as the original's pause). The pause MENU stays fully silent. */
-        if (!pc_pause_active()) pc_audio_frame();
+         * as the original's pause). */
+        pc_audio_frame();
         if (g_harness_prerender_hook) g_harness_prerender_hook();
         if (hw_present_frame() != 0) return 1;
         if (g_harness_frame_hook) g_harness_frame_hook();
