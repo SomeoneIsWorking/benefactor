@@ -749,6 +749,19 @@ d5=phase*2. Entry detection via $f78(a5) prev-handler; air-to-air hand-offs
 PRESERVE vx/vy (re-seeding zeroed momentum = vanilla flaw reintroduced).
 Tunables pf_gravity/pf_jump_vy/pf_air_accel/pf_vx_max (8.8 fixed). Knob-off
 verified BYTE-IDENTICAL trajectory vs pre-change build. NEEDS USER FEEL TEST.
+**Round 2 corrections (2026-06-11 evening):** (1) $f80 reads ZERO mid-air —
+the engine's input-disable gate ($1093 bit0) zeroes the decode during flight,
+i.e. vanilla enforces no-air-control AT THE INPUT LAYER; physics reads raw
+hw_joy_*/hw_get_fire instead. (2) The REAL long-jump (fire+dir) handler is
+**$579A62** (not $579DDC); its $579AB2 block is vanilla's release-abort:
+`btst #5,$f81` mid-arc -> per-phase state switch via table $579AE0 — whose
+targets are the $579Dxx stubs (= ABORT arcs, all funneling into the shared
+player $579D52 which moves X via `sub.w d0,d1`). (3) Final design: hop
+$579D84 = full physics; LJ $579A62 + abort family = TRACK mode (vanilla arc
+untouched, fire-release abort SUPPRESSED, per-frame X tracked into vx so the
+FALL inherits momentum + air control). Verified: full parabola with release
+at mid-arc, fall carries dx to landing; hop air control; passthrough still
+byte-identical.
 
 ### TODOs
 
