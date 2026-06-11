@@ -62,8 +62,9 @@ static int s_title_mode = 0;
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
 /* OPTIONS-page row ids (rows are built per-mode by options_rows). */
-enum { OO_WIDESCREEN = 0, OO_SPEED, OO_FREECAM, OO_INTERACT, OO_MODERN_KB,
-       OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK, OO_QUIT };
+enum { OO_WIDESCREEN = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
+       OO_MODERN_KB, OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK,
+       OO_QUIT };
 /* MORE-page row ids. */
 enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_BACK };
 
@@ -138,7 +139,8 @@ static const char *bind_row_label(int dev, int action)
 static int options_rows(int *rows /* >= 14 */)
 {
     int n = 0;
-    rows[n++] = OO_WIDESCREEN; rows[n++] = OO_SPEED;     rows[n++] = OO_FREECAM;
+    rows[n++] = OO_WIDESCREEN; rows[n++] = OO_SPEED;     rows[n++] = OO_PHYSICS;
+    rows[n++] = OO_FREECAM;
     rows[n++] = OO_INTERACT;   rows[n++] = OO_MODERN_KB; rows[n++] = OO_MODERN_PAD;
     rows[n++] = OO_BIND_KB;    rows[n++] = OO_BIND_PAD;  rows[n++] = OO_MORE;
     rows[n++] = OO_BACK;
@@ -242,6 +244,7 @@ static void options_cycle(int row, int dir)
     switch (row) {
         case OO_WIDESCREEN: ws_mode_set(ws_mode_index() + dir);        break;
         case OO_SPEED:      speed_set(speed_index() + dir);            break;
+        case OO_PHYSICS:    bool_knob_toggle("platformer_physics");    break;
         case OO_FREECAM:    bool_knob_toggle("freecam_pause");         break;
         case OO_INTERACT:   interact_set(!interact_enabled());         break;
         case OO_MODERN_KB:  modern_set(PI_DEV_KB,  !pc_modern_kb());   break;
@@ -528,6 +531,10 @@ void pc_pause_menu_overlay(uint32_t *fb)
             case OO_SPEED:
                 label = "GAME SPEED";
                 value = k_speed_labels[speed_index()];
+                break;
+            case OO_PHYSICS:
+                label = "JUMP PHYSICS";
+                value = pc_cfg_bool("platformer_physics", 0) ? "PLATFORMER" : "CLASSIC";
                 break;
             case OO_FREECAM:
                 label = "FREE CAM";
