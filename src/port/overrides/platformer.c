@@ -78,10 +78,13 @@ static int is_air_state(uint32_t a)
 /* 8.8 fixed-point tunables (cfg-overridable for feel iteration). */
 static int t_gravity(void)  { return pc_cfg_int("pf_gravity",   60);  } /* px/f^2 *256 */
 static int t_jump_vy(void)  { return pc_cfg_int("pf_jump_vy", -640);  } /* initial vy  */
-static int t_air_acc(void)  { return pc_cfg_int("pf_air_accel", 32);  } /* px/f^2 *256 */
+static int t_air_acc(void)  { return pc_cfg_int("pf_air_accel", 128); } /* px/f^2 *256.
+                                  32 was imperceptible: the arc moves ~2px/f, so steer
+                                  needs to reach ~cap within a few frames to be felt. */
 static int t_vx_max(void)   { return pc_cfg_int("pf_vx_max",   512);  } /* px/f *256   */
 
 static int s_vx, s_vy;        /* 8.8 px/frame */
+static int s_steer;           /* 8.8 air-control velocity ON TOP of a tracked arc */
 static int s_airborne;
 static int s_cut_done;
 static int s_y_acc, s_x_acc;  /* sub-pixel accumulators */
@@ -102,6 +105,7 @@ static void phys_enter(M68KCtx *ctx, int vanilla_dx, int jumping)
     s_airborne = 1;
     s_cut_done = 0;
     s_y_acc = s_x_acc = 0;
+    s_steer = 0;
     s_vy = jumping ? t_jump_vy() : 0;
     s_vx = vanilla_dx << 8;       /* long-jump momentum / walk-off momentum */
     (void)ctx;
@@ -217,7 +221,13 @@ static void air_state(M68KCtx *ctx, void (*super)(M68KCtx *), uint32_t self,
  *      state switch): on release the arc now simply CONTINUES;
  *  (b) track the arc's own per-frame X move into s_vx, so when the arc ends
  *      and hands off to FALL, the fall inherits the momentum (vanilla zeroes
- *      it there) and air control takes over. */
+ *      it there) and air control takes over;
+ *  (c) AIR CONTROL during the arc: a separate steering velocity (s_steer)
+ *      integrated from the held direction and applied as an X delta ON TOP of
+ *      the arc's own move (same wall probes as phys_dx) — without this, the
+ *      whole long-jump flight ignores input and "air control" would only
+ *      exist in the short fall tail. The steer is folded into s_vx so the
+ *      fall hand-off keeps the combined momentum. */
 static void air_track(M68KCtx *ctx, void (*super)(M68KCtx *))
 {
     if (!pc_platformer_on()) { s_airborne = 0; super(ctx); return; }
@@ -231,10 +241,32 @@ static void air_track(M68KCtx *ctx, void (*super)(M68KCtx *))
 
     if (fresh) {
         s_airborne = 1; s_cut_done = 0;
-        s_x_acc = s_y_acc = 0; s_vy = 0; s_vx = 0;
+        s_x_acc = s_y_acc = 0; s_vy = 0; s_vx = 0; s_steer = 0;
     }
     int dxv = (int16_t)(uint16_t)ctx->D[1] - x_in;
-    if (dxv) s_vx = dxv << 8;            /* live momentum from the arc itself */
+
+    /* Air control on top of the arc: integrate steer, apply with wall probes. */
+    int acc = t_air_acc(), cap = t_vx_max();
+    if (hw_joy_right())     s_steer += acc;
+    else if (hw_joy_left()) s_steer -= acc;
+    if (s_steer >  cap) s_steer =  cap;
+    if (s_steer < -cap) s_steer = -cap;
+    s_x_acc += s_steer;
+    int sdx = s_x_acc >> 8;
+    s_x_acc -= sdx << 8;
+    if (sdx) {
+        int x_arc = x_in + dxv;
+        int16_t y = (int16_t)(uint16_t)ctx->D[2];
+        int lead = x_arc + sdx + (sdx > 0 ? 8 : -8);
+        if (tile_solid(ctx, lead, y + 4) || tile_solid(ctx, lead, y + 18)) {
+            s_steer = 0; s_x_acc = 0; sdx = 0;
+        }
+    }
+    if (sdx)
+        ctx->D[1] = (ctx->D[1] & 0xFFFF0000u)
+                  | (uint16_t)(int16_t)(x_in + dxv + sdx);
+
+    if (dxv || sdx) s_vx = (dxv << 8) + s_steer;  /* combined momentum for fall */
 
     uint32_t st = MR32(ctx->A[5] + 0xF70u);
     if (st != state_in && st != 0x579F3Au)
