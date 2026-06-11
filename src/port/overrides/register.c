@@ -79,10 +79,14 @@ void pc_register_overrides(void)
       rt_register_override(0x00003C88u, native_menu_cursor_up);
       rt_register_override(0x00003C6Eu, native_menu_diff_left);
       rt_register_override(0x00003C9Au, native_menu_diff_right); }
+    /* $003700 — menu-art unpacker post-hook: re-draws on-page extras (the
+     * DISK.4 indicator) after each page-1 unpack. */
+    { extern void native_menu_art_unpack(M68KCtx *ctx);
+      rt_register_override(0x00003700u, native_menu_art_unpack); }
     /* $003DAA — the password-field text renderer (cell-wise, from the live
      * password buffer). We OWN it and draw nothing: the field is replaced by
      * LEVEL SELECT in this port. See the RE block in boot.c. (The art itself
-     * ships a clean field area — verified — so no erase/unpack hook needed.) */
+     * ships a clean field area — verified.) */
     { extern void native_menu_pwfield_draw(M68KCtx *ctx);
       rt_register_override(0x00003DAAu, native_menu_pwfield_draw); }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
