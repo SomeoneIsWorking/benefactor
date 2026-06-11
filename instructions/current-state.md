@@ -690,6 +690,17 @@ hw_present_frame via pc_freecam_fade_alpha) — whichever is faster for the
 distance (crossover 2400px falls out of the numbers); fire-toggle during the
 pan re-engages. REPL: `fcam 2` force-fades (testing); `fcam 0` exercises the
 return. Verified on level 3: pan-back shots + forced fade out/black/in.
+`goto N` FIXED (was broken since forever, incl. the 2nd-goto $578B94 crash
+and level 60's black card): (a) its `if (!g_overlay_active)` guard skipped
+the gameplay-overlay load whenever the TITLE overlay was active (the normal
+poster/menu case), so $577000 ran over title bytes — the card fade table at
+$57F0A6 was zeros, outer count wrapped to 65535 and the card hung in
+$57DBEC/$57DC5A (the gpl palette-fade iterator, $74AA-style table at
+a5+$294); (b) loading at REPL time let the old thread run one more frame
+over fresh memory (the 2nd-goto crash). goto now routes through the
+restart-reinit path (reload happens in pc_step_threaded after the final old
+frame) WITHOUT pc_request_level_restart's early PC_SCR_GAMEPLAY flip (that
+poisons an in-flight title frame -> $3330 rt-miss).
 
 ### TODOs
 
@@ -698,13 +709,6 @@ return. Verified on level 3: pan-back shots + forced fade out/black/in.
    the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
    LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
    (native_menu_setup / fire-dispatch). Deferred by the user for now.
-1. **`goto N` stalls at the level card** (pre-existing, noticed 2026-06-11
-   while testing freecam): after `goto`, the card renders but FIRE never
-   advances into the level (tried pulses + 350-frame holds; verified
-   identical at HEAD 0097efc, so NOT caused by today's changes). `rungame`
-   and the menu paths (CONTINUE / LEVEL SELECT) enter levels fine — only the
-   direct-jump card-wait is broken. Also: level 60's card renders BLACK via
-   `goto 60`.
 
 ### PROPOSALS (not committed to — discuss before starting)
 
