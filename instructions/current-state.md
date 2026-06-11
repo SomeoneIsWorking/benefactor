@@ -736,6 +736,19 @@ looked selected — user-reported). OPTIONS-row return + picker ESC-cancel both
 use $39BE now; cursor + highlight stay in sync. CONTINUE shows a small-font
 subtext "<WORLD> - <LEVEL NAME> (W#L#)" (pc_menu_subtext_overlay,
 g_pc_menu_visible gate; replaced the on-page L<n>).
+**PLATFORMER jump physics (opt-in, OPTIONS "JUMP PHYSICS: CLASSIC|PLATFORMER",
+knob platformer_physics; src/port/overrides/platformer.c):** the three AIR
+action handlers ($579D84 hop / $579DDC long-jump / $579F3A fall) super-call
+the recompiled bodies and re-shape d1/d2 from a native velocity model — air
+control, gravity ascent w/ jump-cut, momentum preserved into the fall, own
+tile probes (vanilla arcs are collision-free, pre-validated at the trigger;
+formula: word at $5A8C7E + (x>>4)*2 + rowtab($5A211A)[y>>4], nonzero=solid).
+PLAYER DISPATCHER CONTRACT ($5796A4): struct $10A6..$10B0 -> d1=X, d2=Y(top),
+d3=ANIM CELL (not h-speed! the fall's `clr.w d3` is an anim reset), d4=flags,
+d5=phase*2. Entry detection via $f78(a5) prev-handler; air-to-air hand-offs
+PRESERVE vx/vy (re-seeding zeroed momentum = vanilla flaw reintroduced).
+Tunables pf_gravity/pf_jump_vy/pf_air_accel/pf_vx_max (8.8 fixed). Knob-off
+verified BYTE-IDENTICAL trajectory vs pre-change build. NEEDS USER FEEL TEST.
 
 ### TODOs
 

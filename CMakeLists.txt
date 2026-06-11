@@ -189,6 +189,7 @@ add_executable(benefactor-pc
     src/port/overrides/gameplay.c
     src/port/overrides/audio.c
     src/port/overrides/pickup.c
+    src/port/overrides/platformer.c
     src/port/config.c
     src/port/input.c
     src/port/level_select_ui.c
@@ -505,6 +506,7 @@ set(HARNESS_SOURCES
     src/port/overrides/gameplay.c
     src/port/overrides/audio.c
     src/port/overrides/pickup.c
+    src/port/overrides/platformer.c
     src/port/config.c
     src/port/input.c
     src/port/level_select_ui.c

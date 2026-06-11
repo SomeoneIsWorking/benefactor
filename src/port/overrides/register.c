@@ -204,6 +204,16 @@ void pc_register_overrides(void)
         rt_register_override_gp(0x005788DEu, native_levelcomplete_text_capture);
         rt_register_override_gp(0x0057901Eu, native_password_build); } }
 
+    /* PLATFORMER jump physics (opt-in "platformer_physics", pc_overrides_
+     * platformer.c): the three AIR action-handlers super-call the recompiled
+     * bodies and re-shape d2/d3 from a native velocity model (air control,
+     * momentum into the fall, jump-cut). Knob off = verified passthrough. */
+    { extern void native_pf_hop(M68KCtx *ctx), native_pf_longjump(M68KCtx *ctx),
+                  native_pf_fall(M68KCtx *ctx);
+      rt_register_override_gp(0x00579D84u, native_pf_hop);
+      rt_register_override_gp(0x00579DDCu, native_pf_longjump);
+      rt_register_override_gp(0x00579F3Au, native_pf_fall); }
+
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled
      * bodies (A/B comparison while porting). */
