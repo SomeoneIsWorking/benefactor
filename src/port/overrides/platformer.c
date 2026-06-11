@@ -114,6 +114,8 @@ static void air_state(M68KCtx *ctx, void (*super)(M68KCtx *), uint32_t self,
                       int jumping)
 {
     if (!pc_platformer_on()) { s_airborne = 0; super(ctx); return; }
+    { static int logged; if (!logged) { logged = 1;
+        fprintf(stderr, "[platformer] physics ACTIVE (first air frame)\n"); } }
 
     /* Entry detection via the dispatcher's previous-handler slot $f78(a5):
      * a FRESH flight (from a grounded/rope/... state) seeds the model; an
