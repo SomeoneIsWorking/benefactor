@@ -4,6 +4,7 @@
  */
 #include "port/port_internal.h"
 #include "port/config.h"
+#include "port/input.h"
 /* game.h is included here ONLY for GAME_FN_COUNT (dispatch table size).
  * Do NOT call any gfn_* functions directly from this file. */
 #include "engine/generated/game.h"
@@ -624,12 +625,42 @@ static void game_thread_run_one_frame(void)
     pthread_mutex_unlock(&s_hand_mtx);
 }
 
+/* ── Credits fire-skip ───────────────────────────────────────────────────────
+ * During the victory credits, the first FIRE press shows a confirm toast; a
+ * second press while OUR confirm window is still open skips the credits back
+ * to the main-menu poster (pc_request_cold_restart — the same exit the pause
+ * menu's EXIT TO MENU uses, and safe in the same main-thread spot). The window
+ * is tracked with its own countdown (mirroring the toast's 160 frames) so an
+ * unrelated toast can never arm the skip. */
+static void pc_credits_skip_tick(void)
+{
+    extern void pc_request_cold_restart(void);
+    static int prev_fire, confirm_frames;
+    int fire = pc_input_active(PI_FIRE);
+    int edge = fire && !prev_fire;
+    prev_fire = fire;
+    if (!g_credits_active) { confirm_frames = 0; return; }
+    if (confirm_frames > 0) confirm_frames--;
+    if (!edge) return;
+    extern void pc_toast_show(const char *, int);
+    if (confirm_frames > 0) {
+        confirm_frames = 0;
+        pc_toast_show("", 0);                   /* drop the confirm toast */
+        fprintf(stderr, "[pc] credits: fire-skip -> main menu\n");
+        pc_request_cold_restart();
+        return;
+    }
+    pc_toast_show("PRESS FIRE AGAIN TO SKIP", 0);
+    confirm_frames = 160;                       /* match the toast lifetime */
+}
+
 int pc_step(void)
 {
     /* Service any deferred pause-menu action (Resume/Retry/ExitToMenu/Quit)
      * before anything else — we're on the MAIN thread here and the game thread
      * is parked, so it's safe to stop/respawn the game thread if needed. */
     { extern void pc_pause_tick(void); pc_pause_tick(); }
+    pc_credits_skip_tick();
 
     if (g_pc_pending_load) {
         g_pc_pending_load = 0;
@@ -952,6 +983,20 @@ int pc_init_from_disk(const char **disks, int n_disks)
  *      replays the $6D714 block-copy so low-RAM engine state is fresh.
  *   3. Restart the continuation-stack flow at the title attract entry $003330
  *      (gp bank a5=$511E). The respawned game thread enters the poster. */
+/* Test/debug drive into the END-GAME CREDITS, mirroring the win path's
+ * `$150 d0=3` (native_overlay_loader_reloc): load the credits overlay and
+ * enter $3330 with the credits bank active. Used by the harness REPL
+ * (`gocredits`) so credits-side features (fire-skip) are testable without
+ * winning W6L2. */
+void pc_request_credits_start(void)
+{
+    pc_state_reset_defaults();
+    overlay_load_credits();
+    pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
+    g_pc_screen = PC_SCR_CREDITS;
+    fprintf(stderr, "[pc] credits drive: flow restart at $003330 (credits bank)\n");
+}
+
 void pc_request_cold_restart(void)
 {
     extern void native_overlay_load(void);

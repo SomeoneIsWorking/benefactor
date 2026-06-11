@@ -351,6 +351,20 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "fire")) {
             sscanf(line, "%*s %d", &fire); printf("[crepl] fire=%d\n", fire);
         }
+        else if (!strcmp(cmd, "gocredits")) {  /* gocredits — enter the end-game credits (win-path $150 d0=3) */
+            extern void pc_request_credits_start(void);
+            pc_request_credits_start();
+        }
+        else if (!strcmp(cmd, "key")) {   /* key <sym|char> <0|1> — press/release a keyboard key at the
+                                           * pc_input binding layer (PI_* actions), e.g. `key z 1` */
+            char ks[16] = {0}; int kd = 1;
+            if (sscanf(line, "%*s %15s %d", ks, &kd) >= 1) {
+                extern void hw_handle_key(int sym, int down);  /* the real input path */
+                int sym = (ks[1] == 0) ? (unsigned char)ks[0] : (int)strtol(ks, NULL, 0);
+                hw_handle_key(sym, kd);
+                printf("[crepl] key sym=%d down=%d\n", sym, kd);
+            }
+        }
         else if (!strcmp(cmd, "interact")) {   /* interact [0|1] — hold the dedicated interact key (pickup/lever) */
             sscanf(line, "%*s %d", &interact); printf("[crepl] interact=%d\n", interact);
         }
