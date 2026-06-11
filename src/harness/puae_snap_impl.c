@@ -309,3 +309,9 @@ void puae_dump_audio_regs(const char *path)
         fclose(fp);
     }
 }
+
+/* Emulated CPU program counter — boot-progress heartbeat for run_puae_phase. */
+uint32_t puae_get_cpu_pc(void)
+{
+    return (uint32_t)m68k_getpc();
+}

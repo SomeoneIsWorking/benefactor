@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/stat.h>   /* mkdir — WHDLoad skeleton re-creation */
 
 /* Prevent libretro VFS from redefining FILE/fprintf/fflush/etc. */
 #define SKIP_STDIO_REDEFINES
@@ -116,13 +117,49 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path,
      * save-state at the sync point once, then RESTORE it every subsequent run.
      * Set BENEFACTOR_REFREEZE=1 to force a fresh boot+freeze (e.g. after the
      * disk image or core changes). */
-    g_harness_fast_forward = 1;
+    /* BENEFACTOR_BOOT_SLOW=1: keep video rendering on during the boot phase so
+     * the periodic boot_fb snapshots show real frames (fast-forward skips
+     * rendering — snapshots come out black). */
+    g_harness_fast_forward = getenv("BENEFACTOR_BOOT_SLOW") ? 0 : 1;
 
     FrameState tmp;
     const char *state_path = "logs/puae_sync.state";
     int restored = 0;
 
     if (!getenv("BENEFACTOR_REFREEZE")) {
+        /* The frozen state's filesys mount records the ABSOLUTE host path
+         * /tmp/WHDLoad (harness_save_dir above). /tmp is a tmpfs, so the tree
+         * vanishes on reboot — and restore_filesys then writes restored file
+         * contents through a NULL stream (segfault in filestream_write).
+         * Recreate the skeleton the restore expects before unserializing. */
+        {
+            static const char *whd_dirs[] = {
+                "/tmp/WHDLoad", "/tmp/WHDLoad/C", "/tmp/WHDLoad/S",
+                "/tmp/WHDLoad/L", "/tmp/WHDLoad/Devs", "/tmp/WHDLoad/Libs",
+            };
+            for (unsigned i = 0; i < sizeof(whd_dirs)/sizeof(whd_dirs[0]); i++)
+                mkdir(whd_dirs[i], 0755);
+            /* The WHDLoad slave reads the game disks as FILES in this dir
+             * (not floppies). Disk.1-3 survive in RAM via WHDLoad Preload
+             * (frozen into the sync state), but anything NOT preloaded at
+             * freeze time — notably the fan-made Disk.4 extras — is read
+             * from here at runtime. Copy the cwd disk files in. */
+            for (int dn = 1; dn <= 4; dn++) {
+                char src[32], dst[64];
+                snprintf(src, sizeof src, "Disk.%d", dn);
+                snprintf(dst, sizeof dst, "/tmp/WHDLoad/Disk.%d", dn);
+                FILE *fi = fopen(src, "rb");
+                if (!fi) continue;
+                FILE *fo = fopen(dst, "wb");
+                if (fo) {
+                    char buf[65536]; size_t n;
+                    while ((n = fread(buf, 1, sizeof buf, fi)) > 0)
+                        fwrite(buf, 1, n, fo);
+                    fclose(fo);
+                }
+                fclose(fi);
+            }
+        }
         FILE *sf = fopen(state_path, "rb");
         if (sf) {
             fseek(sf, 0, SEEK_END);
@@ -153,6 +190,21 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path,
             /* Use lightweight cop1lc read — avoids CRC32-ing 512KB every frame */
             uint32_t cur_cop1lc = puae_get_cop1lc();
 
+            /* Boot-progress heartbeat: emulated CPU PC every 250 frames, so a
+             * stalled boot says WHERE it idles (ROM insert-disk loop vs DOS). */
+            if ((f % 250) == 0) {
+                extern uint32_t puae_get_cpu_pc(void);
+                printf("[harness]   PUAE boot f%4d: cpu pc=$%08X cop1lc=$%06X\n",
+                       f, puae_get_cpu_pc(), cur_cop1lc);
+            }
+            /* Periodic screen snapshots — lets a stalled boot be SEEN
+             * (CLI error text, requester, insert-disk screen, ...). */
+            if (f > 0 && (f % 500) == 0) {
+                char sp[64];
+                snprintf(sp, sizeof sp, "logs/boot_fb_%04d.bin", f);
+                FILE *sf2 = fopen(sp, "wb");
+                if (sf2) { fwrite(s_puae_fb, 4, FB_W * FB_H, sf2); fclose(sf2); }
+            }
             /* Only log on changes or at coarse intervals */
             if (cur_cop1lc != last_cop1lc) {
                 printf("[harness]   PUAE boot f%4d: cop1lc=$%06X (CHANGED)\n", f + 1, cur_cop1lc);
@@ -169,6 +221,13 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path,
 
         if (sync_frame < 0) {
             printf("[harness] WARNING: PUAE never reached game state before safety limit\n");
+            /* Leave evidence of WHERE the boot stalled (splash? requester?
+             * kickstart?): dump the final framebuffer for offline viewing. */
+            {
+                FILE *ff = fopen("logs/refreeze_fail_fb.bin", "wb");
+                if (ff) { fwrite(s_puae_fb, 4, FB_W * FB_H, ff); fclose(ff);
+                          printf("[harness]   final fb -> logs/refreeze_fail_fb.bin\n"); }
+            }
             return -1;  /* Fail if boot didn't complete */
         }
 

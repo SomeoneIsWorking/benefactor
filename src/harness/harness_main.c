@@ -14,6 +14,11 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <unistd.h>          /* read/write/dup/dup2/pipe/close — HTTP control */
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>      /* open — HTTP stdout capture file */
 
 /* Prevent libretro VFS from redefining FILE/fprintf/fflush/etc. */
 #define SKIP_STDIO_REDEFINES
@@ -78,6 +83,172 @@ extern void input_force_dir(int up, int down, int left, int right);
 extern void input_poll(void);
 extern int  input_esc(void);
 extern void retro_set_controller_port_device(unsigned port, unsigned device);
+
+/* ── Optional HTTP command front-end ─────────────────────────────────────────
+ * BENEFACTOR_HARNESS_HTTP=<port> makes the REPL serve its commands over HTTP
+ * instead of (only) stdin, so one long-lived harness process can be driven
+ * request-by-request — no re-boot per command. Each request runs ONE REPL
+ * command on the main thread (the only thread that may step PUAE/PC); the
+ * command's normal stdout ([crepl] lines) is captured and returned as the
+ * response body.
+ *
+ *   GET /cmd?c=<url-encoded command>   → text/plain  (the command's output)
+ *   GET /shot[?tag=NAME&side=pc|pu]    → image/png    (current framebuffer)
+ *
+ * Implementation note: rather than re-plumb the giant inline REPL switch, the
+ * command's printf output is captured by temporarily redirecting fd 1 to a
+ * pipe, running the command, then reading the pipe back. */
+static int  s_http_listen_fd = -1;   /* -1 = HTTP disabled (stdin REPL) */
+static int  s_http_client_fd = -1;   /* current request's client socket */
+
+static void harness_http_init(void)
+{
+    const char *e = getenv("BENEFACTOR_HARNESS_HTTP");
+    if (!e || !*e) return;
+    int port = atoi(e);
+    if (port <= 0) return;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) { printf("[hhttp] socket failed\n"); return; }
+    int one = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    struct sockaddr_in a; memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sin_port = htons((uint16_t)port);
+    if (bind(fd, (struct sockaddr *)&a, sizeof a) < 0) { printf("[hhttp] bind failed\n"); close(fd); return; }
+    if (listen(fd, 4) < 0) { printf("[hhttp] listen failed\n"); close(fd); return; }
+    s_http_listen_fd = fd;
+    printf("[hhttp] harness HTTP control on http://127.0.0.1:%d "
+           "(/cmd?c=..., /shot?side=pu|pc&tag=NAME)\n", port);
+    fflush(stdout);
+}
+
+/* %XX + '+' URL-decode in place. */
+static void url_decode(char *s)
+{
+    char *o = s;
+    for (char *p = s; *p; p++) {
+        if (*p == '+') *o++ = ' ';
+        else if (*p == '%' && p[1] && p[2]) {
+            int hi = (p[1]<='9')?p[1]-'0':(p[1]|32)-'a'+10;
+            int lo = (p[2]<='9')?p[2]-'0':(p[2]|32)-'a'+10;
+            *o++ = (char)((hi<<4)|lo); p += 2;
+        } else *o++ = *p;
+    }
+    *o = 0;
+}
+
+static void http_send(int fd, const char *status, const char *ctype,
+                      const void *body, long len)
+{
+    char hdr[256];
+    int hl = snprintf(hdr, sizeof hdr,
+        "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %ld\r\n"
+        "Access-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+        status, ctype, len);
+    write(fd, hdr, hl);
+    if (body && len > 0) {
+        const char *b = body; long off = 0;
+        while (off < len) { ssize_t w = write(fd, b + off, len - off); if (w <= 0) break; off += w; }
+    }
+}
+
+/* Serve current PC or PUAE framebuffer as PNG. */
+static void http_serve_shot(int fd, const char *query)
+{
+    extern int png_dump_region(const char *, const uint32_t *, int, int, int, int, int, int);
+    extern const uint32_t *hw_get_framebuffer(void);
+    int pu = (query && strstr(query, "side=pu"));
+    const uint32_t *src = pu ? s_puae_fb : hw_get_framebuffer();
+    mkdir("scratch", 0755); mkdir("scratch/screenshots", 0755);
+    char tag[64] = "http_shot";
+    const char *t = query ? strstr(query, "tag=") : NULL;
+    if (t) { t += 4; int i = 0; while (t[i] && t[i] != '&' && i < 63) { tag[i] = t[i]; i++; } tag[i] = 0; }
+    char path[160];
+    snprintf(path, sizeof path, "scratch/screenshots/%s.png", tag);
+    if (!src || png_dump_region(path, src, FB_W, 0, 0, FB_W, FB_H, 1) != 0) {
+        http_send(fd, "500 Error", "text/plain", "shot failed\n", 12);
+        return;
+    }
+    FILE *f = fopen(path, "rb");
+    if (!f) { http_send(fd, "500 Error", "text/plain", "open failed\n", 12); return; }
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    void *buf = malloc((size_t)sz);
+    if (buf && fread(buf, 1, (size_t)sz, f) == (size_t)sz)
+        http_send(fd, "200 OK", "image/png", buf, sz);
+    else http_send(fd, "500 Error", "text/plain", "read failed\n", 12);
+    free(buf); fclose(f);
+}
+
+/* Block until the next HTTP request arrives; extract the REPL command into
+ * `line`. Returns 1 with a command to run (stdout already redirected to a
+ * capture pipe via *cap_rd/*cap_save), 0 if the request was fully served here
+ * (shot/favicon/etc.) and the caller should just loop again. */
+static int harness_http_next(char *line, size_t linesz, int *cap_rd, int *cap_save)
+{
+    for (;;) {
+        struct sockaddr_in ca; socklen_t cl = sizeof ca;
+        int c = accept(s_http_listen_fd, (struct sockaddr *)&ca, &cl);
+        if (c < 0) continue;
+        char req[2048]; ssize_t n = read(c, req, sizeof req - 1);
+        if (n <= 0) { close(c); continue; }
+        req[n] = 0;
+        /* request line: METHOD SP path SP HTTP/1.1 */
+        char *sp1 = strchr(req, ' ');
+        char *path = sp1 ? sp1 + 1 : req;
+        char *sp2 = path ? strchr(path, ' ') : NULL;
+        if (sp2) *sp2 = 0;
+        char *query = strchr(path, '?'); if (query) *query++ = 0;
+        if (!strcmp(path, "/shot")) { http_serve_shot(c, query); close(c); continue; }
+        if (strcmp(path, "/cmd") != 0) {
+            const char *help = "harness HTTP: /cmd?c=<command>  |  /shot?side=pu|pc&tag=NAME\n";
+            http_send(c, "200 OK", "text/plain", help, (long)strlen(help)); close(c); continue;
+        }
+        const char *cp = query ? strstr(query, "c=") : NULL;
+        if (!cp) { http_send(c, "400 Bad", "text/plain", "missing c=\n", 11); close(c); continue; }
+        cp += 2;
+        char tmp[256]; int i = 0;
+        while (cp[i] && cp[i] != '&' && i < (int)sizeof tmp - 1) { tmp[i] = cp[i]; i++; }
+        tmp[i] = 0;
+        url_decode(tmp);
+        snprintf(line, linesz, "%s\n", tmp);
+        /* Redirect stdout to a regular FILE (not a pipe) for the duration of the
+         * command — PUAE itself writes copiously to stdout while stepping, and a
+         * pipe would fill (64KB) and block the write, stalling the frame until
+         * the watchdog kills it. A file never blocks. We read it back after. */
+        mkdir("scratch", 0755);
+        int tf = open("scratch/.http_cap", O_RDWR | O_CREAT | O_TRUNC, 0644);
+        if (tf >= 0) {
+            fflush(stdout);
+            *cap_save = dup(1);
+            dup2(tf, 1);
+            *cap_rd = tf;             /* keep for read-back; finish() rewinds it */
+        } else { *cap_rd = -1; *cap_save = -1; }
+        s_http_client_fd = c;
+        return 1;
+    }
+}
+
+/* After a command ran: stop capturing, send the captured stdout as the HTTP
+ * response, restore the real stdout, close the client. */
+static void harness_http_finish(int cap_rd, int cap_save)
+{
+    fflush(stdout);
+    if (cap_save >= 0) { dup2(cap_save, 1); close(cap_save); }
+    static char body[1<<20]; int blen = 0;   /* 1 MB: PUAE step spam can be large */
+    if (cap_rd >= 0) {
+        lseek(cap_rd, 0, SEEK_SET);
+        ssize_t r;
+        while (blen < (int)sizeof body - 1 &&
+               (r = read(cap_rd, body + blen, sizeof body - 1 - blen)) > 0)
+            blen += (int)r;
+        close(cap_rd);
+    }
+    body[blen] = 0;
+    if (s_http_client_fd >= 0) {
+        http_send(s_http_client_fd, "200 OK", "text/plain", body, blen);
+        close(s_http_client_fd);
+        s_http_client_fd = -1;
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -195,12 +366,26 @@ int main(int argc, char **argv)
     printf("[crepl] play mode keys: S=save, D=load (logs/savestate.bin)\n");
     fflush(stdout);
 
-    char line[256];
-    while (fgets(line, sizeof line, stdin)) {
-        char cmd[16] = {0}; unsigned n = 0;
-        if (sscanf(line, "%15s", cmd) < 1) continue;
+    harness_http_init();
 
-        if (!strcmp(cmd, "q")) break;
+    char line[256];
+    int  http_cap_rd = -1, http_cap_save = -1;
+    for (;;) {
+        int via_http = (s_http_listen_fd >= 0);
+        if (via_http) {
+            http_cap_rd = http_cap_save = -1;
+            if (!harness_http_next(line, sizeof line, &http_cap_rd, &http_cap_save))
+                continue;                       /* request served internally (shot) */
+        } else {
+            if (!fgets(line, sizeof line, stdin)) break;
+        }
+        char cmd[16] = {0}; unsigned n = 0;
+        if (sscanf(line, "%15s", cmd) < 1) {
+            if (via_http) harness_http_finish(http_cap_rd, http_cap_save);
+            continue;
+        }
+
+        if (!strcmp(cmd, "q")) { if (via_http) harness_http_finish(http_cap_rd, http_cap_save); break; }
         else if (!strcmp(cmd, "headed")) {
             int on = 1; sscanf(line, "%*s %d", &on);
             if (on && !win_inited) { harness_combined_init(); win_inited = 1; }
@@ -432,11 +617,212 @@ int main(int argc, char **argv)
                 printf("[crepl] poked PUAE $%06X = $%X\n", a, v);
             } else printf("[crepl] usage: mpu <hexaddr> <hexval> [w]\n");
         }
+        else if (!strcmp(cmd, "mwp")) {   /* mwp <hexaddr> <hexval> [w] — poke a PC g_mem byte/word */
+            char av[32]={0}, vv[32]={0}, wf[8]={0};
+            if (sscanf(line, "%*s %31s %31s %7s", av, vv, wf) >= 2) {
+                extern uint8_t *g_mem;
+                unsigned a=(unsigned)strtoul(av,0,16), v=(unsigned)strtoul(vv,0,16);
+                if (wf[0]=='w') { g_mem[a&0x7FFFFF]=(uint8_t)(v>>8); g_mem[(a+1)&0x7FFFFF]=(uint8_t)v; }
+                else            { g_mem[a&0x7FFFFF]=(uint8_t)v; }
+                printf("[crepl] poked PC $%06X = $%X\n", a, v);
+            } else printf("[crepl] usage: mwp <hexaddr> <hexval> [w]\n");
+        }
+        else if (!strcmp(cmd, "putype")) {  /* putype <text> — type text on the PUAE Amiga keyboard
+                                               (real keyboard events via the core's keyboard callback;
+                                               lowercase letters/digits; '\\n' use 'putype RET'). */
+            extern void retro_keyboard_event(bool, unsigned, uint32_t, uint16_t);
+            char txt[64] = {0};
+            if (sscanf(line, "%*s %63s", txt) != 1)
+                printf("[crepl] usage: putype <text|RET|BS>\n");
+            else if (!strcmp(txt, "RET")) {
+                retro_keyboard_event(true, 13, 13, 0);
+                for (int i=0;i<4;i++) STEP_PU();
+                retro_keyboard_event(false, 13, 13, 0);
+                for (int i=0;i<4;i++) STEP_PU();
+                printf("[crepl] typed <Return>\n");
+            } else if (!strcmp(txt, "BS")) {
+                retro_keyboard_event(true, 8, 8, 0);
+                for (int i=0;i<4;i++) STEP_PU();
+                retro_keyboard_event(false, 8, 8, 0);
+                for (int i=0;i<4;i++) STEP_PU();
+                printf("[crepl] typed <Backspace>\n");
+            } else {
+                for (const char *p = txt; *p; p++) {
+                    unsigned k = (unsigned)(*p >= 'A' && *p <= 'Z' ? *p + 32 : *p);
+                    retro_keyboard_event(true, k, k, 0);
+                    for (int i=0;i<4;i++) STEP_PU();
+                    retro_keyboard_event(false, k, k, 0);
+                    for (int i=0;i<4;i++) STEP_PU();
+                }
+                printf("[crepl] typed '%s'\n", txt);
+            }
+        }
+        else if (!strcmp(cmd, "password")) {  /* password <level 1..90> — print the game's password for
+                                                 a level (RE'd from the title-bank decoder $45FC/$470A:
+                                                 payload (0xBF<<8)|level, fixed bit-permutation, two
+                                                 checksummed 5-char halves, digits 1-6 = vowels AEIOUY). */
+            int lvl = 0; sscanf(line, "%*s %d", &lvl);
+            if (lvl < 1 || lvl > 90) printf("[crepl] usage: password <1..90> (61+ needs LOAD EXTRA LEVELS)\n");
+            else {
+                uint16_t target = (uint16_t)(0xBF00u | (unsigned)lvl);
+                /* invert the decoder's bit shuffle (a pure bit permutation) */
+                uint16_t w1 = 0;
+                for (int ib = 0; ib < 16; ib++) {
+                    uint16_t w = (uint16_t)(1u << ib), f;
+                    #define ROR16(x,n) (uint16_t)((((x) >> (n)) | ((x) << (16-(n)))) & 0xFFFF)
+                    f  = (uint16_t)(ROR16(w,4) & 0x400);
+                    f |= (uint16_t)(ROR16(w,8) & 0x20);
+                    f |= ROR16((uint16_t)(w & 0x42), 3);
+                    f |= ROR16((uint16_t)(w & 0x30), 5);
+                    f |= ROR16((uint16_t)(w & 0x1100), 1);
+                    f |= ROR16((uint16_t)(w & 0xC), 10);
+                    f |= ROR16((uint16_t)(w & 0x480), 6);
+                    f |= ROR16((uint16_t)(w & 0x8200), 3);
+                    f |= ROR16((uint16_t)(w & 0x801), 14);
+                    if (target & f) w1 |= (uint16_t)(1u << ib);
+                }
+                uint16_t w2 = ROR16(w1, 8);
+                char out[11]; int okp = 1;
+                for (int h = 0; h < 2 && okp; h++) {
+                    uint16_t word = h ? w2 : w1;
+                    int n[4] = { (word>>12)&0xF, (word>>8)&0xF, (word>>4)&0xF, word&0xF };
+                    int done = 0;
+                    for (int k = 0; k < 16 && !done; k++) {
+                        if (n[0]+k > 25 || n[1]+k > 25 || n[2]+k > 25 || n[3]+k > 25) continue;
+                        for (int sgn = 1; sgn >= -1; sgn -= 2) {
+                            int v0 = (((n[0]<<4) | n[1]) - sgn*16*k) & 0xFF;
+                            if (v0 <= 25) {
+                                static const char vow[] = "AEIOUY"; /* values 0,4,8,14,20,24 → digits 1-6 */
+                                int vs[5] = { v0, n[0]+k, n[1]+k, n[2]+k, n[3]+k };
+                                char cs[5];
+                                for (int j = 0; j < 5; j++) {
+                                    char c = (char)('A' + vs[j]);
+                                    const char *vp = strchr(vow, c);
+                                    cs[j] = vp ? (char)('1' + (vp - vow)) : c;
+                                }
+                                if (h == 0) { out[0]=cs[0]; out[2]=cs[1]; out[3]=cs[2]; out[4]=cs[3]; out[5]=cs[4]; }
+                                else        { out[1]=cs[0]; out[8]=cs[1]; out[9]=cs[2]; out[6]=cs[3]; out[7]=cs[4]; }
+                                done = 1; break;
+                            }
+                        }
+                    }
+                    if (!done) okp = 0;
+                    #undef ROR16
+                }
+                out[10] = 0;
+                if (okp) printf("[crepl] password for level %d: %s%s\n", out ? lvl : lvl, out,
+                                lvl > 60 ? "  (run LOAD EXTRA LEVELS first)" : "");
+                else printf("[crepl] password: no encodable form for level %d\n", lvl);
+            }
+        }
+        else if (!strcmp(cmd, "pupass")) {  /* pupass <PASSWORD> — type a 10-char password on PUAE's
+                                               ORIGINAL password screen using pure joystick input
+                                               (closed-loop against the live field state; no pokes).
+                                               Use from the main menu. Cells cycle the alphabet
+                                               "BCDFGHJKLMNPQRSTVWXZ123456". Exits back to the menu
+                                               with the field holding the password — fire on PLAY
+                                               GAME then decodes it. */
+            extern int puae_dump_mem(uint32_t addr, void *buf, int len);
+            char pw[16] = {0};
+            if (sscanf(line, "%*s %15s", pw) != 1 || strlen(pw) != 10) {
+                printf("[crepl] usage: pupass <10-char password>\n");
+            } else {
+                /* menu cursor word -$18BE(a5)=$3860; field pos word -$15B6(a5)=$3B68;
+                 * cell pointer table -$13B0(a5)=$3D6E (10 longs into the alphabet). */
+                #define PU_RD16(a)  ({ uint8_t _b[2]; puae_dump_mem((a), _b, 2); (uint16_t)((_b[0]<<8)|_b[1]); })
+                #define PU_RD32(a)  ({ uint8_t _b[4]; puae_dump_mem((a), _b, 4); \
+                                       (uint32_t)((_b[0]<<24)|(_b[1]<<16)|(_b[2]<<8)|_b[3]); })
+                #define PU_RD8(a)   ({ uint8_t _b; puae_dump_mem((a), &_b, 1); _b; })
+                #define PULSE(var)  do { var = 1; for (int _i=0;_i<10;_i++) STEP_PU(); \
+                                         var = 0; for (int _i=0;_i<14;_i++) STEP_PU(); } while (0)
+                int ok = 1;
+                /* 1) menu cursor to ENTER PASSWORD (item 1) */
+                for (int t = 0; t < 24 && PU_RD16(0x3860u) != 1; t++) {
+                    if (PU_RD16(0x3860u) < 1) PULSE(jd); else PULSE(ju);
+                }
+                if (PU_RD16(0x3860u) != 1) { printf("[crepl] pupass: cursor stuck\n"); ok = 0; }
+                /* 2) RIGHT enters the field (pos becomes 1) */
+                for (int t = 0; ok && t < 12 && PU_RD16(0x3B68u) == 0; t++) PULSE(jr);
+                if (ok && PU_RD16(0x3B68u) == 0) { printf("[crepl] pupass: field never opened\n"); ok = 0; }
+                /* 3) set the 10 cells, left to right. Each cell cycles its own
+                 * character set with UP/DOWN; rather than assume the order, just
+                 * pulse UP until the cell reads the wanted char, detecting a full
+                 * wrap (return to the start char) as failure. */
+                for (int i = 0; ok && i < 10; i++) {
+                    /* move field pos to i+1 */
+                    for (int t = 0; t < 30 && PU_RD16(0x3B68u) != (uint16_t)(i+1); t++) {
+                        if (PU_RD16(0x3B68u) < (uint16_t)(i+1)) PULSE(jr); else PULSE(jl);
+                    }
+                    if (PU_RD16(0x3B68u) != (uint16_t)(i+1)) { printf("[crepl] pupass: pos stuck at cell %d\n", i); ok = 0; break; }
+                    uint32_t cellp = PU_RD32(0x3D6Eu + 4u*(uint32_t)i);
+                    uint8_t start = PU_RD8(cellp), ch = start;
+                    int landed = (ch == (uint8_t)pw[i]);
+                    for (int t = 0; t < 40 && !landed; t++) {
+                        PULSE(ju);
+                        ch = PU_RD8(PU_RD32(0x3D6Eu + 4u*(uint32_t)i));
+                        if (ch == (uint8_t)pw[i]) { landed = 1; break; }
+                        if (ch == start) break;     /* full cycle, char not present */
+                    }
+                    if (!landed) { printf("[crepl] pupass: cell %d can't reach '%c' (cycles back to '%c')\n",
+                                          i, pw[i], start); ok = 0; }
+                }
+                /* 4) LEFT until the field closes (pos 0, back on the menu) */
+                for (int t = 0; ok && t < 30 && PU_RD16(0x3B68u) != 0; t++) PULSE(jl);
+                /* 5) report the typed password by reading the cells back */
+                char got[11] = {0};
+                for (int i = 0; i < 10; i++) got[i] = (char)PU_RD8(PU_RD32(0x3D6Eu + 4u*(uint32_t)i));
+                printf("[crepl] pupass: field now '%s' (%s), back at menu cursor=%u\n",
+                       got, ok ? "ok" : "FAILED", PU_RD16(0x3860u));
+                #undef PULSE
+                #undef PU_RD8
+                #undef PU_RD32
+                #undef PU_RD16
+            }
+        }
+        else if (!strcmp(cmd, "pumenu")) {  /* pumenu — fire-pulse PUAE through intro/attract to the
+                                               main menu ($008302). The first stage of pugoto, exposed
+                                               so extras/menu flows can be driven + inspected manually. */
+            extern uint32_t puae_get_cop1lc(void);
+            int at_menu = 0;
+            for (int pulse = 0; pulse < 40 && !at_menu; pulse++) {
+                fire = 1; for (int i=0;i<6;i++) STEP_PU();
+                fire = 0;
+                for (int i=0;i<110;i++) { STEP_PU();
+                    if (puae_get_cop1lc() == 0x008302u) { at_menu = 1; break; } }
+            }
+            printf("[crepl] pumenu: %s (cop1lc=$%06X)\n",
+                   at_menu ? "at menu" : "FAILED", puae_get_cop1lc());
+        }
+        else if (!strcmp(cmd, "purunto")) {  /* purunto <hexpc> [maxframes] — run PUAE until its CPU is
+                                                about to execute the address (the pugoto sync breakpoint,
+                                                exposed). */
+            extern int puae_run_to_pc(uint32_t,int,int);
+            unsigned a = 0, maxf = 2000;
+            if (sscanf(line, "%*s %x %u", &a, &maxf) < 1)
+                printf("[crepl] usage: purunto <hexpc> [maxframes]\n");
+            else {
+                int hit = puae_run_to_pc(a, 0, (int)maxf);
+                printf("[crepl] purunto $%06X: %s\n", a, hit ? "hit" : "NOT reached");
+            }
+        }
+        else if (!strcmp(cmd, "pudisk")) {  /* pudisk <drive 0-3> <path> — insert a floppy image into a
+                                               PUAE drive at runtime (takes effect on the next frames'
+                                               DISK_check_change). Needed e.g. to give the restored sync
+                                               state a Disk.4 it was frozen without. */
+            int dr = 0; char p[256] = {0};
+            if (sscanf(line, "%*s %d %255s", &dr, p) != 2 || dr < 0 || dr > 3)
+                printf("[crepl] usage: pudisk <drive 0-3> <path>\n");
+            else {
+                extern void disk_insert(int, const char *);
+                disk_insert(dr, p);
+                printf("[crepl] inserted '%s' into df%d (applies within a few frames)\n", p, dr);
+            }
+        }
         else if (!strcmp(cmd, "pugoto")) {  /* pugoto <N> — drive PUAE through the intro/menu to gameplay
                                                at level N (1..60), poking $20.w at the engine entry $577000
                                                so we don't need a keyboard-typed password. The oracle. */
             int lvl = 1; sscanf(line, "%*s %d", &lvl);
-            if (lvl < 1 || lvl > 60) { printf("[crepl] usage: pugoto <1..60>\n"); }
+            if (lvl < 1 || lvl > 70) { printf("[crepl] usage: pugoto <1..70> (61-70 = Disk.4 extras)\n"); }
             else {
                 extern int puae_run_to_pc(uint32_t,int,int);
                 extern void puae_poke_mem(uint32_t,const void*,int);
@@ -451,15 +837,58 @@ int main(int argc, char **argv)
                 }
                 if (!at_menu) { printf("[crepl] pugoto: never reached menu ($008302)\n"); }
                 else {
+                    /* 1b) extras (61+): run the REAL "LOAD EXTRA LEVELS" menu
+                     * action first — poking $38 alone is not enough (the engine
+                     * crashes at level setup: the action also populates the
+                     * extra-world state). Insert Disk.4 into df0 like a player,
+                     * cursor DOWN twice to the third item, fire, wait for the
+                     * menu to come back, then cursor UP back to PLAY GAME. */
+                    if (lvl > 60) {
+                        extern void disk_insert(int, const char *);
+                        /* Menu cursor word = -$18BE(a5), title a5=$511E → $3860.
+                         * Joystick edges are read on the menu's own cadence and
+                         * can miss, so pulse CLOSED-LOOP until the cursor reads
+                         * the wanted row. */
+                        #define PU_MENU_CURSOR 0x3860u
+                        #define PU_CURSOR_TO(want) do { \
+                            uint8_t cw[2]; \
+                            for (int k = 0; k < 24; k++) { \
+                                puae_dump_mem(PU_MENU_CURSOR, cw, 2); \
+                                if (((cw[0]<<8)|cw[1]) == (want)) break; \
+                                int down = (((cw[0]<<8)|cw[1]) < (want)); \
+                                if (down) jd = 1; else ju = 1; \
+                                for (int i=0;i<10;i++) STEP_PU(); \
+                                jd = ju = 0; \
+                                for (int i=0;i<15;i++) STEP_PU(); \
+                            } } while (0)
+                        disk_insert(0, (n_disks > 3) ? disks[3] : "Disk.4");
+                        for (int i=0;i<10;i++) STEP_PU();      /* let the swap land */
+                        PU_CURSOR_TO(2);                       /* LOAD EXTRA LEVELS */
+                        fire = 1; for (int i=0;i<6;i++) STEP_PU(); fire = 0;
+                        /* the load leaves the menu; wait until it is back */
+                        int back = 0;
+                        for (int i=0;i<1500;i++) { STEP_PU();
+                            if (puae_get_cop1lc() == 0x008302u) { back = 1; break; } }
+                        printf("[crepl] pugoto: LOAD EXTRA LEVELS done (menu back=%d)\n", back);
+                        for (int i=0;i<15;i++) STEP_PU();
+                        PU_CURSOR_TO(0);                       /* back to PLAY GAME */
+                        #undef PU_CURSOR_TO
+                        #undef PU_MENU_CURSOR
+                    }
                     /* 2) PLAY GAME (default selection), then 3) stop at engine entry. */
                     fire = 1; for (int i=0;i<6;i++) STEP_PU();
                     fire = 0;
                     int hit = puae_run_to_pc(0x577000u, 0, 2000);
                     if (!hit) { printf("[crepl] pugoto: never reached engine entry $577000\n"); }
                     else {
-                        /* 4) poke level word $20.w before level setup ($5782B4) reads it. */
+                        /* 4) poke level word $20.w before level setup ($5782B4) reads it.
+                         * Levels 61+ are Disk.4 extras: also set the engine's
+                         * extras-mode flag $38=$FF (the memory effect of the
+                         * menu's LOAD EXTRA LEVELS action) so the level loader
+                         * reads the fan levels from Disk.4. */
                         uint8_t lw[2] = { (uint8_t)((lvl>>8)&0xFF), (uint8_t)(lvl&0xFF) };
                         puae_poke_mem(0x20u, lw, 2);
+                        if (lvl > 60) { uint8_t ex = 0xFF; puae_poke_mem(0x38u, &ex, 1); }
                         /* 5) run to the level CARD ($003914), then pulse fire until
                          *    gameplay ($003484) is STABLE (card dismissed). */
                         for (int i=0;i<600;i++) { STEP_PU(); if (puae_get_cop1lc()==0x003914u) break; }
@@ -609,7 +1038,8 @@ int main(int argc, char **argv)
                                                   per-frame loop re-reads this state and re-renders the scene
                                                   — giving the ORACLE's drawing of it. Run `pu N` after. */
             char path[256] = "logs/savestate.bin";
-            sscanf(line, "%*s %255s", path);
+            unsigned rlo = 0, rhi = 0x800000u;     /* optional poke range */
+            sscanf(line, "%*s %255s %x %x", path, &rlo, &rhi);
             extern void puae_poke_mem(uint32_t,const void*,int);
             FILE *f = fopen(path, "rb");
             if (!f) { printf("[crepl] puloadmem: open %s failed\n", path); }
@@ -618,22 +1048,26 @@ int main(int argc, char **argv)
                 long mem_off = fsz - (long)RT_MEM_SIZE;
                 if (mem_off < 0) { printf("[crepl] puloadmem: %s too small\n", path); }
                 else {
-                    /* Two regions that hold the chamber's live state. */
-                    struct { uint32_t lo, hi; } regs[] = {
-                        { 0x000000u, 0x080000u },  /* chip: low RAM, copper, bitplane bufs, object tables */
-                        { 0x57D000u, 0x582000u },  /* a5-relative engine state band ($57EE12 +/-) */
-                    };
+                    /* Poke the WHOLE game address space, not just chip + the a5
+                     * band: the engine CODE is identical for every level (incl.
+                     * Disk.4 extras), but level DATA — tile gfx, tilemap, names —
+                     * lives all over fast RAM. A partial poke leaves PUAE
+                     * re-blitting with the previous level's assets (verified:
+                     * scrolling after a chip-only poke corrupted the screen).
+                     * PUAE's CPU sits in the shared per-frame loop, so swapping
+                     * all data under it is coherent. */
                     static uint8_t buf[0x80000];
                     long total = 0;
-                    for (unsigned r = 0; r < sizeof(regs)/sizeof(regs[0]); r++) {
-                        uint32_t lo = regs[r].lo, hi = regs[r].hi, len = hi - lo;
+                    for (uint32_t lo = rlo; lo < rhi; lo += sizeof buf) {
+                        uint32_t want = (rhi - lo < sizeof buf) ? rhi - lo : sizeof buf;
                         fseek(f, mem_off + lo, SEEK_SET);
-                        size_t got = fread(buf, 1, len, f);
+                        size_t got = fread(buf, 1, want, f);
+                        if (!got) break;
                         puae_poke_mem(lo, buf, (int)got);
                         total += (long)got;
                     }
                     printf("[crepl] puloadmem: poked %ld bytes from %s into PUAE "
-                           "(chip $0-$80000 + a5 band). Run `pu 2` then `fb`.\n", total, path);
+                           "($%06X-$%06X). Run `pu 2` then `fb`.\n", total, path, rlo, rhi);
                 }
                 fclose(f);
             }
@@ -1392,6 +1826,7 @@ int main(int argc, char **argv)
         }
         else printf("[crepl] ? %s", line);
         fflush(stdout);
+        if (via_http) harness_http_finish(http_cap_rd, http_cap_save);
     }
     #undef STEP_PC
     #undef STEP_PU
