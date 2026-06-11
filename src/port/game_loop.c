@@ -654,6 +654,40 @@ static void pc_credits_skip_tick(void)
     confirm_frames = 160;                       /* match the toast lifetime */
 }
 
+/* One frame of music + audio, on REAL time (extracted from pc_step so the
+ * freecam-paused freeze can keep the soundtrack running). At 1x
+ * hw_audio_frame_due() is always true (one audio frame per game frame — the
+ * original, deterministic path the harness compares against). At 2x/4x/turbo
+ * it gates the block to the wall-clock 50Hz grid, so the music ISR keeps its
+ * normal tempo and the SDL queue receives exactly what it drains — speeding
+ * the game no longer speeds (or garbles) the soundtrack. */
+static void pc_audio_frame(void)
+{
+    if (!hw_audio_frame_due()) return;
+
+    short ab[PC_AUD_SPF * 2];
+    if (g_overlay_active || g_gameplay_active || g_credits_active) {
+        /* The overlay music player (menu, level card, gameplay, credits — all the
+         * same CIA-timer-driven $53A2 player) advances ~3x per displayed frame;
+         * one tick/frame plays it too slow. The intro crawl uses a different
+         * player ($55A0) that advances once/frame (handled in the else branch).
+         * Render audio between ticks so each sub-frame note is actually heard.
+         * NOTE: gameplay is g_gameplay_active (overlay=0) — it MUST be included
+         * here or it gets zero music ticks (no sound past the menu). */
+        int ticks = GP_MUSIC_TICKS;
+        int done = 0;
+        for (int k = 0; k < ticks; k++) {
+            pc_music_tick();
+            int chunk = (PC_AUD_SPF * (k + 1) / ticks) - done;
+            hw_audio_render(ab + done * 2, chunk);
+            done += chunk;
+        }
+    } else {
+        hw_audio_render(ab, PC_AUD_SPF);
+    }
+    hw_audio_queue(ab, PC_AUD_SPF);
+}
+
 int pc_step(void)
 {
     /* Service any deferred pause-menu action (Resume/Retry/ExitToMenu/Quit)
@@ -676,6 +710,10 @@ int pc_step(void)
     extern int pc_pause_active(void);
     extern int pc_freecam_paused(void);   /* free cam in "pauses game" mode */
     if (pc_pause_active() || pc_freecam_paused()) {
+        /* Freecam PAUSED mode freezes the GAME but not the SOUNDTRACK — the
+         * music ISR is vblank/CIA-driven, independent of the game loop (same
+         * as the original's pause). The pause MENU stays fully silent. */
+        if (!pc_pause_active()) pc_audio_frame();
         if (g_harness_prerender_hook) g_harness_prerender_hook();
         if (hw_present_frame() != 0) return 1;
         if (g_harness_frame_hook) g_harness_frame_hook();
@@ -700,35 +738,7 @@ int pc_step(void)
             pc_toast_show("SAVE FAILED", 1);
     }
 
-    /* Music + audio run on REAL time, not game time: at 1x hw_audio_frame_due()
-     * is always true (one audio frame per game frame — the original,
-     * deterministic path the harness compares against). At 2x/4x/turbo it gates
-     * this whole block to the wall-clock 50Hz grid, so the music ISR keeps its
-     * normal tempo and the SDL queue receives exactly what it drains — speeding
-     * the game no longer speeds (or garbles) the soundtrack. */
-    if (!hw_audio_frame_due()) return r;
-
-    short ab[PC_AUD_SPF * 2];
-    if (g_overlay_active || g_gameplay_active || g_credits_active) {
-        /* The overlay music player (menu, level card, gameplay, credits — all the
-         * same CIA-timer-driven $53A2 player) advances ~3x per displayed frame;
-         * one tick/frame plays it too slow. The intro crawl uses a different
-         * player ($55A0) that advances once/frame (handled in the else branch).
-         * Render audio between ticks so each sub-frame note is actually heard.
-         * NOTE: gameplay is g_gameplay_active (overlay=0) — it MUST be included
-         * here or it gets zero music ticks (no sound past the menu). */
-        int ticks = GP_MUSIC_TICKS;
-        int done = 0;
-        for (int k = 0; k < ticks; k++) {
-            pc_music_tick();
-            int chunk = (PC_AUD_SPF * (k + 1) / ticks) - done;
-            hw_audio_render(ab + done * 2, chunk);
-            done += chunk;
-        }
-    } else {
-        hw_audio_render(ab, PC_AUD_SPF);
-    }
-    hw_audio_queue(ab, PC_AUD_SPF);
+    pc_audio_frame();
     return r;
 }
 
