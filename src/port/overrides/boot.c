@@ -180,6 +180,28 @@ void native_gp_disk_read(M68KCtx *ctx)
 
 #include <string.h>
 
+/* $577E96 — the in-game level-segment decruncher. The recompiled body handles
+ * ONLY "ATN!" (non-ATN falls through to a plain rts, leaving the segment
+ * crunched — downstream the level-state init $57CC1A zero-scan then runs off
+ * into garbage). The fan-made Disk.4 extra levels are crunched with standard
+ * Imploder magic "IMP!" — same container and bitstream as ATN! (the token
+ * tables travel in the stream), so route those through our C atn_decrunch
+ * (which now accepts both magics) and keep ATN! on the recompiled body.
+ * Exit contract is trivial: the original is movem-balanced and no caller
+ * consumes d0/flags after the bsr. */
+void native_level_decrunch(M68KCtx *ctx)
+{
+    extern uint32_t atn_decrunch(uint32_t);
+    uint32_t magic = MR32(ctx->A[0]);
+    if (magic == 0x494D5021u) {          /* "IMP!" -> native Imploder */
+        uint32_t n = atn_decrunch(ctx->A[0]);
+        printf("[lvl-decrunch] IMP! at $%06X -> %u bytes\n", ctx->A[0], n);
+        return;
+    }
+    extern void gfn_gpl_577E96(M68KCtx *ctx);
+    gfn_gpl_577E96(ctx);                 /* ATN! (and the no-op non-match path) */
+}
+
 /* Native port of the title-bank glyph blitter at $0049B6 — the routine
  * the menu uses to draw "PLAY GAME" / "ENTER PASSWORD" / "LOAD EXTRA
  * LEVELS" onto the menu bitmap. Once it's ours we can do whatever
@@ -294,6 +316,14 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
     extern uint8_t *g_mem;
     uint16_t cursor = MR16(ctx->A[5] - 6334u);
 
+    if (cursor == 2u && pc_extra_worlds_available() > 0) {
+        /* LOAD EXTRA LEVELS (Disk.4 found): set the engine's extra-levels
+         * flag (the original's only action — $3B1C `st.b $38.w`) and open
+         * the level picker pre-positioned on the first extra world. */
+        MW8(0x38u, 0xFFu);
+        pc_set_start_level(PC_NUM_LEVELS + 1);
+        cursor = 1u;   /* fall into the picker below */
+    }
     if (cursor == 1u) {
         /* LEVEL SELECT — open the interactive picker. The user picks a
          * level here (joy UP/DOWN cycles 1..60, FIRE confirms), THEN we
@@ -328,7 +358,7 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
             int level = pc_get_start_level();
             int world = 0, liw = 0;
             pc_level_split(level, &world, &liw);
-            if (world < 0 || world >= PC_NUM_WORLDS) world = 0;
+            if (world < 0 || world >= pc_num_worlds_ui()) world = 0;
             int liw_max = pc_levels_in_world(world) - 1;
             if (liw < 0)        liw = 0;
             if (liw > liw_max)  liw = liw_max;
@@ -346,14 +376,19 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
              * A world whose first level is locked can't be navigated to —
              * keep scanning in the pressed direction so unlocked worlds
              * remain reachable across a locked gap (wrap-around). */
+            /* World cycling includes the Disk.4 extra worlds (slots 7+),
+             * placed after world 6 in the wrap order — so LEFT from
+             * UNDERWORLD (world 0) lands on the extras, per their billing
+             * as the "before Underworld" bonus shelf. */
+            int nw = pc_num_worlds_ui();
             if (lt && !prev_l)
-                for (int k = 1; k < PC_NUM_WORLDS; k++)
+                for (int k = 1; k < nw; k++)
                     if (pc_profile_try_select(pc_world_first_level(
-                            (world + PC_NUM_WORLDS - k) % PC_NUM_WORLDS))) break;
+                            (world + nw - k) % nw))) break;
             if (rt && !prev_r)
-                for (int k = 1; k < PC_NUM_WORLDS; k++)
+                for (int k = 1; k < nw; k++)
                     if (pc_profile_try_select(pc_world_first_level(
-                            (world + k) % PC_NUM_WORLDS))) break;
+                            (world + k) % nw))) break;
 
             prev_u = u; prev_d = d; prev_l = lt; prev_r = rt;
             if (f) break;
@@ -372,7 +407,10 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
         return;
     }
     if (cursor == 2u) {
-        /* LOAD EXTRA LEVELS — Disk.4 not yet supported. Return to menu top. */
+        /* LOAD EXTRA LEVELS without a (filled) Disk.4 — explain and return
+         * to the menu loop. */
+        { extern void pc_toast_show(const char *, int);
+          pc_toast_show("DISK.4 NOT FOUND (EXTRA LEVELS)", 1); }
         rt_jump(ctx, 0x003872u);
         return;
     }

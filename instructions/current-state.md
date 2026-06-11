@@ -701,6 +701,20 @@ over fresh memory (the 2nd-goto crash). goto now routes through the
 restart-reinit path (reload happens in pc_step_threaded after the final old
 frame) WITHOUT pc_request_level_restart's early PC_SCR_GAMEPLAY flip (that
 poisons an in-flight title frame -> $3330 rt-miss).
+**EXTRA LEVELS (Disk.4) SHIPPED (2026-06-11):** the base game's world table
+at $577452 defines 6 extra-world slots (7..12 = levels 61..90, 5 each, names+
+data on Disk.4 at fixed offsets $F500/$13E80/$18800/$1D180/$21B00/$26480);
+the fan BenDisk4 fills 2 (61-70: UNDERWORLD + TOMBS OF EGYPT extras). Its
+blobs are "IMP!"-crunched — same Imploder container/bitstream as "ATN!", only
+the magic differs — so atn_decrunch accepts both and native_level_decrunch
+overrides the engine decruncher $577E96 (ATN! stays on the recompiled body;
+the recomp falls through to rts on non-ATN, which left the blob crunched and
+sent the $57CC1A zero-scan into garbage = the old black-card/hang). Geometry
+SSoT extended (pc_extra_worlds_available/pc_num_worlds_ui/pc_num_levels_ui,
+PROFILE_MAX_LEVEL 90); picker cycles extras (LEFT from UNDERWORLD); LOAD
+EXTRA LEVELS sets $38 + opens the picker at level 61 (toast when no Disk.4);
+extras unlock per-world (first level free, rest by completion). goto 61..90.
+Disk.4 location: gitignored ./Disk.4 (user's copy was in ~/Downloads/BenDisk4).
 
 ### TODOs
 
