@@ -395,21 +395,29 @@ int main(int argc, char **argv)
                 printf("[crepl] usage: goto <1..60>\n");
             } else {
                 extern uint8_t *g_mem;
-                /* Re-pin level + ensure overlay is loaded; trigger coroutine
-                 * restart via the existing g_enter_gameplay path. */
-                if (!g_overlay_active) {
-                    extern void native_overlay_load_d0(void);
-                    native_overlay_load_d0();
-                    extern void pc_preload_all_level_names(void);
-                    pc_preload_all_level_names();
-                    for (uint32_t a = 0x3eu; ; a = 0x184u) {
-                        g_mem[a]=0x00; g_mem[a+1]=0x00; g_mem[a+2]=0x0A; g_mem[a+3]=0x68;
-                        if (a == 0x184u) break;
-                    }
-                }
+                /* Route through the RESTART-REINIT path (the pause menu's
+                 * Retry / native game-over flow): pin the level, request the
+                 * restart, and let pc_step_threaded do the overlay reload +
+                 * card-sentinel re-pin AFTER the old game thread's final
+                 * frame, right before respawning at $577000. The old in-REPL
+                 * load had two bugs: (a) `if (!g_overlay_active)` skipped the
+                 * gameplay-overlay load whenever the TITLE overlay was active
+                 * (poster/menu — the normal case), so the level-card fade
+                 * table at $57F0A6 stayed zeros and the card hung forever in
+                 * $57DBEC/$57DC5A; (b) loading at REPL time let the previous
+                 * game thread run one more frame over the freshly reloaded
+                 * memory — the second-goto-in-one-process crash ($578B94
+                 * rt-miss). */
                 g_mem[0x20] = 0; g_mem[0x21] = (uint8_t)n;
-                g_gameplay_entry = 0x577000u;
-                g_enter_gameplay = 1;
+                /* Same flags as pc_request_level_restart MINUS its immediate
+                 * PC_SCR_GAMEPLAY flip: goto can be issued from the title
+                 * (poster/menu), whose thread still runs one final frame —
+                 * flipping the dispatch bank under it rt-misses ($3330). The
+                 * respawn sets the screen via pc_cps_start_at(gameplay=1). */
+                { extern int g_pc_restart_reinit;
+                  g_gameplay_entry = 0x577000u;
+                  g_enter_gameplay = 1;
+                  g_pc_restart_reinit = 1; }
                 printf("[crepl] goto level %d — coroutine will restart at $577000 on next step\n", n);
             }
         }
