@@ -36,9 +36,44 @@
 #include "port/port_internal.h"
 #include "port/config.h"
 
-extern void gfn_gpl_579D84(M68KCtx *ctx);   /* hop arc       */
-extern void gfn_gpl_579DDC(M68KCtx *ctx);   /* long-jump arc */
+/* RAW input, NOT the engine's decoded $f80(a5): the engine sets the
+ * input-disable gate ($1093 bit0) while airborne, so $f80 reads ZERO during
+ * the whole flight — that gate IS how vanilla enforces "no air control".
+ * The hw layer reflects the actual stick/keys regardless. */
+extern int hw_joy_left(void), hw_joy_right(void), hw_joy_up(void), hw_get_fire(void);
+
+extern void gfn_gpl_579D84(M68KCtx *ctx);   /* vertical hop arc                */
+extern void gfn_gpl_579DDC(M68KCtx *ctx);   /* arc sibling (rarely dispatched) */
+extern void gfn_gpl_579D52(M68KCtx *ctx);   /* SHARED arc player: every jump
+                                             * VARIANT is an entry stub
+                                             * ($579D00/0E/1C/2A/38/46, table
+                                             * sets per variant) that rt_jumps
+                                             * here; this body also moves X
+                                             * (d1 -= htable[d5], negated by
+                                             * facing bit1 of d4). The long
+                                             * jump lives HERE, not $579DDC. */
+extern void gfn_gpl_579A62(M68KCtx *ctx);   /* the LONG-JUMP arc (fire+dir).
+                                             * Its $579AB2 block is vanilla's
+                                             * "release fire mid-arc -> switch
+                                             * to a per-phase ABORT state"
+                                             * (table $579AE0 -> the $579Dxx
+                                             * stubs) — THE drop-dead-on-
+                                             * release behavior. Our stay-in-
+                                             * state write undoes it while
+                                             * ascending; jump-cut + kept vx
+                                             * replace it. */
 extern void gfn_gpl_579F3A(M68KCtx *ctx);   /* fall          */
+
+/* The full air-state family the player can be in mid-flight: the variant
+ * stubs (what $f70/$f78 actually hold), the shared player, hop, sibling,
+ * fall. Used for fresh-flight vs air-to-air detection. */
+static int is_air_state(uint32_t a)
+{
+    return a == 0x579D00u || a == 0x579D0Eu || a == 0x579D1Cu
+        || a == 0x579D2Au || a == 0x579D38u || a == 0x579D46u
+        || a == 0x579D52u || a == 0x579D84u || a == 0x579DDCu
+        || a == 0x579A62u || a == 0x579F3Au;
+}
 
 /* 8.8 fixed-point tunables (cfg-overridable for feel iteration). */
 static int t_gravity(void)  { return pc_cfg_int("pf_gravity",   60);  } /* px/f^2 *256 */
@@ -69,18 +104,18 @@ static void phys_enter(M68KCtx *ctx, int vanilla_dx, int jumping)
     s_y_acc = s_x_acc = 0;
     s_vy = jumping ? t_jump_vy() : 0;
     s_vx = vanilla_dx << 8;       /* long-jump momentum / walk-off momentum */
-    uint16_t in = MR16(ctx->A[5] + 0xF80u);
+    (void)ctx;
     if (s_vx == 0) {              /* vertical hop + held direction: gentle kick */
-        if (in & 0x04u)      s_vx =  t_vx_max() / 3;
-        else if (in & 0x10u) s_vx = -t_vx_max() / 3;
+        if (hw_joy_right())     s_vx =  t_vx_max() / 3;
+        else if (hw_joy_left()) s_vx = -t_vx_max() / 3;
     }
 }
 
 static void phys_jump_cut(M68KCtx *ctx)
 {
+    (void)ctx;
     if (s_cut_done || s_vy >= 0) return;
-    uint16_t in = MR16(ctx->A[5] + 0xF80u);
-    if (!(in & 0x28u)) {          /* $08=up, $20=fire both released */
+    if (!hw_joy_up() && !hw_get_fire()) {   /* jump inputs all released */
         s_vy /= 2;
         s_cut_done = 1;
     }
@@ -90,10 +125,9 @@ static void phys_jump_cut(M68KCtx *ctx)
  * leading edge, return the whole-pixel step (0 when blocked). */
 static int phys_dx(M68KCtx *ctx, int x, int y)
 {
-    uint16_t in = MR16(ctx->A[5] + 0xF80u);
     int acc = t_air_acc(), cap = t_vx_max();
-    if (in & 0x04u)      s_vx += acc;
-    else if (in & 0x10u) s_vx -= acc;
+    if (hw_joy_right())     s_vx += acc;
+    else if (hw_joy_left()) s_vx -= acc;
     if (s_vx >  cap) s_vx =  cap;
     if (s_vx < -cap) s_vx = -cap;
 
@@ -123,16 +157,17 @@ static void air_state(M68KCtx *ctx, void (*super)(M68KCtx *), uint32_t self,
      * would zero the momentum, which is the very vanilla flaw this mode
      * removes. */
     uint32_t prev = MR32(ctx->A[5] + 0xF78u);
-    int prev_air = (prev == 0x579D84u || prev == 0x579DDCu || prev == 0x579F3Au);
-    int entered  = (prev != self) || !s_airborne;
-    int fresh    = entered && (!prev_air || !s_airborne);
+    int prev_air = is_air_state(prev);
+    int fresh    = !prev_air || !s_airborne;
+    (void)self;
     int16_t x_in = (int16_t)(uint16_t)ctx->D[1];
     int16_t y_in = (int16_t)(uint16_t)ctx->D[2];
+    uint32_t state_in = MR32(ctx->A[5] + 0xF70u);   /* the variant stub */
 
     /* Hold the arc phase at its last in-arc value: a longer (physics) ascent
      * must not run the table off its end (garbage pose) or hit the arc's
      * fixed-phase bookkeeping early. */
-    if (jumping && !entered && (uint16_t)ctx->D[5] > 0x14u)
+    if (jumping && prev_air && s_airborne && (uint16_t)ctx->D[5] > 0x14u)
         ctx->D[5] = (ctx->D[5] & 0xFFFF0000u) | 0x14u;
 
     super(ctx);
@@ -157,7 +192,11 @@ static void air_state(M68KCtx *ctx, void (*super)(M68KCtx *), uint32_t self,
         /* WE decide the hop->fall hand-off: stay in this state while rising,
          * fall once vy turns downward (mirror the vanilla late-arc flags). */
         if (s_vy < 0) {
-            MW32(ctx->A[0], self);
+            /* Still rising: stay in the CURRENT VARIANT STUB (it reloads its
+             * table registers each frame — pointing at the shared body would
+             * run it with stale a1/a2/a3), undoing vanilla's table-end
+             * hand-off to fall. */
+            MW32(ctx->A[0], state_in);
         } else {
             MW32(ctx->A[0], 0x579F3Au);
             MW16(ctx->A[5] + 0xF6Eu, 0xE);   /* seed the fall ramp like the arc */
@@ -172,6 +211,38 @@ static void air_state(M68KCtx *ctx, void (*super)(M68KCtx *), uint32_t self,
     ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(int16_t)(x_in + dx);
 }
 
+/* TRACK mode (long-jump $579A62 + the abort-arc family): the vanilla arc runs
+ * UNTOUCHED while it lasts — pixel-faithful movement, animation, SFX. We only
+ *  (a) suppress vanilla's fire-release ABORT (the $579AB2 -> $579AE0-table
+ *      state switch): on release the arc now simply CONTINUES;
+ *  (b) track the arc's own per-frame X move into s_vx, so when the arc ends
+ *      and hands off to FALL, the fall inherits the momentum (vanilla zeroes
+ *      it there) and air control takes over. */
+static void air_track(M68KCtx *ctx, void (*super)(M68KCtx *))
+{
+    if (!pc_platformer_on()) { s_airborne = 0; super(ctx); return; }
+
+    uint32_t prev = MR32(ctx->A[5] + 0xF78u);
+    int fresh = !is_air_state(prev) || !s_airborne;
+    int16_t  x_in     = (int16_t)(uint16_t)ctx->D[1];
+    uint32_t state_in = MR32(ctx->A[5] + 0xF70u);
+
+    super(ctx);
+
+    if (fresh) {
+        s_airborne = 1; s_cut_done = 0;
+        s_x_acc = s_y_acc = 0; s_vy = 0; s_vx = 0;
+    }
+    int dxv = (int16_t)(uint16_t)ctx->D[1] - x_in;
+    if (dxv) s_vx = dxv << 8;            /* live momentum from the arc itself */
+
+    uint32_t st = MR32(ctx->A[5] + 0xF70u);
+    if (st != state_in && st != 0x579F3Au)
+        MW32(ctx->A[0], state_in);       /* ignore the release-abort switch */
+}
+
 void native_pf_hop(M68KCtx *ctx)      { air_state(ctx, gfn_gpl_579D84, 0x579D84u, 1); }
-void native_pf_longjump(M68KCtx *ctx) { air_state(ctx, gfn_gpl_579DDC, 0x579DDCu, 1); }
+void native_pf_arc(M68KCtx *ctx)      { air_track(ctx, gfn_gpl_579D52); }
+void native_pf_longjump(M68KCtx *ctx) { air_track(ctx, gfn_gpl_579DDC); }
 void native_pf_fall(M68KCtx *ctx)     { air_state(ctx, gfn_gpl_579F3A, 0x579F3Au, 0); }
+void native_pf_lj(M68KCtx *ctx)       { air_track(ctx, gfn_gpl_579A62); }

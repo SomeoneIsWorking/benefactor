@@ -385,6 +385,9 @@ void (*g_hw_boot_handoff)(void) = NULL;  /* native disk-boot → frame-loop hand
 
 void hw_set_joystick(int up, int down, int left, int right, int fire)
 {
+    { static int dbg = -1; if (dbg < 0) dbg = getenv("JOYDBG") ? 1 : 0;
+      if (dbg && s_joy_right != !!right)
+          fprintf(stderr, "[joydbg] set_joystick right %d->%d\n", s_joy_right, !!right); }
     s_joy_up = !!up; s_joy_down = !!down; s_joy_left = !!left; s_joy_right = !!right;
     if (fire) { s_joy_buttons |= 1; s_fire_pressed = 1; }
     else      { s_joy_buttons &= ~1; s_fire_pressed = 0; }
@@ -420,6 +423,8 @@ static void apply_bound_input(void)
      * a vanilla device keeps the authentic semantics (fire interacts, Up hops)
      * with no extra action keys, even while the other device runs modern. */
     int kbm = pc_modern_kb(), pdm = pc_modern_pad();
+    { static int dbg = -1; if (dbg < 0) dbg = getenv("JOYDBG") ? 1 : 0;
+      if (dbg) fprintf(stderr, "[joydbg] apply_bound_input (right was %d)\n", s_joy_right); }
     s_joy_left  = pc_input_active(PI_LEFT);
     s_joy_right = pc_input_active(PI_RIGHT);
     s_joy_down  = pc_input_active(PI_DOWN);

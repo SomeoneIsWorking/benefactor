@@ -821,6 +821,10 @@ int main(int argc, char **argv)
             n = 1; sscanf(line, "%*s %u", &n); if (!n) n = 1;
             for (unsigned i = 0; i < n; i++) STEP_PC();
             FrameState c; hw_get_snap(&c);
+            { extern int hw_joy_right(void), hw_get_fire(void);
+              if (getenv("JOYDBG"))
+                  printf("[joydbg] jr_var=%d fire_var=%d hw_jr=%d hw_fire=%d\n",
+                         jr, fire, hw_joy_right(), hw_get_fire()); }
             printf("[crepl] PC +%u -> cop1lc=$%06X\n", n, c.cop1lc);
         }
         else if (!strcmp(cmd, "runto")) {  /* runto <cop1lc-hex> [maxframes] — step PC (current fire/joy held) until cop1lc matches */

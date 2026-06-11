@@ -210,7 +210,11 @@ void pc_register_overrides(void)
      * momentum into the fall, jump-cut). Knob off = verified passthrough. */
     { extern void native_pf_hop(M68KCtx *ctx), native_pf_longjump(M68KCtx *ctx),
                   native_pf_fall(M68KCtx *ctx);
+      extern void native_pf_arc(M68KCtx *ctx);
       rt_register_override_gp(0x00579D84u, native_pf_hop);
+      rt_register_override_gp(0x00579D52u, native_pf_arc);   /* abort-arc variants */
+      { extern void native_pf_lj(M68KCtx *ctx);
+        rt_register_override_gp(0x00579A62u, native_pf_lj); } /* the LONG JUMP */
       rt_register_override_gp(0x00579DDCu, native_pf_longjump);
       rt_register_override_gp(0x00579F3Au, native_pf_fall); }
 
