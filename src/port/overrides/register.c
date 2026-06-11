@@ -79,10 +79,12 @@ void pc_register_overrides(void)
       rt_register_override(0x00003C88u, native_menu_cursor_up);
       rt_register_override(0x00003C6Eu, native_menu_diff_left);
       rt_register_override(0x00003C9Au, native_menu_diff_right); }
-    /* $003700 — menu-art unpacker: erases the baked-in vestigial password
-     * field after the unpack (see native_menu_art_unpack for the RE trail). */
-    { extern void native_menu_art_unpack(M68KCtx *ctx);
-      rt_register_override(0x00003700u, native_menu_art_unpack); }
+    /* $003DAA — the password-field text renderer (cell-wise, from the live
+     * password buffer). We OWN it and draw nothing: the field is replaced by
+     * LEVEL SELECT in this port. See the RE block in boot.c. (The art itself
+     * ships a clean field area — verified — so no erase/unpack hook needed.) */
+    { extern void native_menu_pwfield_draw(M68KCtx *ctx);
+      rt_register_override(0x00003DAAu, native_menu_pwfield_draw); }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */
     rt_register_override_gp(0x00577B8Cu, native_gp_disk_read);
