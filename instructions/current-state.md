@@ -671,36 +671,29 @@ Done & committed (kept for context): password-field erase (77bcf0d), OPTIONS
 from title + MORE/SKIP INTRO (f948da7), difficulty selector fix (51afc4a),
 profile.json level tracking + locked LEVEL SELECT + unlock-all (a5b9647),
 LEVEL COMPLETE banner text (fbf6198), bindings = one FIRE + one INTERACT
-(no DROP row) + freecam values REALTIME/PAUSED (79525ca).
+(no DROP row) + freecam values REALTIME/PAUSED (79525ca), password field
+PROPERLY removed by owning its renderer $3DAA — not erasing pixels; $3DAA also
+feeds the -$1380(a5) text shadow the PLAY GAME start decodes, so the override
+keeps that write (see boot.c RE block; erase machinery deleted).
 
 ### TODOs
 
-0. **Password field STILL visible on the main menu** — the 77bcf0d erase does
-   NOT work in the live menu (verified 2026-06-10: harness → menu → `shot`,
-   "3MQLGPQLGP" beside LEVEL SELECT). Facts established: the menu displays
-   PAGE 1 = $49000 (copper BPL1PT=$49000, planes +$28, stride $C8, pf_top=17);
-   the field glyphs are at fb rows ~96-106, engine x≈213-316 → page offset
-   ≈ row79*$C8+byte26 ≈ $3DD2 — NOT the $3E99 the erase targets (and not the
-   $4B19 its comment claims). Mid-verification poke test was interrupted:
-   blanking rows 75-95 bytes 24-39 all 5 planes of $49000 then `shot`
-   (scratch/blank.repl has the script). Resume there: confirm the live
-   offset, fix MENU_PWFIELD_OFF (+ check the $59000 page-2 path too).
-1. **Credits fire-skip** — during the victory credits, a FIRE press shows a
+0. **Credits fire-skip** — during the victory credits, a FIRE press shows a
    toast ("press fire again to skip"-style); a second press (while the toast
    is up) skips the credits and returns to the main-menu poster
    (`pc_request_cold_restart` is the existing poster entry). Detect with a
    fire edge in the main loop while `g_credits_active`; `pc_toast_show` /
    `pc_toast_visible` already exist.
-2. **Main menu: real OPTIONS entry** — ESC/Start already opens OPTIONS from
+1. **Main menu: real OPTIONS entry** — ESC/Start already opens OPTIONS from
    the title (f948da7), but the originally-requested visible **OPTIONS item in
    the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
    LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
    (native_menu_setup / fire-dispatch). Deferred by the user for now.
-3. **Main menu: PLAY GAME → CONTINUE** — rename the item and make it start
+2. **Main menu: PLAY GAME → CONTINUE** — rename the item and make it start
    the FIRST UNCLEARED level (from profile.json progress) instead of level 1.
-4. **Paused freecam must NOT pause the music** — currently the PAUSED mode
+3. **Paused freecam must NOT pause the music** — currently the PAUSED mode
    silences the music with the game; keep the replayer ticking while frozen.
-5. **Freecam return animation** — on exiting freecam, the camera either SNAPS
+4. **Freecam return animation** — on exiting freecam, the camera either SNAPS
    BACK (animated pan to the player) or FADES out + back in (1s total),
    whichever takes LESS time for the current distance. Snapback speed = our
    choice (pick something brisk; the crossover distance falls out of it).
