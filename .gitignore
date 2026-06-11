@@ -39,3 +39,6 @@ scratch/
 /benefactor.json
 profile.json
 /Disk.4
+
+# WHDLoad content dir (copyrighted disks) — only needed for BENEFACTOR_REFREEZE
+/whdload/
