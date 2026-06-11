@@ -681,7 +681,10 @@ via the new REPL `gocredits` credits drive + `key` SDL-key injection).
 PLAY GAME -> CONTINUE: item 0 renamed (string at a5-$6A4) and fire on it
 starts the FIRST UNCLEARED level from profile.json via the same $150
 hand-off as LEVEL SELECT (engine's $3AF4 always-level-1 path no longer
-delegated; difficulty selector unaffected).
+delegated; difficulty selector unaffected). Freecam PAUSED mode keeps the
+music playing (pc_audio_frame extracted from pc_step; the freeze branch runs
+it unless the pause MENU is up — menu stays silent; verified: $59CF2A
+sequencer advances while the world is frozen).
 
 ### TODOs
 
@@ -690,9 +693,7 @@ delegated; difficulty selector unaffected).
    the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
    LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
    (native_menu_setup / fire-dispatch). Deferred by the user for now.
-1. **Paused freecam must NOT pause the music** — currently the PAUSED mode
-   silences the music with the game; keep the replayer ticking while frozen.
-2. **Freecam return animation** — on exiting freecam, the camera either SNAPS
+1. **Freecam return animation** — on exiting freecam, the camera either SNAPS
    BACK (animated pan to the player) or FADES out + back in (1s total),
    whichever takes LESS time for the current distance. Snapback speed = our
    choice (pick something brisk; the crossover distance falls out of it).
