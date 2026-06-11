@@ -391,8 +391,16 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
             if (f) break;
         }
         g_level_select_visible = 0;
-        if (cancelled) {               /* back to the menu, no level start */
-            rt_jump(ctx, 0x003872u);
+        if (cancelled) {               /* back to the menu, no level start.
+                                        * $39D0 is NOT a jsr'd function — it's
+                                        * a branch target inside the menu loop;
+                                        * its own no-action paths jump to $39BE
+                                        * (the loop continuation). A plain C
+                                        * return here unwinds the loop and ENDS
+                                        * the game thread (frame freezes with
+                                        * stale overlays). Jump like the engine
+                                        * does — cursor + highlight stay put. */
+            rt_jump(ctx, 0x0039BEu);
             return;
         }
         { extern int g_pc_menu_visible; g_pc_menu_visible = 0; }
@@ -410,10 +418,14 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
     }
     if (cursor == 2u) {
         /* OPTIONS — same page ESC/Start opens from the title; the menu loop
-         * keeps running underneath (proven by the ESC path, f948da7). */
+         * keeps running underneath (proven by the ESC path, f948da7).
+         * RESUME the loop with a plain return (the dispatch is a jsr from the
+         * loop body) — re-entering $3872 resets the ENGINE cursor to 0 while
+         * the on-screen highlight stays put, so fire would then run CONTINUE
+         * with OPTIONS still visually selected (user-reported). */
         { extern void pc_pause_open_options(void);
           pc_pause_open_options(); }
-        rt_jump(ctx, 0x003872u);
+        rt_jump(ctx, 0x0039BEu);   /* resume the menu loop (see above) */
         return;
     }
     /* cursor == 0 — CONTINUE — start the FIRST UNCLEARED level (profile.json

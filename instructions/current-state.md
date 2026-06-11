@@ -726,6 +726,16 @@ malformed glyph with a ghost column); native page text via menu_page_text
 (stages the string at $7FFF00, trailing space neutralizes the final AND-carve).
 ESC in LEVEL SELECT now CANCELS back to the menu (the picker loop previously
 only exited on fire — the panel closed but the menu stayed frozen).
+**$39D0 dispatch return contract (burned twice 2026-06-11):** $39D0 is NOT a
+jsr'd function — it is a branch target inside the menu loop; "do nothing"
+must `rt_jump($39BE)` (the loop continuation). A plain C return UNWINDS the
+loop and ends the game thread (screen freezes with stale overlays baked in);
+`rt_jump($3872)` RESTARTS the loop, resetting the engine cursor to 0 under
+the unchanged on-screen highlight (fire then ran CONTINUE while OPTIONS
+looked selected — user-reported). OPTIONS-row return + picker ESC-cancel both
+use $39BE now; cursor + highlight stay in sync. CONTINUE shows a small-font
+subtext "<WORLD> - <LEVEL NAME> (W#L#)" (pc_menu_subtext_overlay,
+g_pc_menu_visible gate; replaced the on-page L<n>).
 
 ### TODOs
 
