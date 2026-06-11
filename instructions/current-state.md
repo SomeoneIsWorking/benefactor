@@ -769,6 +769,10 @@ byte-identical.
 
 ### PROPOSALS (not committed to — discuss before starting)
 
+- **BENMOTION** — own ALL player physics/movement natively (replace the
+  hybrid super-call/TRACK platformer mode) + ONE jump on a dedicated JUMP
+  binding (UP-hop and Fire+dir long-jump triggers suppressed; FIRE freed for
+  interactions). Staged plan: `instructions/benmotion-plan.md`.
 - **Rewind** — hold a key to rewind recent gameplay (ring buffer of
   savestates; g_mem+ctx snapshots are cheap and already serializable).
 - **Save states (user-facing)** — polished multi-slot save/load in the pause
