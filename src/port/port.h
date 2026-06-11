@@ -54,8 +54,17 @@ void pc_debug_game_over(void);
  * {9,9,10,10,10,10,2} split or re-extract names anywhere else. Names are
  * decoded once from the disk overlays (pc_preload_all_level_names), applying
  * the per-level name-slot permutation read from the engine's $32 table. */
-#define PC_NUM_WORLDS 7
+#define PC_NUM_WORLDS 7          /* vanilla worlds (levels 1..60) */
 #define PC_NUM_LEVELS 60
+/* EXTRA LEVELS (Disk.4): the base game's world-descriptor table at $577452
+ * defines 6 additional world slots (7..12, five levels each = 61..90) whose
+ * names+level-data chunk lives on Disk.4 at fixed offsets. A data disk fills
+ * some prefix of those slots (the fan BenDisk4 fills 2 = levels 61..70). */
+#define PC_EXTRA_WORLDS 6
+#define PC_MAX_LEVELS   90
+int  pc_extra_worlds_available(void);  /* 0..6 contiguous filled extra worlds */
+int  pc_num_worlds_ui(void);           /* 7 + extras — picker/UI world count  */
+int  pc_num_levels_ui(void);           /* 60 + 5*extras                       */
 
 int  pc_levels_in_world(int world);    /* # levels in world (0 if out of range) */
 int  pc_world_first_level(int world);  /* 1-based global level # of world's first level (0 if OOR) */

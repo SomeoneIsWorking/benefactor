@@ -88,6 +88,10 @@ void pc_register_overrides(void)
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */
     rt_register_override_gp(0x00577B8Cu, native_gp_disk_read);
+    /* In-game level-segment decruncher ($577E96): adds IMP! (fan Disk.4)
+     * support next to the recompiled ATN! path. */
+    { extern void native_level_decrunch(M68KCtx *ctx);
+      rt_register_override_gp(0x00577E96u, native_level_decrunch); }
 
     /* Copper / frame (pc_overrides_copper.c) */
     rt_register_override(0x0041A4u, native_sprite_blitter_setup);

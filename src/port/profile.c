@@ -24,7 +24,7 @@
 #include "port/config.h"
 #include "port/port.h"   /* PC_NUM_LEVELS-style layout accessors */
 
-#define PROFILE_MAX_LEVEL 60
+#define PROFILE_MAX_LEVEL 90   /* 60 vanilla + up to 30 Disk.4 extras */
 
 static uint8_t s_completed[PROFILE_MAX_LEVEL + 1];   /* 1-based */
 static int s_loaded = 0;
@@ -94,11 +94,20 @@ void pc_profile_mark_completed(int level)
             level, pc_profile_highest_completed());
 }
 
-/* Selectable in LEVEL SELECT? Completed, the next level up, or unlock-all. */
+/* Selectable in LEVEL SELECT? Completed, the next level up, or unlock-all.
+ * Disk.4 EXTRA levels (61+) are bonus content with their own progression:
+ * each extra WORLD's first level is always unlocked (when the disk provides
+ * it), later levels unlock by completing the previous one. */
 int pc_profile_unlocked(int level)
 {
-    if (level < 1 || level > PROFILE_MAX_LEVEL) return 0;
+    int max = pc_num_levels_ui();
+    if (level < 1 || level > max || level > PROFILE_MAX_LEVEL) return 0;
     if (pc_cfg_bool("unlock_all_levels", 0)) return 1;
+    if (level > PC_NUM_LEVELS) {
+        int liw = (level - PC_NUM_LEVELS - 1) % 5;
+        return liw == 0 || pc_profile_completed(level - 1)
+                        || pc_profile_completed(level);
+    }
     return pc_profile_completed(level) || level <= pc_profile_highest_completed() + 1;
 }
 

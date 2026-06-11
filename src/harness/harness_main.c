@@ -111,11 +111,11 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--kick") && i + 1 < argc)    kick_dir = argv[++i];
         else if (!strcmp(argv[i], "--whdload") && i + 1 < argc) whdload_path = argv[++i];
-        else if (n_disks < 3)             disks[n_disks++] = argv[i];
+        else if (n_disks < 4)             disks[n_disks++] = argv[i];   /* Disk.4 = extra levels */
     }
     if (n_disks < 1) {
         fprintf(stderr,
-            "Usage: %s <disk1> [disk2] [disk3] [--headed] [--play] [--level N]\n"
+            "Usage: %s <disk1> [disk2] [disk3] [disk4] [--headed] [--play] [--level N]\n"
             "                          [--kick DIR] [--whdload PATH]\n"
             "\n"
             "Boots PUAE (reference, from logs/puae_sync.state) and the PC port\n"
@@ -391,8 +391,8 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(cmd, "goto")) {  /* goto <N> — restart PC coroutine at level N (1..60), bypassing title */
             int n = 0; sscanf(line, "%*s %d", &n);
-            if (n < 1 || n > 60) {
-                printf("[crepl] usage: goto <1..60>\n");
+            if (n < 1 || n > 90) {
+                printf("[crepl] usage: goto <1..60> (61..90 = Disk.4 extra levels)\n");
             } else {
                 extern uint8_t *g_mem;
                 /* Route through the RESTART-REINIT path (the pause menu's
@@ -409,6 +409,7 @@ int main(int argc, char **argv)
                  * memory — the second-goto-in-one-process crash ($578B94
                  * rt-miss). */
                 g_mem[0x20] = 0; g_mem[0x21] = (uint8_t)n;
+                if (n > 60) g_mem[0x38] = 0xFF;   /* extra-levels mode (preserved by reinit) */
                 /* Same flags as pc_request_level_restart MINUS its immediate
                  * PC_SCR_GAMEPLAY flip: goto can be issued from the title
                  * (poster/menu), whose thread still runs one final frame —

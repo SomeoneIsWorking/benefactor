@@ -96,10 +96,16 @@ static int atn_getbit(AtnBits *b)
     return c2;
 }
 
-/* Returns decompressed length, or 0 if the magic doesn't match. */
+/* Returns decompressed length, or 0 if the magic doesn't match.
+ * Accepts both "ATN!" (the game's own files) and "IMP!" (the fan-made
+ * Disk.4 extra levels): both are Amiga Imploder-family containers with the
+ * identical [magic][decrunched_len][crunched_len] header and bitstream —
+ * the per-file token tables are read FROM the stream (the 28-byte block
+ * below), so the algorithm is magic-agnostic. */
 uint32_t atn_decrunch(uint32_t start)
 {
-    if (r32(start) != 0x41544E21u) return 0;          /* "ATN!" */
+    uint32_t magic = r32(start);
+    if (magic != 0x41544E21u && magic != 0x494D5021u) return 0;  /* ATN! / IMP! */
     uint32_t out_len = r32(start + 4);
     uint32_t a4 = start + out_len;                    /* output end (write -(a4)) */
     uint32_t a3 = start + r32(start + 8);             /* input end (read -(a3))  */

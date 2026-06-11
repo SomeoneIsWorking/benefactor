@@ -195,7 +195,7 @@ void pc_level_select_overlay(uint32_t *fb)
     int level = pc_get_start_level();
     int world = 0, liw = 0;
     pc_level_split(level, &world, &liw);
-    if (world < 0 || world >= PC_NUM_WORLDS) world = 0;
+    if (world < 0 || world >= pc_num_worlds_ui()) world = 0;
     int liw_count = pc_levels_in_world(world);
     if (liw < 0)            liw = 0;
     if (liw >= liw_count)   liw = liw_count - 1;
