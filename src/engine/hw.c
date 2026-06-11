@@ -936,6 +936,22 @@ int hw_present_frame(void)
       pc_toast_overlay(s_out);
       pc_overlay_set_dims(HW_DISPLAY_W, HW_DISPLAY_H);   /* restore default */ }
 
+    /* Free-cam fade return: whole-screen curtain over the composed output
+     * (out + in, 1s total — see pc_freecam_toggle). */
+    { extern int pc_freecam_fade_alpha(void);
+      int fa = pc_freecam_fade_alpha();
+      if (fa > 0) {
+          int keep = 255 - fa;
+          int n = s_hw_out_w * HW_DISPLAY_H;
+          for (int i = 0; i < n; i++) {
+              uint32_t px = s_out[i];
+              s_out[i] = 0xFF000000u
+                       | ((((px >> 16) & 0xFF) * (uint32_t)keep / 255u) << 16)
+                       | ((((px >>  8) & 0xFF) * (uint32_t)keep / 255u) <<  8)
+                       |  (((px       ) & 0xFF) * (uint32_t)keep / 255u);
+          }
+      } }
+
     if (!s_headless) {
         /* P4 — per-sprite windowed present: when this frame produced a fresh
          * BenRen draw list and no PC overlay is active (overlays read-modify the
@@ -947,8 +963,9 @@ int hw_present_frame(void)
         extern int  pc_pause_active(void), pc_toast_visible(void);
         extern int  pc_hud_icons_active(void);
         extern int  g_level_select_visible;
+        extern int  pc_freecam_fade_alpha(void);
         int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible
-                   || pc_hud_icons_active();
+                   || pc_hud_icons_active() || pc_freecam_fade_alpha() > 0;
         perf_t = hw_perf_now_us();
         if (s_backend->present_scene && native_render_scene_ready() && !overlay) {
             int ylo, yhi; native_render_scene_yrange(&ylo, &yhi);

@@ -684,7 +684,12 @@ hand-off as LEVEL SELECT (engine's $3AF4 always-level-1 path no longer
 delegated; difficulty selector unaffected). Freecam PAUSED mode keeps the
 music playing (pc_audio_frame extracted from pc_step; the freeze branch runs
 it unless the pause MENU is up — menu stays silent; verified: $59CF2A
-sequencer advances while the world is frozen).
+sequencer advances while the world is frozen). Freecam return animation:
+toggle-off now SNAP-PANS back (48px/frame) or FADES out+in (1s, curtain in
+hw_present_frame via pc_freecam_fade_alpha) — whichever is faster for the
+distance (crossover 2400px falls out of the numbers); fire-toggle during the
+pan re-engages. REPL: `fcam 2` force-fades (testing); `fcam 0` exercises the
+return. Verified on level 3: pan-back shots + forced fade out/black/in.
 
 ### TODOs
 
@@ -693,10 +698,13 @@ sequencer advances while the world is frozen).
    the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
    LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
    (native_menu_setup / fire-dispatch). Deferred by the user for now.
-1. **Freecam return animation** — on exiting freecam, the camera either SNAPS
-   BACK (animated pan to the player) or FADES out + back in (1s total),
-   whichever takes LESS time for the current distance. Snapback speed = our
-   choice (pick something brisk; the crossover distance falls out of it).
+1. **`goto N` stalls at the level card** (pre-existing, noticed 2026-06-11
+   while testing freecam): after `goto`, the card renders but FIRE never
+   advances into the level (tried pulses + 350-frame holds; verified
+   identical at HEAD 0097efc, so NOT caused by today's changes). `rungame`
+   and the menu paths (CONTINUE / LEVEL SELECT) enter levels fine — only the
+   direct-jump card-wait is broken. Also: level 60's card renders BLACK via
+   `goto 60`.
 
 ### PROPOSALS (not committed to — discuss before starting)
 
