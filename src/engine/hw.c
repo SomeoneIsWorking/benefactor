@@ -929,7 +929,9 @@ int hw_present_frame(void)
       extern void pc_pause_menu_overlay(uint32_t *fb);
       extern void pc_toast_overlay(uint32_t *fb);
       extern void pc_hud_icons_overlay(uint32_t *fb);
+      extern void pc_menu_subtext_overlay(uint32_t *fb);
       pc_overlay_set_dims(s_hw_out_w, HW_DISPLAY_H);
+      pc_menu_subtext_overlay(s_out);
       pc_level_select_overlay(s_out);
       pc_hud_icons_overlay(s_out);    /* fast-forward / free-cam status icons */
       pc_pause_menu_overlay(s_out);

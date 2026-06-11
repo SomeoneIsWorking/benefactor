@@ -17,6 +17,7 @@
 #include <stdio.h>
 
 #include "port/port.h"   /* level/world layout + name accessors (single source of truth) */
+#include "common/game_state.h"   /* g_gameplay_active (menu subtext gate) */
 
 int g_level_select_visible = 0;
 
@@ -42,6 +43,8 @@ static const uint8_t s_font[][7] = {
     /* 9 */                 {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C},
     /* : */                 {0x00,0x04,0x00,0x00,0x04,0x00,0x00},
     /* ? */                 {0x0E,0x11,0x01,0x02,0x04,0x00,0x04},
+    /* ( (idx 19) */        {0x02,0x04,0x08,0x08,0x08,0x04,0x02},
+    /* ) (idx 20) */        {0x08,0x04,0x02,0x02,0x02,0x04,0x08},
     /* A */                 {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11},
     /* B */                 {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E},
     /* C */                 {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E},
@@ -83,8 +86,10 @@ static int glyph_idx(char c)
     if (c >= '0' && c <= '9') return 7 + (c - '0');
     if (c == ':') return 17;
     if (c == '?') return 18;
-    if (c >= 'A' && c <= 'Z') return 19 + (c - 'A');
-    if (c >= 'a' && c <= 'z') return 19 + (c - 'a');
+    if (c == '(') return 19;
+    if (c == ')') return 20;
+    if (c >= 'A' && c <= 'Z') return 21 + (c - 'A');
+    if (c >= 'a' && c <= 'z') return 21 + (c - 'a');
     return -1;
 }
 
@@ -170,6 +175,26 @@ void pc_toast_show(const char *msg, int is_error)
 }
 
 int pc_toast_visible(void) { return s_toast_frames > 0 && s_toast[0] != 0; }
+
+/* Main-menu subtext: under the CONTINUE row, show where it will take you —
+ * "<WORLD> - <LEVEL NAME> (W#L#)" in the small overlay font. Gated on the
+ * menu actually being on screen (g_pc_menu_visible, set by native_menu_setup
+ * and cleared at the level-start hand-offs) + the menu copper list. */
+void pc_menu_subtext_overlay(uint32_t *fb)
+{
+    extern int g_pc_menu_visible;
+    extern int pc_menu_continue_level(void);
+    extern uint32_t hw_get_cop1lc(void);
+    if (!g_pc_menu_visible || g_gameplay_active) return;
+    if (hw_get_cop1lc() != 0x8302u) return;
+    int level = pc_menu_continue_level();
+    int w = 0, liw = 0;
+    pc_level_split(level, &w, &liw);
+    char line[80];
+    snprintf(line, sizeof line, "%s - %s (W%dL%d)",
+             pc_world_name(w), pc_static_level_name(level), w + 1, liw + 1);
+    draw_text(fb, 160, 76, line, 1, 0xFFD8E8C0u);
+}
 
 void pc_toast_overlay(uint32_t *fb)
 {
