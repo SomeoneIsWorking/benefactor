@@ -678,6 +678,10 @@ keeps that write (see boot.c RE block; erase machinery deleted). Credits
 fire-skip: first FIRE shows a confirm toast, second within the toast window
 skips to the poster (pc_credits_skip_tick in game_loop.c; verified headless
 via the new REPL `gocredits` credits drive + `key` SDL-key injection).
+PLAY GAME -> CONTINUE: item 0 renamed (string at a5-$6A4) and fire on it
+starts the FIRST UNCLEARED level from profile.json via the same $150
+hand-off as LEVEL SELECT (engine's $3AF4 always-level-1 path no longer
+delegated; difficulty selector unaffected).
 
 ### TODOs
 
@@ -686,11 +690,9 @@ via the new REPL `gocredits` credits drive + `key` SDL-key injection).
    the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
    LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
    (native_menu_setup / fire-dispatch). Deferred by the user for now.
-1. **Main menu: PLAY GAME → CONTINUE** — rename the item and make it start
-   the FIRST UNCLEARED level (from profile.json progress) instead of level 1.
-2. **Paused freecam must NOT pause the music** — currently the PAUSED mode
+1. **Paused freecam must NOT pause the music** — currently the PAUSED mode
    silences the music with the game; keep the replayer ticking while frozen.
-3. **Freecam return animation** — on exiting freecam, the camera either SNAPS
+2. **Freecam return animation** — on exiting freecam, the camera either SNAPS
    BACK (animated pan to the player) or FADES out + back in (1s total),
    whichever takes LESS time for the current distance. Snapback speed = our
    choice (pick something brisk; the crossover distance falls out of it).

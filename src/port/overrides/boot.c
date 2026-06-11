@@ -376,10 +376,22 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
         rt_jump(ctx, 0x003872u);
         return;
     }
-    /* cursor == 0 — PLAY GAME — preserve the original engine's behaviour
-     * by delegating to the recompiled function. */
-    extern void gfn_gp_0039D0(M68KCtx *ctx);
-    gfn_gp_0039D0(ctx);
+    /* cursor == 0 — CONTINUE — start the FIRST UNCLEARED level (profile.json
+     * progress; level 1 on a fresh profile). Uses the same $150 hand-off as
+     * the LEVEL SELECT picker (the engine's own PLAY GAME path $3AF4..$3B08
+     * always starts level 1, so it is no longer delegated to). The first
+     * uncleared level is always unlocked (everything before it is cleared),
+     * so try_select cannot refuse; the level-1 fallback is belt-and-braces. */
+    {
+        int next = 1;
+        while (next < 60 && pc_profile_completed(next)) next++;
+        if (!pc_profile_try_select(next)) pc_set_start_level(1);
+        MW16(ctx->A[6] + 0x94u, 0x7FFFu);
+        MW16(ctx->A[6] + 0x98u, 0x7FFFu);
+        ctx->A[7] = 0x00080000u;
+        ctx->D[0] = 0;
+        rt_jump(ctx, 0x150u);
+    }
 }
 
 /* ── $003872 — title main-menu setup+loop. We OWN the option setup ───────────────
@@ -395,6 +407,13 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
  * it correct across reloads (attract loop, LOAD-EXTRA return, exit-to-menu). */
 void native_menu_setup(M68KCtx *ctx)
 {
+    /* Item 0: "PLAY GAME" -> "CONTINUE" (starts the first uncleared level —
+     * see the cursor-0 branch in native_main_menu_fire_dispatch). */
+    static const char kItem0[] = "CONTINUE";       /* <= "PLAY GAME" (9 chars) */
+    uint32_t dst0 = ctx->A[5] - 0x6A4u;            /* item-0 option string */
+    for (uint32_t i = 0; i < sizeof kItem0; i++)
+        MW8(dst0 + i, (uint8_t)kItem0[i]);
+
     static const char kItem1[] = "LEVEL SELECT";   /* <= "ENTER PASSWORD" (14 chars) */
     uint32_t dst = ctx->A[5] - 0x696u;             /* item-1 option string */
     for (uint32_t i = 0; i < sizeof kItem1; i++)   /* includes the NUL terminator */
