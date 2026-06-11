@@ -316,14 +316,6 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
     extern uint8_t *g_mem;
     uint16_t cursor = MR16(ctx->A[5] - 6334u);
 
-    if (cursor == 2u && pc_extra_worlds_available() > 0) {
-        /* LOAD EXTRA LEVELS (Disk.4 found): set the engine's extra-levels
-         * flag (the original's only action — $3B1C `st.b $38.w`) and open
-         * the level picker pre-positioned on the first extra world. */
-        MW8(0x38u, 0xFFu);
-        pc_set_start_level(PC_NUM_LEVELS + 1);
-        cursor = 1u;   /* fall into the picker below */
-    }
     if (cursor == 1u) {
         /* LEVEL SELECT — open the interactive picker. The user picks a
          * level here (joy UP/DOWN cycles 1..60, FIRE confirms), THEN we
@@ -350,8 +342,13 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
         /* World/level geometry comes from the SSoT accessors in pc.h
          * (pc_levels_in_world / pc_world_first_level) — never re-hardcode. */
         int prev_u = 0, prev_d = 0, prev_l = 0, prev_r = 0;
+        int cancelled = 0;
         for (;;) {
             hw_vblank_wait();
+            /* ESC closes the panel (hw_handle_key clears the flag); without
+             * this check the picker loop kept spinning invisibly and the
+             * menu appeared frozen. */
+            if (!g_level_select_visible) { cancelled = 1; break; }
             int u = hw_joy_up(), d = hw_joy_down();
             int lt = hw_joy_left(), rt = hw_joy_right(), f = hw_get_fire();
 
@@ -394,6 +391,10 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
             if (f) break;
         }
         g_level_select_visible = 0;
+        if (cancelled) {               /* back to the menu, no level start */
+            rt_jump(ctx, 0x003872u);
+            return;
+        }
 
         /* Same exit setup as the engine's PLAY GAME path
          * ($003AF4..$003B08). The INTREQ clear matters: stale title-bank
@@ -407,10 +408,10 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
         return;
     }
     if (cursor == 2u) {
-        /* LOAD EXTRA LEVELS without a (filled) Disk.4 — explain and return
-         * to the menu loop. */
-        { extern void pc_toast_show(const char *, int);
-          pc_toast_show("DISK.4 NOT FOUND (EXTRA LEVELS)", 1); }
+        /* OPTIONS — same page ESC/Start opens from the title; the menu loop
+         * keeps running underneath (proven by the ESC path, f948da7). */
+        { extern void pc_pause_open_options(void);
+          pc_pause_open_options(); }
         rt_jump(ctx, 0x003872u);
         return;
     }
@@ -443,23 +444,102 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
  *
  * The string lives in the loaded gp image; re-applying on every menu entry keeps
  * it correct across reloads (attract loop, LOAD-EXTRA return, exit-to-menu). */
+/* First uncleared VANILLA level — what CONTINUE starts. */
+int pc_menu_continue_level(void)
+{
+    int next = 1;
+    while (next < PC_NUM_LEVELS && pc_profile_completed(next)) next++;
+    return next;
+}
+
+static void menu_write_string(uint32_t dst, const char *str)
+{
+    extern uint8_t *g_mem;
+    uint32_t i = 0;
+    for (; str[i]; i++) g_mem[dst + i] = (uint8_t)str[i];
+    g_mem[dst + i] = 0;
+}
+
+/* Draw a string onto a menu PAGE with the engine's own glyph renderer
+ * (native_menu_glyph_blit) — used for the DISK.4 indicator. The string is
+ * staged in a scratch corner of g_mem the menu never touches. */
+static void menu_page_text(uint32_t page_addr, const char *str)
+{
+    extern void native_menu_glyph_blit(M68KCtx *ctx);
+    const uint32_t stage = 0x7FFF00u;
+    /* Trailing space: the glyph renderer's shifted second column AND-carves
+     * the NEXT byte-column in the glyph's shape; mid-string that carve is
+     * overdrawn by the following char, but the LAST char's carve stays — a
+     * "ghost" of the final glyph cut into the textured background. A space
+     * (blank glyph) as the final char makes the trailing carve a no-op. */
+    char buf[34];
+    snprintf(buf, sizeof buf, "%s ", str);
+    menu_write_string(stage, buf);
+    M68KCtx t = {0};
+    t.A[2] = stage;
+    t.A[1] = page_addr;
+    t.D[6] = 1601;                    /* engine menu-font shadow: +8 rows +1 col
+                                       * (GLYPH_LOG shows d6=1601 for all items) */
+    native_menu_glyph_blit(&t);
+}
+
+/* On-page menu extras, drawn on BOTH pages (page 2 once per menu entry in
+ * native_menu_setup, page 1 after each art unpack in native_menu_art_unpack):
+ *  - "L<n>" right after the CONTINUE text (its row starts at page+$1F4A =
+ *    row 40 col 10; CONTINUE is 8 glyph columns, so col 19 reads as
+ *    "CONTINUE L<n>") — the level CONTINUE will start;
+ *  - "DISK.4 LOADED" indicator above the beach window when the extra-levels
+ *    disk was detected. Page offset = row*$C8 + byte-col. */
+#define MENU_CONT_LVL_OFF (40u  * 0xC8u + 19u)
+#define MENU_D4_TEXT_OFF  (150u * 0xC8u + 19u)
+void native_menu_indicator(uint32_t page)
+{
+    char lvl[8];
+    snprintf(lvl, sizeof lvl, "L%d", pc_menu_continue_level());
+    menu_page_text(page + MENU_CONT_LVL_OFF, lvl);
+    if (pc_extra_worlds_available() > 0)
+        menu_page_text(page + MENU_D4_TEXT_OFF, "DISK.4 LOADED");
+}
+
 void native_menu_setup(M68KCtx *ctx)
 {
-    /* Item 0: "PLAY GAME" -> "CONTINUE" (starts the first uncleared level —
-     * see the cursor-0 branch in native_main_menu_fire_dispatch). */
-    static const char kItem0[] = "CONTINUE";       /* <= "PLAY GAME" (9 chars) */
-    uint32_t dst0 = ctx->A[5] - 0x6A4u;            /* item-0 option string */
-    for (uint32_t i = 0; i < sizeof kItem0; i++)
-        MW8(dst0 + i, (uint8_t)kItem0[i]);
+    /* Item 0: "PLAY GAME" -> "CONTINUE". STRICT 10-char+NUL budget: the next
+     * byte (a5-$699) is the high byte of item 1's page-dest pointer
+     * ($04CE8A) — an 11-char string NUL's it and the LEVEL SELECT row gets
+     * drawn into low RAM (burned 2026-06-11). The level it will start is
+     * drawn separately right after the text (native_menu_indicator). */
+    menu_write_string(ctx->A[5] - 0x6A4u, "CONTINUE");
 
-    static const char kItem1[] = "LEVEL SELECT";   /* <= "ENTER PASSWORD" (14 chars) */
-    uint32_t dst = ctx->A[5] - 0x696u;             /* item-1 option string */
-    for (uint32_t i = 0; i < sizeof kItem1; i++)   /* includes the NUL terminator */
-        MW8(dst + i, (uint8_t)kItem1[i]);
+    menu_write_string(ctx->A[5] - 0x696u, "LEVEL SELECT");  /* <= "ENTER PASSWORD" */
 
+    /* Item 2: "LOAD EXTRA LEVELS" -> "OPTIONS". Extra levels need no manual
+     * load step anymore: Disk.4 is auto-detected and its worlds appear in
+     * LEVEL SELECT; the freed row becomes the visible OPTIONS entry. */
+    menu_write_string(ctx->A[5] - 0x682u, "OPTIONS");
+
+    /* Engine extras flag (the old LOAD EXTRA LEVELS action) — set it
+     * automatically whenever the disk provides extra worlds. */
+    if (pc_extra_worlds_available() > 0) MW8(0x38u, 0xFFu);
+
+    /* On-page indicators are drawn post-unpack by native_menu_art_unpack
+     * ($3700 hook) — the engine renders the menu on page 1 only (GLYPH_LOG:
+     * every item draw targets $4xxxx; page 2 is the pwfield restore source). */
 
     extern void gfn_gp_003872(M68KCtx *ctx);
     gfn_gp_003872(ctx);                            /* engine builds/draws/loops the menu */
+}
+
+/* $3700 — menu-art unpacker post-hook: page 1 ($49000) is unpacked from the
+ * compressed art each menu entry, so on-page extras (the DISK.4 indicator)
+ * must be re-drawn after every unpack. */
+#define MENU_ART_SRC 0x1339Au
+void native_menu_art_unpack(M68KCtx *ctx)
+{
+    extern void gfn_gp_003700(M68KCtx *ctx);
+    int is_menu_art = (ctx->A[0] == MENU_ART_SRC);
+    uint32_t dst = ctx->A[1];
+    gfn_gp_003700(ctx);
+    if (is_menu_art) native_menu_indicator(dst);
 }
 
 void native_menu_cursor_down(M68KCtx *ctx)

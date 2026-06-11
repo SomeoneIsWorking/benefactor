@@ -715,14 +715,21 @@ PROFILE_MAX_LEVEL 90); picker cycles extras (LEFT from UNDERWORLD); LOAD
 EXTRA LEVELS sets $38 + opens the picker at level 61 (toast when no Disk.4);
 extras unlock per-world (first level free, rest by completion). goto 61..90.
 Disk.4 location: gitignored ./Disk.4 (user's copy was in ~/Downloads/BenDisk4).
+**Main-menu rework (2026-06-11):** rows = CONTINUE (with "L<n>" = the level
+it will start, drawn as page text after the 10-char item string — STRICT
+budget: an 11-char item-0 string NULs item 1's page-dest pointer at a5-$699),
+LEVEL SELECT, OPTIONS (opens the pause-menu options page; replaces LOAD
+EXTRA LEVELS — Disk.4 is auto-detected, "DISK.4 LOADED" is drawn on the menu
+art above the beach window). Menu glyph facts: the engine draws items ONLY on
+page 1 with d6=1601 (+8 rows +1 col engraved shadow — d6=1 renders a
+malformed glyph with a ghost column); native page text via menu_page_text
+(stages the string at $7FFF00, trailing space neutralizes the final AND-carve).
+ESC in LEVEL SELECT now CANCELS back to the menu (the picker loop previously
+only exited on fire — the panel closed but the menu stayed frozen).
 
 ### TODOs
 
-0. **Main menu: real OPTIONS entry** — ESC/Start already opens OPTIONS from
-   the title (f948da7), but the originally-requested visible **OPTIONS item in
-   the main-menu list** (alongside PLAY GAME / LEVEL SELECT / LOAD EXTRA
-   LEVELS) was never added. Same native menu-item mechanism as LEVEL SELECT
-   (native_menu_setup / fire-dispatch). Deferred by the user for now.
+(none — all TODOs cleared 2026-06-11; see PROPOSALS)
 
 ### PROPOSALS (not committed to — discuss before starting)
 
