@@ -65,6 +65,7 @@ void pc_debug_game_over(void);
 int  pc_extra_worlds_available(void);  /* 0..6 contiguous filled extra worlds */
 int  pc_num_worlds_ui(void);           /* 7 + extras — picker/UI world count  */
 int  pc_num_levels_ui(void);           /* 60 + 5*extras                       */
+int  pc_menu_continue_level(void);     /* first uncleared vanilla level (CONTINUE) */
 
 int  pc_levels_in_world(int world);    /* # levels in world (0 if out of range) */
 int  pc_world_first_level(int world);  /* 1-based global level # of world's first level (0 if OOR) */

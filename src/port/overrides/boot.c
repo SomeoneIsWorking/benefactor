@@ -395,6 +395,7 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
             rt_jump(ctx, 0x003872u);
             return;
         }
+        { extern int g_pc_menu_visible; g_pc_menu_visible = 0; }
 
         /* Same exit setup as the engine's PLAY GAME path
          * ($003AF4..$003B08). The INTREQ clear matters: stale title-bank
@@ -422,8 +423,8 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx)
      * uncleared level is always unlocked (everything before it is cleared),
      * so try_select cannot refuse; the level-1 fallback is belt-and-braces. */
     {
-        int next = 1;
-        while (next < 60 && pc_profile_completed(next)) next++;
+        { extern int g_pc_menu_visible; g_pc_menu_visible = 0; }
+        int next = pc_menu_continue_level();
         if (!pc_profile_try_select(next)) pc_set_start_level(1);
         MW16(ctx->A[6] + 0x94u, 0x7FFFu);
         MW16(ctx->A[6] + 0x98u, 0x7FFFu);
@@ -483,26 +484,23 @@ static void menu_page_text(uint32_t page_addr, const char *str)
     native_menu_glyph_blit(&t);
 }
 
-/* On-page menu extras, drawn on BOTH pages (page 2 once per menu entry in
- * native_menu_setup, page 1 after each art unpack in native_menu_art_unpack):
- *  - "L<n>" right after the CONTINUE text (its row starts at page+$1F4A =
- *    row 40 col 10; CONTINUE is 8 glyph columns, so col 19 reads as
- *    "CONTINUE L<n>") — the level CONTINUE will start;
- *  - "DISK.4 LOADED" indicator above the beach window when the extra-levels
- *    disk was detected. Page offset = row*$C8 + byte-col. */
-#define MENU_CONT_LVL_OFF (40u  * 0xC8u + 19u)
+/* On-page menu extras, drawn after each page-1 art unpack
+ * (native_menu_art_unpack): the "DISK.4 LOADED" indicator above the beach
+ * window when the extra-levels disk was detected. Page offset = row*$C8 +
+ * byte-col. (The CONTINUE target is shown by the pc_menu_subtext_overlay
+ * small-font subtext instead — see level_select_ui.c.) */
 #define MENU_D4_TEXT_OFF  (150u * 0xC8u + 19u)
 void native_menu_indicator(uint32_t page)
 {
-    char lvl[8];
-    snprintf(lvl, sizeof lvl, "L%d", pc_menu_continue_level());
-    menu_page_text(page + MENU_CONT_LVL_OFF, lvl);
     if (pc_extra_worlds_available() > 0)
         menu_page_text(page + MENU_D4_TEXT_OFF, "DISK.4 LOADED");
 }
 
+int g_pc_menu_visible = 0;   /* main menu on screen (subtext overlay gate) */
+
 void native_menu_setup(M68KCtx *ctx)
 {
+    g_pc_menu_visible = 1;
     /* Item 0: "PLAY GAME" -> "CONTINUE". STRICT 10-char+NUL budget: the next
      * byte (a5-$699) is the high byte of item 1's page-dest pointer
      * ($04CE8A) — an 11-char string NUL's it and the LEVEL SELECT row gets
