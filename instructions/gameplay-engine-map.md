@@ -728,12 +728,25 @@ The long-jump arc `$579A62` is the same shape (anim `$2a9a`, vy `$2b06`, vx
 `$2ad0` — or vx `$2b3c` + SFX `$6dd4(a5)` while carrying `$1098==1`); it
 fires its grunt at `d5==2` (takeoff) and `$579AB2..` is the release-abort
 switch into the `$579Dxx` stubs via the `$579AE0(pc)` table.
-The long jump does NOT start at `$579A62`: the fire+dir commit first runs a
-**~14-frame SQUASH WIND-UP state `$57A0CC`**, which holds `$579A62` in
-`$f74(a5)` as its continuation and hands off when the crouch finishes
-(release fire early → back to grounded, no jump). Dispatcher record around
-the handler ptr: `$f70`=running handler, `$f74`=continuation, `$f78`=
-previously-run handler — don't misread `$f74` as `$f78` (verified 2026-06-12).
+CORRECTION (2026-06-12, second pass): the "~14-frame squash wind-up before
+`$579A62`" previously noted here was FALSE. **`$57A0CC` is the LADDER-MOUNT
+anim state** (anim table `$3042(a5)`; cell 0 → `eori #3,d4` + hands off to
+the ladder state `$57A018`) — it appeared before the long jump only because
+the test scene had the player standing AT a ladder (ladder tiles are checked
+before jump commits, by design). The long jump starts at `$579A62` directly.
+Dispatcher record: `$f70`=running handler, `$f74`=secondary handler slot,
+`$f78`=previously-run handler — don't misread `$f74` as `$f78`.
+SUPER SHOES (RE'd 2026-06-12): there is NO shoes flag in the jump code. The
+shoes are a CARRYABLE (generic pickup handler `$586E6C`: gates `$f80==$20`
+exactly, |dx|<=16, |dy|<=9, `$1098==0`; sets `$1098=1` carrying +
+`$1094`=item type, despawns the object, SFX `$6c24(a5)`). While carrying
+(`$1098!=0`) the long jump uses vx table **`$2b3c`** (flat 2px/f; 44px →
+54px) instead of `$2ad0`, and the grunt descriptor `$6dd4(a5)` (the "boing",
+sample `$5B3764`) instead of `-$273c(a5)` — both tables/descriptors are
+STATIC; the swap is the whole mechanic, and it applies to ANY carried item.
+Also: `-$273c(a5)` is repointed EVERY frame by the housekeeping/RNG routine
+`$57C686` (`$10d8(a5)`=32-bit RNG; its low byte `$10db` bit7 randomly picks
+`$6d2c(a5)` vs `$6d44(a5)` = two PITCH VARIANTS of the normal grunt).
 
 ### Jump TRIGGER — `$57E43C` (writes `$f70(a5)=$579D84` at `$57E526`)
 Dispatched when up/jump input selects this grounded handler. It does a TILE/terrain
