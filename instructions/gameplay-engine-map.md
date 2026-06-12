@@ -743,7 +743,10 @@ exactly, |dx|<=16, |dy|<=9, `$1098==0`; sets `$1098=1` carrying +
 (`$1098!=0`) the long jump uses vx table **`$2b3c`** (flat 2px/f; 44px →
 54px) instead of `$2ad0`, and the grunt descriptor `$6dd4(a5)` (the "boing",
 sample `$5B3764`) instead of `-$273c(a5)` — both tables/descriptors are
-STATIC; the swap is the whole mechanic, and it applies to ANY carried item.
+STATIC; the swap is the whole mechanic. CORRECTION: the gate is `cmpi.w #$1,
+$1098(a5)` ($579A7E) — item type 1 = SHOES exactly; other slot items (laser
+glasses = type 2) get neither the fast table nor the boing. $1098 is the
+carried item TYPE (0 = empty), not a boolean.
 Also: `-$273c(a5)` is repointed EVERY frame by the housekeeping/RNG routine
 `$57C686` (`$10d8(a5)`=32-bit RNG; its low byte `$10db` bit7 randomly picks
 `$6d2c(a5)` vs `$6d44(a5)` = two PITCH VARIANTS of the normal grunt).

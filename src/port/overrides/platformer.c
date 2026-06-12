@@ -96,19 +96,19 @@ static int t_air_drag(void) { return pc_cfg_int("pf_air_drag",  192); } /* px/f^
                                   almost directly. 0 = old pure-momentum behaviour. */
 static int t_vx_max(void)   { return pc_cfg_int("pf_vx_max",   512);  } /* px/f *256   */
 
-/* CARRY boost (super shoes): the vanilla long jump reads its per-frame X step
- * from table $2ad0(a5), but while CARRYING an item ($1098(a5)!=0) it uses the
- * faster flat table $2b3c(a5) instead (and the $6dd4(a5) "boing" grunt, which
- * takeoff_grunt already honours). That table swap IS the super-shoes "jump
- * farther" — the shoes are just a carryable you keep for the whole level
- * (pickup handler $586E6C sets $1098=1, $1094=item type). Mirror the engine's
- * own rule: while carrying, scale the native vx cap by the two tables' summed
- * arc distance (both are 27 entries, $2ad0..$2b06). Engine-derived, no magic
- * constant; vanilla measured 44px -> 54px, same 1.2x ratio. */
+/* SUPER-SHOES boost: the vanilla long jump reads its per-frame X step from
+ * table $2ad0(a5), but with the SHOES in the carry slot it uses the faster
+ * flat table $2b3c(a5) instead (and the $6dd4(a5) "boing" grunt, which
+ * takeoff_grunt already honours). The gate is `cmpi.w #$1, $1098(a5)` at
+ * $579A7E — item type 1 = shoes EXACTLY, not any carried item (the laser
+ * glasses are type 2 in the same slot and get neither boost nor boing).
+ * Mirror the engine's own rule: scale the native vx cap by the two tables'
+ * summed arc distance (both 27 entries, $2ad0..$2b06). Engine-derived, no
+ * magic constant; vanilla measured 44px -> 54px, same 1.2x ratio. */
 static int pf_vx_cap(M68KCtx *ctx)
 {
     int cap = t_vx_max();
-    if (MR16(ctx->A[5] + 0x1098u) != 0) {
+    if (MR16(ctx->A[5] + 0x1098u) == 1) {
         int sn = 0, sc = 0;
         for (uint32_t i = 0; i < 27; i++) {
             sn += (int16_t)MR16(ctx->A[5] + 0x2AD0u + 2u * i);
@@ -165,6 +165,8 @@ static int jump_input(void)
 {
     return hw_get_hop() || vanilla_up();
 }
+/* For the modern-UP diagonal-freeze guard in native_gameplay_input. */
+int pc_pf_vanilla_up(void) { return vanilla_up(); }
 
 /* The jump trigger's own tile probe ($57E458..$57E484). */
 static int tile_solid(M68KCtx *ctx, int x, int y)
