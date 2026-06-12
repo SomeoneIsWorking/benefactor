@@ -432,6 +432,10 @@ static void apply_bound_input(void)
     s_hop       = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_HOP)) ||
                   (pdm && pc_input_active_dev(PI_DEV_PAD, PI_HOP));
     int fire    = pc_input_active(PI_FIRE);
+    /* Outside gameplay the JUMP button doubles as fire/confirm, so the primary
+     * face button (pad A / Space on the modern scheme) still drives the game's
+     * own title/menu screens. In gameplay it is strictly JUMP. */
+    if (s_hop && !g_gameplay_active) fire = 1;
     s_fire_pressed = fire; if (fire) s_joy_buttons |= 1; else s_joy_buttons &= ~1;
     s_mouse_lmb = fire;                    /* fire also = port-0/menu select */
     /* Fire held on a VANILLA-scheme device: that fire is allowed to keep its

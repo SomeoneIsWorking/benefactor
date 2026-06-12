@@ -657,17 +657,74 @@ joystick-decode in `$578C3E`/`$578D0E` is a *different*, cutscene "press fire to
   generic draw slot) — do not treat it as the player coord.
 
 ### State machine (values written to `$f70(a5)`)
-Per frame the engine calls the handler at `$f70(a5)`. Known states:
-`$579D84` hop/jump-arc · `$579DDC` (sibling arc, likely long-jump) · `$579F0E` ·
-`$579F3A` fall/land · `$579F86` · `$57A018` · `$57A2A2` · `$57A2D6` · `$57A30C` ·
-`$57E43C`/`$57E4E6`/`$57E4EE` grounded (input dispatch).
+Per frame the engine calls the handler at `$f70(a5)`. **`$f70 == 0` IS the
+GROUNDED state** (RE'd 2026-06-12): the dispatcher `$5796A4` runs the handler
+when nonzero (a0=&$f70, loads `$10A6..` into d1=X d2=Y d3=ANIM d4=flags
+d5=phase*2 d6, stores back after, `$f78(a5)` = previously-RUN handler, cleared
+to 0 after a grounded frame); when ZERO it takes the grounded INPUT-dispatch
+path `$5796DE` (table `$f2a(a5)` → handler base, `adda.w (a0,d6.w)` → e.g.
+`$57E43C` for UP). Grounded extras in the dispatcher: 600-frame idle timer
+`$1090` → `$57A386` (idle anim), FIRE-alone ($20) → the `$5a4564` lift scan.
+Known states: `$579D84` hop arc · `$579A62` long jump (fire+dir, writers
+`$57EC14`/`$57ED62`) · `$579D00/0E/1C/2A/38/46`→`$579D52` abort arcs ·
+`$579DDC` trampoline/bounce arc (object writer `$5995C8`) · `$579F0E`
+(drop-through; platform pass clears it to 0 at `$5869C2`) · `$579F3A` fall ·
+`$579F86` LANDING IMPACT (see below) · `$579FE0` post-impact anim player ·
+`$579FF0` hop-land anim (table `$322c`, SFX `-$273c(a5)` at d5==$c) ·
+`$579A00` carried-item arc mover/state (tables via `$f84` → `$5834de`) ·
+`$57A018` ladder · `$57A2A2`/`$57A2D6`/`$57A30C` etc. (knockback/death family,
+external writers `$5895BC`/`$58BD52`/`$59B180`…).
+
+### Terrain collision / post-move pass — `$57A934` (BENMOTION keystone)
+Called per-frame from the main loop (`jsr -$44de(a5)` at `$57715C`, also
+`$578504`/`$57936C`/`$579474`), AFTER the action handler. It — not the fall
+handler — owns ground contact:
+- **Kill plane**: Y > `$f6a(a5)` → state `$5799E6` (`$57A948`).
+- **Rising frames skip ground logic** (`$57AA30` bcs: new Y < old Y).
+- **Walk off a ledge**: gap(surface−feet) ≥ 3 px and d4 bit6 ("jumped") clear →
+  `$f70 = $579F3A` (`$57AAA2`). Bit6 protects arcs from demotion.
+- **Ground contact while falling** (state `$579F3A`, also `$579E02`): →
+  `$579F86` landing impact (`$57AB1A`); contact in the carry arc (d4 bit3) →
+  fall damage applied inline + state `$579A00` (`$57AAE0`).
+- **Special tiles** (attr bit3 of d6): dispatch via `$5800f8` table +
+  `$57AD0A(pc)`; bounce pads write `$579D84` directly (`$57AB96`).
+- **X wall/slope resolution**: walks pixel-wise from prev pos (`$f90/$f92`) to
+  the new pos against per-column height profiles (`$46cc` attrs, slope step-up
+  via attr bit13), so ANY dx an override writes is re-validated here.
+- Exit bookkeeping: resolved X → `$10b8`, flags `$10b4` (=($10ac&$44)==0),
+  `$10b6` (d4 mirror), **`sf.b $10b5`** (support flag, re-asserted by
+  platform/object handlers each frame), clears d4 bit6, `$f86` = tile attr d6.
+Platform/moving-object landings live in the OBJECT handlers instead (pattern
+at `$586940`/`$586982`/`$5871A4`/`$58D7xx`…: overlap check → snap Y
+(`$10a8`=top) → `st.b $10b5` → if `$10ac & $c` → `$579F86`).
+
+### Landing impact — `$579F86` (FALL DAMAGE lives here)
+d0 = `$f6e(a5)` (fall-time meter, +2/frame in the fall handler; arcs seed $e
+at their fall hand-off; cleared here): **health damage = table `$3b9a(a5)`
+[d0/2] subtracted from `$1c.w`**; impact anim sequence ptr = `$3ae6(a5)`
+[(d0>>2)<<2] → `$4(a0)`; landing SFX a3=`$6dec(a5)` via `$775c(a5)`; then
+state `$579FE0` plays the anim (cell 0 → `clr.l (a0)` = grounded) — or
+`$579A00` when down+carry conditions hold.
+
+### Fall handler — `$579F3A` (exact body, RE'd 2026-06-12)
+`bclr #5,d4`; d7=`$f6e`+2, **index ≥ 6 → `clr.w d3`**; `d2 += $3b2e(a5)[d7]`
+(gravity ramp); `$f6e += 2`; d4 bit3 → call `$579A00` with d1 SAVED/RESTORED
+(carry-mover state side effects only, its X move cancelled); d4 bit14
+(carried MM) → trail write `$5a4526[($fa2 & $f) << 6] = d2 - 6`. NO X mover,
+NO ground probe (the terrain pass owns landing).
 
 ### Hop arc — `$579D84`
 Plays a precomputed jump trajectory from tables indexed by phase counter `d5`
-(`d5+=2`/frame): vertical deltas `$309c(a5)`, horizontal deltas `$2ce6(a5)`, plus
-`$5d02(a5)` (gated by `d4` bit `$e`). At `d5==$18` (24): `jsr $775c(a5)` (=`$58656E`,
-landing/snap helper), `bset #6,d4`, `$f6e(a5)=$e`. When the vertical delta hits 0 it
-sets `(a0)=$579f3a` (transition to fall/land).
+(`d5+=2`/frame): **vertical deltas `$2ce6(a5)` (`sub.w (a2,d5.w),d2`), ANIM
+cells `$309c(a5)` (→ d3)** — the earlier note here had the two swapped —
+plus `$5d02(a5)` = carried-MM trail offsets (gated by `d4` bit `$e`,
+written to `$5a4526[($fa2&$f)<<6]`). At `d5==$18` (24): `jsr $775c(a5)`
+(=`$58656E`) fires the grunt SFX from `-$273c(a5)`, `bset #6,d4`,
+`$f6e(a5)=$e`. When the ANIM cell reads 0 it sets `(a0)=$579f3a` (fall).
+The long-jump arc `$579A62` is the same shape (anim `$2a9a`, vy `$2b06`, vx
+`$2ad0` — or vx `$2b3c` + SFX `$6dd4(a5)` while carrying `$1098==1`); it
+fires its grunt at `d5==2` (takeoff) and `$579AB2..` is the release-abort
+switch into the `$579Dxx` stubs via the `$579AE0(pc)` table.
 
 ### Jump TRIGGER — `$57E43C` (writes `$f70(a5)=$579D84` at `$57E526`)
 Dispatched when up/jump input selects this grounded handler. It does a TILE/terrain

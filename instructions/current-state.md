@@ -762,17 +762,36 @@ untouched, fire-release abort SUPPRESSED, per-frame X tracked into vx so the
 FALL inherits momentum + air control). Verified: full parabola with release
 at mid-arc, fall carries dx to landing; hop air control; passthrough still
 byte-identical.
+**BENMOTION (2026-06-12) — Stages 0-3 SHIPPED** (platformer.c rewritten; see
+`instructions/benmotion-plan.md` status header + the new terrain-pass /
+landing-impact / fall-handler sections in gameplay-engine-map.md): native
+flight owns the air with NO super-call (rise = $579D84 with anim from $309c,
+descent = $579F3A replicating the vanilla body with vy integration + $f6e
+fall-damage meter + carry/trail side effects); ONE JUMP on a dedicated
+binding (modern defaults: pad A / Space; FIRE moved to pad B / "Z, LCtrl,
+Return"; JUMP doubles as menu-confirm outside gameplay; JUMP row in
+BINDINGS); trigger = native_pf_collision wrapping the terrain pass $57A934
+(grounded $f70==0 + $f82!=$14 + tile-attr-bit4 gates, takeoff grunt =
+-$273c(a5)/$6dd4 via $58656E); vanilla UP-hop ($57E526) and fire+dir
+long-jump ($579A62) commits SUPPRESSED via entry revert (bounce pads still
+work: $579D84 entry from the fall state = native bounce); $579D52/$579DDC
+stay TRACK mode; demo gate $1e.w==8. The old hop→Up merge in
+native_gameplay_input is platformer-gated off (jump near a ladder must not
+climb). Harness: NEW `hop 0|1` REPL cmd; disks are POSITIONAL-ONLY args
+(passing `harness harness/Benefactor.slave` first registers THEM as disks →
+every read truncates → goto reloads the overlay as zeros = card hang in
+$57DC5A; run_harness_interactive.sh fixed). Verified: knob OFF byte-identical
+(90f hop+LJ A/B); knob ON jump-on-JUMP-only, variable height, air control,
+landing via vanilla $579F86→$579FE0 chain, takeoff grunt ($57fe50 =
+$5B0C50/$0280). NOT yet verified: ladders/carry-jump/head-bonk/bounce pads in
+play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
 
 ### TODOs
 
-(none — all TODOs cleared 2026-06-11; see PROPOSALS)
+- **BENMOTION Stage 4** — own grounded movement (walk accel/friction, ledge
+  momentum); then the UP/fire+dir commit/revert flap disappears too.
 
 ### PROPOSALS (not committed to — discuss before starting)
-
-- **BENMOTION** — own ALL player physics/movement natively (replace the
-  hybrid super-call/TRACK platformer mode) + ONE jump on a dedicated JUMP
-  binding (UP-hop and Fire+dir long-jump triggers suppressed; FIRE freed for
-  interactions). Staged plan: `instructions/benmotion-plan.md`.
 - **Rewind** — hold a key to rewind recent gameplay (ring buffer of
   savestates; g_mem+ctx snapshots are cheap and already serializable).
 - **Save states (user-facing)** — polished multi-slot save/load in the pause

@@ -166,13 +166,23 @@ void pc_input_load(void)
     if (s_loaded) return;
     s_loaded = 1;
     pc_config_load();
-    for (int d = 0; d < PI_NUM_DEV; d++)
+    for (int d = 0; d < PI_NUM_DEV; d++) {
+        int modern = (d == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
         for (int i = 0; i < (int)(sizeof k_defaults / sizeof k_defaults[0]); i++) {
+            const char *def = k_defaults[i].def[d];
+            /* MODERN scheme: a dedicated JUMP button. Jump takes the primary
+             * slot (pad A / Space) and fire moves off it, so the two actions
+             * never overlap. Vanilla devices keep the authentic layout. */
+            if (modern && k_defaults[i].act == PI_HOP)
+                def = (d == PI_DEV_PAD) ? "A" : "Space";
+            if (modern && k_defaults[i].act == PI_FIRE)
+                def = (d == PI_DEV_PAD) ? "B" : "Z, LCtrl, Return";
             char buf[160];
             const char *s = pc_cfg_show(k_defaults[i].key[d], buf, sizeof buf, NULL) && buf[0]
-                                ? buf : k_defaults[i].def[d];
+                                ? buf : def;
             parse_binding(d, s, &s_bind[d][k_defaults[i].act]);
         }
+    }
 }
 
 void pc_input_reload(void) { s_loaded = 0; pc_input_load(); }
