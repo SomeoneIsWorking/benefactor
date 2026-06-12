@@ -437,7 +437,7 @@ void native_render_frame(void)
  * Tilemap (~$552A0) and tile gfx (~$5D9xxx, >512KB) are read straight from g_mem
  * (they don't change within a level), NOT via the 512KB chip_r16 window. */
 #define WS_TILEMAP  0x000552A0u
-#define WS_LAYER_W  2560             /* world object-layer width (px), absolute world X */
+#define WS_LAYER_MIN 2560            /* object-layer floor width (px); grows per level */
 int g_ws_view_left = 0, g_ws_view_w = 0;   /* last wide-render view mapping (worldX = view_left + x) */
 /* ============================================================================
  * WIDESCREEN GAMEPLAY SPRITE/OBJECT PIPELINE
@@ -464,7 +464,23 @@ int g_ws_view_left = 0, g_ws_view_w = 0;   /* last wide-render view mapping (wor
  * (A superseded "page display-list" that reverse-projected raw blits — s_pg / *_ingest /
  * *_project — was removed; it could not represent the wide margins and is not the model.)
  * ============================================================================ */
-static uint32_t s_objlayer[HW_DISPLAY_H][WS_LAYER_W];
+/* The layer is sized to the LEVEL, not a fixed constant: a fixed 2560px width
+ * silently clipped every world column past it (L57 "INVISIBLE DEATH" is 2880px
+ * wide -> the right third rendered black, 2026-06-13). Grows to maxcol*16 each
+ * frame; never shrinks (one allocation per biggest-level-so-far). */
+static uint32_t *s_objlayer;        /* HW_DISPLAY_H rows x s_layer_w cols, world X */
+static int s_layer_w;
+#define OBJL(y, x) s_objlayer[(size_t)(y) * (size_t)s_layer_w + (size_t)(x)]
+static int objlayer_ensure(int w)
+{
+    if (w < WS_LAYER_MIN) w = WS_LAYER_MIN;
+    if (w > s_layer_w) {
+        uint32_t *nb = realloc(s_objlayer, (size_t)HW_DISPLAY_H * (size_t)w * 4);
+        if (!nb) return 0;
+        s_objlayer = nb; s_layer_w = w;
+    }
+    return 1;
+}
 
 /* The per-frame gameplay draw list (Phase 1 of the GPU-renderer plan): each
  * sprite pass emits index-bitmap quads here instead of resolving ARGB into
@@ -517,7 +533,8 @@ uint32_t native_scanline_color0(int y)
 {
     return (y >= 0 && y < HW_DISPLAY_H) ? (s_scan[y].palette[0] & 0xFFFFFFu) : 0u;
 }
-void native_render_scene_dims(int *w, int *h) { if (w) *w = WS_LAYER_W; if (h) *h = HW_DISPLAY_H; }
+void native_render_scene_dims(int *w, int *h)
+{ objlayer_ensure(0); if (w) *w = s_layer_w; if (h) *h = HW_DISPLAY_H; }
 
 /* Scene freshness: the windowed per-sprite present must only consume a scene
  * built THIS frame (menus / the level card leave the previous gameplay scene
@@ -602,7 +619,7 @@ static void native_wstiles_compose(int pf_top, int pf_bot, int rowstride, int mi
     for (int r = 0; r < nrows; r++) {
         for (int col = mincol; col < maxcol; col++) {
             int wx = col * 16;
-            if (wx < 0 || wx + 16 > WS_LAYER_W) continue;
+            if (wx < 0 || wx + 16 > s_layer_w) continue;
             uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
             if (mo + 1u >= RT_MEM_SIZE) continue;
             uint16_t w   = gmem_r16(M, mo);
@@ -1210,7 +1227,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
      * object layer. */
     scene_reset(&s_scene);
     scene_load_palrows();
-    memset(s_objlayer, 0, sizeof s_objlayer);
+    if (!objlayer_ensure(maxcol * 16)) return;
+    memset(s_objlayer, 0, (size_t)HW_DISPLAY_H * (size_t)s_layer_w * 4);
     native_wstiles_compose(pf_top, pf_bot, rowstride, mincol, maxcol);   /* terrain background */
     native_wswater_compose(pf_top, pf_bot);         /* animated page patches (water surface) */
     native_wsobj_compose(pf_top, pf_bot);
@@ -1224,8 +1242,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
      * world quads itself: screen_x = x - view_left, world clip [mincol,maxcol)*16. */
     s_scene.view_left = view_left;
     s_scene.wclip_x0  = mincol * 16;
-    s_scene.wclip_x1  = maxcol * 16 < WS_LAYER_W ? maxcol * 16 : WS_LAYER_W;
-    scene_composite_argb(&s_scene, &s_objlayer[0][0], WS_LAYER_W, HW_DISPLAY_H, pf_top, pf_bot);
+    s_scene.wclip_x1  = maxcol * 16 < s_layer_w ? maxcol * 16 : s_layer_w;
+    scene_composite_argb(&s_scene, s_objlayer, s_layer_w, HW_DISPLAY_H, pf_top, pf_bot);
 
     /* The whole playfield (terrain + sprites) is now in the draw list, rasterized into
      * s_objlayer in absolute world X. This loop is just the camera projection: map each
@@ -1248,10 +1266,10 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                 ? view_left + x                               /* wide: 1:1, centered/clamped */
                 : cam16 + ((x - margin) - x_off - scroll1);   /* compare: engine-aligned */
             int drawn = 0;
-            if (worldX >= 0 && worldX < WS_LAYER_W) {
+            if (worldX >= 0 && worldX < s_layer_w) {
                 int col = worldX >> 4;
                 if (col >= mincol && col < maxcol) {          /* camera-reachable column */
-                    uint32_t o = s_objlayer[y][worldX];
+                    uint32_t o = OBJL(y, worldX);
                     if (o & 0xFF000000u) { row[x] = o; drawn = 1; }
                 }
             }
