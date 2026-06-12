@@ -1,5 +1,6 @@
 /* pc_overrides_platformer.c — BENMOTION: native ownership of player air physics
- * (opt-in, "platformer_physics") + ONE jump on a dedicated JUMP button.
+ * (opt-in, "platformer_physics"). Jump = fire+direction (the vanilla long
+ * jump), hop = Up — no dedicated jump key (an optional bind_hop still ORs in).
  *
  * Engine model (RE'd, see instructions/gameplay-engine-map.md):
  *  - Dispatcher $5796A4: $f70(a5) = action-handler ptr; ZERO = GROUNDED (input
@@ -28,9 +29,13 @@
  *    (or $6dd4(a5) while carrying, $1098==1).
  *
  * Platformer mode (knob ON, and never during DEMO playback/record $1e.w==8):
- *  - JUMP trigger: wraps the terrain pass; on JUMP edge while grounded
- *    ($f70==0), with vanilla's own gates ($f82!=$14, tile-attr bit4), commits
- *    $f70=$579D84 with a takeoff mark.
+ *  - NO SUPPRESSION (user, 2026-06-13: suppressing engine behaviour was never
+ *    ok — RE + port only). The engine's OWN committers decide WHEN the player
+ *    jumps (UP-hop $57E526, diagonal $57E7B6/$57EA0E, fire+dir long jump
+ *    $57EC14/$57ED62 — each with its own ladder/door/tile gates); every
+ *    grounded entry of those states becomes a NATIVE TAKEOFF (we own the
+ *    flight, they own the trigger). The terrain-pass wrapper adds only the
+ *    optional bind_hop button (edge, vanilla's own gates).
  *  - NATIVE FLIGHT, no super-call: rising = state $579D84 (our body: vy
  *    integration, jump-cut on release, head bonk, air control, anim from the
  *    arc's own $309c(a5) cells); vy>=0 hands off to $579F3A exactly like the
@@ -39,10 +44,9 @@
  *    index 6, the bit3 carry-mover call $579A00 with d1 preserved, the bit14
  *    carried-MM trail write — with vy integration replacing the ramp and our
  *    vx replacing the missing X). The terrain pass keeps owning walls/landing.
- *  - Vanilla jump SUPPRESSION: a $579D84 entry from grounded without our
- *    takeoff mark (= the UP-hop commit) reverts to grounded; $579A62 always
- *    reverts (player-only entry). Bounce pads enter $579D84 from the fall
- *    state -> become a native bounce (fresh vy, kept vx).
+ *  - Bounce pads enter $579D84 from the fall state -> native bounce (fresh
+ *    vy, kept vx). The fire+dir commit ($579A62) takes FIRE as its
+ *    variable-height hold; UP-committed jumps take Up.
  *  - $579D52/$579DDC (abort arcs / trampoline arc) stay in TRACK mode: vanilla
  *    arc untouched + steer on top; their fall hand-off inherits the momentum.
  *
@@ -130,7 +134,6 @@ static int s_roll;            /* horizontal jump: play the long-jump ROLL anim *
 static int s_air_frames;      /* frames since takeoff (tap-jump detection) */
 static int s_fire_jump;       /* jump initiated by vanilla fire+dir: FIRE is
                                  the held button for the variable-height cut */
-static int s_takeoff;         /* trigger committed a native jump this frame */
 static int s_jump_prev;       /* JUMP edge latch */
 static int s_x_expect, s_x_expect_valid;  /* wall feedback (see wall_feedback) */
 
@@ -397,22 +400,23 @@ static void flight_fall(M68KCtx *ctx)
 
 /* ── State overrides ──────────────────────────────────────────────────────── */
 
-/* $579D84 — entered by: our JUMP trigger (takeoff mark), the vanilla UP-hop
- * commit ($57E526, $f78==0 = from grounded -> SUPPRESS), or the bounce pad
- * ($57AB96, from the fall state -> native bounce). */
+/* $579D84 — entered by: the vanilla UP-hop commit ($57E526), our trigger's
+ * commit (bind_hop), or the bounce pad ($57AB96, from the fall state). NO
+ * SUPPRESSION anywhere (user, 2026-06-13: suppressing engine behaviour was
+ * never ok — RE + port only): the engine's own committers decide WHEN the
+ * player jumps (their ladder/door/tile gates included); we own the FLIGHT.
+ * Held UP re-hops after landing, exactly as vanilla re-commits. */
 void native_pf_hop(M68KCtx *ctx)
 {
     extern int g_pickup_log;
     if (g_pickup_log)
-        fprintf(stderr, "[pf] hop  prev=%08X takeoff=%d fly=%d vy=%d\n",
-                MR32(ctx->A[5] + 0xF78u), s_takeoff, s_fly, s_vy);
+        fprintf(stderr, "[pf] hop  prev=%08X fly=%d vy=%d\n",
+                MR32(ctx->A[5] + 0xF78u), s_fly, s_vy);
     if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579D84(ctx); return; }
 
     uint32_t prev = MR32(ctx->A[5] + 0xF78u);
     if (prev == 0 || !is_air_state(prev)) {
-        if (!s_takeoff) { MW32(ctx->A[0], 0); return; }  /* vanilla UP-hop: suppress */
-        s_takeoff = 0;
-        flight_start(ctx, 0);
+        flight_start(ctx, 0);          /* grounded commit -> native takeoff */
     } else if (!s_fly || s_vy >= 0) {
         /* Engine-internal re-entry from the air (bounce pad): fresh rise,
          * momentum kept if our model was live. */
@@ -427,29 +431,21 @@ void native_pf_hop(M68KCtx *ctx)
 void native_pf_lj(M68KCtx *ctx)
 {
     if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579A62(ctx); return; }
-    if (hw_get_fire()) {
-        flight_start(ctx, 0);
-        s_fire_jump = 1;
-        flight_rise(ctx);
-        return;
-    }
-    MW32(ctx->A[0], 0);
+    flight_start(ctx, 0);
+    s_fire_jump = 1;       /* FIRE is the variable-height hold for this jump */
+    flight_rise(ctx);
 }
 
 /* $579E02 — the vanilla UP+direction DIAGONAL hop arc (third jump family,
  * committers $57E7B6/$57EA0E, both grounded; tables anim $3058 / vy $2d62 /
- * vx $2d20, grunt at d5==$14). Player-initiated only: suppress like the
- * long jump. (Missed in the first BENMOTION pass — "direction + up still
- * hops", user 2026-06-12.) */
+ * vx $2d20, grunt at d5==$14). The commit becomes a native takeoff — the
+ * held direction seeds vx in flight_start, so it stays a diagonal jump. */
 extern void gfn_gpl_579E02(M68KCtx *ctx);
 void native_pf_diag(M68KCtx *ctx)
 {
-    extern int g_pickup_log;
-    if (g_pickup_log)
-        fprintf(stderr, "[pf] diag prev=%08X takeoff=%d fly=%d\n",
-                MR32(ctx->A[5] + 0xF78u), s_takeoff, s_fly);
     if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579E02(ctx); return; }
-    MW32(ctx->A[0], 0);
+    flight_start(ctx, 0);
+    flight_rise(ctx);
 }
 
 /* $579F3A — fall. Fresh entries (walk off a ledge, knockback writers) seed the
@@ -573,22 +569,16 @@ void native_pf_collision(M68KCtx *ctx)
         fprintf(stderr, "[pf] trig j=%d edge=%d st=%08X\n",
                 j, edge, MR32(ctx->A[5] + 0xF70u));
 
-    if (!pf_active(ctx)) { s_takeoff = 0; return; }
+    if (!pf_active(ctx)) return;
 
     uint32_t st = MR32(ctx->A[5] + 0xF70u);
     if (!is_air_state(st)) { s_fly = s_track = 0; }   /* landed / left the air */
 
-    if (!edge) return;
-    /* Grounded only. One tolerated exception: a vanilla jump commit (UP-hop
-     * $579D84 or UP+dir diagonal $579E02) can land in the same frame BEFORE
-     * this trigger (UP-as-jump on a vanilla device) — normalize it to our
-     * canonical rise state and mark the takeoff ours so the suppress
-     * branches don't eat it. */
-    if ((st == ST_HOP || st == 0x579E02u) && !s_fly) {
-        MW32(ctx->A[5] + 0xF70u, ST_HOP);
-        s_takeoff = 1;
-        return;
-    }
+    /* bind_hop edge while grounded -> commit the hop state ourselves (the UP
+     * direction goes through the engine's OWN committer instead, with its
+     * ladder/door checks; every grounded entry of $579D84 becomes a native
+     * takeoff in native_pf_hop — no suppression, no takeoff mark). */
+    if (!edge || !hw_get_hop()) return;
     if (st != 0) return;
     if (MR16(ctx->A[5] + 0xF82u) == 0x14) return;     /* vanilla's own gate */
     int x = (int16_t)MR16(ctx->A[5] + 0x10A6u);
@@ -596,5 +586,4 @@ void native_pf_collision(M68KCtx *ctx)
     if (tile_nojump(ctx, x, y)) return;               /* no-jump tile (water etc.) */
 
     MW32(ctx->A[5] + 0xF70u, ST_HOP);
-    s_takeoff = 1;
 }
