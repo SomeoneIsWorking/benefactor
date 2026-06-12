@@ -217,17 +217,10 @@ void native_gameplay_input(M68KCtx *ctx)
     extern int pc_platformer_on(void);
     int up_dir   = hw_joy_up();
     int want_up  = up_dir || (hw_get_hop() && !pc_platformer_on());
-    /* PLATFORMER diagonal-freeze guard: UP from a MODERN device must not reach
-     * the decode while a horizontal direction is held — the grounded UP+dir
-     * committers ($57E7B6/$57EA0E) would commit the diagonal jump every frame
-     * and native_pf_diag's suppression would revert it, so the walk handler
-     * never ran (UP+dir on a modern pad = frozen player, 2026-06-13). Pure UP
-     * stays vanilla (doors, ladders); a VANILLA device's UP is the jump input
-     * and the trigger normalizes its commits instead of suppressing them. */
-    extern int pc_pf_vanilla_up(void);
-    if (pc_platformer_on() && want_up && !pc_pf_vanilla_up()
-        && (hw_joy_left() || hw_joy_right()))
-        want_up = 0;
+    /* (The 2026-06-13 "modern UP diagonal-freeze guard" was removed same day:
+     * UP is now the hop/jump trigger on EVERY device — the platformer trigger
+     * normalizes the engine's UP/diagonal commits into a native takeoff, so
+     * the commit/suppress freeze can no longer occur.) */
     int up_restore = (want_up != up_dir);
     if (up_restore) hw_set_joy_up(want_up);
 
