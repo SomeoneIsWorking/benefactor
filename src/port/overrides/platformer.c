@@ -94,7 +94,9 @@ static int s_fly;             /* native flight model owns the current air time *
 static int s_track;           /* TRACK-mode arc active (trampoline/abort arcs) */
 static int s_cut_done;
 static int s_y_acc, s_x_acc;  /* sub-pixel accumulators */
-static int s_d5;              /* rise anim phase (our own, table $309c) */
+static int s_d5;              /* flight anim phase (our own) */
+static int s_roll;            /* horizontal jump: play the long-jump ROLL anim */
+static int s_air_frames;      /* frames since takeoff (tap-jump detection) */
 static int s_takeoff;         /* trigger committed a native jump this frame */
 static int s_jump_prev;       /* JUMP edge latch */
 static int s_x_expect, s_x_expect_valid;  /* wall feedback (see wall_feedback) */
@@ -167,14 +169,24 @@ static void flight_start(M68KCtx *ctx, int keep_vx)
         else if (hw_joy_left())  s_vx = -t_vx_max();
         else                     s_vx = 0;
     }
+    s_roll = (s_vx != 0);
+    s_air_frames = 0;
     takeoff_grunt(ctx);
 }
 
 static void phys_jump_cut(void)
 {
     if (s_cut_done || s_vy >= 0) return;
-    if (!jump_input()) {            /* variable height: release halves the rise */
-        s_vy /= 2;
+    if (!jump_input()) {
+        if (s_air_frames <= 4) {    /* TAP: a genuinely small hop — cut the
+                                     * rise hard AND shed horizontal speed,
+                                     * or the full-cap vx carries a "minimal"
+                                     * jump way too far (user, 2026-06-12) */
+            s_vy /= 3;
+            s_vx /= 2;
+        } else {
+            s_vy /= 2;              /* variable height: release halves the rise */
+        }
         s_cut_done = 1;
     }
 }
@@ -218,6 +230,25 @@ static void wall_feedback(int x_in)
     if (s_x_expect_valid && x_in != s_x_expect) { s_vx = 0; s_x_acc = 0; }
 }
 
+/* Flight animation: a HORIZONTAL jump plays the long-jump ROLL cells
+ * ($2a9a(a5), 26 frames, looped for flights longer than the vanilla arc);
+ * a vertical jump plays the hop arc's own cells ($309c(a5), last in-arc
+ * pose held). Runs through rise AND descent so the roll carries to landing,
+ * exactly like the vanilla long jump. */
+static void flight_anim(M68KCtx *ctx)
+{
+    uint32_t tab = ctx->A[5] + (s_roll ? 0x2A9Au : 0x309Cu);
+    int16_t cell = (int16_t)MR16(tab + (uint32_t)s_d5);
+    if (cell == 0) {
+        if (s_roll) { s_d5 = 0; cell = (int16_t)MR16(tab); }  /* loop the roll */
+        else          cell = 0;                               /* hold last pose */
+    }
+    if (cell != 0)
+        ctx->D[3] = (ctx->D[3] & 0xFFFF0000u) | (uint16_t)cell;
+    if (s_roll || s_d5 < 0x14) s_d5 += 2;
+    ctx->D[5] = (ctx->D[5] & 0xFFFF0000u) | (uint16_t)s_d5;
+}
+
 /* ── RISE: native body for state $579D84 ──────────────────────────────────── */
 static void flight_rise(M68KCtx *ctx)
 {
@@ -225,6 +256,7 @@ static void flight_rise(M68KCtx *ctx)
     int16_t y = (int16_t)(uint16_t)ctx->D[2];
 
     wall_feedback(x);
+    s_air_frames++;
     phys_jump_cut();
     s_vy += t_gravity();
     s_y_acc += s_vy;
@@ -239,13 +271,7 @@ static void flight_rise(M68KCtx *ctx)
     y = (int16_t)(y + dy);
     ctx->D[2] = (ctx->D[2] & 0xFFFF0000u) | (uint16_t)y;
 
-    /* Anim from the hop arc's own cell table $309c(a5); hold the last in-arc
-     * pose for ascents longer than the table. */
-    int16_t cell = (int16_t)MR16(ctx->A[5] + 0x309Cu + (uint32_t)s_d5);
-    if (cell != 0)
-        ctx->D[3] = (ctx->D[3] & 0xFFFF0000u) | (uint16_t)cell;
-    if (s_d5 < 0x14) s_d5 += 2;
-    ctx->D[5] = (ctx->D[5] & 0xFFFF0000u) | (uint16_t)s_d5;
+    flight_anim(ctx);
 
     /* Carried-MM trail record, as the arc does ($579D88..A2, table $5d02). */
     if (ctx->D[4] & (1u << 14)) {
@@ -283,8 +309,10 @@ static void flight_fall(M68KCtx *ctx)
     /* $f6e fall-time meter, +2/frame — the landing state's fall-damage input.
      * Past ramp index 6 vanilla clears the anim cell ($579F50). */
     uint16_t f6e = MR16(ctx->A[5] + 0xF6Eu);
-    if ((uint16_t)(f6e + 2) >= 6)
-        ctx->D[3] = (ctx->D[3] & 0xFFFF0000u);
+    if (s_roll && s_fly)
+        flight_anim(ctx);                       /* roll through the descent */
+    else if ((uint16_t)(f6e + 2) >= 6)
+        ctx->D[3] = (ctx->D[3] & 0xFFFF0000u);  /* vanilla fall anim clear */
     MW16(ctx->A[5] + 0xF6Eu, (uint16_t)(f6e + 2));
 
     /* Vertical: vy integration replaces the $3b2e ramp. */
@@ -371,6 +399,7 @@ void native_pf_fall(M68KCtx *ctx)
         s_cut_done = 1;
         s_y_acc = s_x_acc = 0;
         s_vy = 0; s_steer = 0;
+        s_roll = 0; s_d5 = 0;
         /* No ground-velocity tracking yet (Stage 4): a held direction carries
          * the walk into the fall. */
         if (hw_joy_right())      s_vx =  t_vx_max();
