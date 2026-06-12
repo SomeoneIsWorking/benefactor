@@ -170,13 +170,17 @@ void pc_input_load(void)
         int modern = (d == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
         for (int i = 0; i < (int)(sizeof k_defaults / sizeof k_defaults[0]); i++) {
             const char *def = k_defaults[i].def[d];
-            /* MODERN scheme: a dedicated JUMP button. Jump takes the primary
-             * slot (pad A / Space) and fire moves off it, so the two actions
-             * never overlap. Vanilla devices keep the authentic layout. */
+            /* MODERN scheme: ONE primary button (pad A / Space) is BOTH jump
+             * and fire (user, 2026-06-13). In gameplay every fire function
+             * besides jumping is interact-routed (pickup wrappers + the
+             * bare-fire strip in native_gameplay_input), so the overlap is
+             * harmless there; outside gameplay (menus, banner dismissal) the
+             * button acts as plain fire, which is exactly what's wanted.
+             * Vanilla devices keep the authentic layout. */
             if (modern && k_defaults[i].act == PI_HOP)
                 def = (d == PI_DEV_PAD) ? "A" : "Space";
             if (modern && k_defaults[i].act == PI_FIRE)
-                def = (d == PI_DEV_PAD) ? "B" : "Z, LCtrl, Return";
+                def = (d == PI_DEV_PAD) ? "A, B" : "Space, Z, LCtrl, Return";
             char buf[160];
             const char *s = pc_cfg_show(k_defaults[i].key[d], buf, sizeof buf, NULL) && buf[0]
                                 ? buf : def;
