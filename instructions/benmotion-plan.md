@@ -28,6 +28,11 @@ upward), and rising through overhangs gives one-way platforms for free.
 (3) pf_jump_vy default -640 → -768 (~11px apex felt like "barely leaves the
 ground"; ~18px now).
 
+R2 (df0583e): horizontal jumps play the long-jump ROLL cells ($2a9a, looped)
+through rise+descent (vertical jumps keep hop cells $309c); TAP jump =
+release within 4 air frames → vy/3 + vx/2 (a minimal diagonal was ~40px at
+full cap; now ~12px/4px vs 42px/18px held).
+
 User goals, verbatim:
 1. **Own all the player physics and movement** (no more hybrid super-call/TRACK
    riding of the vanilla table arcs).
