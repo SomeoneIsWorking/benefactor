@@ -50,7 +50,6 @@
  * the knob is off (vanilla stays byte-identical). */
 #include "port/port_internal.h"
 #include "port/config.h"
-#include "port/input.h"
 #include <strings.h>
 
 /* RAW input, NOT the engine's decoded $f80(a5): the engine sets the
@@ -144,29 +143,16 @@ static int pf_active(M68KCtx *ctx)
     return pc_platformer_on() && MR16(0x1Eu) != 8;
 }
 
-/* JUMP input, PER DEVICE: the dedicated binding, plus — on a device running
- * VANILLA controls (which has no jump button) — that device's Up, as on
- * hardware. The old `!pc_modern_any() && hw_joy_up()` gate killed jumping
- * outright for a vanilla keyboard whenever the controller flag was modern
- * (user, 2026-06-12). */
-static int vanilla_up(void)
-{
-    return (!pc_modern_kb()  && pc_input_active_dev(PI_DEV_KB,  PI_UP))
-        || (!pc_modern_pad() && pc_input_active_dev(PI_DEV_PAD, PI_UP))
-        || (!pc_modern_any() && hw_joy_up());   /* harness-injected raw input */
-}
-static int vanilla_fire(void)
-{
-    return (!pc_modern_kb()  && pc_input_active_dev(PI_DEV_KB,  PI_FIRE))
-        || (!pc_modern_pad() && pc_input_active_dev(PI_DEV_PAD, PI_FIRE))
-        || (!pc_modern_any() && hw_get_fire()); /* harness-injected raw input */
-}
+/* JUMP inputs, SCHEME-INDEPENDENT (user, 2026-06-13: there is no dedicated
+ * jump key; "jump" = fire+direction, the vanilla long jump, on EVERY device;
+ * "hop" = Up). So Up is the hop/jump trigger and fire is the long-jump hold
+ * on modern and vanilla alike — the earlier per-device gating (which existed
+ * to keep modern UP jump-free for the dedicated button) is obsolete. The
+ * optional bind_hop/pad_hop binding still ORs in for JSON power users. */
 static int jump_input(void)
 {
-    return hw_get_hop() || vanilla_up();
+    return hw_get_hop() || hw_joy_up();
 }
-/* For the modern-UP diagonal-freeze guard in native_gameplay_input. */
-int pc_pf_vanilla_up(void) { return vanilla_up(); }
 
 /* The jump trigger's own tile probe ($57E458..$57E484). */
 static int tile_solid(M68KCtx *ctx, int x, int y)
@@ -230,7 +216,7 @@ static void flight_start(M68KCtx *ctx, int keep_vx)
 static void phys_jump_cut(void)
 {
     if (s_cut_done || s_vy >= 0) return;
-    if (!(s_fire_jump ? vanilla_fire() : jump_input())) {
+    if (!(s_fire_jump ? hw_get_fire() : jump_input())) {
         if (s_air_frames <= 4) {    /* TAP: a genuinely small hop — cut the
                                      * rise hard AND shed horizontal speed,
                                      * or the full-cap vx carries a "minimal"
@@ -435,15 +421,13 @@ void native_pf_hop(M68KCtx *ctx)
     flight_rise(ctx);
 }
 
-/* $579A62 — the vanilla fire+dir long jump; player-initiated only. On a
- * MODERN device the dedicated JUMP button is the one jump and FIRE stays free
- * for interactions: revert to grounded. On a VANILLA device (no jump button)
- * fire+dir IS the jump (user, 2026-06-12): the commit becomes a native
+/* $579A62 — the vanilla fire+dir long jump; player-initiated only. fire+dir
+ * IS the jump on every device (user, 2026-06-13): the commit becomes a native
  * takeoff, with FIRE as the held button for the variable-height cut. */
 void native_pf_lj(M68KCtx *ctx)
 {
     if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579A62(ctx); return; }
-    if (vanilla_fire()) {
+    if (hw_get_fire()) {
         flight_start(ctx, 0);
         s_fire_jump = 1;
         flight_rise(ctx);

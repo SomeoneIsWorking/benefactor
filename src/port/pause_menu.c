@@ -119,8 +119,7 @@ static int bind_rows(int dev, int *actions /* >= 14 */)
     int modern = (dev == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
     actions[n++] = PI_LEFT; actions[n++] = PI_RIGHT;
     actions[n++] = PI_UP;   actions[n++] = PI_DOWN;
-    if (modern) actions[n++] = PI_HOP;          /* dedicated JUMP */
-    actions[n++] = PI_FIRE;
+    actions[n++] = PI_FIRE;                     /* jump/confirm */
     if (modern) actions[n++] = PI_INTERACT;
     actions[n++] = PI_FFWD;           /* hold-to-fast-forward, both schemes */
     actions[n++] = PI_FREECAM;        /* free-cam toggle */
