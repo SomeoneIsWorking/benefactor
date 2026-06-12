@@ -83,9 +83,16 @@ static int t_gravity(void)  { return pc_cfg_int("pf_gravity",   60);  } /* px/f^
 static int t_jump_vy(void)  { return pc_cfg_int("pf_jump_vy", -768);  } /* initial vy.
                                   -640 (~11px apex) felt like "barely leaves the
                                   ground" (user, 2026-06-12); -768 ≈ 18px. */
-static int t_air_acc(void)  { return pc_cfg_int("pf_air_accel", 128); } /* px/f^2 *256.
+static int t_air_acc(void)  { return pc_cfg_int("pf_air_accel", 256); } /* px/f^2 *256.
                                   32 was imperceptible: the arc moves ~2px/f, so steer
-                                  needs to reach ~cap within a few frames to be felt. */
+                                  needs to reach ~cap within a few frames to be felt.
+                                  128 still fought momentum (user: "air speed very hard
+                                  to control", 2026-06-12) -> 256 = cap in 2 frames. */
+static int t_air_drag(void) { return pc_cfg_int("pf_air_drag",  192); } /* px/f^2 *256.
+                                  Super Metroid-style: on a NEUTRAL stick the air
+                                  velocity decays toward 0 (here ~3 frames from cap)
+                                  instead of persisting, so X motion tracks the stick
+                                  almost directly. 0 = old pure-momentum behaviour. */
 static int t_vx_max(void)   { return pc_cfg_int("pf_vx_max",   512);  } /* px/f *256   */
 static int t_vy_max(void)   { return pc_cfg_int("pf_fall_max", 1024); } /* terminal vy */
 
@@ -208,14 +215,26 @@ static void phys_jump_cut(void)
  * off the floor — still hit the surface-row profile tile). Instead the
  * caller detects the pass's clamp (actual X != the X we emitted last frame)
  * and zeroes vx then. */
+static int air_vel_step(int v)
+{
+    int cap = t_vx_max();
+    if (hw_joy_right())     v += t_air_acc();
+    else if (hw_joy_left()) v -= t_air_acc();
+    else {
+        int drag = t_air_drag();
+        if      (v >  drag) v -= drag;
+        else if (v < -drag) v += drag;
+        else                v  = 0;
+    }
+    if (v >  cap) v =  cap;
+    if (v < -cap) v = -cap;
+    return v;
+}
+
 static int phys_dx(M68KCtx *ctx, int x, int y)
 {
     (void)ctx; (void)x; (void)y;
-    int acc = t_air_acc(), cap = t_vx_max();
-    if (hw_joy_right())     s_vx += acc;
-    else if (hw_joy_left()) s_vx -= acc;
-    if (s_vx >  cap) s_vx =  cap;
-    if (s_vx < -cap) s_vx = -cap;
+    s_vx = air_vel_step(s_vx);
 
     s_x_acc += s_vx;
     int dx = s_x_acc >> 8;
@@ -430,11 +449,7 @@ static void air_track(M68KCtx *ctx, void (*super)(M68KCtx *))
     }
     int dxv = (int16_t)(uint16_t)ctx->D[1] - x_in;
 
-    int acc = t_air_acc(), cap = t_vx_max();
-    if (hw_joy_right())     s_steer += acc;
-    else if (hw_joy_left()) s_steer -= acc;
-    if (s_steer >  cap) s_steer =  cap;
-    if (s_steer < -cap) s_steer = -cap;
+    s_steer = air_vel_step(s_steer);
     s_x_acc += s_steer;
     int sdx = s_x_acc >> 8;
     s_x_acc -= sdx << 8;
