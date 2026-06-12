@@ -50,13 +50,14 @@
  * the knob is off (vanilla stays byte-identical). */
 #include "port/port_internal.h"
 #include "port/config.h"
+#include "port/input.h"
 #include <strings.h>
 
 /* RAW input, NOT the engine's decoded $f80(a5): the engine sets the
  * input-disable gate ($1093 bit0) while airborne, so $f80 reads ZERO during
  * the whole flight — that gate IS how vanilla enforces "no air control". */
 extern int hw_joy_left(void), hw_joy_right(void), hw_joy_up(void);
-extern int hw_get_hop(void);
+extern int hw_get_hop(void), hw_get_fire(void);
 
 extern void gfn_gpl_579D84(M68KCtx *ctx);   /* vertical hop arc                */
 extern void gfn_gpl_579DDC(M68KCtx *ctx);   /* trampoline/bounce arc           */
@@ -105,6 +106,8 @@ static int s_y_acc, s_x_acc;  /* sub-pixel accumulators */
 static int s_d5;              /* flight anim phase (our own) */
 static int s_roll;            /* horizontal jump: play the long-jump ROLL anim */
 static int s_air_frames;      /* frames since takeoff (tap-jump detection) */
+static int s_fire_jump;       /* jump initiated by vanilla fire+dir: FIRE is
+                                 the held button for the variable-height cut */
 static int s_takeoff;         /* trigger committed a native jump this frame */
 static int s_jump_prev;       /* JUMP edge latch */
 static int s_x_expect, s_x_expect_valid;  /* wall feedback (see wall_feedback) */
@@ -118,11 +121,26 @@ static int pf_active(M68KCtx *ctx)
     return pc_platformer_on() && MR16(0x1Eu) != 8;
 }
 
-/* JUMP input: the dedicated binding; when no device runs modern controls
- * (no jump button exists) the Up direction is the jump, as in vanilla. */
+/* JUMP input, PER DEVICE: the dedicated binding, plus — on a device running
+ * VANILLA controls (which has no jump button) — that device's Up, as on
+ * hardware. The old `!pc_modern_any() && hw_joy_up()` gate killed jumping
+ * outright for a vanilla keyboard whenever the controller flag was modern
+ * (user, 2026-06-12). */
+static int vanilla_up(void)
+{
+    return (!pc_modern_kb()  && pc_input_active_dev(PI_DEV_KB,  PI_UP))
+        || (!pc_modern_pad() && pc_input_active_dev(PI_DEV_PAD, PI_UP))
+        || (!pc_modern_any() && hw_joy_up());   /* harness-injected raw input */
+}
+static int vanilla_fire(void)
+{
+    return (!pc_modern_kb()  && pc_input_active_dev(PI_DEV_KB,  PI_FIRE))
+        || (!pc_modern_pad() && pc_input_active_dev(PI_DEV_PAD, PI_FIRE))
+        || (!pc_modern_any() && hw_get_fire()); /* harness-injected raw input */
+}
 static int jump_input(void)
 {
-    return hw_get_hop() || (!pc_modern_any() && hw_joy_up());
+    return hw_get_hop() || vanilla_up();
 }
 
 /* The jump trigger's own tile probe ($57E458..$57E484). */
@@ -179,13 +197,14 @@ static void flight_start(M68KCtx *ctx, int keep_vx)
     }
     s_roll = (s_vx != 0);
     s_air_frames = 0;
+    s_fire_jump = 0;
     takeoff_grunt(ctx);
 }
 
 static void phys_jump_cut(void)
 {
     if (s_cut_done || s_vy >= 0) return;
-    if (!jump_input()) {
+    if (!(s_fire_jump ? vanilla_fire() : jump_input())) {
         if (s_air_frames <= 4) {    /* TAP: a genuinely small hop — cut the
                                      * rise hard AND shed horizontal speed,
                                      * or the full-cap vx carries a "minimal"
@@ -387,11 +406,20 @@ void native_pf_hop(M68KCtx *ctx)
     flight_rise(ctx);
 }
 
-/* $579A62 — the vanilla fire+dir long jump; player-initiated only. One jump,
- * one button: revert to grounded (FIRE stays free for interactions). */
+/* $579A62 — the vanilla fire+dir long jump; player-initiated only. On a
+ * MODERN device the dedicated JUMP button is the one jump and FIRE stays free
+ * for interactions: revert to grounded. On a VANILLA device (no jump button)
+ * fire+dir IS the jump (user, 2026-06-12): the commit becomes a native
+ * takeoff, with FIRE as the held button for the variable-height cut. */
 void native_pf_lj(M68KCtx *ctx)
 {
     if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579A62(ctx); return; }
+    if (vanilla_fire()) {
+        flight_start(ctx, 0);
+        s_fire_jump = 1;
+        flight_rise(ctx);
+        return;
+    }
     MW32(ctx->A[0], 0);
 }
 
