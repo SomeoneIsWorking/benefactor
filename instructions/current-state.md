@@ -661,7 +661,19 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 - New control-snapshot diagnostics (added to `FrameState` + harness compare) show no direct `BPLCON1/2`, `DIW*`, or `DDF*` mismatches at the failing frame; remaining divergence is in renderer interpretation, not obvious control-register value mismatch.
 - Bitplane snapshot timing probe (`BENEFACTOR_BPL_SNAP_OFFSET`) is high-sensitivity: offsets `+1/+2` materially move the metric (e.g. baseline-only `5499 -> 5462/5305`; with mode offsets best seen around `5046`), reinforcing that line-start timing/modeling is a key unresolved component.
 
-## Next Tasks (user TODO, updated 2026-06-10 — do not start unprompted)
+## Next Tasks (user TODO, updated 2026-06-13 — do not start unprompted)
+
+- **DEHOP (codename, user 2026-06-13): decouple hop from UP** — a hop input
+  separate from the Up direction (UP keeps doors/ladders/menus only). Like
+  BENMOTION this needs **full RE + port, no suppression/input-remap hacks**
+  (see feedback: "it was never ok to suppress something like that"). The work:
+  RE the grounded UP handler `$57E43C` (ladder/door tile checks FIRST, then the
+  hop commit at `$57E526`) and the diagonal committers `$57E7B6`/`$57EA0E`, then
+  natively own the decision so a hop input can jump WITHOUT Up (reusing the
+  engine's own ladder/door/tile gates) and Up can door/ladder WITHOUT hopping.
+  The platformer trigger's bind_hop path (platformer.c) is a starting point —
+  it already re-implements the commit gates (`$f82!=$14`, tile-attr bit4) —
+  but DEHOP must also cover vanilla physics mode.
 
 **Testing workflow note:** the user runs the game themselves and asks us to
 probe via the HTTP debug server (`BENEFACTOR_HTTP`) — don't drive long headed
