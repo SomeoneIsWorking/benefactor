@@ -671,6 +671,9 @@ Known states: `$579D84` hop arc · `$579A62` long jump (fire+dir, writers
 (drop-through; platform pass clears it to 0 at `$5869C2`) · `$579F3A` fall ·
 `$579F86` LANDING IMPACT (see below) · `$579FE0` post-impact anim player ·
 `$579FF0` hop-land anim (table `$322c`, SFX `-$273c(a5)` at d5==$c) ·
+`$579E02` UP+direction DIAGONAL hop arc (third jump family — committers
+`$57E7B6`/`$57EA0E` grounded UP+dir w/ facing match; tables anim `$3058`,
+vy `$2d62`, vx `$2d20`; grunt at d5==$14; lands via the terrain pass) ·
 `$579A00` carried-item arc mover/state (tables via `$f84` → `$5834de`) ·
 `$57A018` ladder · `$57A2A2`/`$57A2D6`/`$57A30C` etc. (knockback/death family,
 external writers `$5895BC`/`$58BD52`/`$59B180`…).

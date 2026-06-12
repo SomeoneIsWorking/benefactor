@@ -74,12 +74,14 @@ static int is_air_state(uint32_t a)
     return a == 0x579D00u || a == 0x579D0Eu || a == 0x579D1Cu
         || a == 0x579D2Au || a == 0x579D38u || a == 0x579D46u
         || a == 0x579D52u || a == 0x579D84u || a == 0x579DDCu
-        || a == 0x579A62u || a == 0x579F3Au;
+        || a == 0x579A62u || a == 0x579F3Au || a == 0x579E02u;
 }
 
 /* 8.8 fixed-point tunables (cfg-overridable for feel iteration). */
 static int t_gravity(void)  { return pc_cfg_int("pf_gravity",   60);  } /* px/f^2 *256 */
-static int t_jump_vy(void)  { return pc_cfg_int("pf_jump_vy", -640);  } /* initial vy  */
+static int t_jump_vy(void)  { return pc_cfg_int("pf_jump_vy", -768);  } /* initial vy.
+                                  -640 (~11px apex) felt like "barely leaves the
+                                  ground" (user, 2026-06-12); -768 ≈ 18px. */
 static int t_air_acc(void)  { return pc_cfg_int("pf_air_accel", 128); } /* px/f^2 *256.
                                   32 was imperceptible: the arc moves ~2px/f, so steer
                                   needs to reach ~cap within a few frames to be felt. */
@@ -95,6 +97,7 @@ static int s_y_acc, s_x_acc;  /* sub-pixel accumulators */
 static int s_d5;              /* rise anim phase (our own, table $309c) */
 static int s_takeoff;         /* trigger committed a native jump this frame */
 static int s_jump_prev;       /* JUMP edge latch */
+static int s_x_expect, s_x_expect_valid;  /* wall feedback (see wall_feedback) */
 
 int pc_platformer_on(void) { return pc_cfg_bool("platformer_physics", 0); }
 
@@ -151,6 +154,7 @@ static void takeoff_grunt(M68KCtx *ctx)
 static void flight_start(M68KCtx *ctx, int keep_vx)
 {
     s_fly = 1; s_track = 0;
+    s_x_expect_valid = 0;
     s_cut_done = 0;
     s_y_acc = s_x_acc = 0;
     s_steer = 0;
@@ -175,12 +179,25 @@ static void phys_jump_cut(void)
     }
 }
 
-/* Horizontal: integrate air control, probe walls at two body heights on the
- * leading edge, return the whole-pixel step (0 when blocked). The terrain
- * pass re-validates X afterwards (slopes, step-up), so these probes only stop
- * us from burying velocity into a wall. */
+/* Body geometry relative to d2. d2 is the FEET line — the terrain pass
+ * compares it directly against the ground surface ($57AA8A `cmp d0,d2`), and
+ * a standing player has d2 == surface. */
+#define BODY_LO   2     /* lower-body probe: 2px above the feet  */
+#define BODY_HI  16     /* upper-body probe: 16px above the feet */
+
+/* Horizontal: integrate air control and emit the whole-pixel step. WALLS ARE
+ * THE TERRAIN PASS'S JOB: it re-resolves X every frame pixel-wise against the
+ * per-column HEIGHT PROFILES (slopes, step-up) — a flat `tile word != 0`
+ * probe cannot reproduce that: the SURFACE row itself is a nonzero profile
+ * tile, so any leading-edge probe at body height reads "solid" while merely
+ * standing on the ground and zeroes vx (the "jump barely moves sideways"
+ * bug, user 2026-06-12; the first fix attempt — raising the probe offsets
+ * off the floor — still hit the surface-row profile tile). Instead the
+ * caller detects the pass's clamp (actual X != the X we emitted last frame)
+ * and zeroes vx then. */
 static int phys_dx(M68KCtx *ctx, int x, int y)
 {
+    (void)ctx; (void)x; (void)y;
     int acc = t_air_acc(), cap = t_vx_max();
     if (hw_joy_right())     s_vx += acc;
     else if (hw_joy_left()) s_vx -= acc;
@@ -190,14 +207,15 @@ static int phys_dx(M68KCtx *ctx, int x, int y)
     s_x_acc += s_vx;
     int dx = s_x_acc >> 8;
     s_x_acc -= dx << 8;
-    if (dx == 0) return 0;
-
-    int lead = x + dx + (dx > 0 ? 8 : -8);
-    if (tile_solid(ctx, lead, y + 4) || tile_solid(ctx, lead, y + 18)) {
-        s_vx = 0; s_x_acc = 0;
-        return 0;
-    }
     return dx;
+}
+
+/* Wall feedback: compare this frame's incoming X against the X our previous
+ * flight frame emitted — a mismatch means the terrain pass clamped us into a
+ * wall; kill the velocity so we don't grind against it. */
+static void wall_feedback(int x_in)
+{
+    if (s_x_expect_valid && x_in != s_x_expect) { s_vx = 0; s_x_acc = 0; }
 }
 
 /* ── RISE: native body for state $579D84 ──────────────────────────────────── */
@@ -206,14 +224,18 @@ static void flight_rise(M68KCtx *ctx)
     int16_t x = (int16_t)(uint16_t)ctx->D[1];
     int16_t y = (int16_t)(uint16_t)ctx->D[2];
 
+    wall_feedback(x);
     phys_jump_cut();
     s_vy += t_gravity();
     s_y_acc += s_vy;
     int dy = s_y_acc >> 8;
     s_y_acc -= dy << 8;
-    if (dy < 0 && tile_solid(ctx, x, y + dy - 2)) {   /* head bonk */
-        dy = 0; s_vy = 0; s_y_acc = 0;
-    }
+    /* NO head-bonk probe: the engine has no player ceiling collision — the
+     * vanilla arcs never test upward (the hop trigger only gates on tile-attr
+     * bit4, the terrain pass skips rising frames), and a flat tile!=0 probe
+     * false-bonks on nonzero PROFILE tiles (decor/surface rows), which cut
+     * the rise to ~6px. Rising through overhangs = the engine's own model
+     * (and gives one-way platforms for free). */
     y = (int16_t)(y + dy);
     ctx->D[2] = (ctx->D[2] & 0xFFFF0000u) | (uint16_t)y;
 
@@ -234,6 +256,7 @@ static void flight_rise(M68KCtx *ctx)
 
     int dx = phys_dx(ctx, x, y);
     ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(int16_t)(x + dx);
+    s_x_expect = x + dx; s_x_expect_valid = 1;
 
     if (s_vy >= 0) {
         /* Apex: hand off to the fall state exactly like the arc's own tail
@@ -251,6 +274,8 @@ static void flight_fall(M68KCtx *ctx)
 {
     int16_t x = (int16_t)(uint16_t)ctx->D[1];
     int16_t y = (int16_t)(uint16_t)ctx->D[2];
+
+    wall_feedback(x);
 
     /* bclr #5,d4 ($579F3A) */
     ctx->D[4] &= ~(1u << 5);
@@ -289,6 +314,7 @@ static void flight_fall(M68KCtx *ctx)
     /* Horizontal: the X that vanilla drops (the "h-speed instantly zero" flaw). */
     int dx = phys_dx(ctx, x, y);
     ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(int16_t)(x + dx);
+    s_x_expect = x + dx; s_x_expect_valid = 1;
 }
 
 /* ── State overrides ──────────────────────────────────────────────────────── */
@@ -321,6 +347,18 @@ void native_pf_lj(M68KCtx *ctx)
     MW32(ctx->A[0], 0);
 }
 
+/* $579E02 — the vanilla UP+direction DIAGONAL hop arc (third jump family,
+ * committers $57E7B6/$57EA0E, both grounded; tables anim $3058 / vy $2d62 /
+ * vx $2d20, grunt at d5==$14). Player-initiated only: suppress like the
+ * long jump. (Missed in the first BENMOTION pass — "direction + up still
+ * hops", user 2026-06-12.) */
+extern void gfn_gpl_579E02(M68KCtx *ctx);
+void native_pf_diag(M68KCtx *ctx)
+{
+    if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579E02(ctx); return; }
+    MW32(ctx->A[0], 0);
+}
+
 /* $579F3A — fall. Fresh entries (walk off a ledge, knockback writers) seed the
  * model; a hand-off from our rise keeps vx/vy. */
 void native_pf_fall(M68KCtx *ctx)
@@ -329,6 +367,7 @@ void native_pf_fall(M68KCtx *ctx)
 
     if (!s_fly) {
         s_fly = 1; s_track = 0;
+        s_x_expect_valid = 0;
         s_cut_done = 1;
         s_y_acc = s_x_acc = 0;
         s_vy = 0; s_steer = 0;
@@ -373,7 +412,7 @@ static void air_track(M68KCtx *ctx, void (*super)(M68KCtx *))
         int x_arc = x_in + dxv;
         int16_t y = (int16_t)(uint16_t)ctx->D[2];
         int lead = x_arc + sdx + (sdx > 0 ? 8 : -8);
-        if (tile_solid(ctx, lead, y + 4) || tile_solid(ctx, lead, y + 18)) {
+        if (tile_solid(ctx, lead, y - BODY_LO) || tile_solid(ctx, lead, y - BODY_HI)) {
             s_steer = 0; s_x_acc = 0; sdx = 0;
         }
     }
@@ -407,11 +446,16 @@ void native_pf_collision(M68KCtx *ctx)
     if (!is_air_state(st)) { s_fly = s_track = 0; }   /* landed / left the air */
 
     if (!edge) return;
-    /* Grounded only. One tolerated exception: the vanilla UP-hop commit can
-     * land in the same frame BEFORE this trigger (UP-as-jump on a vanilla
-     * device) — the state is already $579D84; just mark the takeoff ours so
-     * the suppress branch doesn't eat it. */
-    if (st == ST_HOP && !s_fly) { s_takeoff = 1; return; }
+    /* Grounded only. One tolerated exception: a vanilla jump commit (UP-hop
+     * $579D84 or UP+dir diagonal $579E02) can land in the same frame BEFORE
+     * this trigger (UP-as-jump on a vanilla device) — normalize it to our
+     * canonical rise state and mark the takeoff ours so the suppress
+     * branches don't eat it. */
+    if ((st == ST_HOP || st == 0x579E02u) && !s_fly) {
+        MW32(ctx->A[5] + 0xF70u, ST_HOP);
+        s_takeoff = 1;
+        return;
+    }
     if (st != 0) return;
     if (MR16(ctx->A[5] + 0xF82u) == 0x14) return;     /* vanilla's own gate */
     int x = (int16_t)MR16(ctx->A[5] + 0x10A6u);

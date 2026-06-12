@@ -15,6 +15,19 @@ R0.1 leftovers (knockback/water states stay vanilla — fine), user feel pass.
 Known wrinkle: holding UP (or fire+dir) grounded flaps $f70 commit/revert
 once per 2 frames — harmless (no motion/SFX) but visible in state traces.
 
+R1 fixes (2026-06-12, user feel pass): (1) UP+direction jumps via a THIRD
+arc family `$579E02` (diagonal hop) — now suppressed (native_pf_diag) and
+normalized to the canonical rise state when it races the trigger. (2) Flat
+`tile != 0` wall/head probes are WRONG near the ground: the surface row is a
+nonzero HEIGHT-PROFILE tile, so leading-edge probes at body height always
+read solid and zeroed vx ("jump barely moves sideways"). Walls are now owned
+by the terrain pass (pixel-accurate profiles/slopes) with a wall-feedback
+clamp detector (actual X != emitted X → vx=0); the head bonk was DELETED —
+the engine has no player ceiling collision at all (vanilla arcs never test
+upward), and rising through overhangs gives one-way platforms for free.
+(3) pf_jump_vy default -640 → -768 (~11px apex felt like "barely leaves the
+ground"; ~18px now).
+
 User goals, verbatim:
 1. **Own all the player physics and movement** (no more hybrid super-call/TRACK
    riding of the vanilla table arcs).
