@@ -1,6 +1,21 @@
-# BENMOTION — native ownership of all player physics & movement (PROPOSAL)
+# BENMOTION — native ownership of all player physics & movement
 
-Status: PROPOSED 2026-06-11 — not started. User goals, verbatim:
+Status 2026-06-12: **Stages 0(core)+1+2+3 SHIPPED** (platformer.c rewritten:
+native flight owns $579D84 rise + $579F3A descent with NO super-call; JUMP
+trigger wraps the terrain pass $57A934; vanilla UP-hop/long-jump commits
+suppressed; JUMP defaults pad A / Space on the modern scheme). Knob OFF
+verified byte-identical (90-frame hop+long-jump A/B). Stage 0 RE results are
+in gameplay-engine-map.md — KEY REVISION to this plan: landing/walls/ledge-
+fall live in the per-frame TERRAIN PASS `$57A934`, not in the fall handler;
+`$579F86` is the landing-impact state and carries FALL DAMAGE
+($3b9a[$f6e/2] off health $1c.w); tile landing requires state == $579F3A,
+so native flight uses $579D84 while rising and $579F3A while falling and
+needs NO landing port of its own. Remaining: Stage 4 (grounded movement),
+R0.1 leftovers (knockback/water states stay vanilla — fine), user feel pass.
+Known wrinkle: holding UP (or fire+dir) grounded flaps $f70 commit/revert
+once per 2 frames — harmless (no motion/SFX) but visible in state traces.
+
+User goals, verbatim:
 1. **Own all the player physics and movement** (no more hybrid super-call/TRACK
    riding of the vanilla table arcs).
 2. **One jump, dedicated button** — replace vanilla's two jumps (UP = hop,

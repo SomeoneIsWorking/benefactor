@@ -119,6 +119,7 @@ static int bind_rows(int dev, int *actions /* >= 14 */)
     int modern = (dev == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
     actions[n++] = PI_LEFT; actions[n++] = PI_RIGHT;
     actions[n++] = PI_UP;   actions[n++] = PI_DOWN;
+    if (modern) actions[n++] = PI_HOP;          /* dedicated JUMP */
     actions[n++] = PI_FIRE;
     if (modern) actions[n++] = PI_INTERACT;
     actions[n++] = PI_FFWD;           /* hold-to-fast-forward, both schemes */
@@ -230,6 +231,7 @@ static void modern_set(int dev, int on)
     pc_cfg_persist(dev == PI_DEV_PAD ? "modern_controls_controller"
                                      : "modern_controls_keyboard",
                    on ? "true" : "false");
+    pc_input_reload();   /* JUMP/FIRE defaults are scheme-dependent */
 }
 
 /* Toggle a persisted bool knob. */

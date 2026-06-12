@@ -210,9 +210,13 @@ void native_gameplay_input(M68KCtx *ctx)
     /* HOP: a dedicated Hop binding ORs into the up/jump input. The Up *direction* is left
      * fully vanilla — it hops, enters doors, climbs ladders and drives menus, exactly as
      * the engine intends. (An earlier grounded-gate that suppressed up-hop while standing
-     * was wrong: it broke up-to-enter-door.) */
+     * was wrong: it broke up-to-enter-door.)
+     * BENMOTION: with platformer physics ON the JUMP button is handled natively
+     * (native_pf_collision trigger) and must NOT present as Up — a jump next to
+     * a ladder/door would climb/enter instead of jumping. */
+    extern int pc_platformer_on(void);
     int up_dir   = hw_joy_up();
-    int want_up  = up_dir || hw_get_hop();
+    int want_up  = up_dir || (hw_get_hop() && !pc_platformer_on());
     int up_restore = (want_up != up_dir);
     if (up_restore) hw_set_joy_up(want_up);
 

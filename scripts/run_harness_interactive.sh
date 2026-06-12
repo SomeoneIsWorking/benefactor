@@ -28,10 +28,10 @@ Commands (type then Enter):
 Tip: to reach gameplay, hold fire and run a while:  fire 1   then   both 1000
 EOF
 
-exec ./build/benefactor-harness \
-    harness \
-    harness/Benefactor.slave \
-    Disk.1 \
-    Disk.2 \
-    Disk.3 \
-    --play "$@"
+# Disks are POSITIONAL ONLY (Disk.4 = optional extra levels); kickstart/WHDLoad
+# paths moved to --kick/--whdload (only needed with BENEFACTOR_REFREEZE=1).
+# Passing them positionally registers them AS disks 1-2 — every disk read then
+# silently truncates and e.g. `goto` reloads the overlay as zeros (card hang).
+DISKS=(Disk.1 Disk.2 Disk.3)
+[ -f Disk.4 ] && DISKS+=(Disk.4)
+exec ./build/benefactor-harness "${DISKS[@]}" --play "$@"

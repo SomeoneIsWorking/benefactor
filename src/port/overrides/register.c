@@ -204,19 +204,20 @@ void pc_register_overrides(void)
         rt_register_override_gp(0x005788DEu, native_levelcomplete_text_capture);
         rt_register_override_gp(0x0057901Eu, native_password_build); } }
 
-    /* PLATFORMER jump physics (opt-in "platformer_physics", pc_overrides_
-     * platformer.c): the three AIR action-handlers super-call the recompiled
-     * bodies and re-shape d2/d3 from a native velocity model (air control,
-     * momentum into the fall, jump-cut). Knob off = verified passthrough. */
+    /* BENMOTION platformer physics (opt-in "platformer_physics", pc_overrides_
+     * platformer.c): native flight owns rise ($579D84) + fall ($579F3A), the
+     * vanilla UP-hop/long-jump commits are suppressed, and the JUMP trigger
+     * rides the per-frame terrain pass. Knob off = verified passthrough. */
     { extern void native_pf_hop(M68KCtx *ctx), native_pf_longjump(M68KCtx *ctx),
-                  native_pf_fall(M68KCtx *ctx);
+                  native_pf_fall(M68KCtx *ctx), native_pf_collision(M68KCtx *ctx);
       extern void native_pf_arc(M68KCtx *ctx);
       rt_register_override_gp(0x00579D84u, native_pf_hop);
       rt_register_override_gp(0x00579D52u, native_pf_arc);   /* abort-arc variants */
       { extern void native_pf_lj(M68KCtx *ctx);
         rt_register_override_gp(0x00579A62u, native_pf_lj); } /* the LONG JUMP */
       rt_register_override_gp(0x00579DDCu, native_pf_longjump);
-      rt_register_override_gp(0x00579F3Au, native_pf_fall); }
+      rt_register_override_gp(0x00579F3Au, native_pf_fall);
+      rt_register_override_gp(0x0057A934u, native_pf_collision); }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
      * Stage 1: SFX trigger. Set BENEFACTOR_RECOMP_AUDIO=1 to keep the recompiled

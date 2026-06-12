@@ -536,6 +536,11 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "fire")) {
             sscanf(line, "%*s %d", &fire); printf("[crepl] fire=%d\n", fire);
         }
+        else if (!strcmp(cmd, "hop")) {   /* hop 0|1 — hold/release the dedicated JUMP action */
+            extern void hw_set_hop(int);
+            int h = 0; sscanf(line, "%*s %d", &h); hw_set_hop(h);
+            printf("[crepl] hop=%d\n", h);
+        }
         else if (!strcmp(cmd, "gocredits")) {  /* gocredits — enter the end-game credits (win-path $150 d0=3) */
             extern void pc_request_credits_start(void);
             pc_request_credits_start();
