@@ -66,7 +66,7 @@ enum { OO_WIDESCREEN = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
        OO_MODERN_KB, OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK,
        OO_QUIT };
 /* MORE-page row ids. */
-enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_BACK };
+enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_FALL_DMG, MO_BACK };
 
 /* Bindings capture: which device/action the next press is assigned to. */
 static int s_capture = 0, s_capture_dev = 0, s_capture_action = 0;
@@ -154,6 +154,7 @@ static int more_rows(int *rows /* >= 14 */)
     int n = 0;
     rows[n++] = MO_SKIP_INTRO;
     rows[n++] = MO_UNLOCK_ALL;
+    rows[n++] = MO_FALL_DMG;
     rows[n++] = MO_BACK;
     return n;
 }
@@ -255,11 +256,35 @@ static void options_cycle(int row, int dir)
     }
 }
 
+/* Fall damage: vanilla / light (half) / none — consumed by the $579F86 +
+ * terrain-pass wrappers in pc_overrides_platformer.c. */
+#define NUM_FALL_DMG 3
+static const char *k_fall_dmg_vals[NUM_FALL_DMG]   = { "vanilla", "light", "none" };
+static const char *k_fall_dmg_labels[NUM_FALL_DMG] = { "VANILLA", "LIGHT", "NONE" };
+
+static int fall_dmg_index(void)
+{
+    char buf[16];
+    if (!pc_cfg_show("fall_damage", buf, sizeof buf, NULL) || !buf[0]) return 0;
+    for (int i = 1; i < NUM_FALL_DMG; i++)
+        if (!strcasecmp(buf, k_fall_dmg_vals[i])) return i;
+    return 0;
+}
+
+static void fall_dmg_set(int idx)
+{
+    char json[16];
+    snprintf(json, sizeof json, "\"%s\"",
+             k_fall_dmg_vals[(idx % NUM_FALL_DMG + NUM_FALL_DMG) % NUM_FALL_DMG]);
+    pc_cfg_persist("fall_damage", json);
+}
+
 static void more_cycle(int row)
 {
     switch (row) {
         case MO_SKIP_INTRO: bool_knob_toggle("skip_intro");        break;
         case MO_UNLOCK_ALL: bool_knob_toggle("unlock_all_levels"); break;
+        case MO_FALL_DMG:   fall_dmg_set(fall_dmg_index() + 1);    break;
         default: break;
     }
 }
@@ -595,6 +620,10 @@ void pc_pause_menu_overlay(uint32_t *fb)
             case MO_UNLOCK_ALL:
                 label = "UNLOCK ALL LEVELS";
                 value = pc_cfg_bool("unlock_all_levels", 0) ? "ON" : "OFF";
+                break;
+            case MO_FALL_DMG:
+                label = "FALL DAMAGE";
+                value = k_fall_dmg_labels[fall_dmg_index()];
                 break;
             case MO_BACK:
                 label = "BACK";

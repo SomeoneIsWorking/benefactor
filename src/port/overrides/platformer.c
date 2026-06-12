@@ -50,6 +50,7 @@
  * the knob is off (vanilla stays byte-identical). */
 #include "port/port_internal.h"
 #include "port/config.h"
+#include <strings.h>
 
 /* RAW input, NOT the engine's decoded $f80(a5): the engine sets the
  * input-disable gate ($1093 bit0) while airborne, so $f80 reads ZERO during
@@ -460,10 +461,47 @@ static void air_track(M68KCtx *ctx, void (*super)(M68KCtx *))
 void native_pf_arc(M68KCtx *ctx)      { air_track(ctx, gfn_gpl_579D52); }
 void native_pf_longjump(M68KCtx *ctx) { air_track(ctx, gfn_gpl_579DDC); }
 
+/* ── FALL DAMAGE scaling ("fall_damage": vanilla | light | none) ──────────────
+ * Vanilla applies fall damage in exactly two places, both wrapped here: the
+ * landing-impact state $579F86 (table $3b9a(a5)[$f6e/2] subtracted from the
+ * energy word $1c.w) and the terrain pass's inline carry-arc contact
+ * ($57AAE6, same table). The wrappers measure the energy delta across the
+ * recompiled body and give back half (light) or all (none) of it — the
+ * body's anim/SFX/state side effects stay untouched. Independent of the
+ * platformer knob (it's an accessibility option for vanilla physics too). */
+static int fall_dmg_mode(void)   /* 0 = vanilla, 1 = light, 2 = none */
+{
+    char buf[16];
+    if (!pc_cfg_show("fall_damage", buf, sizeof buf, NULL) || !buf[0]) return 0;
+    if (!strcasecmp(buf, "light")) return 1;
+    if (!strcasecmp(buf, "none"))  return 2;
+    return 0;
+}
+
+static void fall_dmg_scale(M68KCtx *ctx, int mode, uint16_t energy_before)
+{
+    int dmg = (int16_t)(energy_before - (uint16_t)MR16(0x1Cu));
+    if (dmg <= 0) return;                       /* no damage (or a refill) */
+    int keep = (mode == 1) ? (dmg + 1) / 2 : 0;
+    MW16(0x1Cu, (uint16_t)(energy_before - keep));
+}
+
+extern void gfn_gpl_579F86(M68KCtx *ctx);
+void native_pf_landing_impact(M68KCtx *ctx)
+{
+    int mode = fall_dmg_mode();
+    uint16_t before = MR16(0x1Cu);
+    gfn_gpl_579F86(ctx);
+    if (mode) fall_dmg_scale(ctx, mode, before);
+}
+
 /* ── JUMP trigger: wraps the per-frame terrain pass $57A934 ───────────────── */
 void native_pf_collision(M68KCtx *ctx)
 {
+    int dmg_mode = fall_dmg_mode();
+    uint16_t energy_before = MR16(0x1Cu);
     gfn_gpl_57A934(ctx);
+    if (dmg_mode) fall_dmg_scale(ctx, dmg_mode, energy_before);
 
     int j = jump_input();
     int edge = j && !s_jump_prev;
