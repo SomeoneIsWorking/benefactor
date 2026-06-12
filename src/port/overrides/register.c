@@ -217,6 +217,8 @@ void pc_register_overrides(void)
         rt_register_override_gp(0x00579A62u, native_pf_lj); } /* the LONG JUMP */
       rt_register_override_gp(0x00579DDCu, native_pf_longjump);
       rt_register_override_gp(0x00579F3Au, native_pf_fall);
+      { extern void native_pf_diag(M68KCtx *ctx);
+        rt_register_override_gp(0x00579E02u, native_pf_diag); } /* UP+dir diagonal hop */
       rt_register_override_gp(0x0057A934u, native_pf_collision); }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
