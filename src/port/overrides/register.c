@@ -219,6 +219,9 @@ void pc_register_overrides(void)
       rt_register_override_gp(0x00579F3Au, native_pf_fall);
       { extern void native_pf_diag(M68KCtx *ctx);
         rt_register_override_gp(0x00579E02u, native_pf_diag); } /* UP+dir diagonal hop */
+      { extern void native_pf_landing_impact(M68KCtx *ctx);
+        /* fall-damage scaling knob ("fall_damage"), independent of platformer */
+        rt_register_override_gp(0x00579F86u, native_pf_landing_impact); }
       rt_register_override_gp(0x0057A934u, native_pf_collision); }
 
     /* Audio engine — native port, staged (pc_overrides_audio.c).
