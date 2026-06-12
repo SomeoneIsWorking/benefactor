@@ -728,6 +728,12 @@ The long-jump arc `$579A62` is the same shape (anim `$2a9a`, vy `$2b06`, vx
 `$2ad0` — or vx `$2b3c` + SFX `$6dd4(a5)` while carrying `$1098==1`); it
 fires its grunt at `d5==2` (takeoff) and `$579AB2..` is the release-abort
 switch into the `$579Dxx` stubs via the `$579AE0(pc)` table.
+The long jump does NOT start at `$579A62`: the fire+dir commit first runs a
+**~14-frame SQUASH WIND-UP state `$57A0CC`**, which holds `$579A62` in
+`$f74(a5)` as its continuation and hands off when the crouch finishes
+(release fire early → back to grounded, no jump). Dispatcher record around
+the handler ptr: `$f70`=running handler, `$f74`=continuation, `$f78`=
+previously-run handler — don't misread `$f74` as `$f78` (verified 2026-06-12).
 
 ### Jump TRIGGER — `$57E43C` (writes `$f70(a5)=$579D84` at `$57E526`)
 Dispatched when up/jump input selects this grounded handler. It does a TILE/terrain
