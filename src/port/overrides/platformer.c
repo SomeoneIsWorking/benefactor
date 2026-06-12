@@ -95,6 +95,29 @@ static int t_air_drag(void) { return pc_cfg_int("pf_air_drag",  192); } /* px/f^
                                   instead of persisting, so X motion tracks the stick
                                   almost directly. 0 = old pure-momentum behaviour. */
 static int t_vx_max(void)   { return pc_cfg_int("pf_vx_max",   512);  } /* px/f *256   */
+
+/* CARRY boost (super shoes): the vanilla long jump reads its per-frame X step
+ * from table $2ad0(a5), but while CARRYING an item ($1098(a5)!=0) it uses the
+ * faster flat table $2b3c(a5) instead (and the $6dd4(a5) "boing" grunt, which
+ * takeoff_grunt already honours). That table swap IS the super-shoes "jump
+ * farther" — the shoes are just a carryable you keep for the whole level
+ * (pickup handler $586E6C sets $1098=1, $1094=item type). Mirror the engine's
+ * own rule: while carrying, scale the native vx cap by the two tables' summed
+ * arc distance (both are 27 entries, $2ad0..$2b06). Engine-derived, no magic
+ * constant; vanilla measured 44px -> 54px, same 1.2x ratio. */
+static int pf_vx_cap(M68KCtx *ctx)
+{
+    int cap = t_vx_max();
+    if (MR16(ctx->A[5] + 0x1098u) != 0) {
+        int sn = 0, sc = 0;
+        for (uint32_t i = 0; i < 27; i++) {
+            sn += (int16_t)MR16(ctx->A[5] + 0x2AD0u + 2u * i);
+            sc += (int16_t)MR16(ctx->A[5] + 0x2B3Cu + 2u * i);
+        }
+        if (sn > 0 && sc > sn) cap = cap * sc / sn;
+    }
+    return cap;
+}
 static int t_vy_max(void)   { return pc_cfg_int("pf_fall_max", 1024); } /* terminal vy */
 
 static int s_vx, s_vy;        /* 8.8 px/frame */
@@ -191,8 +214,9 @@ static void flight_start(M68KCtx *ctx, int keep_vx)
     if (!keep_vx) {
         /* Ground velocity isn't tracked yet (Stage 4): a held direction means
          * "running jump" — full cap, momentum-equivalent. */
-        if (hw_joy_right())      s_vx =  t_vx_max();
-        else if (hw_joy_left())  s_vx = -t_vx_max();
+        int cap = pf_vx_cap(ctx);
+        if (hw_joy_right())      s_vx =  cap;
+        else if (hw_joy_left())  s_vx = -cap;
         else                     s_vx = 0;
     }
     s_roll = (s_vx != 0);
@@ -234,9 +258,8 @@ static void phys_jump_cut(void)
  * off the floor — still hit the surface-row profile tile). Instead the
  * caller detects the pass's clamp (actual X != the X we emitted last frame)
  * and zeroes vx then. */
-static int air_vel_step(int v)
+static int air_vel_step(int v, int cap)
 {
-    int cap = t_vx_max();
     if (hw_joy_right())     v += t_air_acc();
     else if (hw_joy_left()) v -= t_air_acc();
     else {
@@ -252,8 +275,8 @@ static int air_vel_step(int v)
 
 static int phys_dx(M68KCtx *ctx, int x, int y)
 {
-    (void)ctx; (void)x; (void)y;
-    s_vx = air_vel_step(s_vx);
+    (void)x; (void)y;
+    s_vx = air_vel_step(s_vx, pf_vx_cap(ctx));
 
     s_x_acc += s_vx;
     int dx = s_x_acc >> 8;
@@ -391,6 +414,10 @@ static void flight_fall(M68KCtx *ctx)
  * ($57AB96, from the fall state -> native bounce). */
 void native_pf_hop(M68KCtx *ctx)
 {
+    extern int g_pickup_log;
+    if (g_pickup_log)
+        fprintf(stderr, "[pf] hop  prev=%08X takeoff=%d fly=%d vy=%d\n",
+                MR32(ctx->A[5] + 0xF78u), s_takeoff, s_fly, s_vy);
     if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579D84(ctx); return; }
 
     uint32_t prev = MR32(ctx->A[5] + 0xF78u);
@@ -431,6 +458,10 @@ void native_pf_lj(M68KCtx *ctx)
 extern void gfn_gpl_579E02(M68KCtx *ctx);
 void native_pf_diag(M68KCtx *ctx)
 {
+    extern int g_pickup_log;
+    if (g_pickup_log)
+        fprintf(stderr, "[pf] diag prev=%08X takeoff=%d fly=%d\n",
+                MR32(ctx->A[5] + 0xF78u), s_takeoff, s_fly);
     if (!pf_active(ctx)) { s_fly = s_track = 0; gfn_gpl_579E02(ctx); return; }
     MW32(ctx->A[0], 0);
 }
@@ -450,8 +481,9 @@ void native_pf_fall(M68KCtx *ctx)
         s_roll = 0; s_d5 = 0;
         /* No ground-velocity tracking yet (Stage 4): a held direction carries
          * the walk into the fall. */
-        if (hw_joy_right())      s_vx =  t_vx_max();
-        else if (hw_joy_left())  s_vx = -t_vx_max();
+        int cap = pf_vx_cap(ctx);
+        if (hw_joy_right())      s_vx =  cap;
+        else if (hw_joy_left())  s_vx = -cap;
         else                     s_vx = 0;
     }
     flight_fall(ctx);
@@ -477,7 +509,7 @@ static void air_track(M68KCtx *ctx, void (*super)(M68KCtx *))
     }
     int dxv = (int16_t)(uint16_t)ctx->D[1] - x_in;
 
-    s_steer = air_vel_step(s_steer);
+    s_steer = air_vel_step(s_steer, t_vx_max());
     s_x_acc += s_steer;
     int sdx = s_x_acc >> 8;
     s_x_acc -= sdx << 8;
@@ -549,6 +581,11 @@ void native_pf_collision(M68KCtx *ctx)
     int j = jump_input();
     int edge = j && !s_jump_prev;
     s_jump_prev = j;
+
+    extern int g_pickup_log;
+    if (g_pickup_log)
+        fprintf(stderr, "[pf] trig j=%d edge=%d st=%08X\n",
+                j, edge, MR32(ctx->A[5] + 0xF70u));
 
     if (!pf_active(ctx)) { s_takeoff = 0; return; }
 
