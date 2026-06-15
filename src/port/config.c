@@ -93,7 +93,8 @@ static const struct { const char *key, *desc; } s_cfg_decl[] = {
     { "interact_extend", "extra horizontal pickup/interact reach, px (0 = vanilla)" },
     { "widescreen",      "widescreen output width, px (0 = native 352)" },
     { "widescreen_mode", "widescreen preset: disabled | 16:9 | ultrawide | auto (window aspect)" },
-    { "renderer",        "frame renderer: vanilla (Amiga blit) | benren (sprite-based, widescreen)" },
+    { "renderer",        "frame renderer: vanilla (Amiga blit) | benren (sprite-based, native; hosts widescreen+effects)" },
+    { "lighting",        "native-renderer light effect: off | ambient | player (benren only)" },
 };
 int         pc_cfg_count(void)    { return (int)(sizeof s_cfg_decl / sizeof s_cfg_decl[0]); }
 const char *pc_cfg_key (int i)    { return (i >= 0 && i < pc_cfg_count()) ? s_cfg_decl[i].key  : NULL; }

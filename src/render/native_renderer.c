@@ -57,6 +57,8 @@ static inline uint16_t chip_r16(uint32_t addr)
 #define DFF_BPLCON1  0x102u
 #define DFF_DDFSTRT  0x092u
 #define DFF_DDFSTOP  0x094u
+#define DFF_DIWSTRT  0x08Eu
+#define DFF_DIWSTOP  0x090u
 #define DFF_BPL1MOD  0x108u
 #define DFF_BPL2MOD  0x10Au
 #define DFF_BPL1PTH  0x0E0u   /* BPLxPTH/L run $0E0..$0F6 (planes 1..6) */
@@ -71,6 +73,7 @@ typedef struct {
     uint16_t bplcon1;       /* horizontal scroll (PF1H bits 0-3, PF2H bits 4-7) */
     int16_t  bpl1mod, bpl2mod;
     uint16_t ddfstrt, ddfstop;  /* data-fetch window — sets width + horizontal position */
+    uint16_t diwstrt, diwstop;  /* display window — crops the visible horizontal extent */
     uint32_t palette[32];   /* ARGB8888 */
 } ScanState;
 
@@ -79,6 +82,16 @@ typedef struct {
  * border); each DDFSTRT unit is 2 lores px. Verified: starfield ($38)→6,
  * title box ($60)→86 (matches PUAE's measured 6 / 87). */
 #define DDF_TO_X(ddf)  ((int)((ddf) - 0x38) * 2 + 6)
+
+/* DIWSTRT/DIWSTOP horizontal → screen x, the real OCS display-window crop. The
+ * playfield is FETCHED wider than it's DISPLAYED (an extra scroll word at the
+ * left, DDFSTRT=$30 → first pixel off-screen at x=-10); DIWSTRT/DIWSTOP define
+ * the visible window that hides that overscan. H is the low 8 bits (DIWSTOP has
+ * an implicit bit 8). Calibration shares DDF_TO_X's anchor: the standard DIWSTRT
+ * H=$81 (129) lines up with the standard DDFSTRT=$38 first pixel at x=6, so
+ * hpos→x subtracts 129-6 = 123. (Gameplay measures DIW [129,448) → x [6,325).) */
+#define DIW_X0(diwstrt)  (((int)((diwstrt) & 0xFF))           - 123)
+#define DIW_X1(diwstop)  ((((int)((diwstop) & 0xFF)) | 0x100) - 123)
 
 /* BPL pointer anchor: at `first_line` the indicated plane pointers reset */
 typedef struct {
@@ -133,6 +146,8 @@ static void walk_copper(void)
     int16_t  cur_bpl2mod = 0;
     uint16_t cur_ddfstrt = 0x38u;      /* standard data-fetch start */
     uint16_t cur_ddfstop = 0xD0u;      /* standard data-fetch stop (320px) */
+    uint16_t cur_diwstrt = 0x2C81u;    /* standard PAL display window (H 0x81..0x1C1 = 320px) */
+    uint16_t cur_diwstop = 0x2CC1u;
     uint32_t cur_pal[32];
     /* Seed palette from hardware shadow so COLOR00 for the border matches the
      * hardware state left by the previous frame's copper list. */
@@ -185,6 +200,8 @@ static void walk_copper(void)
                 s_scan[y].bpl2mod = cur_bpl2mod;
                 s_scan[y].ddfstrt = cur_ddfstrt;
                 s_scan[y].ddfstop = cur_ddfstop;
+                s_scan[y].diwstrt = cur_diwstrt;
+                s_scan[y].diwstop = cur_diwstop;
                 memcpy(s_scan[y].palette, cur_pal, sizeof cur_pal);
             }
 
@@ -209,6 +226,8 @@ static void walk_copper(void)
             else if (reg == DFF_BPLCON1) { cur_bplcon1 = w2; }
             else if (reg == DFF_DDFSTRT) { cur_ddfstrt = w2; }
             else if (reg == DFF_DDFSTOP) { cur_ddfstop = w2; }
+            else if (reg == DFF_DIWSTRT) { cur_diwstrt = w2; }
+            else if (reg == DFF_DIWSTOP) { cur_diwstop = w2; }
             else if (reg == DFF_BPL1MOD) { cur_bpl1mod = (int16_t)w2; }
             else if (reg == DFF_BPL2MOD) { cur_bpl2mod = (int16_t)w2; }
             else if (reg >= DFF_BPL1PTH && reg < DFF_BPL1PTH + MAX_PLANES * 4u) {
@@ -238,6 +257,8 @@ static void walk_copper(void)
         s_scan[y].bpl2mod = cur_bpl2mod;
         s_scan[y].ddfstrt = cur_ddfstrt;
         s_scan[y].ddfstop = cur_ddfstop;
+        s_scan[y].diwstrt = cur_diwstrt;
+        s_scan[y].diwstop = cur_diwstop;
         memcpy(s_scan[y].palette, cur_pal, sizeof cur_pal);
     }
 }
@@ -364,6 +385,10 @@ void native_render_frame(void)
         int width_px    = fetch_words * 16;
         int scroll1     = st->bplcon1 & 0xF;          /* PF1 (odd planes) H-scroll */
         int scroll2     = (st->bplcon1 >> 4) & 0xF;   /* PF2 (even planes) H-scroll */
+        /* Display-window crop: the playfield is fetched wider than it's shown; only
+         * x in [diw_x0, diw_x1) is visible, the rest is border (as on real OCS). */
+        int diw_x0 = DIW_X0(st->diwstrt); if (diw_x0 < 0) diw_x0 = 0;
+        int diw_x1 = DIW_X1(st->diwstop); if (diw_x1 > HW_DISPLAY_W) diw_x1 = HW_DISPLAY_W;
 
         if (bpu == 0) {
             /* No bitplanes — fill with background colour */
@@ -374,7 +399,7 @@ void native_render_frame(void)
             /* Dual-playfield (title star-field): PF1=BPL1+BPL3, PF2=BPL2. */
             for (int x = 0; x < HW_DISPLAY_W; x++) {
                 int lx = x - x_off;
-                row[x] = (lx >= 0 && lx < width_px)
+                row[x] = (x >= diw_x0 && x < diw_x1 && lx >= 0 && lx < width_px)
                         ? decode_dpf(lx, bplpt, st->palette)
                         : bg;
             }
@@ -394,7 +419,7 @@ void native_render_frame(void)
             s_line_bpu[y] = (uint8_t)bpu;    s_line_width[y] = (int16_t)width_px;
             for (int x = 0; x < HW_DISPLAY_W; x++) {
                 int lx = x - x_off - scroll1;
-                row[x] = (lx >= 0 && lx < width_px)
+                row[x] = (x >= diw_x0 && x < diw_x1 && lx >= 0 && lx < width_px)
                         ? decode_planes(lx, bplpt, bpu, st->palette)
                         : bg;
             }
@@ -532,6 +557,55 @@ int native_scanline_info(int y, uint16_t *con0, uint16_t *con1,
 uint32_t native_scanline_color0(int y)
 {
     return (y >= 0 && y < HW_DISPLAY_H) ? (s_scan[y].palette[0] & 0xFFFFFFu) : 0u;
+}
+
+/* Per-scanline data-fetch + display window — for the `diw` probe. */
+int native_scanline_ddf(int y, uint16_t *ddfstrt, uint16_t *ddfstop)
+{
+    if (y < 0 || y >= HW_DISPLAY_H) return 0;
+    if (ddfstrt) *ddfstrt = s_scan[y].ddfstrt;
+    if (ddfstop) *ddfstop = s_scan[y].ddfstop;
+    return 1;
+}
+int native_scanline_diw(int y, uint16_t *diwstrt, uint16_t *diwstop)
+{
+    if (y < 0 || y >= HW_DISPLAY_H) return 0;
+    if (diwstrt) *diwstrt = s_scan[y].diwstrt;
+    if (diwstop) *diwstop = s_scan[y].diwstop;
+    return 1;
+}
+
+/* The game's standard horizontal display window in output px (gameplay + menus
+ * all use DIWSTRT H=$81 / DIWSTOP H=$C0 → [6,325)). For the 4:3 SYMMETRIC
+ * presentation: the visible window is [x0,x1) sitting left-aligned in the 352
+ * buffer (left border x0=6, right border 352-x1=27 — lopsided). Mirroring the
+ * left border on the right gives a symmetric output width of x0+x1 (=331), which
+ * crops the excess right overscan. Constants are the measured gameplay DIW words,
+ * resolved through the same DIW_X0/X1 calibration the per-scanline crop uses. */
+void native_std_display_window(int *x0, int *x1)
+{
+    if (x0) *x0 = DIW_X0(0x2881u);   /* DIWSTRT H=$81 → x6  */
+    if (x1) *x1 = DIW_X1(0x2FC0u);   /* DIWSTOP H=$C0 → x325 */
+}
+
+/* `diw` probe: at playfield scanline y, report the engine camera and the vanilla
+ * (s_fb) vs native worldX at a given screen x, so the framing offset is MEASURED
+ * not guessed. Returns 0 if no engine state. */
+int native_diag_mapping(int y, int x, int *cam_out, int *scroll1_out,
+                        int *xoff_out, int *vanilla_world, int *native_world)
+{
+    EngineView ev;
+    if (y < 0 || y >= HW_DISPLAY_H || !engine_view_capture(&ev)) return 0;
+    int cam     = ev.camera;
+    int cam16   = cam & ~15;
+    int x_off   = DDF_TO_X(s_scan[y].ddfstrt);
+    int scroll1 = s_scan[y].bplcon1 & 0xF;
+    if (cam_out)       *cam_out     = cam;
+    if (scroll1_out)   *scroll1_out = scroll1;
+    if (xoff_out)      *xoff_out    = x_off;
+    if (vanilla_world) *vanilla_world = cam16 + (x - x_off - scroll1);
+    if (native_world)  *native_world  = cam  + (x - x_off - 16);
+    return 1;
 }
 void native_render_scene_dims(int *w, int *h)
 { objlayer_ensure(0); if (w) *w = s_layer_w; if (h) *h = HW_DISPLAY_H; }
@@ -1169,9 +1243,17 @@ static void native_wsbanner_compose(int ow, int cam, int pf_top)
       } }
 }
 
+/* Full native re-render of the gameplay frame. Two callers:
+ *   margin > 0  — WIDESCREEN: smooth 1:1 signed-camera view across the wide buffer.
+ *   margin == 0 — the BENEFACTOR_WS_CMP correctness gate: engine-aligned coarse+fine
+ *                 mapping cropped to vanilla's display window, diffed against s_fb.
+ * The Native 4:3 DISPLAY mode does NOT come here — at 4:3 the engine already
+ * produced the exact frame in s_fb, so re-deriving it would only reintroduce the
+ * camera/copper timing skew (jitter) and framing drift; that path keeps s_fb and
+ * only runs effects (native_render_effects_43). */
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
-    if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only (margin 0 = compare-at-352) */
+    if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only */
     const uint8_t *M = g_mem;
     EngineView ev;
     if (!M || !engine_view_capture(&ev)) return;   /* firewall: engine state only, no fudge */
@@ -1260,11 +1342,22 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 
         int x_off   = DDF_TO_X(st->ddfstrt);
         int scroll1 = st->bplcon1 & 0xF;
+        /* Display-window crop — the SAME visible window s_fb now uses, so the 352
+         * paths frame identically to vanilla (off-window = border, left as s_fb). */
+        int diw_x0 = DIW_X0(st->diwstrt); if (diw_x0 < 0) diw_x0 = 0;
+        int diw_x1 = DIW_X1(st->diwstop); if (diw_x1 > HW_DISPLAY_W) diw_x1 = HW_DISPLAY_W;
 
         for (int x = 0; x < ow; x++) {
-            int worldX = (margin > 0)
-                ? view_left + x                               /* wide: 1:1, centered/clamped */
-                : cam16 + ((x - margin) - x_off - scroll1);   /* compare: engine-aligned */
+            int worldX;
+            if (margin > 0) {
+                worldX = view_left + x;                       /* widescreen: 1:1, centered/clamped — no DIW crop */
+            } else {
+                /* margin==0 is the WS_CMP correctness gate ONLY (Native 4:3 no longer
+                 * re-renders the background — see native_render_effects_43). Engine-
+                 * aligned mapping + vanilla's display window so it diffs against s_fb. */
+                if (x < diw_x0 || x >= diw_x1) continue;       /* outside DIW = s_fb border */
+                worldX = cam16 + (x - x_off - scroll1);
+            }
             int drawn = 0;
             if (worldX >= 0 && worldX < s_layer_w) {
                 int col = worldX >> 4;
@@ -1274,14 +1367,72 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                 }
             }
             if (!drawn && margin > 0)
-                row[x] = st->palette[0] | 0xFF000000u;  /* void = COLOR00 (curtain-aware; black normally) */
+                row[x] = st->palette[0] | 0xFF000000u;  /* wide void = COLOR00 (curtain-aware) */
+            /* Native (margin==0): a hole keeps the vanilla s_fb pixel already in s_out. */
         }
     }
+
+    /* Native-renderer post-process effects (lighting, …) over the playfield rows,
+     * BEFORE the screen-fixed UI below so banners stay full-bright. Off by default
+     * (cheap early-out). Project the player centre with the loop's mapping
+     * (widescreen: 1:1 worldX→x; WS_CMP: engine-aligned). The 4:3 path applies
+     * effects separately in native_render_effects_43. */
+    int light_sx = -1, light_sy = -1;
+    { int plx, ply, pblack; uint32_t pdb, pmb;
+      if (native_wsplayer_get(&plx, &ply, &pdb, &pmb, &pblack)) {
+          int wx = plx + 8;                              /* player sprite centre, world X */
+          light_sy = pf_top + ply + 8;
+          if (margin > 0) {
+              light_sx = wx - view_left;                 /* widescreen: worldX = view_left + x */
+          } else if (light_sy >= 0 && light_sy < HW_DISPLAY_H) {
+              const ScanState *st = &s_scan[light_sy];   /* WS_CMP: engine-aligned */
+              light_sx = (wx - cam16) + DDF_TO_X(st->ddfstrt) + (st->bplcon1 & 0xF);
+          }
+      }
+    }
+    { extern void native_effects_apply(uint32_t*, int, int, int, int, int, int);
+      native_effects_apply(out, ow, HW_DISPLAY_H, pf_top, pf_bot, light_sx, light_sy); }
 
     /* Banner (GET READY / GAME OVER) — screen-fixed UI quads, on top of everything. */
     scene_composite_screen_argb(&s_scene, out, ow, HW_DISPLAY_H);
 
     s_scene_ready = 1;     /* this frame's draw list is complete (windowed present may consume it) */
+}
+
+/* Native 4:3 display (renderer=benren, no widescreen): the engine already blitted
+ * the exact visible playfield into s_fb (now composited into `out`), so the native
+ * renderer's only value-add here is the post-process EFFECTS pass — re-deriving the
+ * background from the camera would just reintroduce the camera/copper timing skew
+ * (turbo jitter) and framing drift vs vanilla. We keep the engine's pixels verbatim
+ * and project the player light with the engine-aligned mapping that matches s_fb. */
+void native_render_effects_43(uint32_t *out, int ow)
+{
+    if (s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;
+
+    int pf_top = -1;
+    for (int y = 0; y < HW_DISPLAY_H; y++)
+        if (((s_scan[y].bplcon0 >> 12) & 7) >= 5 && !((s_scan[y].bplcon0 >> 10) & 1)) { pf_top = y; break; }
+    if (pf_top < 0) return;
+    int pf_bot = pf_top + 16 * 16;
+    for (int a = 0; a < s_nanchors; a++)
+        if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot)
+            pf_bot = s_anchors[a].first_line;
+    if (pf_bot > HW_DISPLAY_H) pf_bot = HW_DISPLAY_H;
+
+    /* Player centre → screen, via the vanilla mapping (worldX = cam16 + x - x_off
+     * - scroll1) so the light lands exactly on the s_fb sprite. */
+    int light_sx = -1, light_sy = -1;
+    EngineView ev;
+    int plx, ply, pblack; uint32_t pdb, pmb;
+    if (engine_view_capture(&ev) && native_wsplayer_get(&plx, &ply, &pdb, &pmb, &pblack)) {
+        light_sy = pf_top + ply + 8;
+        if (light_sy >= 0 && light_sy < HW_DISPLAY_H) {
+            const ScanState *st = &s_scan[light_sy];
+            light_sx = ((plx + 8) - (ev.camera & ~15)) + DDF_TO_X(st->ddfstrt) + (st->bplcon1 & 0xF);
+        }
+    }
+    extern void native_effects_apply(uint32_t*, int, int, int, int, int, int);
+    native_effects_apply(out, ow, HW_DISPLAY_H, pf_top, pf_bot, light_sx, light_sy);
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.

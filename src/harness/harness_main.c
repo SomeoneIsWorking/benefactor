@@ -1819,6 +1819,34 @@ int main(int argc, char **argv)
             }
             printf("[scan] %d state runs in [%d,%d)\n", runs, lo, hi);
         }
+        else if (!strcmp(cmd, "diw")) {   /* diw [y] — DIWSTRT/DIWSTOP window + the scanline's
+                                             DDF fetch geometry, mapped to screen x (overscan crop) */
+            extern int  native_scanline_ddf(int, uint16_t*, uint16_t*);
+            extern int  native_scanline_diw(int, uint16_t*, uint16_t*);
+            int y = -1; sscanf(line, "%*s %d", &y);
+            if (y < 0) {  /* default: first 5-plane playfield scanline */
+                for (int yy = 0; yy < 282; yy++) {
+                    uint16_t c0,c1,df; int m1,m2; extern int native_scanline_info(int,uint16_t*,uint16_t*,int*,int*,uint16_t*);
+                    if (native_scanline_info(yy,&c0,&c1,&m1,&m2,&df) &&
+                        ((c0>>12)&7)>=5 && !((c0>>10)&1)) { y = yy; break; }
+                }
+            }
+            uint16_t ds = 0, de = 0, a = 0, b = 0;
+            if (y >= 0 && native_scanline_diw(y, &ds, &de) && native_scanline_ddf(y, &a, &b)) {
+                int h0 = ds & 0xFF, h1 = (de & 0xFF) | 0x100;   /* DIWSTOP H has implicit bit8 */
+                int words = (((int)b - (int)a) >> 3) + 1; if (words < 1) words = 1;
+                int xoff = (int)(a - 0x38) * 2 + 6;   /* DDF_TO_X */
+                printf("[diw] y=%d DIWSTRT=%04X DIWSTOP=%04X Hwindow=[%d,%d) w=%d\n",
+                       y, ds, de, h0, h1, h1 - h0);
+                printf("[diw]   ddfstrt=%02X ddfstop=%02X fetch %d words = %dpx, screen x=[%d,%d)\n",
+                       a, b, words, words*16, xoff, xoff + words*16);
+                extern int native_diag_mapping(int,int,int*,int*,int*,int*,int*);
+                int cam=0, s1=0, xo=0, vw=0, nw=0;
+                if (native_diag_mapping(y, 176, &cam, &s1, &xo, &vw, &nw))
+                    printf("[diw]   cam=%d (cam&15=%d) scroll1=%d  @x=176: vanillaWorld=%d nativeWorld=%d (delta=%d)\n",
+                           cam, cam & 15, s1, vw, nw, nw - vw);
+            }
+        }
         else if (!strcmp(cmd, "fbw")) {   /* fbw [tag] — dump the WIDE output surface */
             extern int hw_output_width(void);
             extern const uint32_t *hw_get_output_framebuffer(void);

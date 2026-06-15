@@ -205,6 +205,7 @@ add_executable(benefactor-pc
     src/engine/hw_audio.c
     src/engine/hw_blitter.c
     src/render/native_renderer.c
+    src/render/native_effects.c
     src/render/scene.c
     src/render/scene_sdl.c
     src/render/engine_view.c
@@ -491,6 +492,7 @@ set(HARNESS_SOURCES
     src/engine/hw_audio.c
     src/engine/hw_blitter.c
     src/render/native_renderer.c
+    src/render/native_effects.c
     src/render/scene.c
     src/render/scene_sdl.c
     src/render/engine_view.c

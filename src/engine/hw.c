@@ -196,38 +196,68 @@ static uint32_t s_out[HW_OUT_MAX * HW_DISPLAY_H];
 int hw_output_width(void) { return s_hw_out_w; }
 const uint32_t *hw_get_output_framebuffer(void) { return s_out; }
 
+/* Current DIWSTRT/DIWSTOP hardware shadow (display window). The renderer crops
+ * the playfield to this horizontal window so off-window scroll-overscan columns
+ * don't show on the sides — same as real OCS. */
+void hw_get_diw(uint16_t *strt, uint16_t *stop)
+{
+    if (strt) *strt = s_regs[DIWSTRT >> 1];
+    if (stop) *stop = s_regs[DIWSTOP >> 1];
+}
+
 /* Composite the 352-wide s_fb (+ pillarbox margins) into s_out at s_hw_out_w.
  * For gameplay, native_render_wide_bg then fills the margins with the off-screen
  * terrain decoded from the level tilemap (Phase 3 widescreen). */
 void native_render_wide_bg(uint32_t *out, int ow, int margin);   /* native_renderer.c */
+void native_render_effects_43(uint32_t *out, int ow);            /* native_renderer.c */
 static void hw_compose_output(void)
 {
     int ow = s_hw_out_w;
     int margin = (ow - HW_DISPLAY_W) / 2;
-    /* L/R bars take the scanline's COLOR00 (the border colour the vanilla
-     * render shows) — black normally, but the victory fade is a COLOR00
-     * curtain and hardcoded black left the margins/corners unfaded. */
+    /* Compose s_fb (the engine's 352-wide render) into the output surface:
+     *   ow >  352  WIDESCREEN: centre s_fb, COLOR00 pillarbox margins (BenRen fills them).
+     *   ow <= 352  4:3: show s_fb columns [0,ow) — ow<352 right-CROPS the excess scroll-
+     *              overscan so the borders are symmetric (s_fb already holds its own
+     *              DIW-cropped L/R borders, so no extra fill is needed).
+     * L/R bars take the scanline's COLOR00 (black normally; the victory fade is a
+     * COLOR00 curtain, so hardcoded black would leave the corners unfaded). */
     extern uint32_t native_scanline_bgcolor(int y);
-    for (int y = 0; y < HW_DISPLAY_H; y++) {
-        uint32_t *dst = s_out + y * ow;
-        uint32_t bg = native_scanline_bgcolor(y);
-        for (int x = 0; x < margin; x++) dst[x] = bg;
-        memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
-        for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = bg;
+    if (margin > 0) {
+        for (int y = 0; y < HW_DISPLAY_H; y++) {
+            uint32_t *dst = s_out + y * ow;
+            uint32_t bg = native_scanline_bgcolor(y);
+            for (int x = 0; x < margin; x++) dst[x] = bg;
+            memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
+            for (int x = margin + HW_DISPLAY_W; x < ow; x++) dst[x] = bg;
+        }
+    } else {
+        for (int y = 0; y < HW_DISPLAY_H; y++)
+            memcpy(s_out + y * ow, s_fb + y * HW_DISPLAY_W, (size_t)ow * sizeof(uint32_t));
     }
     /* BenRen = the sprite-based renderer (no Amiga blit): it composes the gameplay
      * playfield + margins natively across the full output width. Vanilla leaves
      * s_fb (the copper/blitter render) pillarboxed. Mode comes from the "renderer"
      * cfg knob; AUTO (unset) picks BenRen whenever a widescreen width is requested.
      * BENEFACTOR_WS_CMP forces the BenRen compose even at 352 so it can be diffed
-     * against the vanilla bitplane render (s_fb) frame-by-frame as a correctness gate. */
+     * against the vanilla bitplane render (s_fb) frame-by-frame as a correctness gate.
+     *
+     * Three benren cases:
+     *   widescreen (margin>0)        → full native re-render across the wide buffer.
+     *   WS_CMP at 352 (cmp)          → full native re-render, engine-aligned, diffed vs s_fb.
+     *   Native 4:3 display (else)    → KEEP the engine's s_fb frame (already exact) and
+     *                                  only run the post-process effects pass. Re-deriving
+     *                                  the 4:3 background natively would just reintroduce
+     *                                  the camera/copper timing skew (turbo jitter) and a
+     *                                  framing drift vs vanilla — so we don't. */
     static int cmp = -1;
     if (cmp < 0) cmp = getenv("BENEFACTOR_WS_CMP") ? 1 : 0;
     PcRenderMode mode = pc_render_mode();
     int benren = (mode == PC_RENDER_BENREN) || (mode == PC_RENDER_AUTO && ow > HW_DISPLAY_W) || cmp;
     { extern void native_render_scene_invalidate(void); native_render_scene_invalidate(); }
-    if (benren)
-        native_render_wide_bg(s_out, ow, margin);   /* BenRen native playfield (full width) */
+    if (benren) {
+        if (margin > 0 || cmp) native_render_wide_bg(s_out, ow, margin);  /* full native playfield */
+        else                   native_render_effects_43(s_out, ow);       /* 4:3: engine frame + effects */
+    }
     hw_blit_capture_reset();   /* start a fresh object-blit capture for the next frame */
 }
 
@@ -697,9 +727,25 @@ static int hw_widescreen_mode(void)   /* -1 unset, 0 disabled, 1 16:9, 2 ultrawi
 
 static int ws_clamp(int w)
 {
-    if (w < HW_DISPLAY_W) w = HW_DISPLAY_W;
-    if (w > HW_OUT_MAX)   w = HW_OUT_MAX;
+    /* Floor allows the 4:3 symmetric crop (≈331, below the 352 native width); the
+     * old HW_DISPLAY_W floor would have undone it. */
+    if (w < HW_DISPLAY_W - 64) w = HW_DISPLAY_W - 64;
+    if (w > HW_OUT_MAX)        w = HW_OUT_MAX;
     return w & ~1;
+}
+
+/* 4:3 output width: the symmetric crop of the game's display window (mirrors the
+ * 6px left border on the right instead of the lopsided 27px overscan). Under the
+ * WS_CMP correctness gate we keep the full 352 so the BenRen compose still diffs
+ * pixel-for-pixel against s_fb. */
+static int hw_width_43(void)
+{
+    if (getenv("BENEFACTOR_WS_CMP")) return HW_DISPLAY_W;
+    extern void native_std_display_window(int *, int *);
+    int x0 = 0, x1 = HW_DISPLAY_W;
+    native_std_display_window(&x0, &x1);
+    int w = x0 + x1;
+    return (w > 64 && w <= HW_DISPLAY_W) ? w : HW_DISPLAY_W;
 }
 
 void hw_widescreen_refresh(void)
@@ -708,7 +754,7 @@ void hw_widescreen_refresh(void)
     if (mode < 0) return;                       /* knob unset: legacy width stays */
     int w;
     switch (mode) {
-    case 0:  w = HW_DISPLAY_W;                 break;
+    case 0:  w = hw_width_43();                break;   /* disabled = 4:3 symmetric crop */
     case 1:  w = HW_DISPLAY_H * 16 / 9;        break;
     case 2:  w = HW_DISPLAY_H * 21 / 9;        break;
     default: {                                  /* auto: window aspect */
