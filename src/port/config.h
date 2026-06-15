@@ -46,11 +46,13 @@ const char  *pc_cfg_desc(int i);
  * backend, BENEFACTOR_RENDER=sdl|vulkan, which is only HOW the finished surface
  * reaches the screen). Resolved from the "renderer" cfg knob:
  *   "vanilla" — copper-walk bitplane render, Amiga-blit-faithful, 352px.
- *   "benren"  — the sprite-based draw-list renderer (no Amiga blit); owns
- *               widescreen.
+ *   "benren"  — the sprite-based draw-list renderer (no Amiga blit). Composes
+ *               natively at any width: 4:3 ("Native") OR widescreen, and is the
+ *               only path that can host post-process effects (see native_effects).
  * AUTO (knob unset) = benren when a widescreen width is requested, else vanilla,
  * so existing BENEFACTOR_WIDESCREEN users keep the wide render without also
- * having to set renderer=benren. */
+ * having to set renderer=benren. The pause OPTIONS "RENDERER" row sets renderer
+ * + widescreen_mode together (Vanilla / Native / Widescreen 16:9 / Auto). */
 typedef enum { PC_RENDER_AUTO = 0, PC_RENDER_VANILLA, PC_RENDER_BENREN } PcRenderMode;
 PcRenderMode pc_render_mode(void);
 

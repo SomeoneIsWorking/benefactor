@@ -62,7 +62,7 @@ static int s_title_mode = 0;
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
 /* OPTIONS-page row ids (rows are built per-mode by options_rows). */
-enum { OO_WIDESCREEN = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
+enum { OO_RENDERER = 0, OO_LIGHTING, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
        OO_MODERN_KB, OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK,
        OO_QUIT };
 /* MORE-page row ids. */
@@ -139,8 +139,8 @@ static const char *bind_row_label(int dev, int action)
 static int options_rows(int *rows /* >= 14 */)
 {
     int n = 0;
-    rows[n++] = OO_WIDESCREEN; rows[n++] = OO_SPEED;     rows[n++] = OO_PHYSICS;
-    rows[n++] = OO_FREECAM;
+    rows[n++] = OO_RENDERER;   rows[n++] = OO_LIGHTING;  rows[n++] = OO_SPEED;
+    rows[n++] = OO_PHYSICS;    rows[n++] = OO_FREECAM;
     rows[n++] = OO_INTERACT;   rows[n++] = OO_MODERN_KB; rows[n++] = OO_MODERN_PAD;
     rows[n++] = OO_BIND_KB;    rows[n++] = OO_BIND_PAD;  rows[n++] = OO_MORE;
     rows[n++] = OO_BACK;
@@ -177,23 +177,76 @@ static void enter_page(int page)
 
 /* ── Option values (resolved live, persisted on change) ───────────────────────── */
 
-static const char *k_ws_modes[4]  = { "disabled", "16:9", "ultrawide", "auto" };
-static const char *k_ws_labels[4] = { "DISABLED", "16:9", "ULTRAWIDE", "AUTO" };
+/* RENDERER row — one setting that drives BOTH the frame-renderer knob
+ * ("renderer": vanilla|benren) and the widescreen preset ("widescreen_mode").
+ * They were two independent knobs, but the only way to reach the native
+ * (BenRen) renderer was to request a widescreen width — there was no UI to run
+ * Native at the 4:3 playfield. This collapses them into the four states the
+ * player actually wants:
+ *   VANILLA          — Amiga-blit-faithful copper render, 352px
+ *   NATIVE           — sprite-based native renderer, 4:3 (hosts effects: lighting)
+ *   WIDESCREEN 16:9  — native renderer, 16:9
+ *   WIDESCREEN AUTO  — native renderer, follows the window aspect
+ * ultrawide stays reachable via the raw "widescreen_mode" config knob; it's
+ * just not one of the cycled menu states. */
+#define NUM_RENDER_MODES 4
+static const char *k_rm_renderer[NUM_RENDER_MODES] = { "vanilla", "benren", "benren", "benren"  };
+static const char *k_rm_ws      [NUM_RENDER_MODES] = { "disabled","disabled","16:9",  "auto"    };
+static const char *k_rm_labels  [NUM_RENDER_MODES] = { "VANILLA", "NATIVE", "WIDESCREEN 16:9", "WIDESCREEN AUTO" };
 
-static int ws_mode_index(void)
+static int render_mode_index(void)
 {
-    char buf[24];
-    if (!pc_cfg_show("widescreen_mode", buf, sizeof buf, NULL) || !buf[0]) return 0;
-    for (int i = 0; i < 4; i++) if (!strcmp(buf, k_ws_modes[i])) return i;
+    char r[24] = "", w[24] = "";
+    pc_cfg_show("renderer",       r, sizeof r, NULL);
+    pc_cfg_show("widescreen_mode", w, sizeof w, NULL);
+
+    int wide = (!strcasecmp(w, "16:9") || !strcasecmp(w, "ultrawide") || !strcasecmp(w, "auto"));
+    int benren;
+    if      (!strcasecmp(r, "benren"))  benren = 1;
+    else if (!strcasecmp(r, "vanilla")) benren = 0;
+    else                                benren = wide;   /* AUTO (unset): benren iff a wide width is asked for */
+
+    if (!benren)                     return 0;           /* VANILLA */
+    if (!strcasecmp(w, "auto"))      return 3;           /* WIDESCREEN AUTO */
+    if (wide)                        return 2;           /* WIDESCREEN 16:9 (incl. ultrawide) */
+    return 1;                                            /* NATIVE (benren, 4:3) */
+}
+
+static void render_mode_set(int idx)
+{
+    idx = (idx % NUM_RENDER_MODES + NUM_RENDER_MODES) % NUM_RENDER_MODES;
+    char json[24];
+    /* Persist BOTH knobs explicitly so the resolved state no longer depends on
+     * the renderer-AUTO heuristic (which keys off the requested width). */
+    snprintf(json, sizeof json, "\"%s\"", k_rm_renderer[idx]);
+    pc_cfg_persist("renderer", json);
+    snprintf(json, sizeof json, "\"%s\"", k_rm_ws[idx]);
+    pc_cfg_persist("widescreen_mode", json);
+    hw_widescreen_refresh();
+}
+
+/* LIGHTING row — native-renderer post-process light (the "lighting" knob, read
+ * live by native_effects). off / ambient vignette / player torch. Only the native
+ * (benren) renderer applies it; in Vanilla mode it's inert. */
+#define NUM_LIGHTING 3
+static const char *k_light_vals  [NUM_LIGHTING] = { "off", "ambient", "player" };
+static const char *k_light_labels[NUM_LIGHTING] = { "OFF", "AMBIENT", "TORCH"  };
+
+static int lighting_index(void)
+{
+    char buf[16];
+    if (!pc_cfg_show("lighting", buf, sizeof buf, NULL) || !buf[0]) return 0;
+    for (int i = 1; i < NUM_LIGHTING; i++)
+        if (!strcasecmp(buf, k_light_vals[i])) return i;
     return 0;
 }
 
-static void ws_mode_set(int idx)
+static void lighting_set(int idx)
 {
-    char json[24];
-    snprintf(json, sizeof json, "\"%s\"", k_ws_modes[(idx % 4 + 4) % 4]);
-    pc_cfg_persist("widescreen_mode", json);
-    hw_widescreen_refresh();
+    char json[16];
+    snprintf(json, sizeof json, "\"%s\"",
+             k_light_vals[(idx % NUM_LIGHTING + NUM_LIGHTING) % NUM_LIGHTING]);
+    pc_cfg_persist("lighting", json);
 }
 
 /* Game speed: normal / turbo (=1.2x) / hyper (=1.5x). Audio/music stay
@@ -244,7 +297,8 @@ static void bool_knob_toggle(const char *key)
 static void options_cycle(int row, int dir)
 {
     switch (row) {
-        case OO_WIDESCREEN: ws_mode_set(ws_mode_index() + dir);        break;
+        case OO_RENDERER:   render_mode_set(render_mode_index() + dir); break;
+        case OO_LIGHTING:   lighting_set(lighting_index() + dir);        break;
         case OO_SPEED:      speed_set(speed_index() + dir);            break;
         case OO_PHYSICS:    bool_knob_toggle("platformer_physics");    break;
         case OO_FREECAM:    bool_knob_toggle("freecam_pause");         break;
@@ -542,7 +596,7 @@ void pc_pause_menu_overlay(uint32_t *fb)
     if (s_page == PG_OPTIONS) {
         int rows[14]; int n = options_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
-        const int pw = 230;
+        const int pw = 264;   /* value col (x+150) must fit "WIDESCREEN 16:9" = 15ch*6px */
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
         draw_panel(fb, px, py, pw, ph, "OPTIONS");
@@ -550,9 +604,13 @@ void pc_pause_menu_overlay(uint32_t *fb)
             const char *label = "", *value = NULL;
             char vbuf[24];
             switch (rows[i]) {
-            case OO_WIDESCREEN:
-                label = "WIDESCREEN";
-                value = k_ws_labels[ws_mode_index()];
+            case OO_RENDERER:
+                label = "RENDERER";
+                value = k_rm_labels[render_mode_index()];
+                break;
+            case OO_LIGHTING:
+                label = "LIGHTING";
+                value = k_light_labels[lighting_index()];
                 break;
             case OO_SPEED:
                 label = "GAME SPEED";
