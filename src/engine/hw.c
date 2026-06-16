@@ -210,6 +210,7 @@ void hw_get_diw(uint16_t *strt, uint16_t *stop)
  * terrain decoded from the level tilemap (Phase 3 widescreen). */
 void native_render_wide_bg(uint32_t *out, int ow, int margin);   /* native_renderer.c */
 void native_render_effects_43(uint32_t *out, int ow);            /* native_renderer.c */
+int  hw_scene_render_enabled(void);                              /* defined below */
 static void hw_compose_output(void)
 {
     int ow = s_hw_out_w;
@@ -254,9 +255,14 @@ static void hw_compose_output(void)
     PcRenderMode mode = pc_render_mode();
     int benren = (mode == PC_RENDER_BENREN) || (mode == PC_RENDER_AUTO && ow > HW_DISPLAY_W) || cmp;
     { extern void native_render_scene_invalidate(void); native_render_scene_invalidate(); }
+    /* The Hardware (GPU per-sprite) renderer needs the draw list built even at 4:3,
+     * so present_scene runs (and the sprite glow shows) instead of falling back to the
+     * composite. Software/Vanilla 4:3 keep the engine frame (no camera re-derivation,
+     * avoids turbo jitter). */
+    int want_scene = hw_scene_render_enabled();
     if (benren) {
-        if (margin > 0 || cmp) native_render_wide_bg(s_out, ow, margin);  /* full native playfield */
-        else                   native_render_effects_43(s_out, ow);       /* 4:3: engine frame + effects */
+        if (margin > 0 || cmp || want_scene) native_render_wide_bg(s_out, ow, margin);  /* full native playfield */
+        else                                 native_render_effects_43(s_out, ow);       /* 4:3: engine frame + effects */
     }
     hw_blit_capture_reset();   /* start a fresh object-blit capture for the next frame */
 }

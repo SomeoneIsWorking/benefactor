@@ -62,24 +62,31 @@ lighting hang off here next (the FxFrame from `set_effects` is already stored).
 
 ## Effects (SHIPPED — Hardware only)
 
-Three independent GPU effects, toggled in OPTIONS → RENDERING → EFFECTS
-(`fx_ambient` / `fx_torch` / `fx_spriteglow`):
-- AMBIENT DARKNESS — vignette toward the view edges.
-- TORCH GLOW — player-centred dim with a lit core.
-- SPRITE GLOW — a faint glow behind ALL foreground sprites (objects/characters/
-  player), for visual pop.
+Two GPU effects, toggled in OPTIONS → RENDERING → EFFECTS, both Hardware-only
+(`hw_present_frame` feeds the FxFrame via `set_effects`; SDL/composite ignore it):
+- AMBIENT DARKNESS (`fx_ambient`, bool) — vignette toward the view edges. A
+  MULTIPLY-blended fullscreen pass (`shaders/fx.frag`) after the world sprites, before
+  the banner (UI stays bright). Pure per-pixel, no texture read.
+- SPRITE GLOW (`fx_spriteglow`, strength 0..3) — a glow behind ALL foreground sprites
+  (objects/characters/player). PER-SPRITE: an expanded, additive copy of each sprite
+  (quad.frag mode 2, `pipe_quad_glow`) drawn BEFORE the sprites, so a colour fringe
+  haloes each. Scoped via a `glow` flag on SceneQuad the emitter raises around the
+  object/char/player composers (NOT tiles/water/UI). Strength → intensity+spread table
+  in present_vulkan.c. Genuinely per-object — the seam future per-object materials use.
 
-Two mechanisms, both inside the per-sprite render (Hardware-only — `hw_present_frame`
-feeds the FxFrame via `set_effects`; SDL/composite ignore it):
-- **Dim** (ambient + torch): a MULTIPLY-blended fullscreen pass (`shaders/fx.frag`)
-  after the world sprites, before the banner (UI stays bright). Pure per-pixel +
-  the projected player light, no texture read.
-- **Sprite glow**: PER-SPRITE — an expanded, faint ADDITIVE copy of each foreground
-  sprite (quad.frag mode 2, `pipe_quad_glow`) drawn BEFORE the sprites, so a soft
-  colour fringe haloes each one. Scoped via a `glow` flag on SceneQuad that the
-  emitter raises around the object/char/player composers (NOT tiles/water/UI), so
-  the background doesn't grid-glow. This is genuinely per-object — the seam future
-  per-object materials extend.
+(TORCH GLOW was removed per user request.)
+
+**Hardware builds the draw list even at 4:3** (`hw_scene_render_enabled()` in
+hw_compose_output) so present_scene + the glow run there too — Software/Vanilla 4:3
+still keep the engine frame (no camera re-derivation; avoids turbo jitter).
+
+## Menu small-text subsystem (level_select_ui.c)
+
+`menu_small_text()` draws small overlay text anchored in CONTENT coords (+widescreen
+margin) and dimmed by the menu's palette fade (`native_scanline_palette_luma`), so it
+tracks the RE'd menu items instead of drifting/popping. Used for the CONTINUE target
+line (anchored under CONTINUE — position captured from the real page-dest in
+`native_menu_glyph_blit`) and the DISK.4 indicator (replaces the old bitplane draw).
 
 Future: per-object material/shader ids on the scene quads; graphics remake
 (blocked on commissioned art); per-torch level light sources (needs RE — today only

@@ -176,24 +176,54 @@ void pc_toast_show(const char *msg, int is_error)
 
 int pc_toast_visible(void) { return s_toast_frames > 0 && s_toast[0] != 0; }
 
-/* Main-menu subtext: under the CONTINUE row, show where it will take you —
- * "<WORLD> - <LEVEL NAME> (W#L#)" in the small overlay font. Gated on the
- * menu actually being on screen (g_pc_menu_visible, set by native_menu_setup
- * and cleared at the level-start hand-offs) + the menu copper list. */
+/* Menu small-text subsystem: small overlay text anchored in CONTENT coords (shifted
+ * by the widescreen margin so it tracks the centred 352-wide menu) and dimmed by the
+ * menu's current palette fade — so it appears/fades exactly with the RE'd menu items
+ * instead of popping at full brightness or drifting in widescreen. */
+static void menu_small_text(uint32_t *fb, int content_x, int content_y, const char *s)
+{
+    extern int native_scanline_palette_luma(int y);
+    int margin = (s_draw_w - FB_W) / 2;
+    if (margin < 0) margin = 0;
+    int fade = native_scanline_palette_luma(content_y) * 255 / 200;  /* full once palette >=200 */
+    if (fade > 255) fade = 255;
+    const uint32_t tint = 0xD8E8C0u;
+    uint32_t r = (((tint >> 16) & 0xFF) * (uint32_t)fade) / 255;
+    uint32_t g = (((tint >>  8) & 0xFF) * (uint32_t)fade) / 255;
+    uint32_t b = (( tint        & 0xFF) * (uint32_t)fade) / 255;
+    draw_text(fb, margin + content_x, content_y, s, 1, 0xFF000000u | (r << 16) | (g << 8) | b);
+}
+
+/* Main-menu subtext: under the CONTINUE row, show where it will take you, plus the
+ * DISK.4-loaded indicator. Both go through the small-text subsystem so they anchor
+ * to the menu layout and fade with it. Gated on the menu being on screen
+ * (g_pc_menu_visible) + the menu copper list. */
 void pc_menu_subtext_overlay(uint32_t *fb)
 {
-    extern int g_pc_menu_visible;
+    extern int g_pc_menu_visible, g_menu_continue_x, g_menu_continue_y;
     extern int pc_menu_continue_level(void);
+    extern int pc_extra_worlds_available(void);
     extern uint32_t hw_get_cop1lc(void);
     if (!g_pc_menu_visible || g_gameplay_active) return;
     if (hw_get_cop1lc() != 0x8302u) return;
-    int level = pc_menu_continue_level();
-    int w = 0, liw = 0;
-    pc_level_split(level, &w, &liw);
-    char line[80];
-    snprintf(line, sizeof line, "%s - %s (W%dL%d)",
-             pc_world_name(w), pc_static_level_name(level), w + 1, liw + 1);
-    draw_text(fb, 160, 76, line, 1, 0xFFD8E8C0u);
+
+    /* CONTINUE target — anchored just below the CONTINUE item, left-aligned to it. */
+    if (g_menu_continue_x >= 0) {
+        int level = pc_menu_continue_level();
+        int w = 0, liw = 0;
+        pc_level_split(level, &w, &liw);
+        char line[80];
+        snprintf(line, sizeof line, "%s - %s (W%dL%d)",
+                 pc_world_name(w), pc_static_level_name(level), w + 1, liw + 1);
+        /* g_menu_continue_y is the bitplane PAGE row; the menu composites ~12 lines
+         * lower and the item font (+shadow) is ~24 tall, so drop the subtext into the
+         * gap below CONTINUE (empirically +40 lands between CONTINUE and LEVEL SELECT). */
+        menu_small_text(fb, g_menu_continue_x, g_menu_continue_y + 40, line);
+    }
+
+    /* DISK.4 indicator — same subsystem, when the extras disk is present. */
+    if (pc_extra_worlds_available() > 0)
+        menu_small_text(fb, 152, 150, "DISK.4 LOADED");
 }
 
 void pc_toast_overlay(uint32_t *fb)

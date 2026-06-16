@@ -68,7 +68,7 @@ enum { OO_RENDERING = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
 /* RENDERING-page row ids. */
 enum { RR_RENDERER = 0, RR_ASPECT, RR_EFFECTS, RR_BACK };
 /* EFFECTS-page row ids (Hardware-only GPU effects). */
-enum { EF_AMBIENT = 0, EF_TORCH, EF_SPRITEGLOW, EF_BACK };
+enum { EF_AMBIENT = 0, EF_SPRITEGLOW, EF_BACK };
 /* MORE-page row ids. */
 enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_FALL_DMG, MO_BACK };
 
@@ -164,7 +164,7 @@ static int rendering_rows(int *rows /* >= 4 */)
 static int effects_rows(int *rows /* >= 4 */)
 {
     int n = 0;
-    rows[n++] = EF_AMBIENT; rows[n++] = EF_TORCH; rows[n++] = EF_SPRITEGLOW; rows[n++] = EF_BACK;
+    rows[n++] = EF_AMBIENT; rows[n++] = EF_SPRITEGLOW; rows[n++] = EF_BACK;
     return n;
 }
 
@@ -272,15 +272,20 @@ static const char *fx_knob(int row)
 {
     switch (row) {
         case EF_AMBIENT:    return "fx_ambient";
-        case EF_TORCH:      return "fx_torch";
         case EF_SPRITEGLOW: return "fx_spriteglow";
         default:            return NULL;
     }
 }
 
-static void effects_cycle(int row)
+static void effects_cycle(int row, int dir)
 {
-    const char *k = fx_knob(row);
+    if (row == EF_SPRITEGLOW) {                       /* 0..3 strength, wraps */
+        int v = (pc_cfg_int("fx_spriteglow", 0) + dir + 4) % 4;
+        char buf[8]; snprintf(buf, sizeof buf, "%d", v);
+        pc_cfg_persist("fx_spriteglow", buf);
+        return;
+    }
+    const char *k = fx_knob(row);                     /* ambient/torch: bool toggle */
     if (k) pc_cfg_persist(k, pc_cfg_bool(k, 0) ? "false" : "true");
 }
 
@@ -403,7 +408,7 @@ void pc_pause_input_left(void)
         if (s_cursor < n) rendering_cycle(rows[s_cursor], -1);
     } else if (s_page == PG_EFFECTS) {
         int rows[14]; int n = effects_rows(rows);
-        if (s_cursor < n) effects_cycle(rows[s_cursor]);
+        if (s_cursor < n) effects_cycle(rows[s_cursor], -1);
     } else if (s_page == PG_MORE) {
         int rows[14]; int n = more_rows(rows);
         if (s_cursor < n) more_cycle(rows[s_cursor]);
@@ -421,7 +426,7 @@ void pc_pause_input_right(void)
         if (s_cursor < n) rendering_cycle(rows[s_cursor], +1);
     } else if (s_page == PG_EFFECTS) {
         int rows[14]; int n = effects_rows(rows);
-        if (s_cursor < n) effects_cycle(rows[s_cursor]);
+        if (s_cursor < n) effects_cycle(rows[s_cursor], +1);
     } else if (s_page == PG_MORE) {
         int rows[14]; int n = more_rows(rows);
         if (s_cursor < n) more_cycle(rows[s_cursor]);
@@ -485,7 +490,7 @@ void pc_pause_input_select(void)
         int rows[14]; int n = effects_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
         if (rows[s_cursor] == EF_BACK) enter_rendering_at(RR_EFFECTS);
-        else                           effects_cycle(rows[s_cursor]);
+        else                           effects_cycle(rows[s_cursor], +1);
         break;
     }
     case PG_MORE: {
@@ -768,19 +773,21 @@ void pc_pause_menu_overlay(uint32_t *fb)
                    hardware_active() ? "EFFECTS" : "EFFECTS (HARDWARE ONLY)");
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
+            char gbuf[8];
             switch (rows[i]) {
             case EF_AMBIENT:
                 label = "AMBIENT DARKNESS";
                 value = pc_cfg_bool("fx_ambient", 0) ? "ON" : "OFF";
                 break;
-            case EF_TORCH:
-                label = "TORCH GLOW";
-                value = pc_cfg_bool("fx_torch", 0) ? "ON" : "OFF";
-                break;
-            case EF_SPRITEGLOW:
+            case EF_SPRITEGLOW: {
+                int v = pc_cfg_int("fx_spriteglow", 0);
+                if (v < 0) v = 0;
+                if (v > 3) v = 3;
                 label = "SPRITE GLOW";
-                value = pc_cfg_bool("fx_spriteglow", 0) ? "ON" : "OFF";
+                if (v == 0) value = "OFF";
+                else { snprintf(gbuf, sizeof gbuf, "%d", v); value = gbuf; }
                 break;
+            }
             case EF_BACK:
                 label = "BACK";
                 break;

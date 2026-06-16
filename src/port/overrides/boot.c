@@ -231,6 +231,10 @@ void native_level_decrunch(M68KCtx *ctx)
  * string the engine passes. (The old cursor-1 "ENTER PASSWORD"->"LEVEL SELECT"
  * label swap was removed; LEVEL SELECT is now layered on the faithful menu in
  * pc_menu.c, where the menu item itself is changed rather than the glyphs.) */
+/* Page base of the menu's page-1 art (set by native_menu_art_unpack); the captured
+ * CONTINUE position is relative to this. */
+static uint32_t s_menu_page_base = 0x49000u;
+
 void native_menu_glyph_blit(M68KCtx *ctx)
 {
     uint32_t orig_a2 = ctx->A[2];
@@ -244,6 +248,18 @@ void native_menu_glyph_blit(M68KCtx *ctx)
         buf[len++] = (char)c;
     }
     const char *render = buf;
+
+    /* Capture the CONTINUE item's on-page position so the subtext overlay can
+     * anchor under it (content px = byte-col*8, row), regardless of widescreen. */
+    if (!strcmp(buf, "CONTINUE")) {
+        extern int g_menu_continue_x, g_menu_continue_y;
+        uint32_t a1c = ctx->A[1];
+        if (a1c >= s_menu_page_base && a1c < s_menu_page_base + 0xC8u * 282u) {
+            uint32_t off = a1c - s_menu_page_base;
+            g_menu_continue_x = (int)(off % 0xC8u) * 8;
+            g_menu_continue_y = (int)(off / 0xC8u);
+        }
+    }
 
     if (getenv("GLYPH_LOG"))
         fprintf(stderr, "[glyph] a2=$%06X a1=$%06X d6=%d str=\"%s\"\n",
@@ -473,42 +489,13 @@ static void menu_write_string(uint32_t dst, const char *str)
     g_mem[dst + i] = 0;
 }
 
-/* Draw a string onto a menu PAGE with the engine's own glyph renderer
- * (native_menu_glyph_blit) — used for the DISK.4 indicator. The string is
- * staged in a scratch corner of g_mem the menu never touches. */
-static void menu_page_text(uint32_t page_addr, const char *str)
-{
-    extern void native_menu_glyph_blit(M68KCtx *ctx);
-    const uint32_t stage = 0x7FFF00u;
-    /* Trailing space: the glyph renderer's shifted second column AND-carves
-     * the NEXT byte-column in the glyph's shape; mid-string that carve is
-     * overdrawn by the following char, but the LAST char's carve stays — a
-     * "ghost" of the final glyph cut into the textured background. A space
-     * (blank glyph) as the final char makes the trailing carve a no-op. */
-    char buf[34];
-    snprintf(buf, sizeof buf, "%s ", str);
-    menu_write_string(stage, buf);
-    M68KCtx t = {0};
-    t.A[2] = stage;
-    t.A[1] = page_addr;
-    t.D[6] = 1601;                    /* engine menu-font shadow: +8 rows +1 col
-                                       * (GLYPH_LOG shows d6=1601 for all items) */
-    native_menu_glyph_blit(&t);
-}
-
-/* On-page menu extras, drawn after each page-1 art unpack
- * (native_menu_art_unpack): the "DISK.4 LOADED" indicator above the beach
- * window when the extra-levels disk was detected. Page offset = row*$C8 +
- * byte-col. (The CONTINUE target is shown by the pc_menu_subtext_overlay
- * small-font subtext instead — see level_select_ui.c.) */
-#define MENU_D4_TEXT_OFF  (150u * 0xC8u + 19u)
-void native_menu_indicator(uint32_t page)
-{
-    if (pc_extra_worlds_available() > 0)
-        menu_page_text(page + MENU_D4_TEXT_OFF, "DISK.4 LOADED");
-}
-
+/* The CONTINUE item's captured top-left, content px (set in native_menu_glyph_blit;
+ * s_menu_page_base defined above it). The pc_menu_subtext_overlay small-text
+ * subsystem anchors the CONTINUE target line + DISK.4 indicator off these (see
+ * level_select_ui.c), so both sit relative to the real menu layout and fade with it. */
 int g_pc_menu_visible = 0;   /* main menu on screen (subtext overlay gate) */
+int g_menu_continue_x = -1;  /* CONTINUE glyphs' top-left, content px (-1 = unknown) */
+int g_menu_continue_y = -1;
 
 void native_menu_setup(M68KCtx *ctx)
 {
@@ -516,8 +503,8 @@ void native_menu_setup(M68KCtx *ctx)
     /* Item 0: "PLAY GAME" -> "CONTINUE". STRICT 10-char+NUL budget: the next
      * byte (a5-$699) is the high byte of item 1's page-dest pointer
      * ($04CE8A) — an 11-char string NUL's it and the LEVEL SELECT row gets
-     * drawn into low RAM (burned 2026-06-11). The level it will start is
-     * drawn separately right after the text (native_menu_indicator). */
+     * drawn into low RAM (burned 2026-06-11). The level it will start is shown by
+     * the pc_menu_subtext_overlay small-text subsystem (level_select_ui.c). */
     menu_write_string(ctx->A[5] - 0x6A4u, "CONTINUE");
 
     menu_write_string(ctx->A[5] - 0x696u, "LEVEL SELECT");  /* <= "ENTER PASSWORD" */
@@ -549,7 +536,7 @@ void native_menu_art_unpack(M68KCtx *ctx)
     int is_menu_art = (ctx->A[0] == MENU_ART_SRC);
     uint32_t dst = ctx->A[1];
     gfn_gp_003700(ctx);
-    if (is_menu_art) native_menu_indicator(dst);
+    if (is_menu_art) s_menu_page_base = dst;   /* anchor base for the glyph-blit capture */
 }
 
 void native_menu_cursor_down(M68KCtx *ctx)
