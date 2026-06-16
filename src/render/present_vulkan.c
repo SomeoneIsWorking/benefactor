@@ -9,12 +9,12 @@
  *      it. This is the exact scaffold a future per-character lighting pass needs.
  *      Invoke headless via `benefactor-pc --vk-selftest`.
  *
- *   2. The windowed swapchain present (present_backend_vulkan) — the "Hardware"
- *      renderer. Each frame the composed output surface is uploaded into a SAMPLED
- *      image and drawn to the swapchain through a fullscreen-triangle graphics
- *      pipeline running effects.frag, with the renderer's FxFrame (player light +
- *      playfield rows + effect flags) as push constants. With no effects this is an
- *      exact passthrough; effects are GPU-only and never touch the SDL path.
+ *   2. BenRen VK — the windowed per-sprite renderer (present_backend_vulkan, the
+ *      "Hardware" renderer). It draws the BenRen Scene draw list on the GPU: one
+ *      textured quad per sprite/tile/banner (quad.vert/frag) sampling a per-frame
+ *      atlas, then a blended fullscreen LIGHTING pass (fx.frag) driven by the
+ *      renderer's FxFrame (player light + playfield rows + effect flags). The SDL
+ *      path is never touched; effects are GPU-only.
  *
  * See instructions/rendering-overhaul-plan.md + docs/codebase-layout.md. */
 #include "render/present_backend.h"
@@ -39,6 +39,10 @@ static const uint32_t k_quad_vert_spv[] = {
 };
 static const uint32_t k_quad_frag_spv[] = {
 #include "quad.frag.inc"
+};
+/* Lighting pass (fullscreen, blended over the scene): reuses blit.vert. */
+static const uint32_t k_fx_frag_spv[] = {
+#include "fx.frag.inc"
 };
 
 #define VKLOG(...) fprintf(stderr, "[vulkan] " __VA_ARGS__)
@@ -406,6 +410,15 @@ typedef struct {
     int32_t _pad;
 } QuadPush;
 
+/* Lighting-pass push constants — MUST match shaders/fx.frag (32 bytes). */
+typedef struct {
+    float   res[2];     /* content_w, content_h */
+    float   light[2];   /* player centre, content px; <0 = none */
+    float   pf[2];      /* pf_top, pf_bot, content px */
+    int32_t flags;      /* FX_* bitmask */
+    int32_t mode;       /* 0 = dim (multiply), 1 = glow (add) */
+} FxPush;
+
 /* A SAMPLED image + its persistently-mapped host upload buffer (atlas / base). */
 typedef struct {
     VkImage        img;
@@ -444,6 +457,11 @@ typedef struct {
     VkPipelineLayout pll;
     VkPipeline       pipe;
     VkShaderModule   vs, fs;
+    /* Lighting pass (blended fullscreen, no descriptor set): blit.vert + fx.frag. */
+    VkShaderModule   fx_vs, fx_fs;
+    VkPipelineLayout pll_fx;
+    VkPipeline       pipe_fx_dim;     /* multiply blend (ambient + torch) */
+    VkPipeline       pipe_fx_glow;    /* additive blend (character glow) */
     VkTex            atlas;           /* VK_ATLAS_W x VK_ATLAS_H sprite atlas */
     VkTex            base;            /* content-sized base / fallback texture */
     VkSemaphore      sem_acquire;     /* single (1 frame in flight; freed by the fence wait) */
@@ -724,6 +742,69 @@ static int vk_make_pipeline(Swap *s)
     return 0;
 }
 
+/* Two fullscreen lighting pipelines (blit.vert + fx.frag), blended over the scene:
+ * a MULTIPLY pipeline (dst *= brightness — ambient + torch) and an ADDITIVE one
+ * (dst += glow — character glow). No descriptor set; FxPush push constants only. */
+static int vk_make_fx_pipelines(Swap *s)
+{
+    VkShaderModuleCreateInfo vmi = { .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = sizeof k_blit_vert_spv, .pCode = k_blit_vert_spv };
+    if (vkCreateShaderModule(s->dev, &vmi, NULL, &s->fx_vs) != VK_SUCCESS) return -1;
+    VkShaderModuleCreateInfo fmi = { .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = sizeof k_fx_frag_spv, .pCode = k_fx_frag_spv };
+    if (vkCreateShaderModule(s->dev, &fmi, NULL, &s->fx_fs) != VK_SUCCESS) return -1;
+
+    VkPushConstantRange pcr = { .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset = 0, .size = sizeof(FxPush) };
+    VkPipelineLayoutCreateInfo pli = { .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pushConstantRangeCount = 1, .pPushConstantRanges = &pcr };
+    if (vkCreatePipelineLayout(s->dev, &pli, NULL, &s->pll_fx) != VK_SUCCESS) return -1;
+
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = s->fx_vs, .pName = "main" },
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = s->fx_fs, .pName = "main" } };
+    VkPipelineVertexInputStateCreateInfo vin = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+    VkPipelineInputAssemblyStateCreateInfo ia = { .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
+    VkPipelineViewportStateCreateInfo vps = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1, .scissorCount = 1 };
+    VkPipelineRasterizationStateCreateInfo rs = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_FILL, .cullMode = VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE, .lineWidth = 1.0f };
+    VkPipelineMultisampleStateCreateInfo ms = { .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT };
+    VkDynamicState dyn[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dys = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 2, .pDynamicStates = dyn };
+
+    /* dst *= src (multiply) and dst += src (additive). */
+    VkPipelineColorBlendAttachmentState blends[2] = {
+        { .blendEnable = VK_TRUE,
+          .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO, .dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR,
+          .colorBlendOp = VK_BLEND_OP_ADD,
+          .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+          .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xF },
+        { .blendEnable = VK_TRUE,
+          .srcColorBlendFactor = VK_BLEND_FACTOR_ONE, .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+          .colorBlendOp = VK_BLEND_OP_ADD,
+          .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+          .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xF },
+    };
+    VkPipeline *targets[2] = { &s->pipe_fx_dim, &s->pipe_fx_glow };
+    for (int i = 0; i < 2; i++) {
+        VkPipelineColorBlendStateCreateInfo cb = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .attachmentCount = 1, .pAttachments = &blends[i] };
+        VkGraphicsPipelineCreateInfo gp = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .stageCount = 2, .pStages = stages, .pVertexInputState = &vin, .pInputAssemblyState = &ia,
+            .pViewportState = &vps, .pRasterizationState = &rs, .pMultisampleState = &ms,
+            .pColorBlendState = &cb, .pDynamicState = &dys, .layout = s->pll_fx, .renderPass = s->rpass };
+        if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, targets[i]) != VK_SUCCESS) return -1;
+    }
+    return 0;
+}
+
 static int vulkan_init(const char *title, int cw, int ch)
 {
     Swap *s = &g_sw;
@@ -791,7 +872,8 @@ static int vulkan_init(const char *title, int cw, int ch)
         .commandPool = s->cpool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1 };
       vkAllocateCommandBuffers(s->dev, &cai, &s->cmd); }
 
-    if (vk_make_pipeline(s) != 0) { VKLOG("pipeline\n"); goto fail; }
+    if (vk_make_pipeline(s) != 0)     { VKLOG("pipeline\n"); goto fail; }
+    if (vk_make_fx_pipelines(s) != 0) { VKLOG("fx pipelines\n"); goto fail; }
 
     /* The sprite atlas is persistent; point its descriptor now. The base texture
      * follows the content size, so it is created lazily at first present
@@ -1057,6 +1139,33 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
         }
     }
 
+    /* Lighting pass (Hardware-only effects): blended fullscreen over the world,
+     * BEFORE the banner so screen-fixed UI stays full-bright. Driven by the
+     * renderer's projected player light + playfield rows (s->fx). */
+    {
+        int fl = s->fx.valid ? s->fx.flags : 0;
+        if (fl) {
+            vk_scissor_content(s, w, h, 0, 0, w, h);
+            FxPush fp;
+            fp.res[0] = scr0; fp.res[1] = scr1;
+            fp.light[0] = (float)s->fx.light_sx; fp.light[1] = (float)s->fx.light_sy;
+            fp.pf[0] = (float)s->fx.pf_top;      fp.pf[1] = (float)s->fx.pf_bot;
+            fp.flags = fl;
+            if (fl & (FX_AMBIENT | FX_TORCH)) {
+                fp.mode = 0;
+                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_fx_dim);
+                vkCmdPushConstants(s->cmd, s->pll_fx, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof fp, &fp);
+                vkCmdDraw(s->cmd, 3, 1, 0, 0);
+            }
+            if (fl & FX_CHARGLOW) {
+                fp.mode = 1;
+                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_fx_glow);
+                vkCmdPushConstants(s->cmd, s->pll_fx, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof fp, &fp);
+                vkCmdDraw(s->cmd, 3, 1, 0, 0);
+            }
+        }
+    }
+
     /* Screen-fixed quads (the banner): no camera, full frame, on top. */
     vk_scissor_content(s, w, h, 0, 0, w, h);
     for (int i = 0; i < sc->nquads; i++) {
@@ -1092,6 +1201,11 @@ static void vulkan_shutdown(void)
     if (s->fence) vkDestroyFence(s->dev, s->fence, NULL);
     if (s->sem_acquire) vkDestroySemaphore(s->dev, s->sem_acquire, NULL);
     /* sem_done[] is freed by sw_destroy_targets below. */
+    if (s->pipe_fx_dim) vkDestroyPipeline(s->dev, s->pipe_fx_dim, NULL);
+    if (s->pipe_fx_glow) vkDestroyPipeline(s->dev, s->pipe_fx_glow, NULL);
+    if (s->pll_fx) vkDestroyPipelineLayout(s->dev, s->pll_fx, NULL);
+    if (s->fx_vs) vkDestroyShaderModule(s->dev, s->fx_vs, NULL);
+    if (s->fx_fs) vkDestroyShaderModule(s->dev, s->fx_fs, NULL);
     if (s->pipe) vkDestroyPipeline(s->dev, s->pipe, NULL);
     if (s->vs) vkDestroyShaderModule(s->dev, s->vs, NULL);
     if (s->fs) vkDestroyShaderModule(s->dev, s->fs, NULL);

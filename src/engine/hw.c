@@ -1065,6 +1065,12 @@ int hw_present_frame(void)
         extern int  pc_freecam_fade_alpha(void);
         int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible
                    || pc_hud_icons_active() || pc_freecam_fade_alpha() > 0;
+        /* Feed the backend this frame's projected light + playfield + effect flags
+         * (Hardware applies them in its lighting pass; SDL has no set_effects). */
+        if (s_backend->set_effects) {
+            extern const FxFrame *native_render_fx_frame(void);
+            s_backend->set_effects(native_render_fx_frame());
+        }
         perf_t = hw_perf_now_us();
         /* Per-sprite GPU path only for the Hardware renderer; Software/Vanilla present
          * the CPU-composed surface (one quad). Overlays always use the composite. */
