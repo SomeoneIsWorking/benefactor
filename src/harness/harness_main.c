@@ -1553,9 +1553,12 @@ int main(int argc, char **argv)
               printf("[wsobjs] view_left=%d view_w=%d (worldX=view_left+screenx)\n", g_ws_view_left, g_ws_view_w); }
             int nobj = native_wsobj_count(), nchr = native_wschar_count();
             printf("[wsobjs] cam=%d  %d objs:\n", cam, nobj);
+            extern int native_wsobj_getraw(int,uint32_t*,uint32_t*,int*);
             for (int i=0;i<nobj;i++){ int x,y,w,h; uint32_t s,m;
                 if (!native_wsobj_get(i,&x,&y,&w,&h,&s,&m)) continue;
-                printf("  obj%2d x=%5d y=%4d screenX=%5d w=%d h=%d src=$%06X\n",i,x,y,x-cam,w*16,h,s); }
+                uint32_t a1=0,gb=0; int d5=0; native_wsobj_getraw(i,&a1,&gb,&d5);
+                printf("  obj%2d x=%5d y=%4d screenX=%5d w=%d h=%d src=$%06X  a1=$%06X gfxbase=$%06X d5=%d\n",
+                       i,x,y,x-cam,w*16,h,s,a1,gb,d5); }
             printf("[wsobjs] %d chars:\n", nchr);
             for (int i=0;i<nchr;i++){ int x,y,w,h,rsd; uint32_t d,mk;
                 if (!native_wschar_get(i,&x,&y,&w,&h,&d,&mk,&rsd)) continue;
