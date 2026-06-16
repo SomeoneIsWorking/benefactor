@@ -12,6 +12,7 @@ void scene_reset(Scene *s)
 {
     s->nquads = 0;
     s->arena_used = 0;
+    s->glow_next = 0;
     if (!s->arena) s->arena = malloc(SCENE_ARENA_BYTES);
 }
 
@@ -40,6 +41,8 @@ static void scene_add_quad_space(Scene *s, int x, int y, int w, int h,
     SceneQuad *q = &s->quads[s->nquads++];
     q->x = x; q->y = y; q->w = w; q->h = h;
     q->idx = idx; q->stride = stride; q->space = space;
+    /* Only world-space foreground sprites glow (never screen-fixed UI). */
+    q->glow = (space == SCENE_SPACE_WORLD) ? s->glow_next : 0;
 }
 
 void scene_add_quad(Scene *s, int x, int y, int w, int h,

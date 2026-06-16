@@ -42,6 +42,10 @@ typedef struct {
     const uint8_t *idx;
     int            stride;
     uint8_t        space;
+    uint8_t        glow;    /* 1 = a foreground sprite that gets the faint back-glow
+                             * effect (objects/characters/player) — not background
+                             * tiles/water/UI. Consumed only by the BenRen VK glow
+                             * pass; CPU/SDL consumers ignore it. */
 } SceneQuad;
 
 typedef struct {
@@ -55,6 +59,9 @@ typedef struct {
      * in [wclip_x0, wclip_x1) (outside = the void the camera never reveals). */
     int        view_left;
     int        wclip_x0, wclip_x1;
+    /* Quads added while this is set get glow=1 (foreground sprites). The emitter
+     * raises it around the object/character/player composers; reset by scene_reset. */
+    uint8_t    glow_next;
 } Scene;
 
 /* Begin a new frame: drop all quads + free the arena. Lazily allocates the

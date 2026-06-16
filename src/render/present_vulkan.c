@@ -455,13 +455,13 @@ typedef struct {
     VkDescriptorSet  dset_atlas;      /* binds the sprite atlas */
     VkDescriptorSet  dset_base;       /* binds the base (composed) texture */
     VkPipelineLayout pll;
-    VkPipeline       pipe;
+    VkPipeline       pipe;            /* opaque sprite/base/void quads */
+    VkPipeline       pipe_quad_glow;  /* same quads, ADDITIVE — the per-sprite back-glow */
     VkShaderModule   vs, fs;
     /* Lighting pass (blended fullscreen, no descriptor set): blit.vert + fx.frag. */
     VkShaderModule   fx_vs, fx_fs;
     VkPipelineLayout pll_fx;
-    VkPipeline       pipe_fx_dim;     /* multiply blend (ambient + torch) */
-    VkPipeline       pipe_fx_glow;    /* additive blend (character glow) */
+    VkPipeline       pipe_fx_dim;     /* multiply blend (ambient darkness + torch glow) */
     VkTex            atlas;           /* VK_ATLAS_W x VK_ATLAS_H sprite atlas */
     VkTex            base;            /* content-sized base / fallback texture */
     VkSemaphore      sem_acquire;     /* single (1 frame in flight; freed by the fence wait) */
@@ -739,6 +739,17 @@ static int vk_make_pipeline(Swap *s)
         .pViewportState = &vps, .pRasterizationState = &rs, .pMultisampleState = &ms,
         .pColorBlendState = &cb, .pDynamicState = &dys, .layout = s->pll, .renderPass = s->rpass };
     if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe) != VK_SUCCESS) return -1;
+
+    /* Same pipeline but ADDITIVE blend — the per-sprite back-glow (quad mode 2). */
+    VkPipelineColorBlendAttachmentState cba_add = { .blendEnable = VK_TRUE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ONE, .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xF };
+    VkPipelineColorBlendStateCreateInfo cb_add = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = 1, .pAttachments = &cba_add };
+    gp.pColorBlendState = &cb_add;
+    if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe_quad_glow) != VK_SUCCESS) return -1;
     return 0;
 }
 
@@ -779,29 +790,20 @@ static int vk_make_fx_pipelines(Swap *s)
     VkPipelineDynamicStateCreateInfo dys = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         .dynamicStateCount = 2, .pDynamicStates = dyn };
 
-    /* dst *= src (multiply) and dst += src (additive). */
-    VkPipelineColorBlendAttachmentState blends[2] = {
-        { .blendEnable = VK_TRUE,
-          .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO, .dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR,
-          .colorBlendOp = VK_BLEND_OP_ADD,
-          .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-          .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xF },
-        { .blendEnable = VK_TRUE,
-          .srcColorBlendFactor = VK_BLEND_FACTOR_ONE, .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
-          .colorBlendOp = VK_BLEND_OP_ADD,
-          .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-          .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xF },
-    };
-    VkPipeline *targets[2] = { &s->pipe_fx_dim, &s->pipe_fx_glow };
-    for (int i = 0; i < 2; i++) {
-        VkPipelineColorBlendStateCreateInfo cb = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .attachmentCount = 1, .pAttachments = &blends[i] };
-        VkGraphicsPipelineCreateInfo gp = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            .stageCount = 2, .pStages = stages, .pVertexInputState = &vin, .pInputAssemblyState = &ia,
-            .pViewportState = &vps, .pRasterizationState = &rs, .pMultisampleState = &ms,
-            .pColorBlendState = &cb, .pDynamicState = &dys, .layout = s->pll_fx, .renderPass = s->rpass };
-        if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, targets[i]) != VK_SUCCESS) return -1;
-    }
+    /* MULTIPLY blend (dst *= src): the dim pass (ambient darkness + torch glow).
+     * The character/sprite glow is a per-sprite additive pass, not here. */
+    VkPipelineColorBlendAttachmentState cba = { .blendEnable = VK_TRUE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO, .dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xF };
+    VkPipelineColorBlendStateCreateInfo cb = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = 1, .pAttachments = &cba };
+    VkGraphicsPipelineCreateInfo gp = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2, .pStages = stages, .pVertexInputState = &vin, .pInputAssemblyState = &ia,
+        .pViewportState = &vps, .pRasterizationState = &rs, .pMultisampleState = &ms,
+        .pColorBlendState = &cb, .pDynamicState = &dys, .layout = s->pll_fx, .renderPass = s->rpass };
+    if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe_fx_dim) != VK_SUCCESS) return -1;
     return 0;
 }
 
@@ -1118,13 +1120,36 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
         y = y1;
     }
 
-    /* World quads: per-sprite, camera-projected, clipped to camera cols + rows. */
+    /* World quads: per-sprite, camera-projected, clipped to camera cols + rows.
+     * The faint back-glow (an expanded additive copy of each foreground sprite) is
+     * drawn FIRST, so the sprites paint over their own glow and only the soft fringe
+     * shows behind them. */
     {
         int cx0 = sc->wclip_x0 - sc->view_left, cx1 = sc->wclip_x1 - sc->view_left;
         if (cx0 < 0)  cx0 = 0;
         if (cx1 > w)  cx1 = w;
         if (cx1 > cx0) {
             vk_scissor_content(s, w, h, cx0, y_lo, cx1 - cx0, y_hi - y_lo);
+
+            if (s->fx.valid && (s->fx.flags & FX_SPRITEGLOW)) {
+                const float G = 3.0f;        /* halo expansion, content px */
+                const float INTENS = 0.34f;  /* faint */
+                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_quad_glow);
+                for (int i = 0; i < sc->nquads; i++) {
+                    const SceneQuad *q = &sc->quads[i];
+                    if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0 || !q->glow) continue;
+                    QuadPush qg; memset(&qg, 0, sizeof qg);
+                    qg.screen[0] = scr0; qg.screen[1] = scr1; qg.mode = 2;
+                    qg.color[0] = INTENS;
+                    qg.dst[0] = (float)(q->x - sc->view_left) - G; qg.dst[1] = (float)q->y - G;
+                    qg.dst[2] = (float)q->w + 2.0f * G;            qg.dst[3] = (float)q->h + 2.0f * G;
+                    qg.src[0] = (float)pos[i].x / VK_ATLAS_W;          qg.src[1] = (float)pos[i].y / VK_ATLAS_H;
+                    qg.src[2] = (float)(pos[i].x + q->w) / VK_ATLAS_W; qg.src[3] = (float)(pos[i].y + q->h) / VK_ATLAS_H;
+                    vk_draw_quad(s, s->dset_atlas, &qg);
+                }
+                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe);  /* back to opaque */
+            }
+
             for (int i = 0; i < sc->nquads; i++) {
                 const SceneQuad *q = &sc->quads[i];
                 if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0) continue;
@@ -1139,34 +1164,25 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
         }
     }
 
-    /* Lighting pass (Hardware-only effects): blended fullscreen over the world,
-     * BEFORE the banner so screen-fixed UI stays full-bright. Driven by the
-     * renderer's projected player light + playfield rows (s->fx). */
+    /* Lighting pass (Hardware-only): ambient darkness + torch glow, blended
+     * fullscreen over the world, BEFORE the banner so screen-fixed UI stays bright. */
     {
         int fl = s->fx.valid ? s->fx.flags : 0;
-        if (fl) {
+        if (fl & (FX_AMBIENT | FX_TORCH)) {
             vk_scissor_content(s, w, h, 0, 0, w, h);
             FxPush fp;
             fp.res[0] = scr0; fp.res[1] = scr1;
             fp.light[0] = (float)s->fx.light_sx; fp.light[1] = (float)s->fx.light_sy;
             fp.pf[0] = (float)s->fx.pf_top;      fp.pf[1] = (float)s->fx.pf_bot;
-            fp.flags = fl;
-            if (fl & (FX_AMBIENT | FX_TORCH)) {
-                fp.mode = 0;
-                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_fx_dim);
-                vkCmdPushConstants(s->cmd, s->pll_fx, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof fp, &fp);
-                vkCmdDraw(s->cmd, 3, 1, 0, 0);
-            }
-            if (fl & FX_CHARGLOW) {
-                fp.mode = 1;
-                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_fx_glow);
-                vkCmdPushConstants(s->cmd, s->pll_fx, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof fp, &fp);
-                vkCmdDraw(s->cmd, 3, 1, 0, 0);
-            }
+            fp.flags = fl; fp.mode = 0;
+            vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_fx_dim);
+            vkCmdPushConstants(s->cmd, s->pll_fx, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof fp, &fp);
+            vkCmdDraw(s->cmd, 3, 1, 0, 0);
         }
     }
 
     /* Screen-fixed quads (the banner): no camera, full frame, on top. */
+    vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe);   /* restore the quad pipeline */
     vk_scissor_content(s, w, h, 0, 0, w, h);
     for (int i = 0; i < sc->nquads; i++) {
         const SceneQuad *q = &sc->quads[i];
@@ -1202,10 +1218,10 @@ static void vulkan_shutdown(void)
     if (s->sem_acquire) vkDestroySemaphore(s->dev, s->sem_acquire, NULL);
     /* sem_done[] is freed by sw_destroy_targets below. */
     if (s->pipe_fx_dim) vkDestroyPipeline(s->dev, s->pipe_fx_dim, NULL);
-    if (s->pipe_fx_glow) vkDestroyPipeline(s->dev, s->pipe_fx_glow, NULL);
     if (s->pll_fx) vkDestroyPipelineLayout(s->dev, s->pll_fx, NULL);
     if (s->fx_vs) vkDestroyShaderModule(s->dev, s->fx_vs, NULL);
     if (s->fx_fs) vkDestroyShaderModule(s->dev, s->fx_fs, NULL);
+    if (s->pipe_quad_glow) vkDestroyPipeline(s->dev, s->pipe_quad_glow, NULL);
     if (s->pipe) vkDestroyPipeline(s->dev, s->pipe, NULL);
     if (s->vs) vkDestroyShaderModule(s->dev, s->vs, NULL);
     if (s->fs) vkDestroyShaderModule(s->dev, s->fs, NULL);

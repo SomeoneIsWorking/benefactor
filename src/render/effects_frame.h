@@ -16,9 +16,9 @@
 
 /* Effect flags (bitmask from native_fx_flags(), live from cfg each frame). */
 enum {
-    FX_AMBIENT  = 1 << 0,   /* ambient darkness — vignette toward the view edges */
-    FX_TORCH    = 1 << 1,   /* torch glow — player-centred dim, lit core */
-    FX_CHARGLOW = 1 << 2,   /* character glow — subtle warm halo on the player */
+    FX_AMBIENT    = 1 << 0,  /* ambient darkness — vignette toward the view edges */
+    FX_TORCH      = 1 << 1,  /* torch glow — player-centred dim, lit core */
+    FX_SPRITEGLOW = 1 << 2,  /* sprite glow — faint additive halo behind foreground sprites */
 };
 
 typedef struct {
@@ -33,5 +33,5 @@ typedef struct {
  * Returns a pointer to the latest frame (never NULL); .valid says if it's fresh. */
 const FxFrame *native_render_fx_frame(void);
 
-/* Live effect flags from cfg (fx_ambient / fx_torch / fx_charglow). */
+/* Live effect flags from cfg (fx_ambient / fx_torch / fx_spriteglow). */
 int native_fx_flags(void);

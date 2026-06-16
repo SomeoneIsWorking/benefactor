@@ -63,18 +63,23 @@ lighting hang off here next (the FxFrame from `set_effects` is already stored).
 ## Effects (SHIPPED — Hardware only)
 
 Three independent GPU effects, toggled in OPTIONS → RENDERING → EFFECTS
-(`fx_ambient` / `fx_torch` / `fx_charglow`):
+(`fx_ambient` / `fx_torch` / `fx_spriteglow`):
 - AMBIENT DARKNESS — vignette toward the view edges.
 - TORCH GLOW — player-centred dim with a lit core.
-- CHARACTER GLOW — subtle warm additive halo on the player.
+- SPRITE GLOW — a faint glow behind ALL foreground sprites (objects/characters/
+  player), for visual pop.
 
-They run as a blended fullscreen LIGHTING pass INSIDE the per-sprite render
-(`shaders/fx.frag`), AFTER the world sprites and BEFORE the banner (so UI stays
-bright): a MULTIPLY-blended pass dims (ambient × torch), an ADDITIVE pass adds the
-glow. No texture read — pure per-pixel + the projected player light (FxFrame push
-constants). Hardware-only: `hw_present_frame` feeds the FxFrame via `set_effects`;
-the SDL/composite paths ignore it. This is screen-space *lighting* (legitimately a
-pass over the GPU-rendered scene), NOT a filter on a flattened frame.
+Two mechanisms, both inside the per-sprite render (Hardware-only — `hw_present_frame`
+feeds the FxFrame via `set_effects`; SDL/composite ignore it):
+- **Dim** (ambient + torch): a MULTIPLY-blended fullscreen pass (`shaders/fx.frag`)
+  after the world sprites, before the banner (UI stays bright). Pure per-pixel +
+  the projected player light, no texture read.
+- **Sprite glow**: PER-SPRITE — an expanded, faint ADDITIVE copy of each foreground
+  sprite (quad.frag mode 2, `pipe_quad_glow`) drawn BEFORE the sprites, so a soft
+  colour fringe haloes each one. Scoped via a `glow` flag on SceneQuad that the
+  emitter raises around the object/char/player composers (NOT tiles/water/UI), so
+  the background doesn't grid-glow. This is genuinely per-object — the seam future
+  per-object materials extend.
 
 Future: per-object material/shader ids on the scene quads; graphics remake
 (blocked on commissioned art); per-torch level light sources (needs RE — today only

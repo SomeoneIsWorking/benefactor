@@ -68,7 +68,7 @@ enum { OO_RENDERING = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
 /* RENDERING-page row ids. */
 enum { RR_RENDERER = 0, RR_ASPECT, RR_EFFECTS, RR_BACK };
 /* EFFECTS-page row ids (Hardware-only GPU effects). */
-enum { EF_AMBIENT = 0, EF_TORCH, EF_CHARGLOW, EF_BACK };
+enum { EF_AMBIENT = 0, EF_TORCH, EF_SPRITEGLOW, EF_BACK };
 /* MORE-page row ids. */
 enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_FALL_DMG, MO_BACK };
 
@@ -164,7 +164,7 @@ static int rendering_rows(int *rows /* >= 4 */)
 static int effects_rows(int *rows /* >= 4 */)
 {
     int n = 0;
-    rows[n++] = EF_AMBIENT; rows[n++] = EF_TORCH; rows[n++] = EF_CHARGLOW; rows[n++] = EF_BACK;
+    rows[n++] = EF_AMBIENT; rows[n++] = EF_TORCH; rows[n++] = EF_SPRITEGLOW; rows[n++] = EF_BACK;
     return n;
 }
 
@@ -271,10 +271,10 @@ static int hardware_active(void) { return renderer_index() == 2; }
 static const char *fx_knob(int row)
 {
     switch (row) {
-        case EF_AMBIENT:  return "fx_ambient";
-        case EF_TORCH:    return "fx_torch";
-        case EF_CHARGLOW: return "fx_charglow";
-        default:          return NULL;
+        case EF_AMBIENT:    return "fx_ambient";
+        case EF_TORCH:      return "fx_torch";
+        case EF_SPRITEGLOW: return "fx_spriteglow";
+        default:            return NULL;
     }
 }
 
@@ -777,9 +777,9 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 label = "TORCH GLOW";
                 value = pc_cfg_bool("fx_torch", 0) ? "ON" : "OFF";
                 break;
-            case EF_CHARGLOW:
-                label = "CHARACTER GLOW";
-                value = pc_cfg_bool("fx_charglow", 0) ? "ON" : "OFF";
+            case EF_SPRITEGLOW:
+                label = "SPRITE GLOW";
+                value = pc_cfg_bool("fx_spriteglow", 0) ? "ON" : "OFF";
                 break;
             case EF_BACK:
                 label = "BACK";
