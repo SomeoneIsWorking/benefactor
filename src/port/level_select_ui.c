@@ -218,8 +218,8 @@ void pc_menu_subtext_overlay(uint32_t *fb)
         /* g_menu_continue_y is the bitplane PAGE row; the menu composites ~12 lines
          * lower and the item font (+shadow) is ~24 tall, so drop the subtext into the
          * gap below CONTINUE (empirically +40 lands between CONTINUE and LEVEL SELECT);
-         * left-aligned to the CONTINUE item. */
-        menu_small_text(fb, g_menu_continue_x, g_menu_continue_y + 40, line);
+         * nudged 6px right of the CONTINUE item's left edge. */
+        menu_small_text(fb, g_menu_continue_x + 6, g_menu_continue_y + 40, line);
     }
 
     /* DISK.4 indicator — same subsystem, bottom-right just above the beach window. */
