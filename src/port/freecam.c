@@ -123,15 +123,12 @@ void pc_freecam_tick(void)
     int step = pc_input_active(PI_FFWD) ? FREECAM_STEP_FAST : FREECAM_STEP;
     if (pc_input_active(PI_LEFT))  s_x -= step;
     if (pc_input_active(PI_RIGHT)) s_x += step;
-    /* Clamp to the engine's own camera range (same bounds ws_view_left uses),
-     * so the icon never points at void. */
-    EngineView ev;
-    if (engine_view_capture(&ev)) {
-        int lo = (ev.level_lo < 0 ? 0 : ev.level_lo) + 16;
-        int hi = ev.level_hi + 304;   /* level_hi + 320 - 16: highest follow-point */
-        if (s_x < lo) s_x = lo;
-        if (s_x > hi) s_x = hi;
-    }
+    /* Clamp to the follow range that actually MOVES the rendered view (the inverse
+     * of ws_view_left's clamp, shared geometry). Clamping on different bounds let
+     * s_x roam past where view_left is already pinned at the edge — an invisible
+     * dead zone you had to pan back through before the view responded. */
+    extern int ws_follow_clamp(int ow, int sx);
+    s_x = ws_follow_clamp(hw_output_width(), s_x);
 }
 
 /* REPL support (harness `fcam`): force-enable + nudge, for headless testing. */
