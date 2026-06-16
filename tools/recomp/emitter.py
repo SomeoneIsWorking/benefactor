@@ -100,7 +100,19 @@ class Translator:
             return '/* ??ea */'
         return '/* ??ea */'
 
-    # ── Operand readers / writers ────────────────────────────────────────
+    def _movem_ea_pc(self, op):
+        """PC base for a movem's PC-relative EA. Capstone (and the normal `ea`
+        path) resolve a brief-extension displacement against instr+2 — correct
+        for ordinary instructions whose extension word follows the opcode. But
+        movem carries its REGISTER-MASK word between the opcode and the EA's
+        brief-extension word, so the real PC base is instr+4, i.e. 2 bytes
+        higher. Add that 2 for PC-relative EAs only (An-based EAs ignore `pc`).
+        Without this, e.g. `movem.w d(pc,Xn),regs` reads the wrong table entry
+        (found via the level-22 garbled-object bug: gfn_gpl_598890 $5988AE)."""
+        mode = getattr(op, 'address_mode', 0)
+        if mode in (11, 12) or mem_base(op) == M68K_REG_PC:
+            return self.current_pc + 2
+        return self.current_pc
 
     def _pre_rd(self, op, sz=4, pc=None):
         """Return (preamble_stmt, value_expr) for an operand.
@@ -728,7 +740,7 @@ class Translator:
                             lines.append(f'ctx->{r}[{idx}] = RT_SX16(MR16(ctx->A[{an}]));\n'
                                          f'ctx->A[{an}] += 2u;')
                 else:
-                    base = self.ea(ea_op, sz)
+                    base = self.ea(ea_op, sz, pc=self._movem_ea_pc(ea_op))
                     vn   = f'_movem_{self.current_pc:x}'
                     lines.append(f'{{ uint32_t {vn} = {base};')
                     for r, idx in regs:
@@ -744,7 +756,7 @@ class Translator:
                         lines.append(f'ctx->A[{an}] -= {sz}u;\n'
                                      f'MW{sz*8}(ctx->A[{an}], ctx->{r}[{idx}]);')
                 else:
-                    base = self.ea(ea_op, sz)
+                    base = self.ea(ea_op, sz, pc=self._movem_ea_pc(ea_op))
                     vn   = f'_movem_{self.current_pc:x}'
                     lines.append(f'{{ uint32_t {vn} = {base};')
                     for r, idx in regs:
