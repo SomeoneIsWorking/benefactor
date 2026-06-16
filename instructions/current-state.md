@@ -807,7 +807,21 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
 - **BENMOTION Stage 4** — own grounded movement (walk accel/friction, ledge
   momentum); then the UP/fire+dir commit/revert flap disappears too.
 
-- **OPEN: garbled object on level 22 (2026-06-16, user-reported).** A small static
+- **FIXED (2026-06-16): garbled object on level 22 — recompiler `movem` PC-relative
+  bug.** Root cause: for `movem.w d(pc,Xn),regs` the recompiler computed the PC base
+  2 bytes too low — it used instr+2 (the register-MASK word) as the PC reference for
+  the brief-extension displacement, but movem's brief-ext word is at instr+4 (mask
+  word sits between opcode and ext word). So the table lookup at `$5988AE`
+  (gfn_gpl_598890) read the wrong entry → wrong anim gfx offset `d5` (64 instead of
+  200) → wrong gfx src → garbage. Confirmed via a PUAE-side probe in `newcpu.c`
+  (m68k_run_2_020, write(2) — fprintf is swallowed in PUAE): PUAE's `movem` index 20
+  → d5=200, recompiled → 64; same table bytes, EA off by 2. Fix: `emitter.py`
+  `_movem_ea_pc()` adds 2 to the PC base for PC-relative movem EAs. Corrected 5
+  sites ($58d746/$59883a/$5988b0/$59890c/$598a5a). Verified: obj@288 d5=200,
+  src=$060A90 (matches PUAE), renders as the correct thin grey branch object;
+  levels 1/3/22 boot clean. The investigation notes below are kept for reference.
+
+- ~~OPEN~~: garbled object on level 22 (2026-06-16, user-reported). A small static
   branch object renders as a multi-colour garbage blob instead of PUAE's thin
   grey sliver. Narrowed (do NOT re-derive):
   - Level **22**, treetop. Object = wsobj **obj 7**, captured at `$57D8D0` as
