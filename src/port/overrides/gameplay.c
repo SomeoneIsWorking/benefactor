@@ -1209,7 +1209,7 @@ void native_lc_text_set(void)
     static const char txt[] = "LEVEL COMPLETE";
     extern uint8_t *g_mem;
     uint32_t base = GP_A5 - 0x64FCu;                      /* $578916 */
-    g_mem[base] = 0; g_mem[base + 1] = 14;                /* centered position word */
+    g_mem[base] = 0; g_mem[base + 1] = 16;                /* position word (8px cols): 14=centered, +2 nudges right */
     for (uint32_t i = 0; i < sizeof txt; i++)             /* incl. the NUL */
         g_mem[base + 2u + i] = (uint8_t)txt[i];
 }
