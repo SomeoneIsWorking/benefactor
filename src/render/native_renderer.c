@@ -723,6 +723,29 @@ int ws_view_left(int ow)
     return vl;
 }
 
+/* Clamp a free-cam follow-point (s_x) to the range that actually MOVES the view —
+ * the inverse of ws_view_left's vl clamp above. Outside this range ws_view_left
+ * saturates (view_left pinned at a level edge) so the cam keeps travelling with NO
+ * visible change: an invisible dead zone the user must then pan back through before
+ * the view responds. freecam must clamp on THIS geometry (same ow, same level_lo/hi
+ * rounding) instead of its own bounds, or the two clamps drift apart. */
+int ws_follow_clamp(int ow, int sx)
+{
+    EngineView ev;
+    if (!engine_view_capture(&ev)) return sx;
+    int level_lo = (ev.level_lo < 0 ? 0 : ev.level_lo) & ~15;
+    int level_hi = (ev.level_hi + 320) & ~15;
+    int half     = (ow - 320) / 2;
+    /* Narrow level: ws_view_left centers and ignores the follow entirely, so pin
+     * the follow to the low edge (any value collapses to the same centered view). */
+    if (level_hi - level_lo <= ow) return level_lo + half;
+    int lo = level_lo + half;            /* follow that yields view_left == level_lo   */
+    int hi = (level_hi - ow) + half;     /* follow that yields view_left == level_hi-ow */
+    if (sx < lo) sx = lo;
+    if (sx > hi) sx = hi;
+    return sx;
+}
+
 /* Tilemap BACKGROUND on the draw list: emit each visible level tile as an OPAQUE
  * 16x16 colour-index quad (world X = col*16, screen Y = pf_top + r*16), so the whole
  * gameplay frame — background + sprites — is one scene draw list (the precondition for
