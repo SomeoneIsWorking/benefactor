@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <SDL2/SDL.h>
 #include "render/scene.h"
+#include "render/effects_frame.h"
 
 typedef struct PresentBackend {
     const char *name;                                   /* "sdl" | "vulkan" */
@@ -32,6 +33,11 @@ typedef struct PresentBackend {
      * plan; only the SDL backend implements it (Vulkan is shelved). */
     void (*present_scene)(const Scene *s, int y_lo, int y_hi,
                           const uint32_t *base, int w, int h);
+    /* OPTIONAL (NULL = unsupported): set the post-process effect params for the
+     * NEXT present. Effects are Vulkan-only — the SDL backend leaves this NULL, so
+     * the software renderer shows no effects (the hard gate). Called by hw.c each
+     * frame with the renderer's published FxFrame (light + playfield + flags). */
+    void (*set_effects)(const FxFrame *fx);
     void (*toggle_fullscreen)(void);
     SDL_Window *(*window)(void);                        /* hw.c still pumps SDL events */
     void (*shutdown)(void);

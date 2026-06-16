@@ -50,7 +50,7 @@ extern int  hw_pad_count(void);
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 
-enum { PG_MAIN = 0, PG_OPTIONS, PG_MORE, PG_BIND_KB, PG_BIND_PAD };
+enum { PG_MAIN = 0, PG_OPTIONS, PG_RENDERING, PG_MORE, PG_BIND_KB, PG_BIND_PAD };
 
 static int s_paused = 0;
 static int s_page   = PG_MAIN;
@@ -62,9 +62,11 @@ static int s_title_mode = 0;
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
 /* OPTIONS-page row ids (rows are built per-mode by options_rows). */
-enum { OO_RENDERER = 0, OO_LIGHTING, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
+enum { OO_RENDERING = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
        OO_MODERN_KB, OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK,
        OO_QUIT };
+/* RENDERING-page row ids. */
+enum { RR_RENDERER = 0, RR_ASPECT, RR_BACK };
 /* MORE-page row ids. */
 enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_FALL_DMG, MO_BACK };
 
@@ -139,12 +141,20 @@ static const char *bind_row_label(int dev, int action)
 static int options_rows(int *rows /* >= 14 */)
 {
     int n = 0;
-    rows[n++] = OO_RENDERER;   rows[n++] = OO_LIGHTING;  rows[n++] = OO_SPEED;
+    rows[n++] = OO_RENDERING;  rows[n++] = OO_SPEED;
     rows[n++] = OO_PHYSICS;    rows[n++] = OO_FREECAM;
     rows[n++] = OO_INTERACT;   rows[n++] = OO_MODERN_KB; rows[n++] = OO_MODERN_PAD;
     rows[n++] = OO_BIND_KB;    rows[n++] = OO_BIND_PAD;  rows[n++] = OO_MORE;
     rows[n++] = OO_BACK;
     if (s_title_mode) rows[n++] = OO_QUIT;
+    return n;
+}
+
+/* RENDERING submenu rows. */
+static int rendering_rows(int *rows /* >= 4 */)
+{
+    int n = 0;
+    rows[n++] = RR_RENDERER; rows[n++] = RR_ASPECT; rows[n++] = RR_BACK;
     return n;
 }
 
@@ -162,9 +172,10 @@ static int page_rows(int page)
 {
     int acts[14];
     switch (page) {
-        case PG_MAIN:    return NUM_MAIN;
-        case PG_OPTIONS: return options_rows(acts);
-        case PG_MORE:    return more_rows(acts);
+        case PG_MAIN:      return NUM_MAIN;
+        case PG_OPTIONS:   return options_rows(acts);
+        case PG_RENDERING: return rendering_rows(acts);
+        case PG_MORE:      return more_rows(acts);
         default:         return bind_rows(page == PG_BIND_PAD, acts);
     }
 }
@@ -177,76 +188,68 @@ static void enter_page(int page)
 
 /* ── Option values (resolved live, persisted on change) ───────────────────────── */
 
-/* RENDERER row — one setting that drives BOTH the frame-renderer knob
- * ("renderer": vanilla|benren) and the widescreen preset ("widescreen_mode").
- * They were two independent knobs, but the only way to reach the native
- * (BenRen) renderer was to request a widescreen width — there was no UI to run
- * Native at the 4:3 playfield. This collapses them into the four states the
- * player actually wants:
- *   VANILLA          — Amiga-blit-faithful copper render, 352px
- *   NATIVE           — sprite-based native renderer, 4:3 (hosts effects: lighting)
- *   WIDESCREEN 16:9  — native renderer, 16:9
- *   WIDESCREEN AUTO  — native renderer, follows the window aspect
- * ultrawide stays reachable via the raw "widescreen_mode" config knob; it's
- * just not one of the cycled menu states. */
-#define NUM_RENDER_MODES 4
-static const char *k_rm_renderer[NUM_RENDER_MODES] = { "vanilla", "benren", "benren", "benren"  };
-static const char *k_rm_ws      [NUM_RENDER_MODES] = { "disabled","disabled","16:9",  "auto"    };
-static const char *k_rm_labels  [NUM_RENDER_MODES] = { "VANILLA", "NATIVE", "WIDESCREEN 16:9", "WIDESCREEN AUTO" };
+/* RENDERER row (RENDERING submenu) — three renderers, driving "renderer"
+ * (vanilla|benren) + "present" (sdl|vulkan):
+ *   VANILLA  — Amiga-blit-faithful copper render (vanilla + sdl)
+ *   SOFTWARE — BenRen, the CPU per-sprite renderer (benren + sdl)
+ *   HARDWARE — BenRen VK, the GPU per-sprite renderer (benren + vulkan)
+ * Aspect ratio is now a SEPARATE row (widescreen_mode), independent of renderer. */
+#define NUM_RENDERERS 3
+static const char *k_rend_labels[NUM_RENDERERS] = { "VANILLA", "SOFTWARE", "HARDWARE" };
 
-static int render_mode_index(void)
+static int renderer_index(void)
 {
-    char r[24] = "", w[24] = "";
-    pc_cfg_show("renderer",       r, sizeof r, NULL);
-    pc_cfg_show("widescreen_mode", w, sizeof w, NULL);
-
-    int wide = (!strcasecmp(w, "16:9") || !strcasecmp(w, "ultrawide") || !strcasecmp(w, "auto"));
-    int benren;
-    if      (!strcasecmp(r, "benren"))  benren = 1;
-    else if (!strcasecmp(r, "vanilla")) benren = 0;
-    else                                benren = wide;   /* AUTO (unset): benren iff a wide width is asked for */
-
-    if (!benren)                     return 0;           /* VANILLA */
-    if (!strcasecmp(w, "auto"))      return 3;           /* WIDESCREEN AUTO */
-    if (wide)                        return 2;           /* WIDESCREEN 16:9 (incl. ultrawide) */
-    return 1;                                            /* NATIVE (benren, 4:3) */
+    char r[24] = "", p[24] = "";
+    pc_cfg_show("renderer", r, sizeof r, NULL);
+    pc_cfg_show("present",  p, sizeof p, NULL);
+    if (strcasecmp(r, "benren") != 0) return 0;            /* VANILLA (or unset) */
+    return (!strcasecmp(p, "vulkan")) ? 2 : 1;             /* HARDWARE : SOFTWARE */
 }
 
-static void render_mode_set(int idx)
+static void renderer_set(int idx)
 {
-    idx = (idx % NUM_RENDER_MODES + NUM_RENDER_MODES) % NUM_RENDER_MODES;
+    idx = (idx % NUM_RENDERERS + NUM_RENDERERS) % NUM_RENDERERS;
     char json[24];
-    /* Persist BOTH knobs explicitly so the resolved state no longer depends on
-     * the renderer-AUTO heuristic (which keys off the requested width). */
-    snprintf(json, sizeof json, "\"%s\"", k_rm_renderer[idx]);
+    snprintf(json, sizeof json, "\"%s\"", idx == 0 ? "vanilla" : "benren");
     pc_cfg_persist("renderer", json);
-    snprintf(json, sizeof json, "\"%s\"", k_rm_ws[idx]);
+    snprintf(json, sizeof json, "\"%s\"", idx == 2 ? "vulkan" : "sdl");
+    pc_cfg_persist("present", json);
+    /* No backend/window swap: Vulkan owns the window for every renderer; the
+     * Software<->Hardware switch is read live each frame (hw_scene_render_enabled). */
+    hw_widescreen_refresh();
+}
+
+/* ASPECT row — STOCK 4:3 / 16:9 / AUTO (follows the window). Drives
+ * "widescreen_mode". (ultrawide stays reachable via the raw cfg knob.) */
+#define NUM_ASPECTS 3
+static const char *k_aspect_vals  [NUM_ASPECTS] = { "disabled", "16:9", "auto" };
+static const char *k_aspect_labels[NUM_ASPECTS] = { "STOCK 4:3", "16:9", "AUTO" };
+
+static int aspect_index(void)
+{
+    char w[24] = "";
+    pc_cfg_show("widescreen_mode", w, sizeof w, NULL);
+    if (!strcasecmp(w, "16:9") || !strcasecmp(w, "ultrawide")) return 1;
+    if (!strcasecmp(w, "auto")) return 2;
+    return 0;   /* disabled / unset */
+}
+
+static void aspect_set(int idx)
+{
+    char json[24];
+    snprintf(json, sizeof json, "\"%s\"",
+             k_aspect_vals[(idx % NUM_ASPECTS + NUM_ASPECTS) % NUM_ASPECTS]);
     pc_cfg_persist("widescreen_mode", json);
     hw_widescreen_refresh();
 }
 
-/* LIGHTING row — native-renderer post-process light (the "lighting" knob, read
- * live by native_effects). off / ambient vignette / player torch. Only the native
- * (benren) renderer applies it; in Vanilla mode it's inert. */
-#define NUM_LIGHTING 3
-static const char *k_light_vals  [NUM_LIGHTING] = { "off", "ambient", "player" };
-static const char *k_light_labels[NUM_LIGHTING] = { "OFF", "AMBIENT", "TORCH"  };
-
-static int lighting_index(void)
+static void rendering_cycle(int row, int dir)
 {
-    char buf[16];
-    if (!pc_cfg_show("lighting", buf, sizeof buf, NULL) || !buf[0]) return 0;
-    for (int i = 1; i < NUM_LIGHTING; i++)
-        if (!strcasecmp(buf, k_light_vals[i])) return i;
-    return 0;
-}
-
-static void lighting_set(int idx)
-{
-    char json[16];
-    snprintf(json, sizeof json, "\"%s\"",
-             k_light_vals[(idx % NUM_LIGHTING + NUM_LIGHTING) % NUM_LIGHTING]);
-    pc_cfg_persist("lighting", json);
+    switch (row) {
+        case RR_RENDERER: renderer_set(renderer_index() + dir); break;
+        case RR_ASPECT:   aspect_set(aspect_index() + dir);     break;
+        default: break;
+    }
 }
 
 /* Game speed: normal / turbo (=1.2x) / hyper (=1.5x). Audio/music stay
@@ -297,8 +300,7 @@ static void bool_knob_toggle(const char *key)
 static void options_cycle(int row, int dir)
 {
     switch (row) {
-        case OO_RENDERER:   render_mode_set(render_mode_index() + dir); break;
-        case OO_LIGHTING:   lighting_set(lighting_index() + dir);        break;
+        /* OO_RENDERING is a submenu link (entered on select), not a value cycle. */
         case OO_SPEED:      speed_set(speed_index() + dir);            break;
         case OO_PHYSICS:    bool_knob_toggle("platformer_physics");    break;
         case OO_FREECAM:    bool_knob_toggle("freecam_pause");         break;
@@ -364,6 +366,9 @@ void pc_pause_input_left(void)
     if (s_page == PG_OPTIONS) {
         int rows[14]; int n = options_rows(rows);
         if (s_cursor < n) options_cycle(rows[s_cursor], -1);
+    } else if (s_page == PG_RENDERING) {
+        int rows[14]; int n = rendering_rows(rows);
+        if (s_cursor < n) rendering_cycle(rows[s_cursor], -1);
     } else if (s_page == PG_MORE) {
         int rows[14]; int n = more_rows(rows);
         if (s_cursor < n) more_cycle(rows[s_cursor]);
@@ -376,6 +381,9 @@ void pc_pause_input_right(void)
     if (s_page == PG_OPTIONS) {
         int rows[14]; int n = options_rows(rows);
         if (s_cursor < n) options_cycle(rows[s_cursor], +1);
+    } else if (s_page == PG_RENDERING) {
+        int rows[14]; int n = rendering_rows(rows);
+        if (s_cursor < n) rendering_cycle(rows[s_cursor], +1);
     } else if (s_page == PG_MORE) {
         int rows[14]; int n = more_rows(rows);
         if (s_cursor < n) more_cycle(rows[s_cursor]);
@@ -407,6 +415,7 @@ void pc_pause_input_select(void)
         int rows[14]; int n = options_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
         switch (rows[s_cursor]) {
+            case OO_RENDERING: enter_page(PG_RENDERING); break;
             case OO_BIND_KB:  enter_page(PG_BIND_KB);  break;
             case OO_BIND_PAD: enter_page(PG_BIND_PAD); break;
             case OO_MORE:     enter_page(PG_MORE);     break;
@@ -417,6 +426,13 @@ void pc_pause_input_select(void)
             case OO_QUIT:     s_pending_action = ACT_QUIT;        break;
             default:          options_cycle(rows[s_cursor], +1);  break;
         }
+        break;
+    }
+    case PG_RENDERING: {
+        int rows[14]; int n = rendering_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
+        if (rows[s_cursor] == RR_BACK) enter_options_at(OO_RENDERING);
+        else                           rendering_cycle(rows[s_cursor], +1);
         break;
     }
     case PG_MORE: {
@@ -452,9 +468,10 @@ void pc_pause_escape(void)
     if (!s_paused) return;
     if (s_capture) { s_capture = 0; return; }
     switch (s_page) {
-        case PG_BIND_KB:  enter_options_at(OO_BIND_KB);   break;
-        case PG_BIND_PAD: enter_options_at(OO_BIND_PAD);  break;
-        case PG_MORE:     enter_options_at(OO_MORE);      break;
+        case PG_BIND_KB:   enter_options_at(OO_BIND_KB);   break;
+        case PG_BIND_PAD:  enter_options_at(OO_BIND_PAD);  break;
+        case PG_RENDERING: enter_options_at(OO_RENDERING); break;
+        case PG_MORE:      enter_options_at(OO_MORE);      break;
         case PG_OPTIONS:
             if (s_title_mode) s_pending_action = ACT_RESUME;
             else { enter_page(PG_MAIN); s_cursor = OPT_OPTIONS; }
@@ -604,13 +621,9 @@ void pc_pause_menu_overlay(uint32_t *fb)
             const char *label = "", *value = NULL;
             char vbuf[24];
             switch (rows[i]) {
-            case OO_RENDERER:
-                label = "RENDERER";
-                value = k_rm_labels[render_mode_index()];
-                break;
-            case OO_LIGHTING:
-                label = "LIGHTING";
-                value = k_light_labels[lighting_index()];
+            case OO_RENDERING:
+                label = "RENDERING";
+                value = k_rend_labels[renderer_index()];   /* show the current renderer */
                 break;
             case OO_SPEED:
                 label = "GAME SPEED";
@@ -653,6 +666,33 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 break;
             case OO_QUIT:
                 label = "QUIT TO DESKTOP";
+                break;
+            }
+            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+        }
+        return;
+    }
+
+    if (s_page == PG_RENDERING) {
+        int rows[14]; int n = rendering_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
+        const int pw = 240;
+        const int ph = 22 + n * row_h + 8;
+        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
+        draw_panel(fb, px, py, pw, ph, "RENDERING");
+        for (int i = 0; i < n; i++) {
+            const char *label = "", *value = NULL;
+            switch (rows[i]) {
+            case RR_RENDERER:
+                label = "RENDERER";
+                value = k_rend_labels[renderer_index()];
+                break;
+            case RR_ASPECT:
+                label = "ASPECT RATIO";
+                value = k_aspect_labels[aspect_index()];
+                break;
+            case RR_BACK:
+                label = "BACK";
                 break;
             }
             draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);

@@ -20,6 +20,8 @@
 #include "engine/hw_private.h"   /* pulls in rt.h → g_mem, and amiga_to_argb(), s_regs, etc. */
 #include "render/engine_view.h"  /* the wide renderer's only engine-state input (the firewall) */
 #include "render/scene.h"        /* the per-frame gameplay draw list (renderer/backend seam) */
+#include "render/effects_frame.h" /* FxFrame publish — Vulkan-only post-process effects */
+#include "render/native_effects.h" /* native_fx_flags() */
 #include <string.h>
 #include <stdlib.h>
 
@@ -330,8 +332,34 @@ static inline uint32_t decode_dpf(int x, const uint32_t bplpt[4],
 }
 
 /* ── Main entry point ───────────────────────────────────────────────── */
+/* ── Effects publish (Vulkan-only) ──────────────────────────────────────────
+ * The native renderer is the only place that knows the camera projection, so it
+ * projects the player light + playfield rows and publishes them here. hw.c hands
+ * this (plus the live fx flags) to the Vulkan present's set_effects(); the SDL
+ * backend ignores it (software shows no effects). Reset to invalid at the top of
+ * each native_render_frame so a frame that finds no gameplay playfield (menus,
+ * transitions) presents a clean passthrough. */
+static FxFrame s_fx;
+
+const FxFrame *native_render_fx_frame(void) { return &s_fx; }
+
+static void native_fx_publish(int ow, int oh, int pf_top, int pf_bot,
+                              int light_sx, int light_sy)
+{
+    s_fx.valid     = 1;
+    s_fx.content_w = ow;
+    s_fx.content_h = oh;
+    s_fx.pf_top    = pf_top;
+    s_fx.pf_bot    = pf_bot;
+    s_fx.light_sx  = light_sx;
+    s_fx.light_sy  = light_sy;
+    s_fx.flags     = native_fx_flags();
+}
+
 void native_render_frame(void)
 {
+    s_fx.valid = 0;   /* re-published below iff this frame finds a gameplay playfield */
+
     /* Promote the widescreen object/char captures (built by the game thread this
      * frame) to the renderer-facing lists, once per present. Done here — not at the
      * object-walker — so the GET-READY/GAME-OVER frames (where the walker pauses but
@@ -1390,8 +1418,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
           }
       }
     }
-    { extern void native_effects_apply(uint32_t*, int, int, int, int, int, int);
-      native_effects_apply(out, ow, HW_DISPLAY_H, pf_top, pf_bot, light_sx, light_sy); }
+    native_fx_publish(ow, HW_DISPLAY_H, pf_top, pf_bot, light_sx, light_sy);
 
     /* Banner (GET READY / GAME OVER) — screen-fixed UI quads, on top of everything. */
     scene_composite_screen_argb(&s_scene, out, ow, HW_DISPLAY_H);
@@ -1431,8 +1458,8 @@ void native_render_effects_43(uint32_t *out, int ow)
             light_sx = ((plx + 8) - (ev.camera & ~15)) + DDF_TO_X(st->ddfstrt) + (st->bplcon1 & 0xF);
         }
     }
-    extern void native_effects_apply(uint32_t*, int, int, int, int, int, int);
-    native_effects_apply(out, ow, HW_DISPLAY_H, pf_top, pf_bot, light_sx, light_sy);
+    (void)out;   /* effects are Vulkan-only now: publish the params, never mutate s_out */
+    native_fx_publish(ow, HW_DISPLAY_H, pf_top, pf_bot, light_sx, light_sy);
 }
 
 /* Re-draw the engine's captured object sprite blits natively into the wide buffer.

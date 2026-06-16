@@ -9,11 +9,14 @@
  *      it. This is the exact scaffold a future per-character lighting pass needs.
  *      Invoke headless via `benefactor-pc --vk-selftest`.
  *
- *   2. The windowed swapchain present (present_backend_vulkan). TODO Phase 2b:
- *      needs a live display/surface to verify, so until then this returns NULL and
- *      present_backend_select() falls back to SDL.
+ *   2. The windowed swapchain present (present_backend_vulkan) — the "Hardware"
+ *      renderer. Each frame the composed output surface is uploaded into a SAMPLED
+ *      image and drawn to the swapchain through a fullscreen-triangle graphics
+ *      pipeline running effects.frag, with the renderer's FxFrame (player light +
+ *      playfield rows + effect flags) as push constants. With no effects this is an
+ *      exact passthrough; effects are GPU-only and never touch the SDL path.
  *
- * See ~/.claude/plans + docs/codebase-layout.md (render/ module). */
+ * See instructions/rendering-overhaul-plan.md + docs/codebase-layout.md. */
 #include "render/present_backend.h"
 
 #ifdef BENEFACTOR_HAVE_VULKAN
@@ -29,6 +32,13 @@ static const uint32_t k_blit_vert_spv[] = {
 };
 static const uint32_t k_blit_frag_spv[] = {
 #include "blit.frag.inc"
+};
+/* BenRen VK per-sprite renderer shaders (one textured/flat quad per sprite). */
+static const uint32_t k_quad_vert_spv[] = {
+#include "quad.vert.inc"
+};
+static const uint32_t k_quad_frag_spv[] = {
+#include "quad.frag.inc"
 };
 
 #define VKLOG(...) fprintf(stderr, "[vulkan] " __VA_ARGS__)
@@ -363,14 +373,51 @@ int present_vulkan_selftest(const uint32_t *argb, int w, int h)
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
- * Windowed swapchain present (blit-based).
+ * BenRen VK — the per-sprite "Hardware" renderer.
  *
- * Each frame: upload `argb` into a device-local source image, acquire a
- * swapchain image, vkCmdBlitImage (NEAREST, scales content->window) the source
- * into it, present. No graphics pipeline needed for present — the verified
- * fullscreen-quad shader pipeline (above) is where the Phase 3 per-character
- * lighting pass will render INTO the swapchain instead of a plain blit.
+ * The Vulkan twin of scene_sdl.c: instead of uploading a CPU-composited frame and
+ * blitting it, this draws the BenRen Scene draw list itself — one GPU quad per
+ * sprite/tile/banner. Each frame the quads are shelf-packed + baked (per-output-row
+ * palette resolve) into a sprite ATLAS image, and a textured-quad pipeline issues
+ * one draw per quad sampling the atlas (with a flat-colour mode for the per-row void
+ * background). World quads are camera-projected (screen_x = x - view_left) and
+ * scissor-clipped to the camera columns + playfield rows; screen quads (the banner)
+ * draw on top with no camera. The base rows the scene does NOT own (top border +
+ * HUD) come from the composed surface as a base texture.
+ *
+ * Because every sprite is its own draw with its own push constants, this is the
+ * seam a per-object shader / lighting term hangs off next (the FxFrame from
+ * set_effects is stored, ready for that pass). present() (no scene) is the overlay
+ * fallback: one fullscreen base quad.
+ *
+ * DYNAMIC viewport/scissor → a window resize rebuilds only the swapchain +
+ * framebuffers, never the pipeline. The offscreen selftest (above) is untouched.
  * ───────────────────────────────────────────────────────────────────────── */
+#define VK_ATLAS_W 1024
+#define VK_ATLAS_H 2048
+
+/* Push constants — MUST match shaders/quad.vert + quad.frag (64 bytes). */
+typedef struct {
+    float   dst[4];     /* x, y, w, h in output pixels */
+    float   src[4];     /* u0, v0, u1, v1 in atlas UV */
+    float   color[4];   /* flat colour (mode 1) */
+    float   screen[2];  /* output extent (pixel -> NDC) */
+    int32_t mode;       /* 0 = sample atlas, 1 = flat colour */
+    int32_t _pad;
+} QuadPush;
+
+/* A SAMPLED image + its persistently-mapped host upload buffer (atlas / base). */
+typedef struct {
+    VkImage        img;
+    VkDeviceMemory mem;
+    VkImageView    view;
+    VkBuffer       up_buf;
+    VkDeviceMemory up_mem;
+    void          *up_ptr;
+    int            w, h;
+    int            uploaded;     /* layout is SHADER_READ_ONLY (vs UNDEFINED) */
+} VkTex;
+
 typedef struct {
     SDL_Window      *win;
     VkInstance       inst;
@@ -380,22 +427,51 @@ typedef struct {
     VkQueue          queue;
     VkSurfaceKHR     surface;
     VkSwapchainKHR   swap;
+    VkFormat         sc_format;       /* swapchain image format (for the render pass) */
     VkExtent2D       extent;
     uint32_t         n_images;
     VkImage         *images;          /* owned by the swapchain */
+    VkImageView     *views;           /* one per swapchain image */
+    VkFramebuffer   *fbs;             /* one per swapchain image */
     VkCommandPool    cpool;
     VkCommandBuffer  cmd;
-    int              cw, ch;          /* content size */
-    VkImage          src_img;
-    VkDeviceMemory   src_mem;
-    VkBuffer         up_buf;
-    VkDeviceMemory   up_mem;
-    void            *up_ptr;          /* persistently mapped */
-    VkSemaphore      sem_acquire, sem_done;
+    VkRenderPass     rpass;
+    VkSampler        samp;
+    VkDescriptorSetLayout dsl;
+    VkDescriptorPool dpool;
+    VkDescriptorSet  dset_atlas;      /* binds the sprite atlas */
+    VkDescriptorSet  dset_base;       /* binds the base (composed) texture */
+    VkPipelineLayout pll;
+    VkPipeline       pipe;
+    VkShaderModule   vs, fs;
+    VkTex            atlas;           /* VK_ATLAS_W x VK_ATLAS_H sprite atlas */
+    VkTex            base;            /* content-sized base / fallback texture */
+    VkSemaphore      sem_acquire;     /* single (1 frame in flight; freed by the fence wait) */
+    VkSemaphore     *sem_done;        /* per swapchain image — present may still hold the prev one */
     VkFence          fence;
-    int             ok;
+    FxFrame          fx;              /* latest effect params — for the future lighting pass */
+    int              ok;
 } Swap;
 static Swap g_sw;
+
+static void sw_destroy_targets(Swap *s)
+{
+    if (s->fbs) {
+        for (uint32_t i = 0; i < s->n_images; i++)
+            if (s->fbs[i]) vkDestroyFramebuffer(s->dev, s->fbs[i], NULL);
+        free(s->fbs); s->fbs = NULL;
+    }
+    if (s->views) {
+        for (uint32_t i = 0; i < s->n_images; i++)
+            if (s->views[i]) vkDestroyImageView(s->dev, s->views[i], NULL);
+        free(s->views); s->views = NULL;
+    }
+    if (s->sem_done) {
+        for (uint32_t i = 0; i < s->n_images; i++)
+            if (s->sem_done[i]) vkDestroySemaphore(s->dev, s->sem_done[i], NULL);
+        free(s->sem_done); s->sem_done = NULL;
+    }
+}
 
 static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h)
 {
@@ -404,8 +480,9 @@ static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h)
         return -1;
     s->extent = caps.currentExtent.width != 0xFFFFFFFFu ? caps.currentExtent
               : (VkExtent2D){ w, h };
+    if (s->extent.width == 0 || s->extent.height == 0) s->extent = (VkExtent2D){ w, h };
 
-    /* Prefer B8G8R8A8_UNORM (matches the source: no blit colour conversion). */
+    /* Prefer B8G8R8A8_UNORM (matches the source surface: no colour conversion). */
     uint32_t nf = 0; vkGetPhysicalDeviceSurfaceFormatsKHR(s->pd, s->surface, &nf, NULL);
     VkSurfaceFormatKHR *fmts = calloc(nf, sizeof *fmts);
     vkGetPhysicalDeviceSurfaceFormatsKHR(s->pd, s->surface, &nf, fmts);
@@ -413,6 +490,7 @@ static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h)
     for (uint32_t i = 0; i < nf; i++)
         if (fmts[i].format == VK_FORMAT_B8G8R8A8_UNORM) { pick = fmts[i]; break; }
     free(fmts);
+    s->sc_format = pick.format;
 
     uint32_t want = caps.minImageCount + 1;
     if (caps.maxImageCount && want > caps.maxImageCount) want = caps.maxImageCount;
@@ -420,7 +498,7 @@ static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h)
     VkSwapchainCreateInfoKHR ci = { .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = s->surface, .minImageCount = want, .imageFormat = pick.format,
         .imageColorSpace = pick.colorSpace, .imageExtent = s->extent, .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,   /* we blit into it */
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,   /* we render into it */
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .preTransform = caps.currentTransform,
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
@@ -433,11 +511,223 @@ static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h)
     return 0;
 }
 
+/* Image views + framebuffers for the current swapchain images (needs s->rpass). */
+static int sw_make_targets(Swap *s)
+{
+    s->views = calloc(s->n_images, sizeof *s->views);
+    s->fbs   = calloc(s->n_images, sizeof *s->fbs);
+    for (uint32_t i = 0; i < s->n_images; i++) {
+        VkImageViewCreateInfo vi = { .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = s->images[i], .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = s->sc_format,
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 } };
+        if (vkCreateImageView(s->dev, &vi, NULL, &s->views[i]) != VK_SUCCESS) return -1;
+        VkFramebufferCreateInfo fi = { .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = s->rpass, .attachmentCount = 1, .pAttachments = &s->views[i],
+            .width = s->extent.width, .height = s->extent.height, .layers = 1 };
+        if (vkCreateFramebuffer(s->dev, &fi, NULL, &s->fbs[i]) != VK_SUCCESS) return -1;
+    }
+    /* One "render done" semaphore per image: present may still be consuming the
+     * previous frame's, so it can't be reused until that image is reacquired. */
+    s->sem_done = calloc(s->n_images, sizeof *s->sem_done);
+    for (uint32_t i = 0; i < s->n_images; i++) {
+        VkSemaphoreCreateInfo sci = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        if (vkCreateSemaphore(s->dev, &sci, NULL, &s->sem_done[i]) != VK_SUCCESS) return -1;
+    }
+    return 0;
+}
+
+/* Rebuild swapchain + targets at the window's CURRENT drawable size, so the render
+ * resolution tracks the window live (incl. Wayland, where the surface currentExtent
+ * is "undefined" and we must supply the size). */
+static int sw_rebuild(Swap *s)
+{
+    int dw = 0, dh = 0;
+    SDL_Vulkan_GetDrawableSize(s->win, &dw, &dh);
+    if (dw <= 0) dw = (int)s->extent.width;
+    if (dh <= 0) dh = (int)s->extent.height;
+    vkDeviceWaitIdle(s->dev);
+    sw_destroy_targets(s);
+    if (s->swap) vkDestroySwapchainKHR(s->dev, s->swap, NULL);
+    free(s->images); s->images = NULL;
+    if (sw_make_swapchain(s, (uint32_t)dw, (uint32_t)dh) != 0) return -1;
+    return sw_make_targets(s);
+}
+
+/* If the window changed size since last frame, rebuild to match — the render
+ * resolution follows the window dynamically, not only on OUT_OF_DATE. */
+static void vk_check_resize(Swap *s)
+{
+    int dw = 0, dh = 0;
+    SDL_Vulkan_GetDrawableSize(s->win, &dw, &dh);
+    if (dw > 0 && dh > 0 &&
+        ((uint32_t)dw != s->extent.width || (uint32_t)dh != s->extent.height))
+        sw_rebuild(s);
+}
+
+/* ── SAMPLED texture (atlas / base) + persistently-mapped upload buffer ─────── */
+static void vk_tex_free(Swap *s, VkTex *t)
+{
+    if (t->view)   vkDestroyImageView(s->dev, t->view, NULL);
+    if (t->img)    vkDestroyImage(s->dev, t->img, NULL);
+    if (t->mem)    vkFreeMemory(s->dev, t->mem, NULL);
+    if (t->up_ptr) vkUnmapMemory(s->dev, t->up_mem);
+    if (t->up_buf) vkDestroyBuffer(s->dev, t->up_buf, NULL);
+    if (t->up_mem) vkFreeMemory(s->dev, t->up_mem, NULL);
+    memset(t, 0, sizeof *t);
+}
+
+static int vk_tex_make(Swap *s, VkTex *t, int w, int h)
+{
+    t->w = w; t->h = h; t->uploaded = 0;
+    VkImageCreateInfo ii = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D, .format = VK_FORMAT_B8G8R8A8_UNORM,
+        .extent = { (uint32_t)w, (uint32_t)h, 1 }, .mipLevels = 1, .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT, .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
+    if (vkCreateImage(s->dev, &ii, NULL, &t->img) != VK_SUCCESS) return -1;
+    VkMemoryRequirements mr; vkGetImageMemoryRequirements(s->dev, t->img, &mr);
+    VkMemoryAllocateInfo mai = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mr.size,
+        .memoryTypeIndex = find_mem_type(s->pd, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) };
+    if (vkAllocateMemory(s->dev, &mai, NULL, &t->mem) != VK_SUCCESS) return -1;
+    vkBindImageMemory(s->dev, t->img, t->mem, 0);
+    VkImageViewCreateInfo vi = { .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = t->img, .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = VK_FORMAT_B8G8R8A8_UNORM,
+        .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 } };
+    if (vkCreateImageView(s->dev, &vi, NULL, &t->view) != VK_SUCCESS) return -1;
+
+    VkDeviceSize bytes = (VkDeviceSize)w * h * 4;
+    VkBufferCreateInfo bi = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = bytes, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
+    if (vkCreateBuffer(s->dev, &bi, NULL, &t->up_buf) != VK_SUCCESS) return -1;
+    VkMemoryRequirements br; vkGetBufferMemoryRequirements(s->dev, t->up_buf, &br);
+    VkMemoryAllocateInfo bmai = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = br.size, .memoryTypeIndex = find_mem_type(s->pd, br.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) };
+    if (vkAllocateMemory(s->dev, &bmai, NULL, &t->up_mem) != VK_SUCCESS) return -1;
+    vkBindBufferMemory(s->dev, t->up_buf, t->up_mem, 0);
+    vkMapMemory(s->dev, t->up_mem, 0, bytes, 0, &t->up_ptr);
+    return 0;
+}
+
+static void vk_point_desc(Swap *s, VkDescriptorSet set, VkImageView view)
+{
+    VkDescriptorImageInfo dii = { .sampler = s->samp, .imageView = view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+    VkWriteDescriptorSet wr = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = set, .dstBinding = 0, .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &dii };
+    vkUpdateDescriptorSets(s->dev, 1, &wr, 0, NULL);
+}
+
+/* Ensure the base texture matches the content size (rebuild + re-point descriptor
+ * when the aspect toggles at runtime). */
+static int vk_ensure_base(Swap *s, int w, int h)
+{
+    if (s->base.img && s->base.w == w && s->base.h == h) return 0;
+    vkDeviceWaitIdle(s->dev);
+    vk_tex_free(s, &s->base);
+    if (vk_tex_make(s, &s->base, w, h) != 0) return -1;
+    vk_point_desc(s, s->dset_base, s->base.view);
+    return 0;
+}
+
+static int vk_make_render_pass(Swap *s)
+{
+    VkAttachmentDescription at = { .format = s->sc_format, .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
+    VkAttachmentReference ar = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription sp = { .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1, .pColorAttachments = &ar };
+    VkSubpassDependency dep = { .srcSubpass = VK_SUBPASS_EXTERNAL, .dstSubpass = 0,
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0, .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT };
+    VkRenderPassCreateInfo rci = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1, .pAttachments = &at, .subpassCount = 1, .pSubpasses = &sp,
+        .dependencyCount = 1, .pDependencies = &dep };
+    return vkCreateRenderPass(s->dev, &rci, NULL, &s->rpass) == VK_SUCCESS ? 0 : -1;
+}
+
+/* One textured/flat-colour quad pipeline (dynamic viewport+scissor); two
+ * descriptor sets (atlas + base). */
+static int vk_make_pipeline(Swap *s)
+{
+    VkSamplerCreateInfo si = { .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_NEAREST, .minFilter = VK_FILTER_NEAREST,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE };
+    if (vkCreateSampler(s->dev, &si, NULL, &s->samp) != VK_SUCCESS) return -1;
+
+    VkDescriptorSetLayoutBinding b = { .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+    VkDescriptorSetLayoutCreateInfo li = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 1, .pBindings = &b };
+    if (vkCreateDescriptorSetLayout(s->dev, &li, NULL, &s->dsl) != VK_SUCCESS) return -1;
+
+    VkPushConstantRange pcr = { .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset = 0, .size = sizeof(QuadPush) };
+    VkPipelineLayoutCreateInfo pli = { .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1, .pSetLayouts = &s->dsl,
+        .pushConstantRangeCount = 1, .pPushConstantRanges = &pcr };
+    if (vkCreatePipelineLayout(s->dev, &pli, NULL, &s->pll) != VK_SUCCESS) return -1;
+
+    VkDescriptorPoolSize ps = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 };
+    VkDescriptorPoolCreateInfo dci = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = 2, .poolSizeCount = 1, .pPoolSizes = &ps };
+    if (vkCreateDescriptorPool(s->dev, &dci, NULL, &s->dpool) != VK_SUCCESS) return -1;
+    VkDescriptorSetLayout layouts[2] = { s->dsl, s->dsl };
+    VkDescriptorSet sets[2];
+    VkDescriptorSetAllocateInfo dai = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = s->dpool, .descriptorSetCount = 2, .pSetLayouts = layouts };
+    if (vkAllocateDescriptorSets(s->dev, &dai, sets) != VK_SUCCESS) return -1;
+    s->dset_atlas = sets[0]; s->dset_base = sets[1];
+
+    VkShaderModuleCreateInfo vmi = { .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = sizeof k_quad_vert_spv, .pCode = k_quad_vert_spv };
+    if (vkCreateShaderModule(s->dev, &vmi, NULL, &s->vs) != VK_SUCCESS) return -1;
+    VkShaderModuleCreateInfo fmi = { .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = sizeof k_quad_frag_spv, .pCode = k_quad_frag_spv };
+    if (vkCreateShaderModule(s->dev, &fmi, NULL, &s->fs) != VK_SUCCESS) return -1;
+
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = s->vs, .pName = "main" },
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = s->fs, .pName = "main" } };
+    VkPipelineVertexInputStateCreateInfo vin = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+    VkPipelineInputAssemblyStateCreateInfo ia = { .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP };
+    VkPipelineViewportStateCreateInfo vps = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1, .scissorCount = 1 };
+    VkPipelineRasterizationStateCreateInfo rs = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_FILL, .cullMode = VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE, .lineWidth = 1.0f };
+    VkPipelineMultisampleStateCreateInfo ms = { .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT };
+    VkPipelineColorBlendAttachmentState cba = { .colorWriteMask = 0xF };
+    VkPipelineColorBlendStateCreateInfo cb = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = 1, .pAttachments = &cba };
+    VkDynamicState dyn[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dys = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 2, .pDynamicStates = dyn };
+    VkGraphicsPipelineCreateInfo gp = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2, .pStages = stages, .pVertexInputState = &vin, .pInputAssemblyState = &ia,
+        .pViewportState = &vps, .pRasterizationState = &rs, .pMultisampleState = &ms,
+        .pColorBlendState = &cb, .pDynamicState = &dys, .layout = s->pll, .renderPass = s->rpass };
+    if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe) != VK_SUCCESS) return -1;
+    return 0;
+}
+
 static int vulkan_init(const char *title, int cw, int ch)
 {
     Swap *s = &g_sw;
     memset(s, 0, sizeof *s);
-    s->cw = cw; s->ch = ch;
 
     s->win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         cw * 2, ch * 2, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
@@ -491,6 +781,8 @@ static int vulkan_init(const char *title, int cw, int ch)
       vkGetDeviceQueue(s->dev, s->qfam, 0, &s->queue); }
 
     if (sw_make_swapchain(s, (uint32_t)cw, (uint32_t)ch) != 0) { VKLOG("swapchain\n"); goto fail; }
+    if (vk_make_render_pass(s) != 0) { VKLOG("render pass\n"); goto fail; }
+    if (sw_make_targets(s) != 0)     { VKLOG("framebuffers\n"); goto fail; }
 
     { VkCommandPoolCreateInfo pci = { .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = s->qfam };
@@ -499,35 +791,17 @@ static int vulkan_init(const char *title, int cw, int ch)
         .commandPool = s->cpool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1 };
       vkAllocateCommandBuffers(s->dev, &cai, &s->cmd); }
 
-    /* source content image (B8G8R8A8) + persistently-mapped upload buffer */
-    { VkImageCreateInfo ii = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .imageType = VK_IMAGE_TYPE_2D, .format = VK_FORMAT_B8G8R8A8_UNORM,
-        .extent = { (uint32_t)cw, (uint32_t)ch, 1 }, .mipLevels = 1, .arrayLayers = 1,
-        .samples = VK_SAMPLE_COUNT_1_BIT, .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-      if (vkCreateImage(s->dev, &ii, NULL, &s->src_img) != VK_SUCCESS) goto fail;
-      VkMemoryRequirements mr; vkGetImageMemoryRequirements(s->dev, s->src_img, &mr);
-      VkMemoryAllocateInfo mai = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = mr.size,
-        .memoryTypeIndex = find_mem_type(s->pd, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) };
-      if (vkAllocateMemory(s->dev, &mai, NULL, &s->src_mem) != VK_SUCCESS) goto fail;
-      vkBindImageMemory(s->dev, s->src_img, s->src_mem, 0); }
-    { VkDeviceSize bytes = (VkDeviceSize)cw * ch * 4;
-      VkBufferCreateInfo bi = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = bytes, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
-      if (vkCreateBuffer(s->dev, &bi, NULL, &s->up_buf) != VK_SUCCESS) goto fail;
-      VkMemoryRequirements mr; vkGetBufferMemoryRequirements(s->dev, s->up_buf, &mr);
-      VkMemoryAllocateInfo mai = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = mr.size, .memoryTypeIndex = find_mem_type(s->pd, mr.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) };
-      if (vkAllocateMemory(s->dev, &mai, NULL, &s->up_mem) != VK_SUCCESS) goto fail;
-      vkBindBufferMemory(s->dev, s->up_buf, s->up_mem, 0);
-      vkMapMemory(s->dev, s->up_mem, 0, bytes, 0, &s->up_ptr); }
+    if (vk_make_pipeline(s) != 0) { VKLOG("pipeline\n"); goto fail; }
 
+    /* The sprite atlas is persistent; point its descriptor now. The base texture
+     * follows the content size, so it is created lazily at first present
+     * (vk_ensure_base) and re-created when the aspect toggles. */
+    if (vk_tex_make(s, &s->atlas, VK_ATLAS_W, VK_ATLAS_H) != 0) { VKLOG("atlas\n"); goto fail; }
+    vk_point_desc(s, s->dset_atlas, s->atlas.view);
+
+    /* sem_done is per-image, created in sw_make_targets. */
     { VkSemaphoreCreateInfo si = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
       vkCreateSemaphore(s->dev, &si, NULL, &s->sem_acquire);
-      vkCreateSemaphore(s->dev, &si, NULL, &s->sem_done);
       VkFenceCreateInfo fi = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         .flags = VK_FENCE_CREATE_SIGNALED_BIT };
       vkCreateFence(s->dev, &fi, NULL, &s->fence); }
@@ -548,71 +822,260 @@ static void sw_barrier(VkCommandBuffer cb, VkImage img, VkImageLayout from, VkIm
     vkCmdPipelineBarrier(cb, ss, ds, 0, 0, NULL, 0, NULL, 1, &b);
 }
 
-static void vulkan_present(const uint32_t *argb, int w, int h)
+/* Record: upload a VkTex's host buffer into its image, leave it SHADER_READ. */
+static void vk_tex_upload_cmd(Swap *s, VkTex *t)
 {
-    Swap *s = &g_sw;
-    if (!s->ok) return;
-    (void)w; (void)h;   /* uploads the content at s->cw x s->ch */
-    memcpy(s->up_ptr, argb, (size_t)s->cw * s->ch * 4);
+    VkImageLayout from = t->uploaded ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                     : VK_IMAGE_LAYOUT_UNDEFINED;
+    VkAccessFlags sa = t->uploaded ? VK_ACCESS_SHADER_READ_BIT : 0;
+    VkPipelineStageFlags ss = t->uploaded ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                                           : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    sw_barrier(s->cmd, t->img, from, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               sa, VK_ACCESS_TRANSFER_WRITE_BIT, ss, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkBufferImageCopy cp = { .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        .imageExtent = { (uint32_t)t->w, (uint32_t)t->h, 1 } };
+    vkCmdCopyBufferToImage(s->cmd, t->up_buf, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
+    sw_barrier(s->cmd, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+               VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    t->uploaded = 1;
+}
 
+/* The renderer composes in CONTENT pixels; the window may be a different size. The
+ * pipeline maps content->window via the vertex shader (screen = content size), so
+ * scissor rects (given in content px) must be scaled to framebuffer px here. */
+static void vk_scissor_content(Swap *s, int cw, int ch, int x, int y, int w, int h)
+{
+    float sx = (float)s->extent.width / (float)cw, sy = (float)s->extent.height / (float)ch;
+    int rx = (int)(x * sx), ry = (int)(y * sy);
+    int rw = (int)((x + w) * sx) - rx, rh = (int)((y + h) * sy) - ry;
+    if (rx < 0) { rw += rx; rx = 0; }
+    if (ry < 0) { rh += ry; ry = 0; }
+    if (rx + rw > (int)s->extent.width)  rw = (int)s->extent.width  - rx;
+    if (ry + rh > (int)s->extent.height) rh = (int)s->extent.height - ry;
+    if (rw < 0) rw = 0;
+    if (rh < 0) rh = 0;
+    VkRect2D sc = { { rx, ry }, { (uint32_t)rw, (uint32_t)rh } };
+    vkCmdSetScissor(s->cmd, 0, 1, &sc);
+}
+
+static void vk_draw_quad(Swap *s, VkDescriptorSet set, const QuadPush *qp)
+{
+    vkCmdBindDescriptorSets(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pll, 0, 1, &set, 0, NULL);
+    vkCmdPushConstants(s->cmd, s->pll, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0, sizeof *qp, qp);
+    vkCmdDraw(s->cmd, 4, 1, 0, 0);
+}
+
+/* Shelf-pack every drawable quad into the atlas upload buffer, baking its texels
+ * (per-output-row palette resolve). pos[i].w==0 means "not packed". Returns -1 if
+ * the atlas overflows (caller falls back to the composed blit). Mirrors
+ * scene_sdl.c's atlas_pack_bake. */
+typedef struct { int x, y, w, h; } AtlasPos;
+static int vk_atlas_pack_bake(Swap *s, const Scene *sc, AtlasPos *pos)
+{
+    int cur_x = 0, cur_y = 0, shelf_h = 0;
+    uint32_t *atlas = (uint32_t *)s->atlas.up_ptr;
+    for (int i = 0; i < sc->nquads; i++) {
+        const SceneQuad *q = &sc->quads[i];
+        pos[i].w = 0;
+        if (q->w <= 0 || q->h <= 0) continue;
+        if (q->w > VK_ATLAS_W) return -1;
+        if (cur_x + q->w > VK_ATLAS_W) { cur_x = 0; cur_y += shelf_h; shelf_h = 0; }
+        if (cur_y + q->h > VK_ATLAS_H) return -1;
+        pos[i] = (AtlasPos){ cur_x, cur_y, q->w, q->h };
+        cur_x += q->w;
+        if (q->h > shelf_h) shelf_h = q->h;
+        for (int rr = 0; rr < q->h; rr++) {
+            int dy = q->y + rr;
+            const uint32_t *pal = (dy >= 0 && dy < SCENE_MAX_ROWS) ? sc->pal_rows[dy] : sc->pal_rows[0];
+            const uint8_t *srcrow = q->idx + (size_t)rr * q->stride;
+            uint32_t *dstrow = atlas + (size_t)(pos[i].y + rr) * VK_ATLAS_W + pos[i].x;
+            for (int c = 0; c < q->w; c++) {
+                uint8_t v = srcrow[c];
+                dstrow[c] = (v == SCENE_TRANSPARENT)
+                          ? 0u
+                          : (0xFF000000u | (pal[v & (SCENE_PAL - 1)] & 0x00FFFFFFu));
+            }
+        }
+    }
+    return 0;
+}
+
+/* Begin frame: wait, acquire (rebuild on resize), begin command buffer + render
+ * pass on the acquired image. Returns the image index, or -1 to skip the frame. */
+static int vk_begin_frame(Swap *s, uint32_t *out_idx)
+{
+    vk_check_resize(s);   /* render resolution tracks the window size live */
     vkWaitForFences(s->dev, 1, &s->fence, VK_TRUE, UINT64_MAX);
-
     uint32_t idx = 0;
     VkResult ar = vkAcquireNextImageKHR(s->dev, s->swap, UINT64_MAX, s->sem_acquire, VK_NULL_HANDLE, &idx);
-    if (ar == VK_ERROR_OUT_OF_DATE_KHR) {   /* window resized: rebuild swapchain, skip frame */
-        vkDeviceWaitIdle(s->dev);
-        vkDestroySwapchainKHR(s->dev, s->swap, NULL); free(s->images); s->images = NULL;
-        sw_make_swapchain(s, s->extent.width, s->extent.height);
-        return;
-    }
-    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) return;
+    if (ar == VK_ERROR_OUT_OF_DATE_KHR) { sw_rebuild(s); return -1; }
+    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) return -1;
     vkResetFences(s->dev, 1, &s->fence);
-
     vkResetCommandBuffer(s->cmd, 0);
     VkCommandBufferBeginInfo bi = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
     vkBeginCommandBuffer(s->cmd, &bi);
+    *out_idx = idx;
+    return 0;
+}
 
-    /* upload -> src image, leave it TRANSFER_SRC */
-    sw_barrier(s->cmd, s->src_img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-               0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    VkBufferImageCopy cp = { .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-        .imageExtent = { (uint32_t)s->cw, (uint32_t)s->ch, 1 } };
-    vkCmdCopyBufferToImage(s->cmd, s->up_buf, s->src_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
-    sw_barrier(s->cmd, s->src_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
-    /* swapchain image: UNDEFINED -> TRANSFER_DST, blit (scaled), -> PRESENT_SRC */
-    sw_barrier(s->cmd, s->images[idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-               0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    VkImageBlit blit = {
-        .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-        .srcOffsets = { {0,0,0}, { s->cw, s->ch, 1 } },
-        .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-        .dstOffsets = { {0,0,0}, { (int)s->extent.width, (int)s->extent.height, 1 } } };
-    vkCmdBlitImage(s->cmd, s->src_img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   s->images[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
-    sw_barrier(s->cmd, s->images[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-               VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+/* End frame: end render pass + command buffer, submit, present (rebuild on resize). */
+static void vk_end_frame(Swap *s, uint32_t idx)
+{
+    vkCmdEndRenderPass(s->cmd);
     vkEndCommandBuffer(s->cmd);
-
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo subm = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .waitSemaphoreCount = 1, .pWaitSemaphores = &s->sem_acquire, .pWaitDstStageMask = &wait_stage,
         .commandBufferCount = 1, .pCommandBuffers = &s->cmd,
-        .signalSemaphoreCount = 1, .pSignalSemaphores = &s->sem_done };
-    vkQueueSubmit(s->queue, 1, &si, s->fence);
-
+        .signalSemaphoreCount = 1, .pSignalSemaphores = &s->sem_done[idx] };
+    vkQueueSubmit(s->queue, 1, &subm, s->fence);
     VkPresentInfoKHR pi = { .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .waitSemaphoreCount = 1, .pWaitSemaphores = &s->sem_done,
+        .waitSemaphoreCount = 1, .pWaitSemaphores = &s->sem_done[idx],
         .swapchainCount = 1, .pSwapchains = &s->swap, .pImageIndices = &idx };
     VkResult pr = vkQueuePresentKHR(s->queue, &pi);
-    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) {
-        vkDeviceWaitIdle(s->dev);
-        vkDestroySwapchainKHR(s->dev, s->swap, NULL); free(s->images); s->images = NULL;
-        sw_make_swapchain(s, s->extent.width, s->extent.height);
-    }
+    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
+        sw_rebuild(s);
 }
+
+static void vk_begin_pass(Swap *s, uint32_t idx, int cw, int ch)
+{
+    VkClearValue clr = { .color = { .float32 = { 0, 0, 0, 1 } } };
+    VkRenderPassBeginInfo rbi = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = s->rpass, .framebuffer = s->fbs[idx],
+        .renderArea = { {0,0}, s->extent }, .clearValueCount = 1, .pClearValues = &clr };
+    vkCmdBeginRenderPass(s->cmd, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+    VkViewport vp = { 0, 0, (float)s->extent.width, (float)s->extent.height, 0, 1 };
+    vkCmdSetViewport(s->cmd, 0, 1, &vp);
+    vk_scissor_content(s, cw, ch, 0, 0, cw, ch);
+    vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe);
+}
+
+/* Overlay / fallback path: present the composed surface as one fullscreen quad. */
+static void vulkan_present(const uint32_t *argb, int w, int h)
+{
+    Swap *s = &g_sw;
+    if (!s->ok) return;
+    if (vk_ensure_base(s, w, h) != 0) return;
+    memcpy(s->base.up_ptr, argb, (size_t)w * h * 4);
+
+    uint32_t idx;
+    if (vk_begin_frame(s, &idx) != 0) return;
+    vk_tex_upload_cmd(s, &s->base);
+    vk_begin_pass(s, idx, w, h);
+
+    QuadPush q; memset(&q, 0, sizeof q);
+    q.screen[0] = (float)w; q.screen[1] = (float)h; q.mode = 0;
+    q.dst[2] = (float)w; q.dst[3] = (float)h;
+    q.src[2] = 1.0f; q.src[3] = 1.0f;
+    vk_draw_quad(s, s->dset_base, &q);
+
+    vk_end_frame(s, idx);
+}
+
+/* BenRen VK — the per-sprite path: draw the Scene draw list on the GPU. */
+static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
+                                 const uint32_t *base, int w, int h)
+{
+    Swap *s = &g_sw;
+    if (!s->ok) return;
+    if (vk_ensure_base(s, w, h) != 0) return;
+    memcpy(s->base.up_ptr, base, (size_t)w * h * 4);
+
+    AtlasPos *pos = malloc(sizeof(AtlasPos) * (size_t)(sc->nquads ? sc->nquads : 1));
+    if (!pos) return;
+    if (vk_atlas_pack_bake(s, sc, pos) != 0) {   /* atlas overflow: composed fallback */
+        free(pos);
+        vulkan_present(base, w, h);
+        return;
+    }
+
+    uint32_t idx;
+    if (vk_begin_frame(s, &idx) != 0) { free(pos); return; }
+    vk_tex_upload_cmd(s, &s->base);
+    vk_tex_upload_cmd(s, &s->atlas);
+    vk_begin_pass(s, idx, w, h);
+
+    const float scr0 = (float)w, scr1 = (float)h;
+
+    /* Base layer: the rows the scene does NOT own (top border + HUD). */
+    if (y_lo > 0) {
+        QuadPush q; memset(&q, 0, sizeof q);
+        q.screen[0] = scr0; q.screen[1] = scr1;
+        q.dst[2] = (float)w; q.dst[3] = (float)y_lo;
+        q.src[2] = 1.0f; q.src[3] = (float)y_lo / (float)h;
+        vk_draw_quad(s, s->dset_base, &q);
+    }
+    if (y_hi < h) {
+        QuadPush q; memset(&q, 0, sizeof q);
+        q.screen[0] = scr0; q.screen[1] = scr1;
+        q.dst[1] = (float)y_hi; q.dst[2] = (float)w; q.dst[3] = (float)(h - y_hi);
+        q.src[1] = (float)y_hi / (float)h; q.src[2] = 1.0f; q.src[3] = 1.0f;
+        vk_draw_quad(s, s->dset_base, &q);
+    }
+
+    /* Per-row void background across the scene rows (COLOR00 run-length bands). */
+    for (int y = y_lo; y < y_hi; ) {
+        uint32_t c0 = (y >= 0 && y < SCENE_MAX_ROWS) ? sc->pal_rows[y][0] : 0;
+        int y1 = y + 1;
+        while (y1 < y_hi) {
+            uint32_t c1 = (y1 >= 0 && y1 < SCENE_MAX_ROWS) ? sc->pal_rows[y1][0] : 0;
+            if ((c1 & 0xFFFFFF) != (c0 & 0xFFFFFF)) break;
+            y1++;
+        }
+        QuadPush q; memset(&q, 0, sizeof q);
+        q.screen[0] = scr0; q.screen[1] = scr1; q.mode = 1;
+        q.dst[2] = (float)w; q.dst[1] = (float)y; q.dst[3] = (float)(y1 - y);
+        q.color[0] = ((c0 >> 16) & 0xFF) / 255.0f;
+        q.color[1] = ((c0 >>  8) & 0xFF) / 255.0f;
+        q.color[2] = ( c0        & 0xFF) / 255.0f;
+        q.color[3] = 1.0f;
+        vk_draw_quad(s, s->dset_atlas, &q);   /* mode 1 ignores the bound texture */
+        y = y1;
+    }
+
+    /* World quads: per-sprite, camera-projected, clipped to camera cols + rows. */
+    {
+        int cx0 = sc->wclip_x0 - sc->view_left, cx1 = sc->wclip_x1 - sc->view_left;
+        if (cx0 < 0)  cx0 = 0;
+        if (cx1 > w)  cx1 = w;
+        if (cx1 > cx0) {
+            vk_scissor_content(s, w, h, cx0, y_lo, cx1 - cx0, y_hi - y_lo);
+            for (int i = 0; i < sc->nquads; i++) {
+                const SceneQuad *q = &sc->quads[i];
+                if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0) continue;
+                QuadPush qp; memset(&qp, 0, sizeof qp);
+                qp.screen[0] = scr0; qp.screen[1] = scr1;
+                qp.dst[0] = (float)(q->x - sc->view_left); qp.dst[1] = (float)q->y;
+                qp.dst[2] = (float)q->w; qp.dst[3] = (float)q->h;
+                qp.src[0] = (float)pos[i].x / VK_ATLAS_W;          qp.src[1] = (float)pos[i].y / VK_ATLAS_H;
+                qp.src[2] = (float)(pos[i].x + q->w) / VK_ATLAS_W; qp.src[3] = (float)(pos[i].y + q->h) / VK_ATLAS_H;
+                vk_draw_quad(s, s->dset_atlas, &qp);
+            }
+        }
+    }
+
+    /* Screen-fixed quads (the banner): no camera, full frame, on top. */
+    vk_scissor_content(s, w, h, 0, 0, w, h);
+    for (int i = 0; i < sc->nquads; i++) {
+        const SceneQuad *q = &sc->quads[i];
+        if (q->space != SCENE_SPACE_SCREEN || pos[i].w == 0) continue;
+        QuadPush qp; memset(&qp, 0, sizeof qp);
+        qp.screen[0] = scr0; qp.screen[1] = scr1;
+        qp.dst[0] = (float)q->x; qp.dst[1] = (float)q->y;
+        qp.dst[2] = (float)q->w; qp.dst[3] = (float)q->h;
+        qp.src[0] = (float)pos[i].x / VK_ATLAS_W;          qp.src[1] = (float)pos[i].y / VK_ATLAS_H;
+        qp.src[2] = (float)(pos[i].x + q->w) / VK_ATLAS_W; qp.src[3] = (float)(pos[i].y + q->h) / VK_ATLAS_H;
+        vk_draw_quad(s, s->dset_atlas, &qp);
+    }
+
+    free(pos);
+    vk_end_frame(s, idx);
+}
+
+static void vulkan_set_effects(const FxFrame *fx) { if (fx) g_sw.fx = *fx; }
 
 static void vulkan_toggle_fullscreen(void)
 {
@@ -628,11 +1091,18 @@ static void vulkan_shutdown(void)
     if (s->dev) vkDeviceWaitIdle(s->dev);
     if (s->fence) vkDestroyFence(s->dev, s->fence, NULL);
     if (s->sem_acquire) vkDestroySemaphore(s->dev, s->sem_acquire, NULL);
-    if (s->sem_done) vkDestroySemaphore(s->dev, s->sem_done, NULL);
-    if (s->up_buf) vkDestroyBuffer(s->dev, s->up_buf, NULL);
-    if (s->up_mem) vkFreeMemory(s->dev, s->up_mem, NULL);
-    if (s->src_img) vkDestroyImage(s->dev, s->src_img, NULL);
-    if (s->src_mem) vkFreeMemory(s->dev, s->src_mem, NULL);
+    /* sem_done[] is freed by sw_destroy_targets below. */
+    if (s->pipe) vkDestroyPipeline(s->dev, s->pipe, NULL);
+    if (s->vs) vkDestroyShaderModule(s->dev, s->vs, NULL);
+    if (s->fs) vkDestroyShaderModule(s->dev, s->fs, NULL);
+    if (s->pll) vkDestroyPipelineLayout(s->dev, s->pll, NULL);
+    if (s->dpool) vkDestroyDescriptorPool(s->dev, s->dpool, NULL);
+    if (s->dsl) vkDestroyDescriptorSetLayout(s->dev, s->dsl, NULL);
+    if (s->samp) vkDestroySampler(s->dev, s->samp, NULL);
+    vk_tex_free(s, &s->atlas);
+    vk_tex_free(s, &s->base);
+    sw_destroy_targets(s);
+    if (s->rpass) vkDestroyRenderPass(s->dev, s->rpass, NULL);
     if (s->cpool) vkDestroyCommandPool(s->dev, s->cpool, NULL);
     if (s->swap) vkDestroySwapchainKHR(s->dev, s->swap, NULL);
     free(s->images);
@@ -644,7 +1114,8 @@ static void vulkan_shutdown(void)
 }
 
 static const PresentBackend VULKAN_BACKEND = {
-    "vulkan", vulkan_init, vulkan_present, NULL /* per-sprite present: SDL only (P3 shelved) */,
+    "vulkan", vulkan_init, vulkan_present, vulkan_present_scene,
+    vulkan_set_effects,
     vulkan_toggle_fullscreen, vulkan_window, vulkan_shutdown
 };
 
