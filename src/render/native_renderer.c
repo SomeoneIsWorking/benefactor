@@ -1301,7 +1301,15 @@ static void native_wsbanner_compose(int ow, int cam, int pf_top)
  * only runs effects (native_render_effects_43). */
 void native_render_wide_bg(uint32_t *out, int ow, int margin)
 {
-    if (margin < 0 || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only */
+    /* FREE CAM at 4:3 (margin<0, ow<352): the engine s_fb frame is locked to the
+     * engine camera and can't pan, so re-derive the camera-following WIDE view here
+     * too. `wide` = the view_left mapping (worldX = view_left + x); selected for the
+     * widescreen path (margin>0) AND for freecam at 4:3 (margin<0). margin==0 stays
+     * the engine-aligned WS_CMP compare path. */
+    extern int pc_freecam_active(void);
+    int freecam = pc_freecam_active();
+    int wide = (margin > 0) || (margin < 0 && freecam);
+    if ((margin < 0 && !freecam) || s_cur_cop1lc != WS_GAMEPLAY_COP1LC) return;   /* gameplay only */
     const uint8_t *M = g_mem;
     EngineView ev;
     if (!M || !engine_view_capture(&ev)) return;   /* firewall: engine state only, no fudge */
@@ -1399,8 +1407,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
 
         for (int x = 0; x < ow; x++) {
             int worldX;
-            if (margin > 0) {
-                worldX = view_left + x;                       /* widescreen: 1:1, centered/clamped — no DIW crop */
+            if (wide) {
+                worldX = view_left + x;                       /* widescreen/freecam: 1:1, centered/clamped — no DIW crop */
             } else {
                 /* margin==0 is the WS_CMP correctness gate ONLY (Native 4:3 no longer
                  * re-renders the background — see native_render_effects_43). Engine-
@@ -1416,7 +1424,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
                     if (o & 0xFF000000u) { row[x] = o; drawn = 1; }
                 }
             }
-            if (!drawn && margin > 0)
+            if (!drawn && wide)
                 row[x] = st->palette[0] | 0xFF000000u;  /* wide void = COLOR00 (curtain-aware) */
             /* Native (margin==0): a hole keeps the vanilla s_fb pixel already in s_out. */
         }
@@ -1432,8 +1440,8 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
       if (native_wsplayer_get(&plx, &ply, &pdb, &pmb, &pblack)) {
           int wx = plx + 8;                              /* player sprite centre, world X */
           light_sy = pf_top + ply + 8;
-          if (margin > 0) {
-              light_sx = wx - view_left;                 /* widescreen: worldX = view_left + x */
+          if (wide) {
+              light_sx = wx - view_left;                 /* widescreen/freecam: worldX = view_left + x */
           } else if (light_sy >= 0 && light_sy < HW_DISPLAY_H) {
               const ScanState *st = &s_scan[light_sy];   /* WS_CMP: engine-aligned */
               light_sx = (wx - cam16) + DDF_TO_X(st->ddfstrt) + (st->bplcon1 & 0xF);
