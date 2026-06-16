@@ -255,11 +255,12 @@ static void hw_compose_output(void)
     PcRenderMode mode = pc_render_mode();
     int benren = (mode == PC_RENDER_BENREN) || (mode == PC_RENDER_AUTO && ow > HW_DISPLAY_W) || cmp;
     { extern void native_render_scene_invalidate(void); native_render_scene_invalidate(); }
-    /* The Hardware (GPU per-sprite) renderer needs the draw list built even at 4:3,
-     * so present_scene runs (and the sprite glow shows) instead of falling back to the
-     * composite. Software/Vanilla 4:3 keep the engine frame (no camera re-derivation,
-     * avoids turbo jitter). */
-    int want_scene = hw_scene_render_enabled();
+    /* Build the wide tilemap draw list at 4:3 too when: (a) Hardware (so present_scene
+     * + per-sprite shadows run), or (b) free cam is active (so Software 4:3 can pan —
+     * the turbo-jitter reason to keep the engine frame doesn't apply during freecam).
+     * Otherwise Software/Vanilla 4:3 keep the engine frame. */
+    extern int pc_freecam_active(void);
+    int want_scene = hw_scene_render_enabled() || pc_freecam_active();
     if (benren) {
         if (margin > 0 || cmp || want_scene) native_render_wide_bg(s_out, ow, margin);  /* full native playfield */
         else                                 native_render_effects_43(s_out, ow);       /* 4:3: engine frame + effects */
@@ -804,13 +805,20 @@ static const PresentBackend *hw_resolve_backend(void)
 /* The "Hardware" renderer = the GPU per-sprite scene path (renderer=benren +
  * present=vulkan). Read live each frame so the pause-menu RENDERER row switches
  * Software<->Hardware instantly, with NO window/backend teardown. */
+/* Is the BenRen renderer (Software OR Hardware) the effective renderer? It can build
+ * the wide tilemap (re-deriving off-screen columns) — what free cam needs to pan. */
+int hw_benren_active(void)
+{
+    PcRenderMode m = pc_render_mode();
+    return (m == PC_RENDER_BENREN) ||
+           (m == PC_RENDER_AUTO && s_hw_out_w > HW_DISPLAY_W);
+}
+
 int hw_scene_render_enabled(void)
 {
     char p[16] = "";
     pc_cfg_show("present", p, sizeof p, NULL);
-    int benren = (pc_render_mode() == PC_RENDER_BENREN) ||
-                 (pc_render_mode() == PC_RENDER_AUTO && s_hw_out_w > HW_DISPLAY_W);
-    return benren && !strcmp(p, "vulkan");
+    return hw_benren_active() && !strcmp(p, "vulkan");
 }
 
 /* Shared handler for non-keyboard SDL events (controller hot-plug + buttons +

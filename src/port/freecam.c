@@ -84,13 +84,13 @@ void pc_freecam_toggle(void)
         return;
     }
     if (!g_gameplay_active) return;
-    /* Free cam needs the BenRen wide-tilemap renderer (it re-derives off-screen
-     * columns). That runs in any widescreen view OR in the Hardware renderer (which
-     * builds the draw list even at 4:3). The Software/Vanilla 4:3 path is the engine's
-     * own blit of just the visible playfield, so it can't pan. */
-    extern int hw_scene_render_enabled(void);
-    if (hw_output_width() <= 352 && !hw_scene_render_enabled()) {
-        pc_toast_show("FREE CAM NEEDS WIDESCREEN OR HARDWARE", 1);
+    /* Free cam needs the BenRen renderer (Software or Hardware): it re-derives the
+     * off-screen tilemap, and hw_compose_output builds that draw list while freecam is
+     * active even at 4:3. Only the Vanilla copper-blit renderer can't pan (it has only
+     * the engine's blit of the visible playfield). */
+    extern int hw_benren_active(void);
+    if (!hw_benren_active()) {
+        pc_toast_show("FREE CAM NEEDS THE SOFTWARE OR HARDWARE RENDERER", 1);
         return;
     }
     EngineView ev;

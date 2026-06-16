@@ -88,9 +88,13 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
 - **Controller defaults (rev 2)**: pad A = FIRE (`pad_fire: "A, B"`); the
   dedicated pad JUMP (`pad_hop`) has NO default and no menu row — the earlier
   A=jump default was a mis-map; keyboard JUMP stays.
-- **Free cam + HUD icons (2026-06-10)**: `PI_FREECAM` toggle (default C / pad
-  Back; the C drop-binding default was removed for it), gameplay-only, needs
-  widescreen (vanilla 352 can't pan — toast). `src/port/freecam.c`: the
+- **Free cam + HUD icons (2026-06-10; freecam gate relaxed 2026-06-16)**:
+  `PI_FREECAM` toggle (default C / pad Back), gameplay-only. Now works in ANY
+  BenRen renderer — Software OR Hardware, at any aspect (gate = `hw_benren_active()`,
+  not width). `hw_compose_output` builds the wide tilemap while freecam is active
+  even at Software 4:3 (the turbo-jitter reason to keep the engine frame doesn't
+  apply then). Only the VANILLA copper-blit renderer refuses (engine blit of the
+  visible playfield only — can't pan). `src/port/freecam.c`: the
   follow-point substitutes the engine camera inside `ws_view_left()`
   (native_renderer.c), so the wide bg, all sprite passes AND the cull
   overrides pan together; engine level clamps still apply; toggle-off snaps
