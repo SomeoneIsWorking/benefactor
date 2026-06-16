@@ -442,6 +442,8 @@ typedef struct {
     VkSwapchainKHR   swap;
     VkFormat         sc_format;       /* swapchain image format (for the render pass) */
     VkExtent2D       extent;
+    float            vp[4];           /* content viewport (x,y,w,h) in the swapchain — letterboxed
+                                       * to the content aspect each frame; NEVER stretch to fill */
     uint32_t         n_images;
     VkImage         *images;          /* owned by the swapchain */
     VkImageView     *views;           /* one per swapchain image */
@@ -926,14 +928,15 @@ static void vk_tex_upload_cmd(Swap *s, VkTex *t)
     t->uploaded = 1;
 }
 
-/* The renderer composes in CONTENT pixels; the window may be a different size. The
- * pipeline maps content->window via the vertex shader (screen = content size), so
- * scissor rects (given in content px) must be scaled to framebuffer px here. */
+/* The renderer composes in CONTENT pixels; the pipeline maps content -> the letterboxed
+ * content viewport (s->vp, computed in vk_begin_pass — preserves aspect, never stretches).
+ * Scissor rects (given in content px) map into that same viewport rect here. */
 static void vk_scissor_content(Swap *s, int cw, int ch, int x, int y, int w, int h)
 {
-    float sx = (float)s->extent.width / (float)cw, sy = (float)s->extent.height / (float)ch;
-    int rx = (int)(x * sx), ry = (int)(y * sy);
-    int rw = (int)((x + w) * sx) - rx, rh = (int)((y + h) * sy) - ry;
+    float sx = s->vp[2] / (float)cw, sy = s->vp[3] / (float)ch;
+    int rx = (int)(s->vp[0] + x * sx),       ry = (int)(s->vp[1] + y * sy);
+    int rw = (int)(s->vp[0] + (x + w) * sx) - rx;
+    int rh = (int)(s->vp[1] + (y + h) * sy) - ry;
     if (rx < 0) { rw += rx; rx = 0; }
     if (ry < 0) { rh += ry; ry = 0; }
     if (rx + rw > (int)s->extent.width)  rw = (int)s->extent.width  - rx;
@@ -1032,7 +1035,17 @@ static void vk_begin_pass(Swap *s, uint32_t idx, int cw, int ch)
         .renderPass = s->rpass, .framebuffer = s->fbs[idx],
         .renderArea = { {0,0}, s->extent }, .clearValueCount = 1, .pClearValues = &clr };
     vkCmdBeginRenderPass(s->cmd, &rbi, VK_SUBPASS_CONTENTS_INLINE);
-    VkViewport vp = { 0, 0, (float)s->extent.width, (float)s->extent.height, 0, 1 };
+
+    /* Letterbox/pillarbox the content (cw x ch) into the swapchain preserving aspect —
+     * NEVER stretch. The render pass clears to black, so the bars are black. */
+    float ew = (float)s->extent.width, eh = (float)s->extent.height;
+    float ca = (float)cw / (float)ch;
+    float vw, vh;
+    if (ew / eh > ca) { vh = eh; vw = eh * ca; }   /* window wider → pillarbox (L/R bars) */
+    else              { vw = ew; vh = ew / ca; }   /* window taller → letterbox (T/B bars) */
+    s->vp[0] = (ew - vw) * 0.5f; s->vp[1] = (eh - vh) * 0.5f;
+    s->vp[2] = vw;               s->vp[3] = vh;
+    VkViewport vp = { s->vp[0], s->vp[1], vw, vh, 0, 1 };
     vkCmdSetViewport(s->cmd, 0, 1, &vp);
     vk_scissor_content(s, cw, ch, 0, 0, cw, ch);
     vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe);
