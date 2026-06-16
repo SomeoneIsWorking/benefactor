@@ -4,9 +4,9 @@
  * (a=0); discard the holes so painter's order (draw order) composites exactly
  * like the CPU rasterizer. No blending needed — edges are hard-cut.
  *
- * This is where a future per-object shader / lighting term hangs off: each draw
- * already carries its own push constants, so a material id + light params can be
- * added per quad without touching the renderer. */
+ * mode 2 is the per-character drop shadow (black silhouette, alpha-blended). This is
+ * where a future per-object shader / material hangs off: each draw already carries
+ * its own push constants, so a material id can be added per quad. */
 layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 layout(binding = 0) uniform sampler2D u_tex;
@@ -21,11 +21,11 @@ layout(push_constant) uniform PC {
 
 void main() {
     if (pc.mode == 1) { o_color = pc.color; return; }   /* flat colour (void) */
-    if (pc.mode == 2) {                                  /* faint additive back-glow */
-        /* sprite colour * its alpha * intensity (color.r); ADDITIVE blend. Drawn on
-         * an EXPANDED quad behind the sprite, so a soft colour fringe haloes it. */
-        vec4 t = texture(u_tex, v_uv);
-        o_color = vec4(t.rgb * t.a * pc.color.r, 1.0);
+    if (pc.mode == 2) {                                  /* drop shadow */
+        /* The sprite's SILHOUETTE in black, ALPHA-blended at pc.color.a opacity.
+         * Drawn OFFSET behind the character so a soft dark shadow sits under it. */
+        float a = texture(u_tex, v_uv).a * pc.color.a;
+        o_color = vec4(0.0, 0.0, 0.0, a);
         return;
     }
     vec4 t = texture(u_tex, v_uv);

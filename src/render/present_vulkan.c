@@ -455,8 +455,8 @@ typedef struct {
     VkDescriptorSet  dset_atlas;      /* binds the sprite atlas */
     VkDescriptorSet  dset_base;       /* binds the base (composed) texture */
     VkPipelineLayout pll;
-    VkPipeline       pipe;            /* opaque sprite/base/void quads */
-    VkPipeline       pipe_quad_glow;  /* same quads, ADDITIVE — the per-sprite back-glow */
+    VkPipeline       pipe;             /* opaque sprite/base/void quads */
+    VkPipeline       pipe_quad_shadow; /* same quads, ALPHA blend — the per-character drop shadow */
     VkShaderModule   vs, fs;
     /* Lighting pass (blended fullscreen, no descriptor set): blit.vert + fx.frag. */
     VkShaderModule   fx_vs, fx_fs;
@@ -740,16 +740,17 @@ static int vk_make_pipeline(Swap *s)
         .pColorBlendState = &cb, .pDynamicState = &dys, .layout = s->pll, .renderPass = s->rpass };
     if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe) != VK_SUCCESS) return -1;
 
-    /* Same pipeline but ADDITIVE blend — the per-sprite back-glow (quad mode 2). */
-    VkPipelineColorBlendAttachmentState cba_add = { .blendEnable = VK_TRUE,
-        .srcColorBlendFactor = VK_BLEND_FACTOR_ONE, .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+    /* Same pipeline but ALPHA blend — the per-character drop shadow (quad mode 2):
+     * result = black*srcA + dst*(1-srcA) → darkens the background by the silhouette. */
+    VkPipelineColorBlendAttachmentState cba_a = { .blendEnable = VK_TRUE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA, .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .colorBlendOp = VK_BLEND_OP_ADD,
-        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xF };
-    VkPipelineColorBlendStateCreateInfo cb_add = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .attachmentCount = 1, .pAttachments = &cba_add };
-    gp.pColorBlendState = &cb_add;
-    if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe_quad_glow) != VK_SUCCESS) return -1;
+    VkPipelineColorBlendStateCreateInfo cb_a = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = 1, .pAttachments = &cba_a };
+    gp.pColorBlendState = &cb_a;
+    if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe_quad_shadow) != VK_SUCCESS) return -1;
     return 0;
 }
 
@@ -1131,38 +1132,34 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
         if (cx1 > cx0) {
             vk_scissor_content(s, w, h, cx0, y_lo, cx1 - cx0, y_hi - y_lo);
 
-            if (s->fx.valid && (s->fx.flags & FX_SPRITEGLOW)) {
-                /* SPRITE GLOW strength 1..3 → intensity + halo spread (px). */
-                static const float k_int[4] = { 0.0f, 0.30f, 0.60f, 1.00f };
-                static const float k_exp[4] = { 0.0f, 3.0f,  5.0f,  8.0f  };
-                int lv = s->fx.spriteglow; if (lv < 1) lv = 1; if (lv > 3) lv = 3;
-                const float G = k_exp[lv];
-                const float INTENS = k_int[lv];
-                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_quad_glow);
-                for (int i = 0; i < sc->nquads; i++) {
-                    const SceneQuad *q = &sc->quads[i];
-                    if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0 || !q->glow) continue;
-                    QuadPush qg; memset(&qg, 0, sizeof qg);
-                    qg.screen[0] = scr0; qg.screen[1] = scr1; qg.mode = 2;
-                    qg.color[0] = INTENS;
-                    qg.dst[0] = (float)(q->x - sc->view_left) - G; qg.dst[1] = (float)q->y - G;
-                    qg.dst[2] = (float)q->w + 2.0f * G;            qg.dst[3] = (float)q->h + 2.0f * G;
-                    qg.src[0] = (float)pos[i].x / VK_ATLAS_W;          qg.src[1] = (float)pos[i].y / VK_ATLAS_H;
-                    qg.src[2] = (float)(pos[i].x + q->w) / VK_ATLAS_W; qg.src[3] = (float)(pos[i].y + q->h) / VK_ATLAS_H;
-                    vk_draw_quad(s, s->dset_atlas, &qg);
-                }
-                vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe);  /* back to opaque */
-            }
-
+            int shadow_on = (s->fx.valid && (s->fx.flags & FX_SHADOW));
+            const float SH_DX = 3.0f, SH_DY = 3.0f, SH_OPACITY = 0.45f;  /* offset px + darkness */
             for (int i = 0; i < sc->nquads; i++) {
                 const SceneQuad *q = &sc->quads[i];
                 if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0) continue;
+                float u0 = (float)pos[i].x / VK_ATLAS_W, v0 = (float)pos[i].y / VK_ATLAS_H;
+                float u1 = (float)(pos[i].x + q->w) / VK_ATLAS_W, v1 = (float)(pos[i].y + q->h) / VK_ATLAS_H;
+
+                /* Drop shadow FIRST, per character — drawn AFTER the tiles/earlier quads
+                 * (over the terrain) and BEFORE this sprite, OFFSET down-right so a dark
+                 * silhouette sits behind/below the character. */
+                if (shadow_on && q->shadow) {
+                    QuadPush qs; memset(&qs, 0, sizeof qs);
+                    qs.screen[0] = scr0; qs.screen[1] = scr1; qs.mode = 2;
+                    qs.color[3] = SH_OPACITY;
+                    qs.dst[0] = (float)(q->x - sc->view_left) + SH_DX; qs.dst[1] = (float)q->y + SH_DY;
+                    qs.dst[2] = (float)q->w; qs.dst[3] = (float)q->h;
+                    qs.src[0] = u0; qs.src[1] = v0; qs.src[2] = u1; qs.src[3] = v1;
+                    vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_quad_shadow);
+                    vk_draw_quad(s, s->dset_atlas, &qs);
+                    vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe);
+                }
+
                 QuadPush qp; memset(&qp, 0, sizeof qp);
                 qp.screen[0] = scr0; qp.screen[1] = scr1;
                 qp.dst[0] = (float)(q->x - sc->view_left); qp.dst[1] = (float)q->y;
                 qp.dst[2] = (float)q->w; qp.dst[3] = (float)q->h;
-                qp.src[0] = (float)pos[i].x / VK_ATLAS_W;          qp.src[1] = (float)pos[i].y / VK_ATLAS_H;
-                qp.src[2] = (float)(pos[i].x + q->w) / VK_ATLAS_W; qp.src[3] = (float)(pos[i].y + q->h) / VK_ATLAS_H;
+                qp.src[0] = u0; qp.src[1] = v0; qp.src[2] = u1; qp.src[3] = v1;
                 vk_draw_quad(s, s->dset_atlas, &qp);
             }
         }
@@ -1225,7 +1222,7 @@ static void vulkan_shutdown(void)
     if (s->pll_fx) vkDestroyPipelineLayout(s->dev, s->pll_fx, NULL);
     if (s->fx_vs) vkDestroyShaderModule(s->dev, s->fx_vs, NULL);
     if (s->fx_fs) vkDestroyShaderModule(s->dev, s->fx_fs, NULL);
-    if (s->pipe_quad_glow) vkDestroyPipeline(s->dev, s->pipe_quad_glow, NULL);
+    if (s->pipe_quad_shadow) vkDestroyPipeline(s->dev, s->pipe_quad_shadow, NULL);
     if (s->pipe) vkDestroyPipeline(s->dev, s->pipe, NULL);
     if (s->vs) vkDestroyShaderModule(s->dev, s->vs, NULL);
     if (s->fs) vkDestroyShaderModule(s->dev, s->fs, NULL);

@@ -67,14 +67,15 @@ Two GPU effects, toggled in OPTIONS → RENDERING → EFFECTS, both Hardware-onl
 - AMBIENT DARKNESS (`fx_ambient`, bool) — vignette toward the view edges. A
   MULTIPLY-blended fullscreen pass (`shaders/fx.frag`) after the world sprites, before
   the banner (UI stays bright). Pure per-pixel, no texture read.
-- SPRITE GLOW (`fx_spriteglow`, strength 0..3) — a glow behind ALL foreground sprites
-  (objects/characters/player). PER-SPRITE: an expanded, additive copy of each sprite
-  (quad.frag mode 2, `pipe_quad_glow`) drawn BEFORE the sprites, so a colour fringe
-  haloes each. Scoped via a `glow` flag on SceneQuad the emitter raises around the
-  object/char/player composers (NOT tiles/water/UI). Strength → intensity+spread table
-  in present_vulkan.c. Genuinely per-object — the seam future per-object materials use.
+- DROP SHADOW (`fx_shadow`, bool) — a dark offset silhouette behind CHARACTERS only
+  (player / Marry Men / enemies). PER-SPRITE: a black copy of each character sprite
+  (quad.frag mode 2, ALPHA-blended `pipe_quad_shadow`) drawn over the terrain, OFFSET
+  down-right (SH_DX/SH_DY) at SH_OPACITY, BEFORE the sprite so it sits behind/below it.
+  Scoped via a `shadow` flag on SceneQuad the emitter raises around ONLY the
+  player/character composers (NOT items/tiles/static). Tunables in present_vulkan.c.
 
-(TORCH GLOW was removed per user request.)
+(TORCH GLOW and the earlier SPRITE GLOW were both removed per user request — the glow
+read as a harsh bright blob; a drop shadow on characters is cleaner.)
 
 **Hardware builds the draw list even at 4:3** (`hw_scene_render_enabled()` in
 hw_compose_output) so present_scene + the glow run there too — Software/Vanilla 4:3

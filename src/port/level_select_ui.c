@@ -217,13 +217,14 @@ void pc_menu_subtext_overlay(uint32_t *fb)
                  pc_world_name(w), pc_static_level_name(level), w + 1, liw + 1);
         /* g_menu_continue_y is the bitplane PAGE row; the menu composites ~12 lines
          * lower and the item font (+shadow) is ~24 tall, so drop the subtext into the
-         * gap below CONTINUE (empirically +40 lands between CONTINUE and LEVEL SELECT). */
-        menu_small_text(fb, g_menu_continue_x, g_menu_continue_y + 40, line);
+         * gap below CONTINUE (empirically +40 lands between CONTINUE and LEVEL SELECT);
+         * nudge it slightly right so it isn't flush with the item. */
+        menu_small_text(fb, g_menu_continue_x + 12, g_menu_continue_y + 40, line);
     }
 
-    /* DISK.4 indicator — same subsystem, when the extras disk is present. */
+    /* DISK.4 indicator — same subsystem, bottom-right just above the beach window. */
     if (pc_extra_worlds_available() > 0)
-        menu_small_text(fb, 152, 150, "DISK.4 LOADED");
+        menu_small_text(fb, 238, 168, "DISK.4 LOADED");
 }
 
 void pc_toast_overlay(uint32_t *fb)
