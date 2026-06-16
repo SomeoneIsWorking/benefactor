@@ -1802,6 +1802,26 @@ int main(int argc, char **argv)
                        path, w, h, x, y, sc);
             }
         }
+        else if (!strcmp(cmd, "shotpu")) {  /* shotpu [tag] [x y w h [scale]] — PNG of the PUAE
+                                               framebuffer (s_puae_fb, 352x282) = the Amiga oracle,
+                                               so the same scene can be diffed against the PC `shot`. */
+            extern int png_dump_region(const char *, const uint32_t *, int,
+                                       int, int, int, int, int);
+            char tag[64] = "shotpu"; int x = 0, y = 0, w = 0, h = 0, sc = 1;
+            sscanf(line, "%*s %63s %d %d %d %d %d", tag, &x, &y, &w, &h, &sc);
+            if (w <= 0) { x = y = 0; w = FB_W; h = FB_H; }
+            if (h <= 0) h = FB_H - y;
+            if (x < 0 || y < 0 || x + w > FB_W || y + h > FB_H || sc < 1) {
+                printf("[crepl] shotpu: bad region (%d,%d %dx%d) for %dx%d\n", x, y, w, h, FB_W, FB_H);
+            } else {
+                char path[192];
+                mkdir("scratch", 0755); mkdir("scratch/screenshots", 0755);
+                snprintf(path, sizeof path, "scratch/screenshots/%s.png", tag);
+                printf("[crepl] %s %s (%dx%d @%d,%d x%d)\n",
+                       png_dump_region(path, s_puae_fb, FB_W, x, y, w, h, sc) == 0 ? "wrote" : "FAILED",
+                       path, w, h, x, y, sc);
+            }
+        }
         else if (!strcmp(cmd, "scan")) {  /* scan [lo [hi]] — per-scanline bplcon0/1, mods, ddf
                                              of the last rendered frame (runs of equal state) */
             extern int native_scanline_info(int, uint16_t*, uint16_t*, int*, int*, uint16_t*);

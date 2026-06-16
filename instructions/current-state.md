@@ -807,6 +807,32 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
 - **BENMOTION Stage 4** — own grounded movement (walk accel/friction, ledge
   momentum); then the UP/fire+dir commit/revert flap disappears too.
 
+- **OPEN: garbled object on level 22 (2026-06-16, user-reported).** A small static
+  branch object renders as a multi-colour garbage blob instead of PUAE's thin
+  grey sliver. Narrowed (do NOT re-derive):
+  - Level **22**, treetop. Object = wsobj **obj 7**, captured at `$57D8D0` as
+    `src=$060A08, SIZE w=16px(1word) h=4`. Reproducible FRESH (walk right ~200f),
+    not savestate-specific. Repro savestate: `logs/savestate.bin` (cam≈181, object
+    at worldX≈289; in the wide output it's ~screen x182).
+  - **Port-only** (user confirms correct on Amiga). gfx bytes at `$060A08` are
+    **byte-identical PC vs PUAE** (`m`/`mp 60A08`) → NOT data corruption.
+  - Garbles in **both** the engine blitter (`shot eng`) AND BenRen's independent
+    decode, **identically** → shared bad INPUT, not a blitter-vs-decode split.
+  - PUAE renders it correctly = a thin grey object (`shotpu`, new REPL tool).
+  - **Leading hypothesis:** the recompiler computes the wrong anim gfx offset
+    **`D5`** for this object's VM → wrong `src = gfxBase + (int16)D5`. `$060A08`
+    happens to hold unrelated bright-plane data; the correct src is elsewhere.
+    Both PC paths capture the same wrong src → identical garbage; PUAE uses the
+    right src → thin grey. (obj 7 is a STATIC object: blitted once on scroll-in
+    then page-persists, so `blitlog` on a settled frame shows no blit for it —
+    catch it on the entry frame.)
+  - **Next step to confirm:** capture PUAE's blit src (`BENEFACTOR_HW_TRACE`) /
+    `D5` for obj 7 on its scroll-in frame and diff against PC's `$060A08`. If the
+    src differs, it's a recompiler `D5` bug in the object's animation VM
+    (`$59ACxx` → `$57D8D0`); fix via the PC-vs-PUAE instruction trace.
+  - New tool: **`shotpu [tag] [x y w h scale]`** REPL = PUAE-framebuffer PNG (the
+    `shot` twin) for oracle visual diffs.
+
 ### PROPOSALS (not committed to — discuss before starting)
 - **Rewind** — hold a key to rewind recent gameplay (ring buffer of
   savestates; g_mem+ctx snapshots are cheap and already serializable).
