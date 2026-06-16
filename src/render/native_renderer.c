@@ -1087,7 +1087,9 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16)
         uint32_t data = (gmem_r16(M, e)      + WS_GFX_DATA_ADD + bdelta) & 0xFFFFFFu;
         uint32_t mask = (gmem_r16(M, e + 2u) + WS_GFX_MASK_ADD + bdelta) & 0xFFFFFFu;
         if (worldY > 0xD7) worldY = 0xD7;                   /* engine clamps d2 to $D7 */
+        s_scene.shadow_next = 1;   /* caged Marry Man = a character → drop shadow (not the cloud) */
         ws_draw_static(M, pf_top, pf_bot, worldX - 8, worldY + yoff, h, rs, data, mask);
+        s_scene.shadow_next = 0;
         s_wsstatic_drawn++;
 
         /* Repair dust-cloud overlay: drawn after (= over) the man, like the
