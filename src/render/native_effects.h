@@ -7,5 +7,5 @@
  * (only the Vulkan backend's set_effects path applies them). */
 #pragma once
 
-/* FX_AMBIENT | FX_TORCH | FX_SPRITEGLOW, resolved live from the fx_* cfg knobs. */
+/* FX_AMBIENT | FX_SPRITEGLOW, resolved live from the fx_* cfg knobs. */
 int native_fx_flags(void);

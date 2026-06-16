@@ -1132,8 +1132,12 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
             vk_scissor_content(s, w, h, cx0, y_lo, cx1 - cx0, y_hi - y_lo);
 
             if (s->fx.valid && (s->fx.flags & FX_SPRITEGLOW)) {
-                const float G = 3.0f;        /* halo expansion, content px */
-                const float INTENS = 0.34f;  /* faint */
+                /* SPRITE GLOW strength 1..3 → intensity + halo spread (px). */
+                static const float k_int[4] = { 0.0f, 0.30f, 0.60f, 1.00f };
+                static const float k_exp[4] = { 0.0f, 3.0f,  5.0f,  8.0f  };
+                int lv = s->fx.spriteglow; if (lv < 1) lv = 1; if (lv > 3) lv = 3;
+                const float G = k_exp[lv];
+                const float INTENS = k_int[lv];
                 vkCmdBindPipeline(s->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->pipe_quad_glow);
                 for (int i = 0; i < sc->nquads; i++) {
                     const SceneQuad *q = &sc->quads[i];
@@ -1164,11 +1168,11 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
         }
     }
 
-    /* Lighting pass (Hardware-only): ambient darkness + torch glow, blended
-     * fullscreen over the world, BEFORE the banner so screen-fixed UI stays bright. */
+    /* Lighting pass (Hardware-only): ambient darkness, blended fullscreen over the
+     * world, BEFORE the banner so screen-fixed UI stays bright. */
     {
         int fl = s->fx.valid ? s->fx.flags : 0;
-        if (fl & (FX_AMBIENT | FX_TORCH)) {
+        if (fl & FX_AMBIENT) {
             vk_scissor_content(s, w, h, 0, 0, w, h);
             FxPush fp;
             fp.res[0] = scr0; fp.res[1] = scr1;

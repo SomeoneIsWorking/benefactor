@@ -354,6 +354,7 @@ static void native_fx_publish(int ow, int oh, int pf_top, int pf_bot,
     s_fx.light_sx  = light_sx;
     s_fx.light_sy  = light_sy;
     s_fx.flags     = native_fx_flags();
+    s_fx.spriteglow = native_fx_spriteglow();
 }
 
 void native_render_frame(void)
@@ -567,6 +568,24 @@ uint32_t native_scanline_bgcolor(int y)
 {
     if (y < 0 || y >= HW_DISPLAY_H) return 0xFF000000u;
     return s_scan[y].palette[0] | 0xFF000000u;
+}
+
+/* Brightest palette channel at scanline y (0..255). The menu small-text overlay
+ * uses this as a fade factor: the whole menu palette ramps together as the screen
+ * fades in/out, so the brightest entry tracks the fade — PC-overlay text drawn on
+ * top can dim to match instead of popping at full brightness. */
+int native_scanline_palette_luma(int y)
+{
+    if (y < 0 || y >= HW_DISPLAY_H) return 255;
+    int mx = 0;
+    for (int i = 0; i < 32; i++) {
+        uint32_t c = s_scan[y].palette[i];
+        int r = (int)((c >> 16) & 0xFF), g = (int)((c >> 8) & 0xFF), b = (int)(c & 0xFF);
+        if (r > mx) mx = r;
+        if (g > mx) mx = g;
+        if (b > mx) mx = b;
+    }
+    return mx;
 }
 
 /* REPL `scan` inspector: per-scanline copper-walk state of the LAST rendered
