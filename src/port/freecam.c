@@ -84,8 +84,13 @@ void pc_freecam_toggle(void)
         return;
     }
     if (!g_gameplay_active) return;
-    if (hw_output_width() <= 352) {              /* vanilla view can't pan */
-        pc_toast_show("FREE CAM NEEDS WIDESCREEN", 1);
+    /* Free cam needs the BenRen wide-tilemap renderer (it re-derives off-screen
+     * columns). That runs in any widescreen view OR in the Hardware renderer (which
+     * builds the draw list even at 4:3). The Software/Vanilla 4:3 path is the engine's
+     * own blit of just the visible playfield, so it can't pan. */
+    extern int hw_scene_render_enabled(void);
+    if (hw_output_width() <= 352 && !hw_scene_render_enabled()) {
+        pc_toast_show("FREE CAM NEEDS WIDESCREEN OR HARDWARE", 1);
         return;
     }
     EngineView ev;
