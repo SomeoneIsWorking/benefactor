@@ -94,7 +94,10 @@ static const struct { const char *key, *desc; } s_cfg_decl[] = {
     { "widescreen",      "widescreen output width, px (0 = native 352)" },
     { "widescreen_mode", "widescreen preset: disabled | 16:9 | ultrawide | auto (window aspect)" },
     { "renderer",        "frame renderer: vanilla (Amiga blit) | benren (sprite-based, native; hosts widescreen+effects)" },
-    { "lighting",        "native-renderer light effect: off | ambient | player (benren only)" },
+    { "present",         "present backend: sdl (software) | vulkan (BenRen VK per-sprite GPU renderer; benren only)" },
+    { "fx_ambient",      "GPU effect (Hardware): ambient darkness vignette (bool)" },
+    { "fx_torch",        "GPU effect (Hardware): torch glow / player-centred dim (bool)" },
+    { "fx_charglow",     "GPU effect (Hardware): subtle character glow (bool)" },
 };
 int         pc_cfg_count(void)    { return (int)(sizeof s_cfg_decl / sizeof s_cfg_decl[0]); }
 const char *pc_cfg_key (int i)    { return (i >= 0 && i < pc_cfg_count()) ? s_cfg_decl[i].key  : NULL; }

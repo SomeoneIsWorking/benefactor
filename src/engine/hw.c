@@ -782,6 +782,31 @@ void hw_widescreen_refresh(void)
     }
 }
 
+/* Resolve the present (window-owning) backend. The window is created ONCE at init
+ * and is NOT recreated on a renderer change — Software vs Hardware only flips which
+ * present call runs (composite blit vs GPU per-sprite), not the backend. So prefer
+ * Vulkan whenever it's available: it owns the window for ALL renderers, and Vanilla/
+ * Software simply present the CPU-composed surface through it. Falls back to SDL only
+ * when Vulkan is unavailable. BENEFACTOR_RENDER forces a backend. */
+static const PresentBackend *hw_resolve_backend(void)
+{
+    const char *env = getenv("BENEFACTOR_RENDER");
+    if (env && *env) return present_backend_select(env);
+    return present_backend_select("vulkan");   /* falls back to sdl if unavailable */
+}
+
+/* The "Hardware" renderer = the GPU per-sprite scene path (renderer=benren +
+ * present=vulkan). Read live each frame so the pause-menu RENDERER row switches
+ * Software<->Hardware instantly, with NO window/backend teardown. */
+int hw_scene_render_enabled(void)
+{
+    char p[16] = "";
+    pc_cfg_show("present", p, sizeof p, NULL);
+    int benren = (pc_render_mode() == PC_RENDER_BENREN) ||
+                 (pc_render_mode() == PC_RENDER_AUTO && s_hw_out_w > HW_DISPLAY_W);
+    return benren && !strcmp(p, "vulkan");
+}
+
 /* Shared handler for non-keyboard SDL events (controller hot-plug + buttons +
  * axes, window resize). Called from BOTH event pumps — hw_present_frame's and
  * the harness input_poll — so controller support works everywhere. Returns 1
@@ -878,9 +903,9 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
          * SDL_CONTROLLERDEVICEADDED events through hw_handle_sdl_event). */
         for (int i = 0; i < SDL_NumJoysticks(); i++) hw_pad_open(i);
 
-        /* Pick the present backend (BENEFACTOR_RENDER=sdl|vulkan, default sdl;
-         * falls back to sdl if vulkan is unavailable) and let it own the window. */
-        s_backend = present_backend_select(getenv("BENEFACTOR_RENDER"));
+        /* Pick the present (window-owning) backend — Vulkan when available, else SDL;
+         * the same window serves every renderer (see hw_resolve_backend). */
+        s_backend = hw_resolve_backend();
         if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) {
             const PresentBackend *sdl = present_backend_sdl();
             if (s_backend == sdl) return -1;   /* sdl itself failed: nothing to fall back to */
@@ -1041,7 +1066,10 @@ int hw_present_frame(void)
         int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible
                    || pc_hud_icons_active() || pc_freecam_fade_alpha() > 0;
         perf_t = hw_perf_now_us();
-        if (s_backend->present_scene && native_render_scene_ready() && !overlay) {
+        /* Per-sprite GPU path only for the Hardware renderer; Software/Vanilla present
+         * the CPU-composed surface (one quad). Overlays always use the composite. */
+        if (hw_scene_render_enabled() && s_backend->present_scene &&
+            native_render_scene_ready() && !overlay) {
             int ylo, yhi; native_render_scene_yrange(&ylo, &yhi);
             s_backend->present_scene(native_render_scene(), ylo, yhi,
                                      s_out, s_hw_out_w, HW_DISPLAY_H);

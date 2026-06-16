@@ -51,8 +51,19 @@ if(Vulkan_FOUND)
         add_custom_command(OUTPUT "${SHADER_GEN_DIR}/blit.frag.inc"
             COMMAND ${GLSLC} -mfmt=num "${SHADER_SRC}/blit.frag" -o "${SHADER_GEN_DIR}/blit.frag.inc"
             DEPENDS "${SHADER_SRC}/blit.frag" VERBATIM)
+        add_custom_command(OUTPUT "${SHADER_GEN_DIR}/effects.frag.inc"
+            COMMAND ${GLSLC} -mfmt=num "${SHADER_SRC}/effects.frag" -o "${SHADER_GEN_DIR}/effects.frag.inc"
+            DEPENDS "${SHADER_SRC}/effects.frag" VERBATIM)
+        add_custom_command(OUTPUT "${SHADER_GEN_DIR}/quad.vert.inc"
+            COMMAND ${GLSLC} -mfmt=num "${SHADER_SRC}/quad.vert" -o "${SHADER_GEN_DIR}/quad.vert.inc"
+            DEPENDS "${SHADER_SRC}/quad.vert" VERBATIM)
+        add_custom_command(OUTPUT "${SHADER_GEN_DIR}/quad.frag.inc"
+            COMMAND ${GLSLC} -mfmt=num "${SHADER_SRC}/quad.frag" -o "${SHADER_GEN_DIR}/quad.frag.inc"
+            DEPENDS "${SHADER_SRC}/quad.frag" VERBATIM)
         add_custom_target(benefactor_shaders
-            DEPENDS "${SHADER_GEN_DIR}/blit.vert.inc" "${SHADER_GEN_DIR}/blit.frag.inc")
+            DEPENDS "${SHADER_GEN_DIR}/blit.vert.inc" "${SHADER_GEN_DIR}/blit.frag.inc"
+                    "${SHADER_GEN_DIR}/effects.frag.inc"
+                    "${SHADER_GEN_DIR}/quad.vert.inc" "${SHADER_GEN_DIR}/quad.frag.inc")
         set(BENEFACTOR_VULKAN ON)
         message(STATUS "Vulkan found — building the Vulkan present backend (glslc: ${GLSLC})")
     else()

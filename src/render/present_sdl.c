@@ -95,6 +95,7 @@ static void sdl_shutdown(void)
 
 static const PresentBackend SDL_BACKEND = {
     "sdl", sdl_init, sdl_present, sdl_present_scene,
+    NULL /* set_effects: software renders no effects (the hard gate) */,
     sdl_toggle_fullscreen, sdl_window, sdl_shutdown
 };
 

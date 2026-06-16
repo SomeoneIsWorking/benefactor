@@ -1,25 +1,11 @@
-/* native_effects.h — post-process visual effects for the NATIVE (BenRen) renderer.
+/* native_effects.h — effect-flag resolution for the NATIVE (BenRen) renderer.
  *
- * The vanilla (Amiga-blit) path is byte-faithful to the original and must never
- * be touched. The native renderer composes the whole frame itself, which makes
- * it the place where PC-only effects live. This is the seam those effects hang
- * off: a single SCREEN-SPACE pass that runs AFTER the playfield + sprites are
- * composited into the wide output buffer, but BEFORE screen-fixed UI (the
- * GET READY / GAME OVER banner), so HUD/banner overlays are never dimmed.
- *
- * Effects operate on the composited ARGB buffer over the playfield rows
- * [pf_top, pf_bot). The renderer projects any world-anchored light source (e.g.
- * the player) into output pixels itself and passes it as (light_sx, light_sy) —
- * the effects layer stays pure screen-space and never re-derives the camera
- * projection (which differs between the 4:3 and widescreen paths). light_sx < 0
- * means "no source this frame" (menus/transitions) → effects fall back to the
- * view centre.
- *
- * All effects are OFF by default (the "lighting" cfg knob); when off this is a
- * cheap early-out, so it's safe to call unconditionally. Adding an effect:
- * resolve its knob, then read+write `out` in the row range. */
+ * Effects are Vulkan-only now (see effects_frame.h + shaders/effects.frag): there
+ * is no CPU effect pass. This unit just resolves the three independent effect
+ * toggles from cfg into the FX_* bitmask the renderer publishes and the Vulkan
+ * present consumes. Off by default; in Vanilla/Software the flags are inert
+ * (only the Vulkan backend's set_effects path applies them). */
 #pragma once
-#include <stdint.h>
 
-void native_effects_apply(uint32_t *out, int ow, int oh, int pf_top, int pf_bot,
-                          int light_sx, int light_sy);
+/* FX_AMBIENT | FX_TORCH | FX_CHARGLOW, resolved live from the fx_* cfg knobs. */
+int native_fx_flags(void);
