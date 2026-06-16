@@ -20,7 +20,14 @@ layout(push_constant) uniform PC {
 } pc;
 
 void main() {
-    if (pc.mode == 1) { o_color = pc.color; return; }
+    if (pc.mode == 1) { o_color = pc.color; return; }   /* flat colour (void) */
+    if (pc.mode == 2) {                                  /* faint additive back-glow */
+        /* sprite colour * its alpha * intensity (color.r); ADDITIVE blend. Drawn on
+         * an EXPANDED quad behind the sprite, so a soft colour fringe haloes it. */
+        vec4 t = texture(u_tex, v_uv);
+        o_color = vec4(t.rgb * t.a * pc.color.r, 1.0);
+        return;
+    }
     vec4 t = texture(u_tex, v_uv);
     if (t.a < 0.5) discard;
     o_color = vec4(t.rgb, 1.0);

@@ -6,9 +6,9 @@
  * shader. This file is the single place that turns the user-facing knobs into the
  * FX_* bitmask both the menu and the shader-param path read.
  *
- *   fx_ambient   — ambient darkness (vignette toward the view edges)
- *   fx_torch     — torch glow (player-centred dim, lit core)
- *   fx_charglow  — character glow (subtle warm halo on the player)
+ *   fx_ambient    — ambient darkness (vignette toward the view edges)
+ *   fx_torch      — torch glow (player-centred dim, lit core)
+ *   fx_spriteglow — faint additive glow behind foreground sprites
  *
  * Each is OFF by default. They are independent and may combine. */
 #include "render/effects_frame.h"
@@ -17,8 +17,8 @@
 int native_fx_flags(void)
 {
     int f = 0;
-    if (pc_cfg_bool("fx_ambient",  0)) f |= FX_AMBIENT;
-    if (pc_cfg_bool("fx_torch",    0)) f |= FX_TORCH;
-    if (pc_cfg_bool("fx_charglow", 0)) f |= FX_CHARGLOW;
+    if (pc_cfg_bool("fx_ambient",    0)) f |= FX_AMBIENT;
+    if (pc_cfg_bool("fx_torch",      0)) f |= FX_TORCH;
+    if (pc_cfg_bool("fx_spriteglow", 0)) f |= FX_SPRITEGLOW;
     return f;
 }
