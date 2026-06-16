@@ -354,7 +354,6 @@ static void native_fx_publish(int ow, int oh, int pf_top, int pf_bot,
     s_fx.light_sx  = light_sx;
     s_fx.light_sy  = light_sy;
     s_fx.flags     = native_fx_flags();
-    s_fx.spriteglow = native_fx_spriteglow();
 }
 
 void native_render_frame(void)
@@ -1360,12 +1359,12 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin)
     memset(s_objlayer, 0, (size_t)HW_DISPLAY_H * (size_t)s_layer_w * 4);
     native_wstiles_compose(pf_top, pf_bot, rowstride, mincol, maxcol);   /* terrain background */
     native_wswater_compose(pf_top, pf_bot);         /* animated page patches (water surface) */
-    s_scene.glow_next = 1;   /* foreground sprites (obj/player/char/static) get the back-glow */
-    native_wsobj_compose(pf_top, pf_bot);
-    native_wsplayer_compose(pf_top, pf_bot);          /* player UNDER characters... */
-    native_wschar_compose(pf_top, pf_bot);            /* ...so enemies render OVER the player (vanilla Z-order) */
-    native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged Marry Men + static-placement objects */
-    s_scene.glow_next = 0;   /* ropes/banner below: no glow */
+    native_wsobj_compose(pf_top, pf_bot);             /* items/level objects — no shadow */
+    s_scene.shadow_next = 1;   /* CHARACTERS get the drop shadow */
+    native_wsplayer_compose(pf_top, pf_bot);          /* player (MC) UNDER characters... */
+    native_wschar_compose(pf_top, pf_bot);            /* enemies + Marry Men render OVER the player */
+    s_scene.shadow_next = 0;
+    native_wsstatic_compose(pf_top, pf_bot, cam16);   /* caged MMs + static placements — no shadow */
     native_wsrope_compose(pf_top, pf_bot);          /* chandelier ropes (blitter LINE mode) — on top */
     native_wsbanner_compose(ow, cam, pf_top);       /* GET READY / GAME OVER — screen-fixed UI quads */
     s_scene_ylo = pf_top; s_scene_yhi = pf_bot;     /* publish the scene's row span */
