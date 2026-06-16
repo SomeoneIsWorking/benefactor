@@ -348,7 +348,7 @@ void native_level_load(M68KCtx *ctx)
  * (height<<6)|width_words, gfxBase=MR32(A1-$A); gfx src = gfxBase + (int16)D5.
  * Sprite is 5-plane plane-major, plane stride $2A0C, w words x h rows.
  * Full RE: instructions/widescreen-plan.md "Phase 4 RE — object draw path". */
-typedef struct { int x, y, w, h; uint32_t src, mod; } WsObj;
+typedef struct { int x, y, w, h; uint32_t src, mod; uint32_t a1, gfxbase; int d5; } WsObj;
 #define WS_OBJ_MAX 256
 static WsObj s_wsobj[WS_OBJ_MAX];
 static int   s_wsobj_n = 0;       /* count being built this frame              */
@@ -397,6 +397,16 @@ int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint3
     if (i < 0 || i >= s_wsobj_done_n) return 0;
     const WsObj *o = &s_wsobj_done[i];
     *x = o->x; *y = o->y; *w = o->w; *h = o->h; *src = o->src; *mod = o->mod;
+    return 1;
+}
+
+/* Raw descriptor inputs (debug): A1 handler, gfxBase=MR32(A1-$A), D5 anim offset.
+ * src = gfxBase + (int16)D5. Used by the `wsobjs` REPL dump to spot a wrong D5. */
+int native_wsobj_getraw(int i, uint32_t *a1, uint32_t *gfxbase, int *d5)
+{
+    if (i < 0 || i >= s_wsobj_done_n) return 0;
+    const WsObj *o = &s_wsobj_done[i];
+    *a1 = o->a1; *gfxbase = o->gfxbase; *d5 = o->d5;
     return 1;
 }
 
@@ -936,8 +946,10 @@ void native_objdraw_capture(M68KCtx *ctx)
     int      w      = size & 0x3F;          /* width in words (0 => 64) */
     int      h      = size >> 6;            /* height in rows           */
     uint32_t mod    = MR32(obj - 0x10u);
-    uint32_t src    = MR32(obj - 0x0Au) + (uint32_t)(int32_t)(int16_t)(uint16_t)ctx->D[5];
-    WsObj    cur    = (WsObj){ worldX, worldY, w, h, src, mod };
+    uint32_t gfxbase = MR32(obj - 0x0Au);
+    int      d5raw   = (int)(int16_t)(uint16_t)ctx->D[5];
+    uint32_t src    = gfxbase + (uint32_t)(int32_t)d5raw;
+    WsObj    cur    = (WsObj){ worldX, worldY, w, h, src, mod, obj, gfxbase, d5raw };
 
     /* Replicate the body's OWN clip/dirty decision (read BEFORE the super-call;
      * the body consumes/updates the a4 record). Stack at entry: the dispatch

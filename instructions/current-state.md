@@ -819,19 +819,32 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
   - Garbles in **both** the engine blitter (`shot eng`) AND BenRen's independent
     decode, **identically** → shared bad INPUT, not a blitter-vs-decode split.
   - PUAE renders it correctly = a thin grey object (`shotpu`, new REPL tool).
-  - **Leading hypothesis:** the recompiler computes the wrong anim gfx offset
-    **`D5`** for this object's VM → wrong `src = gfxBase + (int16)D5`. `$060A08`
-    happens to hold unrelated bright-plane data; the correct src is elsewhere.
-    Both PC paths capture the same wrong src → identical garbage; PUAE uses the
-    right src → thin grey. (obj 7 is a STATIC object: blitted once on scroll-in
-    then page-persists, so `blitlog` on a settled frame shows no blit for it —
-    catch it on the entry frame.)
-  - **Next step to confirm:** capture PUAE's blit src (`BENEFACTOR_HW_TRACE`) /
-    `D5` for obj 7 on its scroll-in frame and diff against PC's `$060A08`. If the
-    src differs, it's a recompiler `D5` bug in the object's animation VM
-    (`$59ACxx` → `$57D8D0`); fix via the PC-vs-PUAE instruction trace.
-  - New tool: **`shotpu [tag] [x y w h scale]`** REPL = PUAE-framebuffer PNG (the
-    `shot` twin) for oracle visual diffs.
+  - **Refined (2026-06-16, deeper pass — use `wsobjs` which now prints
+    a1/gfxbase/d5):**
+    - obj 7 raw: `a1=$598890`, descriptor at `a1-$10..` = `mod=$2C SIZE=$0101
+      (w=1word/16px, h=4) gfxbase=$0609C8`, runtime `d5=64` → `src=$060A08`.
+    - Descriptor (`mp/m 598880 14`) AND the gfx bytes at `gfxbase $0609C8`
+      (`mp/m 609C8 ...`) are **byte-identical PC vs PUAE**. So the only differing
+      input is the runtime **`d5`** (PC=64).
+    - Frame stride = 5 planes × (w·2·h) = 5×8 = **40 bytes**; frame boundaries at
+      0/40/80/120. **`d5=64` lands MID-FRAME (inside frame 1)** → the packed
+      5-plane decode (plane_stride=w·2·h=8) reads a garbage plane mix. Compare:
+      obj 8 d5=160 and obj 5 d5=800 are clean multiples of their strides. So
+      **`d5=64` is almost certainly wrong** — should be 0/40/80/120.
+    - The gfx data is unusually DENSE (planes full of set bits) → could also be a
+      cookie-cut object (fill+mask); but pure-vanilla `BENEFACTOR_RENDERER=vanilla`
+      `shot eng` ALSO garbles (engine page, not just BenRen), and a cookie-cut
+      blit *with* its mask would render fine — so wrong-`d5`/wrong-src fits better.
+    - CAVEAT (unresolved): forcing obj 7 to re-blit (scroll off→on) did NOT produce
+      any captured blit with apt/bpt near `$0609C8`/`$060A08` — its draw path/
+      pointer isn't yet pinned (objects draw via `$57D282`/`$57D6C4`; con0=$09F0).
+      So "engine blits from $060A08" is inferred, not yet directly observed.
+  - **Next step:** get PUAE's `d5` for obj 7 (instruction trace `$59ACxx`→`$57D8D0`,
+    or HW-trace the blit pointer on a forced re-entry) → the correct frame offset.
+    Then find the recompiler mistranslation that yields 64. DO NOT band-aid by
+    snapping d5 to a frame boundary — find the real miscomputation.
+  - New tools: **`shotpu [tag] [x y w h scale]`** (PUAE-framebuffer PNG, `shot`
+    twin) + **`wsobjs`** now prints `a1/gfxbase/d5` per object.
 
 ### PROPOSALS (not committed to — discuss before starting)
 - **Rewind** — hold a key to rewind recent gameplay (ring buffer of
