@@ -213,13 +213,13 @@ void pc_menu_subtext_overlay(uint32_t *fb)
         int w = 0, liw = 0;
         pc_level_split(level, &w, &liw);
         char line[80];
-        snprintf(line, sizeof line, "%s - %s (W%dL%d)",
-                 pc_world_name(w), pc_static_level_name(level), w + 1, liw + 1);
+        snprintf(line, sizeof line, "%s (W%dL%d)",
+                 pc_static_level_name(level), w + 1, liw + 1);   /* level name only (no world name) */
         /* g_menu_continue_y is the bitplane PAGE row; the menu composites ~12 lines
          * lower and the item font (+shadow) is ~24 tall, so drop the subtext into the
          * gap below CONTINUE (empirically +40 lands between CONTINUE and LEVEL SELECT);
-         * nudge it slightly right so it isn't flush with the item. */
-        menu_small_text(fb, g_menu_continue_x + 12, g_menu_continue_y + 40, line);
+         * left-aligned to the CONTINUE item. */
+        menu_small_text(fb, g_menu_continue_x, g_menu_continue_y + 40, line);
     }
 
     /* DISK.4 indicator — same subsystem, bottom-right just above the beach window. */
