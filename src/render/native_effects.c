@@ -1,6 +1,6 @@
 /* native_effects.c — resolve the three independent effect toggles from cfg.
  *
- * Effects are Vulkan-only (see effects_frame.h + shaders/effects.frag). There is
+ * Effects are Vulkan-only (see effects_frame.h + shaders/fx.frag). There is
  * no CPU effect pass: the native renderer projects the light + playfield rows and
  * publishes a FxFrame; the Vulkan present applies the effects in the fragment
  * shader. This file is the single place that turns the user-facing knobs into the

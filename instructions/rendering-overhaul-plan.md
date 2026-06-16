@@ -60,16 +60,23 @@ lighting hang off here next (the FxFrame from `set_effects` is already stored).
 - Swapchain images are COLOR_ATTACHMENT (render pass), dynamic viewport+scissor so a
   resize rebuilds only swapchain+framebuffers, not the pipeline.
 
-## Effects (FUTURE — not in this push)
+## Effects (SHIPPED — Hardware only)
 
-The `fx_ambient` / `fx_torch` / `fx_charglow` cfg knobs + `native_fx_flags()` +
-FxFrame publish + `set_effects` seam are all in place but NOT yet applied. The
-EFFECTS submenu + the GPU lighting/glow pass are the next phase, done as part of the
-per-sprite scene render (per-object) — NOT as a screen-space filter on a flattened
-frame (that was rejected: it can't do per-object shaders). `shaders/effects.frag`
-exists as a starting point but is not wired.
+Three independent GPU effects, toggled in OPTIONS → RENDERING → EFFECTS
+(`fx_ambient` / `fx_torch` / `fx_charglow`):
+- AMBIENT DARKNESS — vignette toward the view edges.
+- TORCH GLOW — player-centred dim with a lit core.
+- CHARACTER GLOW — subtle warm additive halo on the player.
 
-Also future: per-object material/shader ids on the scene quads; graphics remake
+They run as a blended fullscreen LIGHTING pass INSIDE the per-sprite render
+(`shaders/fx.frag`), AFTER the world sprites and BEFORE the banner (so UI stays
+bright): a MULTIPLY-blended pass dims (ambient × torch), an ADDITIVE pass adds the
+glow. No texture read — pure per-pixel + the projected player light (FxFrame push
+constants). Hardware-only: `hw_present_frame` feeds the FxFrame via `set_effects`;
+the SDL/composite paths ignore it. This is screen-space *lighting* (legitimately a
+pass over the GPU-rendered scene), NOT a filter on a flattened frame.
+
+Future: per-object material/shader ids on the scene quads; graphics remake
 (blocked on commissioned art); per-torch level light sources (needs RE — today only
 the player's projected position is a light).
 

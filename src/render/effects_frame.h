@@ -5,7 +5,7 @@
  * FxFrame (plus the live effect flags) to the present backend's set_effects()
  * hook. The SDL backend has no set_effects → the software renderer shows no
  * effects (the hard gate). The Vulkan present consumes it as shader push
- * constants (see shaders/effects.frag).
+ * constants (see shaders/fx.frag).
  *
  * Pure screen/content-space: light_sx/sy and pf_top/pf_bot are in CONTENT pixels
  * (the composed output surface, content_w x content_h). The renderer owns the

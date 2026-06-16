@@ -50,7 +50,7 @@ extern int  hw_pad_count(void);
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 
-enum { PG_MAIN = 0, PG_OPTIONS, PG_RENDERING, PG_MORE, PG_BIND_KB, PG_BIND_PAD };
+enum { PG_MAIN = 0, PG_OPTIONS, PG_RENDERING, PG_EFFECTS, PG_MORE, PG_BIND_KB, PG_BIND_PAD };
 
 static int s_paused = 0;
 static int s_page   = PG_MAIN;
@@ -66,7 +66,9 @@ enum { OO_RENDERING = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
        OO_MODERN_KB, OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK,
        OO_QUIT };
 /* RENDERING-page row ids. */
-enum { RR_RENDERER = 0, RR_ASPECT, RR_BACK };
+enum { RR_RENDERER = 0, RR_ASPECT, RR_EFFECTS, RR_BACK };
+/* EFFECTS-page row ids (Hardware-only GPU effects). */
+enum { EF_AMBIENT = 0, EF_TORCH, EF_CHARGLOW, EF_BACK };
 /* MORE-page row ids. */
 enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_FALL_DMG, MO_BACK };
 
@@ -154,7 +156,15 @@ static int options_rows(int *rows /* >= 14 */)
 static int rendering_rows(int *rows /* >= 4 */)
 {
     int n = 0;
-    rows[n++] = RR_RENDERER; rows[n++] = RR_ASPECT; rows[n++] = RR_BACK;
+    rows[n++] = RR_RENDERER; rows[n++] = RR_ASPECT; rows[n++] = RR_EFFECTS; rows[n++] = RR_BACK;
+    return n;
+}
+
+/* EFFECTS submenu rows. */
+static int effects_rows(int *rows /* >= 4 */)
+{
+    int n = 0;
+    rows[n++] = EF_AMBIENT; rows[n++] = EF_TORCH; rows[n++] = EF_CHARGLOW; rows[n++] = EF_BACK;
     return n;
 }
 
@@ -175,6 +185,7 @@ static int page_rows(int page)
         case PG_MAIN:      return NUM_MAIN;
         case PG_OPTIONS:   return options_rows(acts);
         case PG_RENDERING: return rendering_rows(acts);
+        case PG_EFFECTS:   return effects_rows(acts);
         case PG_MORE:      return more_rows(acts);
         default:         return bind_rows(page == PG_BIND_PAD, acts);
     }
@@ -248,8 +259,29 @@ static void rendering_cycle(int row, int dir)
     switch (row) {
         case RR_RENDERER: renderer_set(renderer_index() + dir); break;
         case RR_ASPECT:   aspect_set(aspect_index() + dir);     break;
+        /* RR_EFFECTS is a submenu link (entered on select). */
         default: break;
     }
+}
+
+/* GPU effects apply only on the HARDWARE renderer (index 2). */
+static int hardware_active(void) { return renderer_index() == 2; }
+
+/* EFFECTS rows map to the fx_* bool knobs the Vulkan lighting pass reads. */
+static const char *fx_knob(int row)
+{
+    switch (row) {
+        case EF_AMBIENT:  return "fx_ambient";
+        case EF_TORCH:    return "fx_torch";
+        case EF_CHARGLOW: return "fx_charglow";
+        default:          return NULL;
+    }
+}
+
+static void effects_cycle(int row)
+{
+    const char *k = fx_knob(row);
+    if (k) pc_cfg_persist(k, pc_cfg_bool(k, 0) ? "false" : "true");
 }
 
 /* Game speed: normal / turbo (=1.2x) / hyper (=1.5x). Audio/music stay
@@ -369,6 +401,9 @@ void pc_pause_input_left(void)
     } else if (s_page == PG_RENDERING) {
         int rows[14]; int n = rendering_rows(rows);
         if (s_cursor < n) rendering_cycle(rows[s_cursor], -1);
+    } else if (s_page == PG_EFFECTS) {
+        int rows[14]; int n = effects_rows(rows);
+        if (s_cursor < n) effects_cycle(rows[s_cursor]);
     } else if (s_page == PG_MORE) {
         int rows[14]; int n = more_rows(rows);
         if (s_cursor < n) more_cycle(rows[s_cursor]);
@@ -384,6 +419,9 @@ void pc_pause_input_right(void)
     } else if (s_page == PG_RENDERING) {
         int rows[14]; int n = rendering_rows(rows);
         if (s_cursor < n) rendering_cycle(rows[s_cursor], +1);
+    } else if (s_page == PG_EFFECTS) {
+        int rows[14]; int n = effects_rows(rows);
+        if (s_cursor < n) effects_cycle(rows[s_cursor]);
     } else if (s_page == PG_MORE) {
         int rows[14]; int n = more_rows(rows);
         if (s_cursor < n) more_cycle(rows[s_cursor]);
@@ -395,6 +433,13 @@ static void enter_options_at(int row_id)
 {
     int rows[14]; int n = options_rows(rows);
     enter_page(PG_OPTIONS);
+    for (int i = 0; i < n; i++) if (rows[i] == row_id) { s_cursor = i; break; }
+}
+
+static void enter_rendering_at(int row_id)
+{
+    int rows[14]; int n = rendering_rows(rows);
+    enter_page(PG_RENDERING);
     for (int i = 0; i < n; i++) if (rows[i] == row_id) { s_cursor = i; break; }
 }
 
@@ -431,8 +476,16 @@ void pc_pause_input_select(void)
     case PG_RENDERING: {
         int rows[14]; int n = rendering_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
-        if (rows[s_cursor] == RR_BACK) enter_options_at(OO_RENDERING);
-        else                           rendering_cycle(rows[s_cursor], +1);
+        if      (rows[s_cursor] == RR_BACK)    enter_options_at(OO_RENDERING);
+        else if (rows[s_cursor] == RR_EFFECTS) enter_page(PG_EFFECTS);
+        else                                   rendering_cycle(rows[s_cursor], +1);
+        break;
+    }
+    case PG_EFFECTS: {
+        int rows[14]; int n = effects_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
+        if (rows[s_cursor] == EF_BACK) enter_rendering_at(RR_EFFECTS);
+        else                           effects_cycle(rows[s_cursor]);
         break;
     }
     case PG_MORE: {
@@ -471,6 +524,7 @@ void pc_pause_escape(void)
         case PG_BIND_KB:   enter_options_at(OO_BIND_KB);   break;
         case PG_BIND_PAD:  enter_options_at(OO_BIND_PAD);  break;
         case PG_RENDERING: enter_options_at(OO_RENDERING); break;
+        case PG_EFFECTS:   enter_rendering_at(RR_EFFECTS); break;
         case PG_MORE:      enter_options_at(OO_MORE);      break;
         case PG_OPTIONS:
             if (s_title_mode) s_pending_action = ACT_RESUME;
@@ -691,7 +745,43 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 label = "ASPECT RATIO";
                 value = k_aspect_labels[aspect_index()];
                 break;
+            case RR_EFFECTS:
+                label = "EFFECTS";
+                value = hardware_active() ? NULL : "NEEDS HARDWARE";
+                break;
             case RR_BACK:
+                label = "BACK";
+                break;
+            }
+            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+        }
+        return;
+    }
+
+    if (s_page == PG_EFFECTS) {
+        int rows[14]; int n = effects_rows(rows);
+        if (s_cursor >= n) s_cursor = n - 1;
+        const int pw = 252;
+        const int ph = 22 + n * row_h + 8;
+        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
+        draw_panel(fb, px, py, pw, ph,
+                   hardware_active() ? "EFFECTS" : "EFFECTS (HARDWARE ONLY)");
+        for (int i = 0; i < n; i++) {
+            const char *label = "", *value = NULL;
+            switch (rows[i]) {
+            case EF_AMBIENT:
+                label = "AMBIENT DARKNESS";
+                value = pc_cfg_bool("fx_ambient", 0) ? "ON" : "OFF";
+                break;
+            case EF_TORCH:
+                label = "TORCH GLOW";
+                value = pc_cfg_bool("fx_torch", 0) ? "ON" : "OFF";
+                break;
+            case EF_CHARGLOW:
+                label = "CHARACTER GLOW";
+                value = pc_cfg_bool("fx_charglow", 0) ? "ON" : "OFF";
+                break;
+            case EF_BACK:
                 label = "BACK";
                 break;
             }
