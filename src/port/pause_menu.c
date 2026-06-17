@@ -6,10 +6,15 @@
  *
  * Pages:
  *   MAIN     — RESUME / OPTIONS / RETRY / EXIT TO MAIN MENU / QUIT TO DESKTOP
- *   OPTIONS  — widescreen (disabled|16:9|ultrawide|auto), interact range,
- *              modern controls per device, links to the two bindings pages.
- *              Every change is applied LIVE and persisted to benefactor.json
- *              (pc_cfg_persist).
+ *   OPTIONS  — game speed, jump physics, free-cam, and links to the RENDERING,
+ *              CONTROLS and EXTRA submenus. Every change is applied LIVE and
+ *              persisted to benefactor.json (pc_cfg_persist).
+ *   RENDERING— renderer, aspect ratio, plus the GPU EFFECTS toggles (AMBIENT
+ *              DARKNESS / DROP SHADOW), which are greyed out unless the
+ *              HARDWARE renderer is active.
+ *   CONTROLS — interact range, modern controls per device, links to the two
+ *              bindings pages.
+ *   EXTRA    — skip intro, unlock all levels, fall damage.
  *   BINDINGS — one page per device (keyboard / controller). Selecting a row
  *              enters CAPTURE: the next key/button pressed on that device
  *              becomes the binding (single key; chords stay JSON-editable).
@@ -50,7 +55,7 @@ extern int  hw_pad_count(void);
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 
-enum { PG_MAIN = 0, PG_OPTIONS, PG_RENDERING, PG_EFFECTS, PG_MORE, PG_BIND_KB, PG_BIND_PAD };
+enum { PG_MAIN = 0, PG_OPTIONS, PG_RENDERING, PG_CONTROLS, PG_EXTRA, PG_BIND_KB, PG_BIND_PAD };
 
 static int s_paused = 0;
 static int s_page   = PG_MAIN;
@@ -62,15 +67,15 @@ static int s_title_mode = 0;
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
 /* OPTIONS-page row ids (rows are built per-mode by options_rows). */
-enum { OO_RENDERING = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_INTERACT,
-       OO_MODERN_KB, OO_MODERN_PAD, OO_BIND_KB, OO_BIND_PAD, OO_MORE, OO_BACK,
-       OO_QUIT };
-/* RENDERING-page row ids. */
-enum { RR_RENDERER = 0, RR_ASPECT, RR_EFFECTS, RR_BACK };
-/* EFFECTS-page row ids (Hardware-only GPU effects). */
-enum { EF_AMBIENT = 0, EF_SHADOW, EF_BACK };
-/* MORE-page row ids. */
-enum { MO_SKIP_INTRO = 0, MO_UNLOCK_ALL, MO_FALL_DMG, MO_BACK };
+enum { OO_RENDERING = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_CONTROLS, OO_EXTRA,
+       OO_BACK, OO_QUIT };
+/* RENDERING-page row ids. EFFECTS rows (AMBIENT/SHADOW) are flattened in here —
+ * they apply only on the HARDWARE renderer and are greyed out otherwise. */
+enum { RR_RENDERER = 0, RR_ASPECT, RR_AMBIENT, RR_SHADOW, RR_BACK };
+/* CONTROLS-page row ids (input/binding settings, grouped out of OPTIONS). */
+enum { CT_INTERACT = 0, CT_MODERN_KB, CT_MODERN_PAD, CT_BIND_KB, CT_BIND_PAD, CT_BACK };
+/* EXTRA-page row ids. */
+enum { EX_SKIP_INTRO = 0, EX_UNLOCK_ALL, EX_FALL_DMG, EX_BACK };
 
 /* Bindings capture: which device/action the next press is assigned to. */
 static int s_capture = 0, s_capture_dev = 0, s_capture_action = 0;
@@ -145,36 +150,38 @@ static int options_rows(int *rows /* >= 14 */)
     int n = 0;
     rows[n++] = OO_RENDERING;  rows[n++] = OO_SPEED;
     rows[n++] = OO_PHYSICS;    rows[n++] = OO_FREECAM;
-    rows[n++] = OO_INTERACT;   rows[n++] = OO_MODERN_KB; rows[n++] = OO_MODERN_PAD;
-    rows[n++] = OO_BIND_KB;    rows[n++] = OO_BIND_PAD;  rows[n++] = OO_MORE;
+    rows[n++] = OO_CONTROLS;   rows[n++] = OO_EXTRA;
     rows[n++] = OO_BACK;
     if (s_title_mode) rows[n++] = OO_QUIT;
     return n;
 }
 
-/* RENDERING submenu rows. */
-static int rendering_rows(int *rows /* >= 4 */)
+/* RENDERING submenu rows (with the flattened-in EFFECTS rows). */
+static int rendering_rows(int *rows /* >= 8 */)
 {
     int n = 0;
-    rows[n++] = RR_RENDERER; rows[n++] = RR_ASPECT; rows[n++] = RR_EFFECTS; rows[n++] = RR_BACK;
+    rows[n++] = RR_RENDERER; rows[n++] = RR_ASPECT;
+    rows[n++] = RR_AMBIENT;  rows[n++] = RR_SHADOW;
+    rows[n++] = RR_BACK;
     return n;
 }
 
-/* EFFECTS submenu rows. */
-static int effects_rows(int *rows /* >= 4 */)
+/* CONTROLS submenu rows. */
+static int controls_rows(int *rows /* >= 8 */)
 {
     int n = 0;
-    rows[n++] = EF_AMBIENT; rows[n++] = EF_SHADOW; rows[n++] = EF_BACK;
+    rows[n++] = CT_INTERACT; rows[n++] = CT_MODERN_KB; rows[n++] = CT_MODERN_PAD;
+    rows[n++] = CT_BIND_KB;  rows[n++] = CT_BIND_PAD;  rows[n++] = CT_BACK;
     return n;
 }
 
-static int more_rows(int *rows /* >= 14 */)
+static int extra_rows(int *rows /* >= 14 */)
 {
     int n = 0;
-    rows[n++] = MO_SKIP_INTRO;
-    rows[n++] = MO_UNLOCK_ALL;
-    rows[n++] = MO_FALL_DMG;
-    rows[n++] = MO_BACK;
+    rows[n++] = EX_SKIP_INTRO;
+    rows[n++] = EX_UNLOCK_ALL;
+    rows[n++] = EX_FALL_DMG;
+    rows[n++] = EX_BACK;
     return n;
 }
 
@@ -185,8 +192,8 @@ static int page_rows(int page)
         case PG_MAIN:      return NUM_MAIN;
         case PG_OPTIONS:   return options_rows(acts);
         case PG_RENDERING: return rendering_rows(acts);
-        case PG_EFFECTS:   return effects_rows(acts);
-        case PG_MORE:      return more_rows(acts);
+        case PG_CONTROLS:  return controls_rows(acts);
+        case PG_EXTRA:     return extra_rows(acts);
         default:         return bind_rows(page == PG_BIND_PAD, acts);
     }
 }
@@ -254,34 +261,34 @@ static void aspect_set(int idx)
     hw_widescreen_refresh();
 }
 
+/* GPU effects apply only on the HARDWARE renderer (index 2). */
+static int hardware_active(void) { return renderer_index() == 2; }
+
+/* The flattened EFFECTS rows map to the fx_* bool knobs the Vulkan lighting
+ * pass reads. They are inert (greyed out) unless the HARDWARE renderer is on. */
+static const char *fx_knob(int row)
+{
+    switch (row) {
+        case RR_AMBIENT: return "fx_ambient";
+        case RR_SHADOW:  return "fx_shadow";
+        default:         return NULL;
+    }
+}
+
 static void rendering_cycle(int row, int dir)
 {
     switch (row) {
         case RR_RENDERER: renderer_set(renderer_index() + dir); break;
         case RR_ASPECT:   aspect_set(aspect_index() + dir);     break;
-        /* RR_EFFECTS is a submenu link (entered on select). */
+        case RR_AMBIENT:
+        case RR_SHADOW: {
+            if (!hardware_active()) break;             /* greyed: HARDWARE only */
+            const char *k = fx_knob(row);             /* bool toggles */
+            if (k) pc_cfg_persist(k, pc_cfg_bool(k, 0) ? "false" : "true");
+            break;
+        }
         default: break;
     }
-}
-
-/* GPU effects apply only on the HARDWARE renderer (index 2). */
-static int hardware_active(void) { return renderer_index() == 2; }
-
-/* EFFECTS rows map to the fx_* bool knobs the Vulkan lighting pass reads. */
-static const char *fx_knob(int row)
-{
-    switch (row) {
-        case EF_AMBIENT: return "fx_ambient";
-        case EF_SHADOW:  return "fx_shadow";
-        default:         return NULL;
-    }
-}
-
-static void effects_cycle(int row, int dir)
-{
-    (void)dir;
-    const char *k = fx_knob(row);                     /* bool toggles */
-    if (k) pc_cfg_persist(k, pc_cfg_bool(k, 0) ? "false" : "true");
 }
 
 /* Game speed: normal / turbo (=1.2x) / hyper (=1.5x). Audio/music stay
@@ -332,13 +339,23 @@ static void bool_knob_toggle(const char *key)
 static void options_cycle(int row, int dir)
 {
     switch (row) {
-        /* OO_RENDERING is a submenu link (entered on select), not a value cycle. */
+        /* OO_RENDERING / OO_CONTROLS / OO_EXTRA are submenu links (entered on
+         * select), not value cycles. */
         case OO_SPEED:      speed_set(speed_index() + dir);            break;
         case OO_PHYSICS:    bool_knob_toggle("platformer_physics");    break;
         case OO_FREECAM:    bool_knob_toggle("freecam_pause");         break;
-        case OO_INTERACT:   interact_set(!interact_enabled());         break;
-        case OO_MODERN_KB:  modern_set(PI_DEV_KB,  !pc_modern_kb());   break;
-        case OO_MODERN_PAD: modern_set(PI_DEV_PAD, !pc_modern_pad());  break;
+        default: break;
+    }
+}
+
+/* Cycle a CONTROLS row's value (bindings rows are submenu links). */
+static void controls_cycle(int row, int dir)
+{
+    (void)dir;
+    switch (row) {
+        case CT_INTERACT:   interact_set(!interact_enabled());         break;
+        case CT_MODERN_KB:  modern_set(PI_DEV_KB,  !pc_modern_kb());   break;
+        case CT_MODERN_PAD: modern_set(PI_DEV_PAD, !pc_modern_pad());  break;
         default: break;
     }
 }
@@ -366,12 +383,12 @@ static void fall_dmg_set(int idx)
     pc_cfg_persist("fall_damage", json);
 }
 
-static void more_cycle(int row)
+static void extra_cycle(int row)
 {
     switch (row) {
-        case MO_SKIP_INTRO: bool_knob_toggle("skip_intro");        break;
-        case MO_UNLOCK_ALL: bool_knob_toggle("unlock_all_levels"); break;
-        case MO_FALL_DMG:   fall_dmg_set(fall_dmg_index() + 1);    break;
+        case EX_SKIP_INTRO: bool_knob_toggle("skip_intro");        break;
+        case EX_UNLOCK_ALL: bool_knob_toggle("unlock_all_levels"); break;
+        case EX_FALL_DMG:   fall_dmg_set(fall_dmg_index() + 1);    break;
         default: break;
     }
 }
@@ -401,12 +418,12 @@ void pc_pause_input_left(void)
     } else if (s_page == PG_RENDERING) {
         int rows[14]; int n = rendering_rows(rows);
         if (s_cursor < n) rendering_cycle(rows[s_cursor], -1);
-    } else if (s_page == PG_EFFECTS) {
-        int rows[14]; int n = effects_rows(rows);
-        if (s_cursor < n) effects_cycle(rows[s_cursor], -1);
-    } else if (s_page == PG_MORE) {
-        int rows[14]; int n = more_rows(rows);
-        if (s_cursor < n) more_cycle(rows[s_cursor]);
+    } else if (s_page == PG_CONTROLS) {
+        int rows[14]; int n = controls_rows(rows);
+        if (s_cursor < n) controls_cycle(rows[s_cursor], -1);
+    } else if (s_page == PG_EXTRA) {
+        int rows[14]; int n = extra_rows(rows);
+        if (s_cursor < n) extra_cycle(rows[s_cursor]);
     }
 }
 
@@ -419,12 +436,12 @@ void pc_pause_input_right(void)
     } else if (s_page == PG_RENDERING) {
         int rows[14]; int n = rendering_rows(rows);
         if (s_cursor < n) rendering_cycle(rows[s_cursor], +1);
-    } else if (s_page == PG_EFFECTS) {
-        int rows[14]; int n = effects_rows(rows);
-        if (s_cursor < n) effects_cycle(rows[s_cursor], +1);
-    } else if (s_page == PG_MORE) {
-        int rows[14]; int n = more_rows(rows);
-        if (s_cursor < n) more_cycle(rows[s_cursor]);
+    } else if (s_page == PG_CONTROLS) {
+        int rows[14]; int n = controls_rows(rows);
+        if (s_cursor < n) controls_cycle(rows[s_cursor], +1);
+    } else if (s_page == PG_EXTRA) {
+        int rows[14]; int n = extra_rows(rows);
+        if (s_cursor < n) extra_cycle(rows[s_cursor]);
     }
 }
 
@@ -436,10 +453,10 @@ static void enter_options_at(int row_id)
     for (int i = 0; i < n; i++) if (rows[i] == row_id) { s_cursor = i; break; }
 }
 
-static void enter_rendering_at(int row_id)
+static void enter_controls_at(int row_id)
 {
-    int rows[14]; int n = rendering_rows(rows);
-    enter_page(PG_RENDERING);
+    int rows[14]; int n = controls_rows(rows);
+    enter_page(PG_CONTROLS);
     for (int i = 0; i < n; i++) if (rows[i] == row_id) { s_cursor = i; break; }
 }
 
@@ -461,9 +478,8 @@ void pc_pause_input_select(void)
         if (s_cursor >= n) s_cursor = n - 1;
         switch (rows[s_cursor]) {
             case OO_RENDERING: enter_page(PG_RENDERING); break;
-            case OO_BIND_KB:  enter_page(PG_BIND_KB);  break;
-            case OO_BIND_PAD: enter_page(PG_BIND_PAD); break;
-            case OO_MORE:     enter_page(PG_MORE);     break;
+            case OO_CONTROLS: enter_page(PG_CONTROLS); break;
+            case OO_EXTRA:    enter_page(PG_EXTRA);    break;
             case OO_BACK:
                 if (s_title_mode) s_pending_action = ACT_RESUME;   /* close */
                 else { enter_page(PG_MAIN); s_cursor = OPT_OPTIONS; }
@@ -476,23 +492,26 @@ void pc_pause_input_select(void)
     case PG_RENDERING: {
         int rows[14]; int n = rendering_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
-        if      (rows[s_cursor] == RR_BACK)    enter_options_at(OO_RENDERING);
-        else if (rows[s_cursor] == RR_EFFECTS) enter_page(PG_EFFECTS);
-        else                                   rendering_cycle(rows[s_cursor], +1);
+        if (rows[s_cursor] == RR_BACK) enter_options_at(OO_RENDERING);
+        else                           rendering_cycle(rows[s_cursor], +1);
         break;
     }
-    case PG_EFFECTS: {
-        int rows[14]; int n = effects_rows(rows);
+    case PG_CONTROLS: {
+        int rows[14]; int n = controls_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
-        if (rows[s_cursor] == EF_BACK) enter_rendering_at(RR_EFFECTS);
-        else                           effects_cycle(rows[s_cursor], +1);
+        switch (rows[s_cursor]) {
+            case CT_BIND_KB:  enter_page(PG_BIND_KB);  break;
+            case CT_BIND_PAD: enter_page(PG_BIND_PAD); break;
+            case CT_BACK:     enter_options_at(OO_CONTROLS); break;
+            default:          controls_cycle(rows[s_cursor], +1); break;
+        }
         break;
     }
-    case PG_MORE: {
-        int rows[14]; int n = more_rows(rows);
+    case PG_EXTRA: {
+        int rows[14]; int n = extra_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
-        if (rows[s_cursor] == MO_BACK) enter_options_at(OO_MORE);
-        else                           more_cycle(rows[s_cursor]);
+        if (rows[s_cursor] == EX_BACK) enter_options_at(OO_EXTRA);
+        else                           extra_cycle(rows[s_cursor]);
         break;
     }
     case PG_BIND_KB:
@@ -502,7 +521,7 @@ void pc_pause_input_select(void)
         int n = bind_rows(dev, acts);
         if (s_cursor >= n) s_cursor = n - 1;
         if (acts[s_cursor] < 0) {                       /* BACK */
-            enter_options_at(dev == PI_DEV_PAD ? OO_BIND_PAD : OO_BIND_KB);
+            enter_controls_at(dev == PI_DEV_PAD ? CT_BIND_PAD : CT_BIND_KB);
         } else {
             s_capture = 1;
             s_capture_dev = dev;
@@ -521,11 +540,11 @@ void pc_pause_escape(void)
     if (!s_paused) return;
     if (s_capture) { s_capture = 0; return; }
     switch (s_page) {
-        case PG_BIND_KB:   enter_options_at(OO_BIND_KB);   break;
-        case PG_BIND_PAD:  enter_options_at(OO_BIND_PAD);  break;
+        case PG_BIND_KB:   enter_controls_at(CT_BIND_KB);  break;
+        case PG_BIND_PAD:  enter_controls_at(CT_BIND_PAD); break;
         case PG_RENDERING: enter_options_at(OO_RENDERING); break;
-        case PG_EFFECTS:   enter_rendering_at(RR_EFFECTS); break;
-        case PG_MORE:      enter_options_at(OO_MORE);      break;
+        case PG_CONTROLS:  enter_options_at(OO_CONTROLS);  break;
+        case PG_EXTRA:     enter_options_at(OO_EXTRA);     break;
         case PG_OPTIONS:
             if (s_title_mode) s_pending_action = ACT_RESUME;
             else { enter_page(PG_MAIN); s_cursor = OPT_OPTIONS; }
@@ -633,6 +652,16 @@ static void draw_row(uint32_t *fb, int px, int y, int selected,
     if (value) pc_draw_text(fb, px + 150, y, value, 1, selected ? 0xFFFFE070 : 0xFF90A0D0);
 }
 
+/* Like draw_row but rendered dimmed — for rows that are inert in the current
+ * context (e.g. GPU effects when the HARDWARE renderer is off). */
+static void draw_row_disabled(uint32_t *fb, int px, int y, int selected,
+                              const char *label, const char *value)
+{
+    if (selected) pc_draw_text(fb, px + 6, y, ">", 1, 0xFF707058);
+    pc_draw_text(fb, px + 16, y, label, 1, 0xFF606070);
+    if (value) pc_draw_text(fb, px + 150, y, value, 1, 0xFF505060);
+}
+
 void pc_pause_menu_overlay(uint32_t *fb)
 {
     if (!s_paused) return;
@@ -673,7 +702,6 @@ void pc_pause_menu_overlay(uint32_t *fb)
         draw_panel(fb, px, py, pw, ph, "OPTIONS");
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
-            char vbuf[24];
             switch (rows[i]) {
             case OO_RENDERING:
                 label = "RENDERING";
@@ -691,29 +719,11 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 label = "FREE CAM";
                 value = pc_cfg_bool("freecam_pause", 0) ? "PAUSED" : "REALTIME";
                 break;
-            case OO_INTERACT:
-                label = "INTERACT RANGE";
-                value = interact_enabled() ? "EXTENDED" : "VANILLA";
+            case OO_CONTROLS:
+                label = "CONTROLS";
                 break;
-            case OO_MODERN_KB:
-                label = "MODERN KEYBOARD";
-                value = pc_modern_kb() ? "ON" : "OFF";
-                break;
-            case OO_MODERN_PAD:
-                label = "MODERN CONTROLLER";
-                value = pc_modern_pad() ? "ON" : "OFF";
-                break;
-            case OO_BIND_KB:
-                label = "KEYBOARD BINDINGS";
-                break;
-            case OO_BIND_PAD:
-                label = "CONTROLLER BINDINGS";
-                if (hw_pad_count() == 0) { value = "NONE FOUND"; }
-                else { snprintf(vbuf, sizeof vbuf, "%d PAD%s", hw_pad_count(),
-                                hw_pad_count() > 1 ? "S" : ""); value = vbuf; }
-                break;
-            case OO_MORE:
-                label = "MORE";
+            case OO_EXTRA:
+                label = "EXTRA";
                 break;
             case OO_BACK:
                 label = "BACK";
@@ -734,8 +744,10 @@ void pc_pause_menu_overlay(uint32_t *fb)
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
         draw_panel(fb, px, py, pw, ph, "RENDERING");
+        const int hw = hardware_active();
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
+            int disabled = 0;
             switch (rows[i]) {
             case RR_RENDERER:
                 label = "RENDERER";
@@ -745,39 +757,61 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 label = "ASPECT RATIO";
                 value = k_aspect_labels[aspect_index()];
                 break;
-            case RR_EFFECTS:
-                label = "EFFECTS";
-                value = hardware_active() ? NULL : "NEEDS HARDWARE";
+            case RR_AMBIENT:
+                label = "AMBIENT DARKNESS";
+                value = pc_cfg_bool("fx_ambient", 0) ? "ON" : "OFF";
+                disabled = !hw;
+                break;
+            case RR_SHADOW:
+                label = "DROP SHADOW";
+                value = pc_cfg_bool("fx_shadow", 0) ? "ON" : "OFF";
+                disabled = !hw;
                 break;
             case RR_BACK:
                 label = "BACK";
                 break;
             }
-            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+            if (disabled)
+                draw_row_disabled(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+            else
+                draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
         }
         return;
     }
 
-    if (s_page == PG_EFFECTS) {
-        int rows[14]; int n = effects_rows(rows);
+    if (s_page == PG_CONTROLS) {
+        int rows[14]; int n = controls_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
-        const int pw = 252;
+        const int pw = 264;
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph,
-                   hardware_active() ? "EFFECTS" : "EFFECTS (HARDWARE ONLY)");
+        draw_panel(fb, px, py, pw, ph, "CONTROLS");
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
+            char vbuf[24];
             switch (rows[i]) {
-            case EF_AMBIENT:
-                label = "AMBIENT DARKNESS";
-                value = pc_cfg_bool("fx_ambient", 0) ? "ON" : "OFF";
+            case CT_INTERACT:
+                label = "INTERACT RANGE";
+                value = interact_enabled() ? "EXTENDED" : "VANILLA";
                 break;
-            case EF_SHADOW:
-                label = "DROP SHADOW";
-                value = pc_cfg_bool("fx_shadow", 0) ? "ON" : "OFF";
+            case CT_MODERN_KB:
+                label = "MODERN KEYBOARD";
+                value = pc_modern_kb() ? "ON" : "OFF";
                 break;
-            case EF_BACK:
+            case CT_MODERN_PAD:
+                label = "MODERN CONTROLLER";
+                value = pc_modern_pad() ? "ON" : "OFF";
+                break;
+            case CT_BIND_KB:
+                label = "KEYBOARD BINDINGS";
+                break;
+            case CT_BIND_PAD:
+                label = "CONTROLLER BINDINGS";
+                if (hw_pad_count() == 0) { value = "NONE FOUND"; }
+                else { snprintf(vbuf, sizeof vbuf, "%d PAD%s", hw_pad_count(),
+                                hw_pad_count() > 1 ? "S" : ""); value = vbuf; }
+                break;
+            case CT_BACK:
                 label = "BACK";
                 break;
             }
@@ -786,29 +820,29 @@ void pc_pause_menu_overlay(uint32_t *fb)
         return;
     }
 
-    if (s_page == PG_MORE) {
-        int rows[14]; int n = more_rows(rows);
+    if (s_page == PG_EXTRA) {
+        int rows[14]; int n = extra_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
         const int pw = 230;
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph, "MORE");
+        draw_panel(fb, px, py, pw, ph, "EXTRA");
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
             switch (rows[i]) {
-            case MO_SKIP_INTRO:
+            case EX_SKIP_INTRO:
                 label = "SKIP INTRO";
                 value = pc_cfg_bool("skip_intro", 0) ? "ON" : "OFF";
                 break;
-            case MO_UNLOCK_ALL:
+            case EX_UNLOCK_ALL:
                 label = "UNLOCK ALL LEVELS";
                 value = pc_cfg_bool("unlock_all_levels", 0) ? "ON" : "OFF";
                 break;
-            case MO_FALL_DMG:
+            case EX_FALL_DMG:
                 label = "FALL DAMAGE";
                 value = k_fall_dmg_labels[fall_dmg_index()];
                 break;
-            case MO_BACK:
+            case EX_BACK:
                 label = "BACK";
                 break;
             }
