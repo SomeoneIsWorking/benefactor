@@ -101,7 +101,7 @@ static void _trace_init(void)
     const char *env = getenv("BLIT_WATCH");
     if (!env) return;
     s_watch_addr = (uint32_t)strtoul(env, NULL, 16);
-    s_trace_log  = fopen("blit_trace_pc.txt", "w");
+    s_trace_log  = fopen("logs/blit_trace_pc.txt", "w");   /* gitignored logs/, not the repo root */
     if (s_trace_log)
         fprintf(s_trace_log,
                 "# PC blit trace — watching $%06X\n"

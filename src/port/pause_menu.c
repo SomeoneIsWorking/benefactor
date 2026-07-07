@@ -6,12 +6,12 @@
  *
  * Pages:
  *   MAIN     — RESUME / OPTIONS / RETRY / EXIT TO MAIN MENU / QUIT TO DESKTOP
- *   OPTIONS  — game speed, jump physics, free-cam, and links to the RENDERING,
+ *   OPTIONS  — game speed, jump physics, free-cam, and links to the GRAPHICS,
  *              CONTROLS and EXTRA submenus. Every change is applied LIVE and
  *              persisted to benefactor.json (pc_cfg_persist).
- *   RENDERING— renderer, aspect ratio, plus the GPU EFFECTS toggles (AMBIENT
- *              DARKNESS / DROP SHADOW), which are greyed out unless the
- *              HARDWARE renderer is active.
+ *   GRAPHICS — renderer, aspect ratio, fullscreen, plus the GPU EFFECTS
+ *              toggles (AMBIENT DARKNESS / DROP SHADOW), which are greyed out
+ *              unless the HARDWARE renderer is active.
  *   CONTROLS — interact range, modern controls per device, links to the two
  *              bindings pages.
  *   EXTRA    — skip intro, unlock all levels, fall damage.
@@ -55,7 +55,7 @@ extern int  hw_pad_count(void);
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 
-enum { PG_MAIN = 0, PG_OPTIONS, PG_RENDERING, PG_CONTROLS, PG_EXTRA, PG_BIND_KB, PG_BIND_PAD };
+enum { PG_MAIN = 0, PG_OPTIONS, PG_GRAPHICS, PG_CONTROLS, PG_EXTRA, PG_BIND_KB, PG_BIND_PAD };
 
 static int s_paused = 0;
 static int s_page   = PG_MAIN;
@@ -67,11 +67,11 @@ static int s_title_mode = 0;
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
 /* OPTIONS-page row ids (rows are built per-mode by options_rows). */
-enum { OO_RENDERING = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_CONTROLS, OO_EXTRA,
+enum { OO_GRAPHICS = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_CONTROLS, OO_EXTRA,
        OO_BACK, OO_QUIT };
-/* RENDERING-page row ids. EFFECTS rows (AMBIENT/SHADOW) are flattened in here —
+/* GRAPHICS-page row ids. EFFECTS rows (AMBIENT/SHADOW) are flattened in here —
  * they apply only on the HARDWARE renderer and are greyed out otherwise. */
-enum { RR_RENDERER = 0, RR_ASPECT, RR_AMBIENT, RR_SHADOW, RR_BACK };
+enum { RR_RENDERER = 0, RR_ASPECT, RR_FULLSCREEN, RR_AMBIENT, RR_SHADOW, RR_BACK };
 /* CONTROLS-page row ids (input/binding settings, grouped out of OPTIONS). */
 enum { CT_INTERACT = 0, CT_MODERN_KB, CT_MODERN_PAD, CT_BIND_KB, CT_BIND_PAD, CT_BACK };
 /* EXTRA-page row ids. */
@@ -148,7 +148,7 @@ static const char *bind_row_label(int dev, int action)
 static int options_rows(int *rows /* >= 14 */)
 {
     int n = 0;
-    rows[n++] = OO_RENDERING;  rows[n++] = OO_SPEED;
+    rows[n++] = OO_GRAPHICS;  rows[n++] = OO_SPEED;
     rows[n++] = OO_PHYSICS;    rows[n++] = OO_FREECAM;
     rows[n++] = OO_CONTROLS;   rows[n++] = OO_EXTRA;
     rows[n++] = OO_BACK;
@@ -156,11 +156,11 @@ static int options_rows(int *rows /* >= 14 */)
     return n;
 }
 
-/* RENDERING submenu rows (with the flattened-in EFFECTS rows). */
-static int rendering_rows(int *rows /* >= 8 */)
+/* GRAPHICS submenu rows (with the flattened-in EFFECTS rows). */
+static int graphics_rows(int *rows /* >= 8 */)
 {
     int n = 0;
-    rows[n++] = RR_RENDERER; rows[n++] = RR_ASPECT;
+    rows[n++] = RR_RENDERER; rows[n++] = RR_ASPECT; rows[n++] = RR_FULLSCREEN;
     rows[n++] = RR_AMBIENT;  rows[n++] = RR_SHADOW;
     rows[n++] = RR_BACK;
     return n;
@@ -191,7 +191,7 @@ static int page_rows(int page)
     switch (page) {
         case PG_MAIN:      return NUM_MAIN;
         case PG_OPTIONS:   return options_rows(acts);
-        case PG_RENDERING: return rendering_rows(acts);
+        case PG_GRAPHICS: return graphics_rows(acts);
         case PG_CONTROLS:  return controls_rows(acts);
         case PG_EXTRA:     return extra_rows(acts);
         default:         return bind_rows(page == PG_BIND_PAD, acts);
@@ -206,7 +206,7 @@ static void enter_page(int page)
 
 /* ── Option values (resolved live, persisted on change) ───────────────────────── */
 
-/* RENDERER row (RENDERING submenu) — three renderers, driving "renderer"
+/* RENDERER row (GRAPHICS submenu) — three renderers, driving "renderer"
  * (vanilla|benren) + "present" (sdl|vulkan):
  *   VANILLA  — Amiga-blit-faithful copper render (vanilla + sdl)
  *   SOFTWARE — BenRen, the CPU per-sprite renderer (benren + sdl)
@@ -275,11 +275,18 @@ static const char *fx_knob(int row)
     }
 }
 
-static void rendering_cycle(int row, int dir)
+static void graphics_cycle(int row, int dir)
 {
     switch (row) {
-        case RR_RENDERER: renderer_set(renderer_index() + dir); break;
-        case RR_ASPECT:   aspect_set(aspect_index() + dir);     break;
+        case RR_RENDERER:   renderer_set(renderer_index() + dir); break;
+        case RR_ASPECT:     aspect_set(aspect_index() + dir);     break;
+        case RR_FULLSCREEN: {
+            extern void hw_fullscreen_refresh(void);
+            pc_cfg_persist("fullscreen",
+                           pc_cfg_bool("fullscreen", 0) ? "false" : "true");
+            hw_fullscreen_refresh();
+            break;
+        }
         case RR_AMBIENT:
         case RR_SHADOW: {
             if (!hardware_active()) break;             /* greyed: HARDWARE only */
@@ -339,7 +346,7 @@ static void bool_knob_toggle(const char *key)
 static void options_cycle(int row, int dir)
 {
     switch (row) {
-        /* OO_RENDERING / OO_CONTROLS / OO_EXTRA are submenu links (entered on
+        /* OO_GRAPHICS / OO_CONTROLS / OO_EXTRA are submenu links (entered on
          * select), not value cycles. */
         case OO_SPEED:      speed_set(speed_index() + dir);            break;
         case OO_PHYSICS:    bool_knob_toggle("platformer_physics");    break;
@@ -415,9 +422,9 @@ void pc_pause_input_left(void)
     if (s_page == PG_OPTIONS) {
         int rows[14]; int n = options_rows(rows);
         if (s_cursor < n) options_cycle(rows[s_cursor], -1);
-    } else if (s_page == PG_RENDERING) {
-        int rows[14]; int n = rendering_rows(rows);
-        if (s_cursor < n) rendering_cycle(rows[s_cursor], -1);
+    } else if (s_page == PG_GRAPHICS) {
+        int rows[14]; int n = graphics_rows(rows);
+        if (s_cursor < n) graphics_cycle(rows[s_cursor], -1);
     } else if (s_page == PG_CONTROLS) {
         int rows[14]; int n = controls_rows(rows);
         if (s_cursor < n) controls_cycle(rows[s_cursor], -1);
@@ -433,9 +440,9 @@ void pc_pause_input_right(void)
     if (s_page == PG_OPTIONS) {
         int rows[14]; int n = options_rows(rows);
         if (s_cursor < n) options_cycle(rows[s_cursor], +1);
-    } else if (s_page == PG_RENDERING) {
-        int rows[14]; int n = rendering_rows(rows);
-        if (s_cursor < n) rendering_cycle(rows[s_cursor], +1);
+    } else if (s_page == PG_GRAPHICS) {
+        int rows[14]; int n = graphics_rows(rows);
+        if (s_cursor < n) graphics_cycle(rows[s_cursor], +1);
     } else if (s_page == PG_CONTROLS) {
         int rows[14]; int n = controls_rows(rows);
         if (s_cursor < n) controls_cycle(rows[s_cursor], +1);
@@ -477,7 +484,7 @@ void pc_pause_input_select(void)
         int rows[14]; int n = options_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
         switch (rows[s_cursor]) {
-            case OO_RENDERING: enter_page(PG_RENDERING); break;
+            case OO_GRAPHICS: enter_page(PG_GRAPHICS); break;
             case OO_CONTROLS: enter_page(PG_CONTROLS); break;
             case OO_EXTRA:    enter_page(PG_EXTRA);    break;
             case OO_BACK:
@@ -489,11 +496,11 @@ void pc_pause_input_select(void)
         }
         break;
     }
-    case PG_RENDERING: {
-        int rows[14]; int n = rendering_rows(rows);
+    case PG_GRAPHICS: {
+        int rows[14]; int n = graphics_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
-        if (rows[s_cursor] == RR_BACK) enter_options_at(OO_RENDERING);
-        else                           rendering_cycle(rows[s_cursor], +1);
+        if (rows[s_cursor] == RR_BACK) enter_options_at(OO_GRAPHICS);
+        else                           graphics_cycle(rows[s_cursor], +1);
         break;
     }
     case PG_CONTROLS: {
@@ -542,7 +549,7 @@ void pc_pause_escape(void)
     switch (s_page) {
         case PG_BIND_KB:   enter_controls_at(CT_BIND_KB);  break;
         case PG_BIND_PAD:  enter_controls_at(CT_BIND_PAD); break;
-        case PG_RENDERING: enter_options_at(OO_RENDERING); break;
+        case PG_GRAPHICS: enter_options_at(OO_GRAPHICS); break;
         case PG_CONTROLS:  enter_options_at(OO_CONTROLS);  break;
         case PG_EXTRA:     enter_options_at(OO_EXTRA);     break;
         case PG_OPTIONS:
@@ -703,8 +710,8 @@ void pc_pause_menu_overlay(uint32_t *fb)
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
             switch (rows[i]) {
-            case OO_RENDERING:
-                label = "RENDERING";
+            case OO_GRAPHICS:
+                label = "GRAPHICS";
                 value = k_rend_labels[renderer_index()];   /* show the current renderer */
                 break;
             case OO_SPEED:
@@ -737,13 +744,13 @@ void pc_pause_menu_overlay(uint32_t *fb)
         return;
     }
 
-    if (s_page == PG_RENDERING) {
-        int rows[14]; int n = rendering_rows(rows);
+    if (s_page == PG_GRAPHICS) {
+        int rows[14]; int n = graphics_rows(rows);
         if (s_cursor >= n) s_cursor = n - 1;
         const int pw = 240;
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph, "RENDERING");
+        draw_panel(fb, px, py, pw, ph, "GRAPHICS");
         const int hw = hardware_active();
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
@@ -756,6 +763,10 @@ void pc_pause_menu_overlay(uint32_t *fb)
             case RR_ASPECT:
                 label = "ASPECT RATIO";
                 value = k_aspect_labels[aspect_index()];
+                break;
+            case RR_FULLSCREEN:
+                label = "FULLSCREEN";
+                value = pc_cfg_bool("fullscreen", 0) ? "ON" : "OFF";
                 break;
             case RR_AMBIENT:
                 label = "AMBIENT DARKNESS";

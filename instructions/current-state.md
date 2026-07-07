@@ -38,6 +38,27 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
 
 ---
 
+## GRAPHICS menu + fullscreen + light-overlay present rects (2026-07-07)
+
+- The pause-menu submenu formerly titled RENDERING is now **GRAPHICS** (OPTIONS
+  row label + panel title; internal ids `PG_GRAPHICS`/`OO_GRAPHICS`). Rows:
+  RENDERER / ASPECT RATIO / **FULLSCREEN** / AMBIENT DARKNESS / DROP SHADOW / BACK.
+- **FULLSCREEN** is a persisted bool knob `fullscreen` (benefactor.json), applied
+  by `hw_fullscreen_refresh()` (hw.c) — at init, from the menu row, and from F11
+  (F11 flips the SAME knob then refreshes, so the menu row, the window state and
+  the next launch always agree). Desktop-fullscreen; content letterboxes. The
+  per-backend `toggle_fullscreen` vtable entry was removed (dead).
+- **PresentRect** (`render/present_backend.h`): `present_scene()` now takes an
+  array of composed-surface rects to re-assert ON TOP of the scene draw. hw.c
+  keeps a per-frame registry (`hw_overlay_rect()`, reset each frame); the HUD
+  status icons + F3 profiler line register what they draw. This is why
+  fast-forward / free cam no longer degrade the Hardware renderer to the
+  composite blit. Both backends implement it (Vulkan: base-texture quads after
+  the lighting pass so UI stays bright; SDL scene path: rect-update + copy of
+  the cached base texture). `scenewin` selftest still 0 px diff.
+
+---
+
 ## Options menu + controller + runtime widescreen (2026-06-10)
 
 - **Pause menu has an OPTIONS submenu** (`src/port/pause_menu.c`, pages MAIN /
@@ -103,8 +124,12 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
   pause mode too). `freecam_pause` knob (OPTIONS "FREE CAM: GAME RUNS|PAUSES
   GAME", default runs) freezes pc_step like the pause menu. HUD status icons
   (`src/port/hud_icons.c`, vector-rasterised, top-left): fast-forward ▶▶
-  while PI_FFWD held, camera while free cam active; icon-active forces the
-  blit present path (the per-sprite scene present bypasses s_out overlays).
+  while PI_FFWD held, camera while free cam active. Icons are LIGHT overlays
+  (2026-07-07): they register `hw_overlay_rect()` regions and the per-sprite
+  scene present re-asserts just those rects from the composed base texture, so
+  fast-forward / free cam NO LONGER force the blit path (the Hardware renderer
+  + its effects keep running). Full-screen overlays (pause menu / toast /
+  level select / freecam fade) still use the composite-blit present.
   Harness REPL `fcam <0|1> [dx]` for headless tests. VERIFIED: pan shifts the
   wide view (82k px diff at +300, snap-back clean) and the camera icon
   renders; narrow levels are centered so panning is a no-op there by design.

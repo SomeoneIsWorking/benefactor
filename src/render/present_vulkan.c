@@ -1075,7 +1075,8 @@ static void vulkan_present(const uint32_t *argb, int w, int h)
 
 /* BenRen VK — the per-sprite path: draw the Scene draw list on the GPU. */
 static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
-                                 const uint32_t *base, int w, int h)
+                                 const uint32_t *base, int w, int h,
+                                 const PresentRect *rects, int nrects)
 {
     Swap *s = &g_sw;
     if (!s->ok) return;
@@ -1210,17 +1211,31 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi,
         vk_draw_quad(s, s->dset_atlas, &qp);
     }
 
+    /* PC overlay rects (HUD icons / F3 profiler): sample the composed base
+     * texture (which already carries those overlays — hw.c drew them into the
+     * composed surface) for just those regions, on top of everything. Drawn
+     * after the lighting pass so overlay UI stays bright, like the banner. */
+    for (int i = 0; i < nrects; i++) {
+        int x0 = rects[i].x, y0 = rects[i].y, rw = rects[i].w, rh = rects[i].h;
+        if (x0 < 0) { rw += x0; x0 = 0; }
+        if (y0 < 0) { rh += y0; y0 = 0; }
+        if (x0 + rw > w) rw = w - x0;
+        if (y0 + rh > h) rh = h - y0;
+        if (rw <= 0 || rh <= 0) continue;
+        QuadPush qp; memset(&qp, 0, sizeof qp);
+        qp.screen[0] = scr0; qp.screen[1] = scr1;
+        qp.dst[0] = (float)x0; qp.dst[1] = (float)y0;
+        qp.dst[2] = (float)rw; qp.dst[3] = (float)rh;
+        qp.src[0] = (float)x0 / (float)w; qp.src[1] = (float)y0 / (float)h;
+        qp.src[2] = (float)(x0 + rw) / (float)w; qp.src[3] = (float)(y0 + rh) / (float)h;
+        vk_draw_quad(s, s->dset_base, &qp);
+    }
+
     free(pos);
     vk_end_frame(s, idx);
 }
 
 static void vulkan_set_effects(const FxFrame *fx) { if (fx) g_sw.fx = *fx; }
-
-static void vulkan_toggle_fullscreen(void)
-{
-    uint32_t f = SDL_GetWindowFlags(g_sw.win);
-    SDL_SetWindowFullscreen(g_sw.win, (f & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-}
 
 static SDL_Window *vulkan_window(void) { return g_sw.win; }
 
@@ -1260,7 +1275,7 @@ static void vulkan_shutdown(void)
 static const PresentBackend VULKAN_BACKEND = {
     "vulkan", vulkan_init, vulkan_present, vulkan_present_scene,
     vulkan_set_effects,
-    vulkan_toggle_fullscreen, vulkan_window, vulkan_shutdown
+    vulkan_window, vulkan_shutdown
 };
 
 /* Returns the Vulkan backend; present_backend_select() handles the case where
