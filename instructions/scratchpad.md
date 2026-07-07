@@ -10,8 +10,8 @@ When a divergence or bug is not immediately obvious, the risk of **circular debu
 
 Create a scratchpad for the current debugging session:
 ```bash
-# Start a new scratchpad for a new investigation
-echo "# Scratchpad: <one-line symptom>" > session/scratchpad.md
+# Start a new scratchpad for a new investigation (gitignored scratch/, never /tmp)
+echo "# Scratchpad: <one-line symptom>" > scratch/scratchpad.md
 ```
 
 Keep it short. One scratchpad per major divergence investigation. Archive or delete once resolved.
