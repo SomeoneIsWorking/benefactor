@@ -169,7 +169,7 @@ Frame diverges
   └─ Fix verified → update instructions + store_memory (see Self-Evolution below)
 ```
 
-**Start a scratchpad** (`session/scratchpad.md`) when a divergence is not obvious after 10 minutes or when exploring parameter spaces. See `instructions/scratchpad.md` for format and rules. The scratchpad prevents circular reasoning by forcing every hypothesis, test, and falsification to be written down.
+**Start a scratchpad** (`scratch/scratchpad.md`) when a divergence is not obvious after 10 minutes or when exploring parameter spaces. See `instructions/scratchpad.md` for format and rules. The scratchpad prevents circular reasoning by forcing every hypothesis, test, and falsification to be written down.
 
 **No manual assembly math.** Never compute bit-field decodes, address offsets, or copper list mappings in your head. Use Python:
 
