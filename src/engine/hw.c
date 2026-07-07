@@ -10,6 +10,7 @@
 #include "port/port.h"   /* level/world layout accessors (single source of truth) */
 #include <signal.h>
 #include <unistd.h>
+#include <sys/stat.h>   /* mkdir for the scratch/ frame-dump dir */
 #include <fcntl.h>
 
 #ifdef HARNESS_BUILD
@@ -406,6 +407,20 @@ int hw_audio_frame_due(void)
  * fire (missed KEYUP) and ignored presses (missed KEYDOWN). */
 void hw_set_external_input(int on) { s_ext_input = on; }
 
+/* Present-rect registry for the LIGHT PC overlays (HUD icons / F3 profiler):
+ * regions of the composed surface the per-sprite scene present must re-assert
+ * on top (see PresentRect in present_backend.h). Reset each frame before the
+ * overlay stage; the overlay renderers register what they actually drew. */
+#define HW_OVL_RECT_MAX 8
+static PresentRect s_ovl_rects[HW_OVL_RECT_MAX];
+static int s_ovl_nrects = 0;
+
+void hw_overlay_rect(int x, int y, int w, int h)
+{
+    if (s_ovl_nrects >= HW_OVL_RECT_MAX || w <= 0 || h <= 0) return;
+    s_ovl_rects[s_ovl_nrects++] = (PresentRect){ x, y, w, h };
+}
+
 /* CIA-B timer */
 /* CIA-B timer state (s_ciab_*) lives on g_state via game_state.h. */
 
@@ -789,6 +804,20 @@ void hw_widescreen_refresh(void)
     }
 }
 
+/* Apply the persisted "fullscreen" knob (GRAPHICS menu row; F11 flips the knob
+ * and calls this too, so both paths stay in sync and the state survives a
+ * restart). Desktop fullscreen — the content letterboxes/scales inside it. */
+void hw_fullscreen_refresh(void)
+{
+    if (s_headless || !s_backend) return;
+    SDL_Window *win = s_backend->window();
+    if (!win) return;
+    int want = pc_cfg_bool("fullscreen", 0);
+    int have = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+    if (want != have)
+        SDL_SetWindowFullscreen(win, want ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+}
+
 /* Resolve the present (window-owning) backend. The window is created ONCE at init
  * and is NOT recreated on a renderer change — Software vs Hardware only flips which
  * present call runs (composite blit vs GPU per-sprite), not the backend. So prefer
@@ -929,6 +958,7 @@ int hw_init(const char *title, const char **disk_paths, int n_disks)
             if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) return -1;
         }
         HW_LOG("[render] present backend: %s\n", s_backend->name);
+        hw_fullscreen_refresh();   /* persisted "fullscreen" knob */
 
         hw_audio_open();
     }
@@ -981,7 +1011,13 @@ int hw_present_frame(void)
                  * menu in gameplay, falls back to exit(0) elsewhere. Don't
                  * short-circuit return 1 here or pause never engages. */
                 if (ev.key.keysym.sym == SDLK_F11) {
-                    if (!s_headless && down && s_backend) s_backend->toggle_fullscreen();
+                    /* F11 = the FULLSCREEN option: flip the persisted knob and
+                     * apply it, so the menu row and the next launch agree. */
+                    if (!s_headless && down && s_backend) {
+                        pc_cfg_persist("fullscreen",
+                                       pc_cfg_bool("fullscreen", 0) ? "false" : "true");
+                        hw_fullscreen_refresh();
+                    }
                 } else if (ev.key.keysym.sym == SDLK_F3) {
                     if (down) g_hw_perf_overlay = !g_hw_perf_overlay;
                 } else {
@@ -1035,6 +1071,7 @@ int hw_present_frame(void)
      * playfield, so they stack on top of everything (the wide renderer would otherwise
      * overpaint them) and span the full widescreen width. Level-select first, then the
      * pause menu above it, then the save/load toast topmost. */
+    s_ovl_nrects = 0;   /* per-frame: overlays re-register their present rects */
     { extern void pc_overlay_set_dims(int, int);
       extern void pc_level_select_overlay(uint32_t *fb);
       extern void pc_pause_menu_overlay(uint32_t *fb);
@@ -1067,18 +1104,21 @@ int hw_present_frame(void)
 
     if (!s_headless) {
         /* P4 — per-sprite windowed present: when this frame produced a fresh
-         * BenRen draw list and no PC overlay is active (overlays read-modify the
-         * composed surface), draw the scene's quads to the window instead of
-         * blitting s_out. Verified byte-identical to s_out (harness `scenewin`). */
+         * BenRen draw list and no FULL-SCREEN PC overlay is active (those
+         * read-modify the whole composed surface), draw the scene's quads to
+         * the window instead of blitting s_out. The LIGHT overlays — HUD
+         * status icons + F3 profiler — do NOT force the blit path: they
+         * register PresentRects and the scene present re-asserts just those
+         * regions on top, so fast-forward / free cam keep the Hardware
+         * renderer (and its effects) instead of degrading to the composite. */
         extern int  native_render_scene_ready(void);
         extern const Scene *native_render_scene(void);
         extern void native_render_scene_yrange(int *, int *);
         extern int  pc_pause_active(void), pc_toast_visible(void);
-        extern int  pc_hud_icons_active(void);
         extern int  g_level_select_visible;
         extern int  pc_freecam_fade_alpha(void);
         int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible
-                   || pc_hud_icons_active() || pc_freecam_fade_alpha() > 0;
+                   || pc_freecam_fade_alpha() > 0;
         /* Feed the backend this frame's projected light + playfield + effect flags
          * (Hardware applies them in its lighting pass; SDL has no set_effects). */
         if (s_backend->set_effects) {
@@ -1087,12 +1127,13 @@ int hw_present_frame(void)
         }
         perf_t = hw_perf_now_us();
         /* Per-sprite GPU path only for the Hardware renderer; Software/Vanilla present
-         * the CPU-composed surface (one quad). Overlays always use the composite. */
+         * the CPU-composed surface (one quad). Full-screen overlays use the composite. */
         if (hw_scene_render_enabled() && s_backend->present_scene &&
             native_render_scene_ready() && !overlay) {
             int ylo, yhi; native_render_scene_yrange(&ylo, &yhi);
             s_backend->present_scene(native_render_scene(), ylo, yhi,
-                                     s_out, s_hw_out_w, HW_DISPLAY_H);
+                                     s_out, s_hw_out_w, HW_DISPLAY_H,
+                                     s_ovl_rects, s_ovl_nrects);
         } else {
             s_backend->present(s_out, s_hw_out_w, HW_DISPLAY_H);
         }
@@ -1113,8 +1154,10 @@ int hw_present_frame(void)
         if (dump_frame >= 0 && (uint32_t)s_frame_num == (uint32_t)dump_frame) {
             /* Dump the composed OUTPUT surface (s_out) — what is actually
              * presented, including the widescreen margins and overlays — not the
-             * 352px content fb. hw_compose_output() already ran this frame. */
-            const char *path = "frame_dump.bmp";
+             * 352px content fb. hw_compose_output() already ran this frame.
+             * Artifacts go under gitignored scratch/, never the repo root. */
+            const char *path = "scratch/frame_dump.bmp";
+            mkdir("scratch", 0755);   /* ok if it already exists */
             FILE *fp = fopen(path, "wb");
             if (fp) {
                 int W = s_hw_out_w, H = HW_DISPLAY_H;

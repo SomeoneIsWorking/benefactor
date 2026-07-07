@@ -61,7 +61,8 @@ static void sdl_present(const uint32_t *argb, int w, int h)
  * blitting the composed surface. Verified byte-identical to the composed
  * surface via scene_sdl_window_selftest (harness `scenewin`). */
 static void sdl_present_scene(const Scene *s, int y_lo, int y_hi,
-                              const uint32_t *base, int w, int h)
+                              const uint32_t *base, int w, int h,
+                              const PresentRect *rects, int nrects)
 {
     if (sdl_ensure_content(w, h) != 0) return;
     if (scene_draw_sdl_window(s_renderer, s, y_lo, y_hi, base, w, h,
@@ -71,14 +72,16 @@ static void sdl_present_scene(const Scene *s, int y_lo, int y_hi,
         sdl_present(base, w, h);
         return;
     }
+    /* PC overlay rects (HUD icons / profiler): re-assert those composed-surface
+     * regions on top of the scene. The cache's base texture already holds the
+     * full composed frame rows it was updated with; update + copy just the rects. */
+    for (int i = 0; i < nrects && s_scene_cache.base; i++) {
+        SDL_Rect rc = { rects[i].x, rects[i].y, rects[i].w, rects[i].h };
+        SDL_UpdateTexture(s_scene_cache.base, &rc,
+                          base + (size_t)rc.y * w + rc.x, w * 4);
+        SDL_RenderCopy(s_renderer, s_scene_cache.base, &rc, &rc);
+    }
     SDL_RenderPresent(s_renderer);
-}
-
-static void sdl_toggle_fullscreen(void)
-{
-    uint32_t flags = SDL_GetWindowFlags(s_window);
-    SDL_SetWindowFullscreen(s_window,
-        (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
 }
 
 static SDL_Window *sdl_window(void) { return s_window; }
@@ -96,7 +99,7 @@ static void sdl_shutdown(void)
 static const PresentBackend SDL_BACKEND = {
     "sdl", sdl_init, sdl_present, sdl_present_scene,
     NULL /* set_effects: software renders no effects (the hard gate) */,
-    sdl_toggle_fullscreen, sdl_window, sdl_shutdown
+    sdl_window, sdl_shutdown
 };
 
 const PresentBackend *present_backend_sdl(void) { return &SDL_BACKEND; }

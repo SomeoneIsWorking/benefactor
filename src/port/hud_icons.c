@@ -20,6 +20,7 @@ extern int pc_overlay_w(void), pc_overlay_h(void);
 extern int hw_ffwd_active(void);
 extern int pc_freecam_active(void);
 extern int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb);
+extern void hw_overlay_rect(int x, int y, int w, int h);   /* scene-present re-assert */
 
 #define ICON_W   22
 #define ICON_H   16
@@ -30,8 +31,10 @@ extern int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, ui
 #define COL_FILL    0xFFFFFFFFu
 #define COL_OUTLINE 0xFF202020u
 
-/* 1 when the icon overlay has anything to draw (hw.c: forces the blit present
- * path, since the per-sprite scene present bypasses s_out overlays). */
+/* 1 when the icon overlay has anything to draw. These are LIGHT overlays: they
+ * do NOT force the blit present path — each drawn element registers a
+ * hw_overlay_rect() and the per-sprite scene present re-asserts those regions
+ * on top, so fast-forward / free cam keep the Hardware renderer running. */
 int pc_hud_icons_active(void)
 {
     return hw_ffwd_active() || pc_freecam_active() || g_hw_perf_overlay;
@@ -106,10 +109,13 @@ void pc_hud_icons_overlay(uint32_t *fb)
     int x = ICON_X;
     if (hw_ffwd_active()) {
         draw_icon(fb, ow, oh, x, ICON_Y, ff_shape, 0);
+        hw_overlay_rect(x - 1, ICON_Y - 1, ICON_W + 2, ICON_H + 2);  /* incl. outline */
         x += ICON_W + ICON_GAP;
     }
-    if (pc_freecam_active())
+    if (pc_freecam_active()) {
         draw_icon(fb, ow, oh, x, ICON_Y, cam_shape, cam_hole);
+        hw_overlay_rect(x - 1, ICON_Y - 1, ICON_W + 2, ICON_H + 2);
+    }
 
     /* F3 frame-time profiler, top-right: fps + per-section milliseconds.
      * "game" = the engine step minus the measured render/compose/present
@@ -131,5 +137,6 @@ void pc_hud_icons_overlay(uint32_t *fb)
         if (x0 < 2) x0 = 2;
         pc_draw_text(fb, x0 + 1, 3, line, 1, 0xFF000000);   /* drop shadow */
         pc_draw_text(fb, x0, 2, line, 1, 0xFF80FF80);
+        hw_overlay_rect(x0, 2, len * 6 + 2, 9);   /* text + 1px shadow offset */
     }
 }
