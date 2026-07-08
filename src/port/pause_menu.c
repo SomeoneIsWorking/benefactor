@@ -669,6 +669,21 @@ static void draw_row_disabled(uint32_t *fb, int px, int y, int selected,
     if (value) pc_draw_text(fb, px + 150, y, value, 1, 0xFF505060);
 }
 
+/* Right-pointing triangle at the right edge of a row — marks a row that OPENS A
+ * SUBMENU (vs one that cycles a value in place). Drawn right-aligned inside the
+ * panel; `pw` is the panel width, `y` the row's text baseline. 7px tall to match
+ * the glyph height; the left edge is vertical and it narrows to a tip on the
+ * right (the "there's more this way" affordance). */
+static void draw_submenu_arrow(uint32_t *fb, int px, int pw, int y, int selected)
+{
+    uint32_t argb = selected ? 0xFFFFE070 : 0xFF90A0D0;
+    int rx = px + pw - 12;
+    for (int r = 0; r < 7; r++) {
+        int wdt = (r <= 3) ? (r + 1) : (7 - r);
+        pc_fill_rect(fb, rx, y + r, wdt, 1, argb);
+    }
+}
+
 void pc_pause_menu_overlay(uint32_t *fb)
 {
     if (!s_paused) return;
@@ -709,10 +724,11 @@ void pc_pause_menu_overlay(uint32_t *fb)
         draw_panel(fb, px, py, pw, ph, "OPTIONS");
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
+            int submenu = 0;   /* opens a submenu → draw the arrow, not a value */
             switch (rows[i]) {
             case OO_GRAPHICS:
-                label = "GRAPHICS";
-                value = k_rend_labels[renderer_index()];   /* show the current renderer */
+                label = "GRAPHICS";   /* renderer/aspect/fullscreen/effects live inside */
+                submenu = 1;
                 break;
             case OO_SPEED:
                 label = "GAME SPEED";
@@ -728,9 +744,11 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 break;
             case OO_CONTROLS:
                 label = "CONTROLS";
+                submenu = 1;
                 break;
             case OO_EXTRA:
                 label = "EXTRA";
+                submenu = 1;
                 break;
             case OO_BACK:
                 label = "BACK";
@@ -739,7 +757,9 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 label = "QUIT TO DESKTOP";
                 break;
             }
-            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+            int y = py + 22 + i * row_h;
+            draw_row(fb, px, y, i == s_cursor, label, value);
+            if (submenu) draw_submenu_arrow(fb, px, pw, y, i == s_cursor);
         }
         return;
     }
@@ -799,6 +819,7 @@ void pc_pause_menu_overlay(uint32_t *fb)
         draw_panel(fb, px, py, pw, ph, "CONTROLS");
         for (int i = 0; i < n; i++) {
             const char *label = "", *value = NULL;
+            int submenu = 0;   /* opens a per-device bindings page */
             char vbuf[24];
             switch (rows[i]) {
             case CT_INTERACT:
@@ -815,9 +836,11 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 break;
             case CT_BIND_KB:
                 label = "KEYBOARD BINDINGS";
+                submenu = 1;
                 break;
             case CT_BIND_PAD:
                 label = "CONTROLLER BINDINGS";
+                submenu = 1;
                 if (hw_pad_count() == 0) { value = "NONE FOUND"; }
                 else { snprintf(vbuf, sizeof vbuf, "%d PAD%s", hw_pad_count(),
                                 hw_pad_count() > 1 ? "S" : ""); value = vbuf; }
@@ -826,7 +849,9 @@ void pc_pause_menu_overlay(uint32_t *fb)
                 label = "BACK";
                 break;
             }
-            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+            int y = py + 22 + i * row_h;
+            draw_row(fb, px, y, i == s_cursor, label, value);
+            if (submenu) draw_submenu_arrow(fb, px, pw, y, i == s_cursor);
         }
         return;
     }
