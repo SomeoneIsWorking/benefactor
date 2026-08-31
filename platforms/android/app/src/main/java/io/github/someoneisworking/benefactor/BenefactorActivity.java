@@ -1,6 +1,7 @@
 package io.github.someoneisworking.benefactor;
 
 import android.app.AlertDialog;
+import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 
 import io.github.someoneisworking.lucent.LucentActivity;
@@ -76,6 +77,14 @@ public final class BenefactorActivity extends LucentActivity {
         } catch (java.io.IOException error) {
             return null;
         }
+    }
+
+    /** SDL rewrites orientation after its native window exists; restore the title contract there. */
+    public void enforceBenefactorWindowPolicy() {
+        runOnUiThread(() -> {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            hideSystemUI();
+        });
     }
 
     @Override

@@ -73,6 +73,38 @@ static int call_activity_picker(const char *message, char *error,
   return error[0] == '\0';
 }
 
+static int call_activity_void(const char *method_name, char *error,
+                              size_t error_capacity) {
+  JNIEnv *environment = (JNIEnv *)SDL_AndroidGetJNIEnv();
+  jobject activity = (jobject)SDL_AndroidGetActivity();
+  if (!environment || !activity) {
+    snprintf(error, error_capacity, "Android Activity is unavailable: %s",
+             SDL_GetError());
+    return 0;
+  }
+  jclass activity_class = (*environment)->GetObjectClass(environment, activity);
+  jmethodID method =
+      activity_class
+          ? (*environment)
+                ->GetMethodID(environment, activity_class, method_name, "()V")
+          : NULL;
+  if (!activity_class || !method) {
+    snprintf(error, error_capacity, "Android Activity does not provide %s()",
+             method_name);
+  } else {
+    (*environment)->CallVoidMethod(environment, activity, method);
+    if ((*environment)->ExceptionCheck(environment)) {
+      (*environment)->ExceptionClear(environment);
+      snprintf(error, error_capacity,
+               "Android Activity failed while calling %s", method_name);
+    }
+  }
+  if (activity_class)
+    (*environment)->DeleteLocalRef(environment, activity_class);
+  (*environment)->DeleteLocalRef(environment, activity);
+  return error[0] == '\0';
+}
+
 static int call_activity_commit(const char *staging_root, char *installed_root,
                                 size_t installed_capacity, char *error,
                                 size_t error_capacity) {
@@ -212,6 +244,14 @@ int android_bridge_select_disks(const char **disks, size_t capacity) {
   if (chdir(private_root) != 0)
     fprintf(stderr, "android: cannot enter private storage\n");
   return 1;
+}
+
+int android_bridge_enforce_window_policy(void) {
+  char error[256] = "";
+  if (call_activity_void("enforceBenefactorWindowPolicy", error, sizeof error))
+    return 1;
+  fprintf(stderr, "android: %s\n", error);
+  return 0;
 }
 
 JNIEXPORT void JNICALL

@@ -118,7 +118,8 @@ The AppImage likewise asks for the disk folder on first launch and stores only t
 the XDG configuration directory. Releases are assembled locally from the user's disks and uploaded
 manually as asset-free artifacts; Android builds use `python3 tools/build_android.py` after setting `ANDROID_SDK_ROOT`,
 `BENEFACTOR_JAVA_HOME` (JDK 26), `BENEFACTOR_SDL2_DIR`, and
-`BENEFACTOR_LUCENT_DIR`.
+`BENEFACTOR_LUCENT_DIR`. The builder resolves the shared Android packaging library at
+`../shared/android-port`; set `BENEFACTOR_ANDROID_PORT_DIR` when your workspace uses a different layout.
 
 ## Configuration
 
