@@ -7,19 +7,17 @@
 ## Android + release path (2026-08-31)
 
 - The project has an arm64-v8a Android target. The native shared library links SDL2 and Lucent;
-  it compiled successfully with NDK r28c and produced an inspected debug APK with Gradle 9.4.1,
-  AGP 9.2.0, and JDK 26. Android startup requests a folder containing the user's
+  it compiled successfully with NDK r28c and produced an inspected release-signed APK with Gradle
+  9.4.1, AGP 9.2.0, and JDK 26. Android startup requests a folder containing the user's
   `Disk.1`/`Disk.2`/`Disk.3`, imports it through Lucent's bounded SAF transaction into private
   app storage, and keeps settings there. No disk image is put in the APK.
 - `src/port/touch_controls.cpp` is the touch owner. Lucent captures each contact to its first
   authored zone, so a drag cannot spuriously switch actions; controller connection cancels every
   virtual press and hides the overlay, and removal restores it. Touch, keyboard, and controller
   feed the existing logical-action resolver rather than separate game input paths.
-- The disk-free AppImage and ARM64 debug APK are published as GitHub release `v0.1.0`. GitHub tag
-  releases are also wired for a signed APK and AppImage, but they require repository secrets for
-  the authorized release input and Android key. The published debug APK is not release-qualified:
-  the named-device correctness/performance matrix and maintainer-key signing remain required for
-  that status.
+- The disk-free AppImage and ARM64 release-signed APK are published as GitHub release `v0.1.0`.
+  The APK's 4096-bit maintainer key is stored as GitHub repository secrets. The named-device
+  correctness/performance matrix remains required before calling the Android release qualified.
 
 ## Execution model (2026-06-02): game thread + SDL main thread
 
