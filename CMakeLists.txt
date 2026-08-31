@@ -283,6 +283,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(benefactor-pc PRIVATE ${BENEFACTOR_SDL_TARGET} m Threads::Threads)
 if(ANDROID)
     target_link_libraries(benefactor-pc PRIVATE lucent::lucent android log)
+    target_compile_definitions(benefactor-pc PRIVATE BENEFACTOR_ANDROID)
 endif()
 target_compile_options(benefactor-pc PRIVATE -Wall -Wextra -g)
 

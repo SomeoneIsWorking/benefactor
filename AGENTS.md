@@ -85,15 +85,18 @@ python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
   Storage Access Framework setup policy. It imports a user-selected `Disk.1`/`Disk.2`/`Disk.3`
   folder through Lucent into app-private storage; no disk images are packaged.
 - `src/platform/android_bridge.c` owns the narrow JNI handoff from that setup flow to the C
-  runtime and establishes Lucent's app-private user-data directory. It is not input code.
+  runtime, establishes Lucent's app-private user-data directory, and reasserts the title's
+  landscape window policy after SDL creates its native window. It is not input code.
 - `src/port/touch_controls.cpp` owns the Android-only touch layout. It uses
   `lucent::touch::Router` to capture/cancel contacts and emits the existing logical input
   actions; `hw.c` remains the only hardware/action-resolution boundary. Any controller connect
   cancels touch state and hides the visual controls; they return when the last controller leaves.
 - Build an APK with `BENEFACTOR_SDL2_DIR`, `BENEFACTOR_LUCENT_DIR`, `ANDROID_SDK_ROOT`, and
   `BENEFACTOR_JAVA_HOME` (JDK 26) set: `python3 tools/build_android.py [--release]`. The source checkouts are explicit dependencies;
-  they are never vendored into this repository. `--release` requires the documented signing
-  environment variables and refuses an unsigned APK.
+  they are never vendored into this repository. The shared Android package helper resolves at
+  `../shared/android-port` or `BENEFACTOR_ANDROID_PORT_DIR`; it stages the ABI-matched
+  `libc++_shared.so` and the APK inspector requires it. `--release` requires the documented
+  signing environment variables and refuses an unsigned APK.
 - `tools/build_appimage.py` stages a disk-free AppImage. `platforms/appimage/AppRun` presents a
   first-run folder picker (Zenity) and saves only the selected disk-folder path under XDG config.
   Recompiler releases are built locally with the operator's `Disk.1`/`Disk.2`/`Disk.3` inputs and

@@ -1164,7 +1164,7 @@ int pc_step_threaded(void)
 /* Linux-only: re-exec self with ASLR disabled, before any other startup. Kept so
  * BSS-static addresses captured in a savestate stay stable across restarts of
  * the SAME binary. */
-#if defined(__linux__)
+#if defined(__linux__) && !defined(__ANDROID__)
 #include <sys/personality.h>
 #include <unistd.h>
 void pc_pin_address_space(int argc, char **argv) {

@@ -9,6 +9,7 @@ Lucent's SAF importer to stage a separate disk set in private app storage.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -56,6 +57,23 @@ def android_ndk(sdk: Path) -> Path:
     if not expected.is_dir():
         refuse(f"Android NDK 28.2.13676358 is missing: {expected}")
     return expected
+
+
+def shared_android_port_tool():
+    configured = os.environ.get("BENEFACTOR_ANDROID_PORT_DIR")
+    candidates = [Path(configured).expanduser()] if configured else [ROOT.parent / "shared" / "android-port"]
+    for candidate in candidates:
+        tool = candidate.resolve() / "tools" / "android_port.py"
+        if not tool.is_file():
+            continue
+        specification = importlib.util.spec_from_file_location("benefactor_android_port", tool)
+        if specification is None or specification.loader is None:
+            break
+        module = importlib.util.module_from_spec(specification)
+        sys.modules[specification.name] = module
+        specification.loader.exec_module(module)
+        return module
+    refuse("cannot find shared Android packaging tool; tried: " + ", ".join(str(path) for path in candidates))
 
 
 def required_jdk() -> Path:
@@ -122,7 +140,7 @@ def find_unique(root: Path, name: str) -> Path:
     return candidates[0]
 
 
-def stage_gradle_project(sdl: Path, lucent: Path, native: Path) -> Path:
+def stage_gradle_project(sdl: Path, lucent: Path, native: Path, ndk: Path) -> Path:
     android_project = sdl / "android-project"
     if not android_project.is_dir():
         refuse(f"SDL2 checkout has no android-project: {android_project}")
@@ -140,6 +158,7 @@ def stage_gradle_project(sdl: Path, lucent: Path, native: Path) -> Path:
     libraries = project / "app/src/main/jniLibs" / ABI
     copy_required(native, libraries / "libmain.so")
     copy_required(find_unique(BUILD / "native", "libSDL2.so"), libraries / "libSDL2.so")
+    copy_required(shared_android_port_tool().ndk_cxx_shared_library(ndk, ABI), libraries / "libc++_shared.so")
     return project
 
 
@@ -149,7 +168,12 @@ def inspect_apk(apk: Path) -> None:
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()
     forbidden = [name for name in names if Path(name).name.lower().startswith("disk.")]
-    required = {f"lib/{ABI}/libmain.so", f"lib/{ABI}/libSDL2.so", "resources.arsc"}
+    required = {
+        f"lib/{ABI}/libmain.so",
+        f"lib/{ABI}/libSDL2.so",
+        f"lib/{ABI}/libc++_shared.so",
+        "resources.arsc",
+    }
     missing = sorted(required.difference(names))
     if forbidden:
         refuse("APK contains prohibited disk image paths: " + ", ".join(forbidden))
@@ -168,7 +192,7 @@ def main() -> int:
     lucent = required_directory("BENEFACTOR_LUCENT_DIR")
     regenerate()
     native = configure_native(sdk, ndk, sdl, lucent)
-    project = stage_gradle_project(sdl, lucent, native)
+    project = stage_gradle_project(sdl, lucent, native, ndk)
     environment = dict(os.environ)
     environment["ANDROID_SDK_ROOT"] = str(sdk)
     environment["JAVA_HOME"] = str(jdk)

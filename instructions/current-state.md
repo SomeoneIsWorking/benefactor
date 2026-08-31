@@ -22,6 +22,13 @@
   Static-recompiler releases are assembled locally with the operator's disk inputs and uploaded
   manually; this project has no CI workflow and never uploads game inputs. The named-device
   correctness/performance matrix remains required before calling the Android release qualified.
+- Emulator verification on `codex_shared_api35` passed the actual first-run route: the disk picker
+  accepted a user-supplied `Disk.1`/`Disk.2`/`Disk.3` folder, Lucent staged it privately, the game
+  rendered in landscape, Fire advanced the title, and Pause opened Options. The test assets and app
+  data were cleared afterward. The package now stages the NDK `libc++_shared.so` through the shared
+  `android-port` tool, exports SDL2's required `SDL_main`, excludes Android from Linux's ASLR
+  re-exec, and reasserts title-owned landscape after SDL creates its window. Lucent's shared
+  immersive setup obtains the decor view before requesting insets on API 35.
 
 ## Execution model (2026-06-02): game thread + SDL main thread
 
