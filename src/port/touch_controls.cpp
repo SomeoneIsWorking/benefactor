@@ -128,6 +128,21 @@ void circle(uint32_t *argb, int width, int height, float center_x,
     }
 }
 
+void disc(uint32_t *argb, int width, int height, float center_x, float center_y,
+          float radius, uint32_t color, unsigned alpha) {
+  const int cx = static_cast<int>(center_x * width);
+  const int cy = static_cast<int>(center_y * height);
+  const int r = std::max(8, static_cast<int>(radius * std::min(width, height)));
+  const int min_x = std::max(0, cx - r), max_x = std::min(width - 1, cx + r);
+  const int min_y = std::max(0, cy - r), max_y = std::min(height - 1, cy + r);
+  for (int y = min_y; y <= max_y; ++y)
+    for (int x = min_x; x <= max_x; ++x) {
+      const int dx = x - cx, dy = y - cy;
+      if (dx * dx + dy * dy <= r * r)
+        blend(&argb[y * width + x], color, alpha);
+    }
+}
+
 void line(uint32_t *argb, int width, int height, int x0, int y0, int x1, int y1,
           int thickness) {
   const int span_x = std::abs(x1 - x0), step_x = x0 < x1 ? 1 : -1;
@@ -154,16 +169,58 @@ void line(uint32_t *argb, int width, int height, int x0, int y0, int x1, int y1,
   }
 }
 
+void triangle(uint32_t *argb, int width, int height, int x0, int y0, int x1,
+              int y1, int x2, int y2, uint32_t color, unsigned alpha) {
+  const int min_x = std::max(0, std::min({x0, x1, x2}));
+  const int max_x = std::min(width - 1, std::max({x0, x1, x2}));
+  const int min_y = std::max(0, std::min({y0, y1, y2}));
+  const int max_y = std::min(height - 1, std::max({y0, y1, y2}));
+  const auto edge = [](int ax, int ay, int bx, int by, int px, int py) {
+    return (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+  };
+  for (int y = min_y; y <= max_y; ++y)
+    for (int x = min_x; x <= max_x; ++x) {
+      const int a = edge(x0, y0, x1, y1, x, y);
+      const int b = edge(x1, y1, x2, y2, x, y);
+      const int c = edge(x2, y2, x0, y0, x, y);
+      if ((a >= 0 && b >= 0 && c >= 0) || (a <= 0 && b <= 0 && c <= 0))
+        blend(&argb[y * width + x], color, alpha);
+    }
+}
+
+enum class Direction { up, down, left, right };
+
+void direction_button(uint32_t *argb, int width, int height, float center_x,
+                      float center_y, Direction direction) {
+  constexpr float radius = 0.055F;
+  const int cx = static_cast<int>(center_x * width);
+  const int cy = static_cast<int>(center_y * height);
+  const int span =
+      std::max(11, static_cast<int>(radius * std::min(width, height) * 0.55F));
+  disc(argb, width, height, center_x, center_y, radius, 0xFF101820U, 145U);
+  circle(argb, width, height, center_x, center_y, radius);
+  switch (direction) {
+  case Direction::up:
+    triangle(argb, width, height, cx, cy - span, cx - span, cy + span / 2,
+             cx + span, cy + span / 2, 0xFFFFFFFFU, 230U);
+    break;
+  case Direction::down:
+    triangle(argb, width, height, cx, cy + span, cx - span, cy - span / 2,
+             cx + span, cy - span / 2, 0xFFFFFFFFU, 230U);
+    break;
+  case Direction::left:
+    triangle(argb, width, height, cx - span, cy, cx + span / 2, cy - span,
+             cx + span / 2, cy + span, 0xFFFFFFFFU, 230U);
+    break;
+  case Direction::right:
+    triangle(argb, width, height, cx + span, cy, cx - span / 2, cy - span,
+             cx - span / 2, cy + span, 0xFFFFFFFFU, 230U);
+    break;
+  }
+}
+
 void control_glyphs(uint32_t *argb, int width, int height) {
   const int unit = std::max(2, std::min(width, height) / 160);
-  const int dpad_x = static_cast<int>(0.14F * width);
-  const int dpad_y = static_cast<int>(0.80F * height);
-  const int dpad_span = std::max(12, std::min(width, height) / 14);
-  line(argb, width, height, dpad_x - dpad_span, dpad_y, dpad_x + dpad_span,
-       dpad_y, unit);
-  line(argb, width, height, dpad_x, dpad_y - dpad_span, dpad_x,
-       dpad_y + dpad_span, unit);
-
   const int fire_x = static_cast<int>(0.89F * width);
   const int fire_y = static_cast<int>(0.85F * height);
   const int fire_span = std::max(9, std::min(width, height) / 22);
@@ -240,7 +297,10 @@ extern "C" void touch_controls_set_controller_connected(int connected) {
 extern "C" void touch_controls_draw(uint32_t *argb, int width, int height) {
   if (!argb || width <= 0 || height <= 0 || state.controller_connected)
     return;
-  circle(argb, width, height, 0.14F, 0.80F, 0.13F); // D-pad envelope
+  direction_button(argb, width, height, 0.14F, 0.70F, Direction::up);
+  direction_button(argb, width, height, 0.14F, 0.90F, Direction::down);
+  direction_button(argb, width, height, 0.07F, 0.80F, Direction::left);
+  direction_button(argb, width, height, 0.21F, 0.80F, Direction::right);
   circle(argb, width, height, 0.89F, 0.85F, 0.13F); // Fire
   if (pc_modern_touch())
     circle(argb, width, height, 0.71F, 0.77F, 0.10F); // Interact
