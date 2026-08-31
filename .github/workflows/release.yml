@@ -50,7 +50,7 @@ jobs:
           chmod +x build/appimagetool-x86_64.AppImage
           CC=clang CXX=clang++ cmake -S . -B build/clang -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/clang --target benefactor-pc --parallel
-          python3 tools/build_appimage.py --build-dir build/clang --appimagetool build/appimagetool-x86_64.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 python3 tools/build_appimage.py --build-dir build/clang --appimagetool build/appimagetool-x86_64.AppImage
       - name: Build signed Android APK
         uses: android-actions/setup-android@v3
       - name: Assemble signed Android APK
