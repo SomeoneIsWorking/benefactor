@@ -206,9 +206,15 @@ These change what the player can do — features that didn't exist in the 1994 r
 
 - **OPTIONS menu (in the pause menu)** — live, persisted to `benefactor.json`: widescreen preset, game speed, free-cam mode, interact range, per-device modern controls, and full key/button rebinding pages with press-to-capture.
 
+- **Selectable native renderers and GPU effects** — keep the faithful Amiga-blit presentation, use the native software renderer, or use the native Vulkan renderer with optional ambient-darkness and character drop-shadow effects.
+
 - **Widescreen (16:9 / ultrawide / auto)** — the native renderer re-derives the level tilemap, objects, characters and merry men beyond the original 320px window, so you genuinely see more of the world (no stretching). `auto` follows the window aspect as you resize. Switchable at runtime.
 
 - **Modern controls, per device** — Interact (items, levers, **merry men**) and Drop move off Fire onto their own buttons, independently for keyboard and controller; the authentic scheme remains the default and the two can be mixed.
+
+- **Optional platformer physics** — switch live between the classic movement and a native model with variable-height jumps, air steering, momentum and tunable motion. Classic physics remains available.
+
+- **Configurable interaction reach** — extend horizontal pickup and interaction range independently of the selected control scheme, without allowing vertical grabs through platforms.
 
 - **Game controller support** — hot-pluggable SDL game controllers with full rebinding.
 
@@ -219,6 +225,8 @@ These change what the player can do — features that didn't exist in the 1994 r
 - **Difficulty selector restored** — ←/→ on PLAY GAME cycles EASY / NORMAL / HARD (the original's selector; its handlers had never been wired in the port).
 
 - **SKIP INTRO** (OPTIONS → MORE) — boot straight to the main-menu poster.
+
+- **Cheats and accessibility** — unlock all 60 levels and reduce or disable fall damage while preserving the original landing animation, sound and state transitions.
 
 - **LEVEL COMPLETE banner text** — the win banner shows "LEVEL COMPLETE" (vanilla showed the next level's password, which this port doesn't use).
 
