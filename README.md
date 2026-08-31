@@ -110,9 +110,10 @@ Hot-pluggable SDL game controllers (connect/disconnect any time). Defaults: dpad
 
 Android is available for arm64-v8a devices. On first run it asks for the folder containing your
 original `Disk.1`, `Disk.2`, and `Disk.3` images, then copies that set into private app storage.
-The APK contains no disk images. Touch controls use the same action path as a controller: left
-D-pad, Fire, Interact, and Pause. Connecting a physical controller cancels touch input and hides
-the overlay immediately; disconnecting it restores touch controls.
+The APK contains no disk images. Touch controls use the same action path as a controller: four
+separate directional buttons (Up, Down, Left, Right), Fire, Interact, and Pause. Connecting a
+physical controller cancels touch input and hides the overlay immediately; disconnecting it
+restores touch controls.
 
 The AppImage likewise asks for the disk folder on first launch and stores only that folder path in
 the XDG configuration directory. Releases are assembled locally from the user's disks and uploaded

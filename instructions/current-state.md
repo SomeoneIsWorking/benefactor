@@ -15,9 +15,11 @@
   authored zone, so a drag cannot spuriously switch actions; controller connection cancels every
   virtual press and hides the overlay, and removal restores it. Touch, keyboard, and controller
   feed the existing logical-action resolver rather than separate game input paths. The overlay has
-  visible D-pad, Fire, Interact, and Pause glyphs; Interact is hidden and inactive unless modern
-  controls are enabled, leaving vanilla touch with Fire only. Android uses the vector launcher icon
-  at `platforms/android/app/src/main/res/drawable/ic_benefactor.xml`.
+  four individually outlined, arrow-marked directional buttons plus Fire, Interact, and Pause;
+  Interact is hidden and inactive unless modern controls are enabled, leaving vanilla touch with
+  Fire only. The matching reusable direction-button glyphs are in
+  `shared/port-assets/sets/touch-controls`. Android uses the vector launcher icon at
+  `platforms/android/app/src/main/res/drawable/ic_benefactor.xml`.
 - The disk-free AppImage and ARM64 release-signed APK are published as GitHub release `v0.1.0`.
   Static-recompiler releases are assembled locally with the operator's disk inputs and uploaded
   manually; this project has no CI workflow and never uploads game inputs. The named-device
