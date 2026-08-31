@@ -19,7 +19,8 @@
   controls are enabled, leaving vanilla touch with Fire only. Android uses the vector launcher icon
   at `platforms/android/app/src/main/res/drawable/ic_benefactor.xml`.
 - The disk-free AppImage and ARM64 release-signed APK are published as GitHub release `v0.1.0`.
-  The APK's 4096-bit maintainer key is stored as GitHub repository secrets. The named-device
+  Static-recompiler releases are assembled locally with the operator's disk inputs and uploaded
+  manually; this project has no CI workflow and never uploads game inputs. The named-device
   correctness/performance matrix remains required before calling the Android release qualified.
 
 ## Execution model (2026-06-02): game thread + SDL main thread

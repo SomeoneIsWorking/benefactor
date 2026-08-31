@@ -96,8 +96,8 @@ python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
   environment variables and refuses an unsigned APK.
 - `tools/build_appimage.py` stages a disk-free AppImage. `platforms/appimage/AppRun` presents a
   first-run folder picker (Zenity) and saves only the selected disk-folder path under XDG config.
-  `.github/workflows/release.yml` publishes the AppImage and signed APK from `v*` tags, and fails
-  closed without the operator's authorized disk archive and signing secrets.
+  Recompiler releases are built locally with the operator's `Disk.1`/`Disk.2`/`Disk.3` inputs and
+  uploaded manually as asset-free APK/AppImage artifacts; this project deliberately has no CI.
 
 **Prerequisites:** GCC 15.2, CMake 3.31, SDL2 (`libsdl2-dev`), Python 3.14 + `capstone` (`pip install capstone`).
 

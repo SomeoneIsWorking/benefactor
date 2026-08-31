@@ -115,8 +115,8 @@ D-pad, Fire, Interact, and Pause. Connecting a physical controller cancels touch
 the overlay immediately; disconnecting it restores touch controls.
 
 The AppImage likewise asks for the disk folder on first launch and stores only that folder path in
-the XDG configuration directory. Tagged GitHub releases publish both artifacts; local Android
-builds use `python3 tools/build_android.py` after setting `ANDROID_SDK_ROOT`,
+the XDG configuration directory. Releases are assembled locally from the user's disks and uploaded
+manually as asset-free artifacts; Android builds use `python3 tools/build_android.py` after setting `ANDROID_SDK_ROOT`,
 `BENEFACTOR_JAVA_HOME` (JDK 26), `BENEFACTOR_SDL2_DIR`, and
 `BENEFACTOR_LUCENT_DIR`.
 
