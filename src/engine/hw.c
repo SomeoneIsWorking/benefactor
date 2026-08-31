@@ -40,6 +40,9 @@ static inline int _hwtrace_enabled(void) {
 #include <stdio.h>
 #include <stdlib.h>
 #include "port/input.h"
+#ifdef BENEFACTOR_ANDROID
+#include "port/touch_controls.h"
+#endif
 #include "port/config.h"   /* pc_render_mode() — frame-renderer mode select */
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -474,7 +477,7 @@ static void apply_bound_input(void)
      * (hop/interact/drop) only come from devices with modern controls enabled —
      * a vanilla device keeps the authentic semantics (fire interacts, Up hops)
      * with no extra action keys, even while the other device runs modern. */
-    int kbm = pc_modern_kb(), pdm = pc_modern_pad();
+    int kbm = pc_modern_kb(), pdm = pc_modern_pad(), tcm = pc_modern_touch();
     { static int dbg = -1; if (dbg < 0) dbg = getenv("JOYDBG") ? 1 : 0;
       if (dbg) fprintf(stderr, "[joydbg] apply_bound_input (right was %d)\n", s_joy_right); }
     s_joy_left  = pc_input_active(PI_LEFT);
@@ -482,7 +485,8 @@ static void apply_bound_input(void)
     s_joy_down  = pc_input_active(PI_DOWN);
     s_joy_up    = pc_input_active(PI_UP);   /* Up direction only; HOP is separate (s_hop) */
     s_hop       = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_HOP)) ||
-                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_HOP));
+                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_HOP)) ||
+                  (tcm && pc_input_active_dev(PI_DEV_TOUCH, PI_HOP));
     int fire    = pc_input_active(PI_FIRE);
     /* Outside gameplay the JUMP button doubles as fire/confirm, so the primary
      * face button (pad A / Space on the modern scheme) still drives the game's
@@ -493,11 +497,14 @@ static void apply_bound_input(void)
     /* Fire held on a VANILLA-scheme device: that fire is allowed to keep its
      * original interact/drop meaning in the overrides (hw_get_fire_vanilla). */
     s_fire_vanilla = (!kbm && pc_input_active_dev(PI_DEV_KB,  PI_FIRE)) ||
-                     (!pdm && pc_input_active_dev(PI_DEV_PAD, PI_FIRE));
+                     (!pdm && pc_input_active_dev(PI_DEV_PAD, PI_FIRE)) ||
+                     (!tcm && pc_input_active_dev(PI_DEV_TOUCH, PI_FIRE));
     s_interact  = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_INTERACT)) ||
-                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_INTERACT));
+                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_INTERACT)) ||
+                  (tcm && pc_input_active_dev(PI_DEV_TOUCH, PI_INTERACT));
     s_drop      = (kbm && pc_input_active_dev(PI_DEV_KB,  PI_DROP)) ||
-                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_DROP));
+                  (pdm && pc_input_active_dev(PI_DEV_PAD, PI_DROP)) ||
+                  (tcm && pc_input_active_dev(PI_DEV_TOUCH, PI_DROP));
     s_ffwd_held = pc_input_active(PI_FFWD);   /* hold-to-fast-forward, any device */
 
     /* FREE CAM toggle (edge) + input redirect: while detached, the directions
@@ -516,6 +523,10 @@ static void apply_bound_input(void)
           s_fire_vanilla = 0;
       } }
 }
+
+/* The Android touch owner updates logical actions through pc_input, then asks
+ * this single hardware boundary to resolve Amiga input state. */
+void hw_touch_controls_changed(void) { apply_bound_input(); }
 
 /* Single keyboard→input-state mapper, shared by the standalone
  * (hw_present_frame) and the harness (input.c) so there is exactly one input
@@ -659,6 +670,9 @@ static void hw_pad_open(int device_index)
     for (int i = 0; i < s_npads; i++)
         if (s_pad_ids[i] == id) { SDL_GameControllerClose(gc); return; }  /* already open */
     s_pads[s_npads] = gc; s_pad_ids[s_npads] = id; s_npads++;
+#ifdef BENEFACTOR_ANDROID
+    touch_controls_set_controller_connected(1);
+#endif
     fprintf(stderr, "[pad] connected: %s (%d total)\n", SDL_GameControllerName(gc), s_npads);
 }
 
@@ -673,6 +687,9 @@ static void hw_pad_close(SDL_JoystickID id)
             pc_input_pad_clear();
             memset(s_axis_on, 0, sizeof s_axis_on);
             apply_bound_input();
+#ifdef BENEFACTOR_ANDROID
+            touch_controls_set_controller_connected(0);
+#endif
         }
         return;
     }
@@ -856,6 +873,9 @@ int hw_scene_render_enabled(void)
  * if the event was consumed. */
 int hw_handle_sdl_event(const SDL_Event *ev)
 {
+#ifdef BENEFACTOR_ANDROID
+    if (touch_controls_handle_sdl_event(ev)) return 1;
+#endif
     switch (ev->type) {
     case SDL_CONTROLLERDEVICEADDED:
         hw_pad_open(ev->cdevice.which);          /* hot-plug */
@@ -1084,6 +1104,10 @@ int hw_present_frame(void)
       pc_hud_icons_overlay(s_out);    /* fast-forward / free-cam status icons */
       pc_pause_menu_overlay(s_out);
       pc_toast_overlay(s_out);
+#ifdef BENEFACTOR_ANDROID
+      touch_controls_draw(s_out, s_hw_out_w, HW_DISPLAY_H);
+      hw_overlay_rect(0, 0, s_hw_out_w, HW_DISPLAY_H);
+#endif
       pc_overlay_set_dims(HW_DISPLAY_W, HW_DISPLAY_H);   /* restore default */ }
 
     /* Free-cam fade return: whole-screen curtain over the composed output

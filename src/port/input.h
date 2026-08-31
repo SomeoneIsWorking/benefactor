@@ -19,6 +19,10 @@
  * control scheme can be enabled per device; pc_input_active ORs both. */
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum {
     PI_LEFT = 0, PI_RIGHT, PI_UP, PI_DOWN,
     PI_HOP, PI_FIRE, PI_INTERACT, PI_DROP,
@@ -27,7 +31,7 @@ enum {
     PI_NUM
 };
 
-enum { PI_DEV_KB = 0, PI_DEV_PAD = 1, PI_NUM_DEV = 2 };
+enum { PI_DEV_KB = 0, PI_DEV_PAD = 1, PI_DEV_TOUCH = 2, PI_NUM_DEV = 3 };
 
 void pc_input_load(void);             /* parse bind_ + pad_ keys from config (idempotent) */
 void pc_input_reload(void);           /* force re-parse (after a rebind/persist) */
@@ -44,6 +48,11 @@ void pc_input_release_all(void);      /* clear all held keys/buttons (focus loss
 void pc_input_pad_button(int code, int down);
 void pc_input_pad_clear(void);        /* controller unplugged: release everything */
 
+/* Android virtual controls emit the same logical actions as a physical device.
+ * Their authored layout is intentionally independent of user key bindings. */
+void pc_input_touch_action(int action, int down);
+void pc_input_touch_clear(void);
+
 /* ── Rebinding / menu support ──────────────────────────────────────────────── */
 const char *pc_input_action_name(int action);            /* "LEFT", "FIRE", ... */
 /* Current binding as a display string ("Z, LCtrl"); returns buf. */
@@ -53,3 +62,7 @@ const char *pc_input_binding_str(int dev, int action, char *buf, int cap);
 void pc_input_rebind(int dev, int action, int code);
 /* Human-readable name for a single key/button code (for the capture UI). */
 const char *pc_input_code_name(int dev, int code);
+
+#ifdef __cplusplus
+}
+#endif

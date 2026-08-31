@@ -254,7 +254,8 @@ int pc_modern_pad(void)
 {
     return pc_cfg_bool("modern_controls_controller", pc_cfg_bool("modern_controls", 0));
 }
-int pc_modern_any(void) { return pc_modern_kb() || pc_modern_pad(); }
+int pc_modern_touch(void) { return pc_cfg_bool("modern_controls_touch", 1); }
+int pc_modern_any(void) { return pc_modern_kb() || pc_modern_pad() || pc_modern_touch(); }
 
 PcRenderMode pc_render_mode(void)
 {

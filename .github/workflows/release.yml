@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned runtime dependencies
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: fa24d868ac2f8fd558e4e914c9863411245db8fd
+          path: build/deps/sdl2
+      - uses: actions/checkout@v4
+        with:
+          repository: SomeoneIsWorking/lucent
+          ref: 70a61b2aeb3b447d5cca3e0580cebdfe2fa4cd71
+          path: build/deps/lucent
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '26'
+      - name: Materialize authorized release input
+        env:
+          BENEFACTOR_DISKS_ARCHIVE_B64: ${{ secrets.BENEFACTOR_DISKS_ARCHIVE_B64 }}
+        run: |
+          test -n "$BENEFACTOR_DISKS_ARCHIVE_B64" || {
+            echo 'Refusing release: BENEFACTOR_DISKS_ARCHIVE_B64 is not configured.' >&2
+            exit 1
+          }
+          mkdir -p build/release-inputs
+          printf %s "$BENEFACTOR_DISKS_ARCHIVE_B64" | base64 --decode > build/release-inputs/disks.zip
+          unzip -q build/release-inputs/disks.zip -d .
+          test -f Disk.1 && test -f Disk.2 && test -f Disk.3
+      - name: Build AppImage
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libsdl2-dev zenity zsync file
+          curl -fL --retry 3 -o build/appimagetool-x86_64.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  build/appimagetool-x86_64.AppImage' | sha256sum -c -
+          chmod +x build/appimagetool-x86_64.AppImage
+          CC=clang CXX=clang++ cmake -S . -B build/clang -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/clang --target benefactor-pc --parallel
+          python3 tools/build_appimage.py --build-dir build/clang --appimagetool build/appimagetool-x86_64.AppImage
+      - name: Build signed Android APK
+        uses: android-actions/setup-android@v3
+      - name: Assemble signed Android APK
+        env:
+          BENEFACTOR_SDL2_DIR: ${{ github.workspace }}/build/deps/sdl2
+          BENEFACTOR_LUCENT_DIR: ${{ github.workspace }}/build/deps/lucent
+          BENEFACTOR_ANDROID_KEYSTORE: ${{ github.workspace }}/build/release-inputs/release.jks
+          BENEFACTOR_ANDROID_KEY_ALIAS: ${{ secrets.BENEFACTOR_ANDROID_KEY_ALIAS }}
+          BENEFACTOR_ANDROID_STORE_PASSWORD: ${{ secrets.BENEFACTOR_ANDROID_STORE_PASSWORD }}
+          BENEFACTOR_ANDROID_KEY_PASSWORD: ${{ secrets.BENEFACTOR_ANDROID_KEY_PASSWORD }}
+          BENEFACTOR_ANDROID_KEYSTORE_B64: ${{ secrets.BENEFACTOR_ANDROID_KEYSTORE_B64 }}
+          BENEFACTOR_ANDROID_VERSION_NAME: ${{ github.ref_name }}
+        run: |
+          test -n "$BENEFACTOR_ANDROID_KEY_ALIAS" || { echo 'Missing Android signing secrets.' >&2; exit 1; }
+          sdkmanager "ndk;28.2.13676358"
+          export ANDROID_SDK_ROOT="${ANDROID_HOME:?Android SDK is unavailable}"
+          export BENEFACTOR_JAVA_HOME="${JAVA_HOME:?JDK 26 is unavailable}"
+          printf %s "$BENEFACTOR_ANDROID_KEYSTORE_B64" | base64 --decode > "$BENEFACTOR_ANDROID_KEYSTORE"
+          python3 tools/build_android.py --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            build/release/*.AppImage
+            build/android/*.apk
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/release/*.AppImage
+            build/android/*.apk

@@ -84,6 +84,8 @@ int  hw_joy_right(void);
 /* Single shared keyboard→input mapper (SDL keysym). Used by both the standalone
  * and the harness so there is one input path. */
 void hw_handle_key(int sym, int down);
+/* Called after Lucent-routed Android touch changes logical action state. */
+void hw_touch_controls_changed(void);
 /* Fire held on a device whose controls are VANILLA (not modern) — that fire
  * keeps its original interact/drop meaning in the pickup/input overrides. */
 int  hw_get_fire_vanilla(void);

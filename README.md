@@ -106,6 +106,20 @@ Side-by-side comparison vs PUAE (used for verifying behavior):
 
 Hot-pluggable SDL game controllers (connect/disconnect any time). Defaults: dpad / left stick = move, **A** (or B) = fire, **Start** = pause menu, **Back** = free cam, **RightTrigger** (hold) = fast forward; with modern controls on the controller, **X** = interact and **Y** = drop. Everything is rebindable in the in-game OPTIONS → CONTROLLER BINDINGS page (or the `pad_*` JSON keys).
 
+### Android and AppImage
+
+Android is available for arm64-v8a devices. On first run it asks for the folder containing your
+original `Disk.1`, `Disk.2`, and `Disk.3` images, then copies that set into private app storage.
+The APK contains no disk images. Touch controls use the same action path as a controller: left
+D-pad, Fire, Interact, and Pause. Connecting a physical controller cancels touch input and hides
+the overlay immediately; disconnecting it restores touch controls.
+
+The AppImage likewise asks for the disk folder on first launch and stores only that folder path in
+the XDG configuration directory. Tagged GitHub releases publish both artifacts; local Android
+builds use `python3 tools/build_android.py` after setting `ANDROID_SDK_ROOT`,
+`BENEFACTOR_JAVA_HOME` (JDK 26), `BENEFACTOR_SDL2_DIR`, and
+`BENEFACTOR_LUCENT_DIR`.
+
 ## Configuration
 
 Optional tunables live in a JSON file `benefactor.json` next to the disks (copy

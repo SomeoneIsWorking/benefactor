@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <signal.h>
 #include <unistd.h>
+#ifdef BENEFACTOR_ANDROID
+#include "platform/android_bridge.h"
+#endif
 
 /* Headless Vulkan self-test (no window/disks): render a gradient through the
  * offscreen Vulkan pipeline and compare the readback to the input. Proves the
@@ -80,6 +83,13 @@ int main(int argc, char **argv)
         }
         if (nd < 4) disks[nd++] = argv[i];
     }
+
+#ifdef BENEFACTOR_ANDROID
+    if (nd == 0) {
+        if (!android_bridge_select_disks(disks, 4)) return 1;
+        nd = 3;
+    }
+#endif
 
     if (nd < 1) {
         fprintf(stderr,

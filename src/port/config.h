@@ -36,6 +36,7 @@ void pc_cfg_persist(const char *key, const char *json_val);
  * "modern_controls" knob so existing configs keep working. */
 int  pc_modern_kb(void);     /* "modern_controls_keyboard"   */
 int  pc_modern_pad(void);    /* "modern_controls_controller" */
+int  pc_modern_touch(void);  /* "modern_controls_touch" (Android virtual controls) */
 int  pc_modern_any(void);
 /* Declared knobs, for `cfg` with no args (discoverability). */
 int          pc_cfg_count(void);

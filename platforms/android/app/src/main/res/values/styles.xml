@@ -1,0 +1,6 @@
+<resources>
+    <style name="BenefactorTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:colorAccent">#ffffff</item>
+    </style>
+</resources>
