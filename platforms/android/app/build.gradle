@@ -1,0 +1,42 @@
+plugins { id 'com.android.application' }
+
+def signingValues = [System.getenv('BENEFACTOR_ANDROID_KEYSTORE'),
+                     System.getenv('BENEFACTOR_ANDROID_KEY_ALIAS'),
+                     System.getenv('BENEFACTOR_ANDROID_STORE_PASSWORD'),
+                     System.getenv('BENEFACTOR_ANDROID_KEY_PASSWORD')]
+if (gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') } &&
+        signingValues.any { !it }) {
+    throw new GradleException('Release signing requires all BENEFACTOR_ANDROID_KEY_* and password variables.')
+}
+
+android {
+    namespace = 'io.github.someoneisworking.benefactor'
+    compileSdk = 35
+    ndkVersion = '28.2.13676358'
+
+    defaultConfig {
+        applicationId = 'io.github.someoneisworking.benefactor'
+        minSdk = 24
+        targetSdk = 35
+        versionCode = (System.getenv('BENEFACTOR_ANDROID_VERSION_CODE') ?: '1').toInteger()
+        versionName = System.getenv('BENEFACTOR_ANDROID_VERSION_NAME') ?: '0.1.0'
+    }
+    signingConfigs {
+        release {
+            if (signingValues.every { it }) {
+                storeFile = file(signingValues[0])
+                keyAlias = signingValues[1]
+                storePassword = signingValues[2]
+                keyPassword = signingValues[3]
+                v1SigningEnabled = true
+                v2SigningEnabled = true
+                enableV3Signing = true
+            }
+        }
+    }
+    buildTypes {
+        debug { debuggable = true }
+        release { minifyEnabled = false; signingConfig = signingConfigs.release }
+    }
+    packaging { jniLibs { useLegacyPackaging = true } }
+}

@@ -14,12 +14,14 @@
 typedef struct { int n; int sym[MAX_KEYS_PER_CHORD]; } Chord;
 typedef struct { int n; Chord chord[MAX_CHORDS]; } Binding;
 
-static Binding s_bind[PI_NUM_DEV][PI_NUM];
+enum { PI_BIND_DEV = 2 };
+static Binding s_bind[PI_BIND_DEV][PI_NUM];
 
 #define MAX_HELD 24
 static int s_held[PI_NUM_DEV][MAX_HELD];
 static int s_nheld[PI_NUM_DEV];
 static int s_loaded = 0;
+static uint8_t s_touch_active[PI_NUM];
 
 /* ── Keyboard key names ─────────────────────────────────────────────────────── */
 
@@ -141,7 +143,7 @@ static void parse_binding(int dev, const char *p, Binding *b)
  * interact+Down (no binding) and HOP has no dedicated key (Up/DPad-up jumps,
  * as on hardware). The hop/drop ACTIONS still parse from JSON (bind_hop /
  * bind_drop / pad_…) for power users, they just have no defaults. */
-static const struct { int act; const char *key[PI_NUM_DEV]; const char *def[PI_NUM_DEV]; } k_defaults[] = {
+static const struct { int act; const char *key[PI_BIND_DEV]; const char *def[PI_BIND_DEV]; } k_defaults[] = {
     {PI_LEFT,  {"bind_left",  "pad_left"},  {"Left",  "DPLeft, LeftX-"}},
     {PI_RIGHT, {"bind_right", "pad_right"}, {"Right", "DPRight, LeftX+"}},
     {PI_UP,    {"bind_up",    "pad_up"},    {"Up",    "DPUp, LeftY-"}},
@@ -166,7 +168,7 @@ void pc_input_load(void)
     if (s_loaded) return;
     s_loaded = 1;
     pc_config_load();
-    for (int d = 0; d < PI_NUM_DEV; d++) {
+    for (int d = 0; d < PI_BIND_DEV; d++) {
         int modern = (d == PI_DEV_PAD) ? pc_modern_pad() : pc_modern_kb();
         for (int i = 0; i < (int)(sizeof k_defaults / sizeof k_defaults[0]); i++) {
             const char *def = k_defaults[i].def[d];
@@ -204,7 +206,16 @@ static void dev_press(int dev, int code, int down)
 void pc_input_key(int sym, int down)        { dev_press(PI_DEV_KB, sym, down); }
 void pc_input_pad_button(int code, int down){ dev_press(PI_DEV_PAD, code, down); }
 void pc_input_pad_clear(void)               { s_nheld[PI_DEV_PAD] = 0; }
-void pc_input_release_all(void)             { s_nheld[PI_DEV_KB] = s_nheld[PI_DEV_PAD] = 0; }
+void pc_input_touch_action(int action, int down)
+{
+    if (action >= 0 && action < PI_NUM) s_touch_active[action] = !!down;
+}
+void pc_input_touch_clear(void)             { memset(s_touch_active, 0, sizeof s_touch_active); }
+void pc_input_release_all(void)
+{
+    s_nheld[PI_DEV_KB] = s_nheld[PI_DEV_PAD] = 0;
+    pc_input_touch_clear();
+}
 
 static int held(int dev, int code)
 {
@@ -215,6 +226,7 @@ static int held(int dev, int code)
 int pc_input_active_dev(int dev, int action)
 {
     if (action < 0 || action >= PI_NUM || dev < 0 || dev >= PI_NUM_DEV) return 0;
+    if (dev == PI_DEV_TOUCH) return s_touch_active[action];
     const Binding *b = &s_bind[dev][action];
     for (int ci = 0; ci < b->n; ci++) {
         const Chord *c = &b->chord[ci];
@@ -227,7 +239,8 @@ int pc_input_active_dev(int dev, int action)
 
 int pc_input_active(int action)
 {
-    return pc_input_active_dev(PI_DEV_KB, action) || pc_input_active_dev(PI_DEV_PAD, action);
+    return pc_input_active_dev(PI_DEV_KB, action) || pc_input_active_dev(PI_DEV_PAD, action) ||
+           pc_input_active_dev(PI_DEV_TOUCH, action);
 }
 
 /* ── Menu / rebinding support ───────────────────────────────────────────────── */

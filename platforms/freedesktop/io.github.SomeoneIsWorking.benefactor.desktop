@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Benefactor
+Comment=Native Benefactor port
+Exec=benefactor-pc
+Icon=io.github.SomeoneIsWorking.benefactor
+Categories=Game;ActionGame;
+Terminal=false

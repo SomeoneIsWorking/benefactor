@@ -27,14 +27,43 @@ if(APPLE)
     endif()
 endif()
 
-# SDL2
-find_package(SDL2 REQUIRED)
+# SDL2. Android builds consume an explicit SDL checkout because a host package
+# cannot describe the target ABI or provide SDLActivity's Java sources.
+if(ANDROID)
+    enable_language(CXX)
+    set(BENEFACTOR_SDL2_DIR "" CACHE PATH "SDL2 source checkout for Android")
+    set(BENEFACTOR_LUCENT_DIR "" CACHE PATH "Lucent source checkout for Android")
+    foreach(required_dir BENEFACTOR_SDL2_DIR BENEFACTOR_LUCENT_DIR)
+        if(NOT IS_DIRECTORY "${${required_dir}}")
+            message(FATAL_ERROR "Android requires -D${required_dir}=<source checkout>")
+        endif()
+    endforeach()
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${BENEFACTOR_SDL2_DIR}" "${CMAKE_BINARY_DIR}/sdl2" EXCLUDE_FROM_ALL)
+    add_subdirectory("${BENEFACTOR_LUCENT_DIR}" "${CMAKE_BINARY_DIR}/lucent" EXCLUDE_FROM_ALL)
+    if(TARGET SDL2::SDL2)
+        set(BENEFACTOR_SDL_TARGET SDL2::SDL2)
+    elseif(TARGET SDL2::SDL2-static)
+        set(BENEFACTOR_SDL_TARGET SDL2::SDL2-static)
+    else()
+        message(FATAL_ERROR "The selected SDL2 checkout did not expose SDL2::SDL2 or SDL2::SDL2-static")
+    endif()
+else()
+    find_package(SDL2 REQUIRED)
+    set(BENEFACTOR_SDL_TARGET ${SDL2_LIBRARIES})
+endif()
 
 # Vulkan (OPTIONAL — the present-vulkan backend / groundwork). When absent, the
 # build is unchanged and present_backend_select() falls back to SDL. When present,
 # compile src/render/present_vulkan.c, embed the blit shaders as SPIR-V (glslc
 # -mfmt=num -> .inc included into a uint32_t[]), and define BENEFACTOR_HAVE_VULKAN.
-find_package(Vulkan QUIET)
+if(NOT ANDROID)
+    find_package(Vulkan QUIET)
+else()
+    set(Vulkan_FOUND FALSE)
+endif()
 if(Vulkan_FOUND)
     if(Vulkan_GLSLC_EXECUTABLE)
         set(GLSLC "${Vulkan_GLSLC_EXECUTABLE}")
@@ -94,16 +123,21 @@ set(GAME_H          "${GEN_DIR}/game.h")
 # changed. tools/regen.sh is hash-gated and idempotent (a no-op when up-to-date):
 # it builds the bootstrap-clean bank dumper, dumps the bank inputs from the
 # disks, and runs the recompiler — no PUAE/Kickstart/WHDLoad/slave.
-execute_process(
-    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/regen.sh"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    RESULT_VARIABLE REGEN_RC
-)
-if(NOT REGEN_RC EQUAL 0)
+if(NOT ANDROID)
+    execute_process(
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/regen.sh"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE REGEN_RC
+    )
+    if(NOT REGEN_RC EQUAL 0)
+        message(FATAL_ERROR
+            "tools/regen.sh failed (rc=${REGEN_RC}). The recompiled code is generated "
+            "from your own Benefactor disks: ensure Disk.1/2/3 are in the repo root and "
+            "python3 + capstone (pip install capstone) are available.")
+    endif()
+elseif(NOT EXISTS "${GAME_H}")
     message(FATAL_ERROR
-        "tools/regen.sh failed (rc=${REGEN_RC}). The recompiled code is generated "
-        "from your own Benefactor disks: ensure Disk.1/2/3 are in the repo root and "
-        "python3 + capstone (pip install capstone) are available.")
+        "Android requires generated code from the release builder. Run tools/regen.sh with your own disks first.")
 endif()
 
 # The recompiler splits each bank's output across multiple .c files when the
@@ -189,7 +223,7 @@ endif()
 
 # ── Main executable (canonical PC runtime path) ───────────────────────────────
 
-add_executable(benefactor-pc
+set(BENEFACTOR_RUNTIME_SOURCES
     src/main.c
     src/port/game_loop.c
     src/port/overrides/register.c
@@ -227,15 +261,39 @@ add_executable(benefactor-pc
     ${GP_GAME_SRCS}
 )
 
+if(ANDROID)
+    list(APPEND BENEFACTOR_RUNTIME_SOURCES
+        src/platform/android_bridge.c
+        src/port/touch_controls.cpp
+    )
+    add_library(benefactor-pc SHARED ${BENEFACTOR_RUNTIME_SOURCES})
+    set_target_properties(benefactor-pc PROPERTIES OUTPUT_NAME main)
+else()
+    add_executable(benefactor-pc ${BENEFACTOR_RUNTIME_SOURCES})
+endif()
+
 # (recompile_game is opt-in; not a build dependency — see note above)
 
 target_include_directories(benefactor-pc PRIVATE
     src
-    ${SDL2_INCLUDE_DIRS}
+    $<$<NOT:$<BOOL:${ANDROID}>>:${SDL2_INCLUDE_DIRS}>
 )
 
-target_link_libraries(benefactor-pc PRIVATE ${SDL2_LIBRARIES} m pthread)
+find_package(Threads REQUIRED)
+target_link_libraries(benefactor-pc PRIVATE ${BENEFACTOR_SDL_TARGET} m Threads::Threads)
+if(ANDROID)
+    target_link_libraries(benefactor-pc PRIVATE lucent::lucent android log)
+endif()
 target_compile_options(benefactor-pc PRIVATE -Wall -Wextra -g)
+
+if(NOT ANDROID)
+    include(GNUInstallDirs)
+    install(TARGETS benefactor-pc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.desktop
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.svg
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+endif()
 
 # ── Bank-input dumper (bootstrap-clean: no generated code, no PUAE) ────────────
 # Produces the three recompiler bank inputs from the Disk.* images alone, using
