@@ -47,7 +47,11 @@ def main() -> int:
     run(["cmake", "--install", str(build), "--prefix", "/usr"], environment=environment)
     shutil.copy2(ROOT / "platforms/appimage/AppRun", appdir / "AppRun")
     (appdir / "AppRun").chmod(0o755)
-    shutil.copy2(ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.svg", appdir / ".DirIcon")
+    shutil.copy2(ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.desktop",
+                 appdir / "io.github.SomeoneIsWorking.benefactor.desktop")
+    icon = ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.svg"
+    shutil.copy2(icon, appdir / ".DirIcon")
+    shutil.copy2(icon, appdir / icon.name)
     ensure_disk_free(appdir)
     if args.stage_only:
         print(f"appimage: staged {appdir}")
