@@ -15,10 +15,11 @@
   authored zone, so a drag cannot spuriously switch actions; controller connection cancels every
   virtual press and hides the overlay, and removal restores it. Touch, keyboard, and controller
   feed the existing logical-action resolver rather than separate game input paths.
-- The AppImage staging path is implemented and verified disk-free. GitHub tag releases are wired
-  for a signed APK and AppImage, but they require repository secrets for the authorized release
-  input and Android key. No public release has been published, and the named-device performance
-  matrix remains required before treating an APK as release-qualified.
+- The disk-free AppImage and ARM64 debug APK are published as GitHub release `v0.1.0`. GitHub tag
+  releases are also wired for a signed APK and AppImage, but they require repository secrets for
+  the authorized release input and Android key. The published debug APK is not release-qualified:
+  the named-device correctness/performance matrix and maintainer-key signing remain required for
+  that status.
 
 ## Execution model (2026-06-02): game thread + SDL main thread
 
