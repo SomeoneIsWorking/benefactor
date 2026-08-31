@@ -3,6 +3,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <application android:allowBackup="false" android:appCategory="game" android:hardwareAccelerated="true"
+                 android:icon="@drawable/ic_benefactor" android:roundIcon="@drawable/ic_benefactor"
                  android:label="Benefactor" android:theme="@style/BenefactorTheme">
         <activity android:name="io.github.someoneisworking.benefactor.BenefactorActivity"
                   android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"

@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 extern "C" void hw_handle_key(int sym, int down);
 extern "C" void hw_touch_controls_changed(void);
+extern "C" int pc_modern_touch(void);
 
 namespace {
 
@@ -82,6 +84,11 @@ void apply_action_contact(const lucent::touch::Event &event) {
   const int action = action_for_zone(event.zone_id);
   if (action < 0)
     return;
+  if (action == PI_INTERACT && !pc_modern_touch()) {
+    state.action_contacts[action] = 0;
+    pc_input_touch_action(action, 0);
+    return;
+  }
   unsigned &contacts = state.action_contacts[action];
   if (event.phase == lucent::touch::Phase::began) {
     ++contacts;
@@ -119,6 +126,75 @@ void circle(uint32_t *argb, int width, int height, float center_x,
       if (distance2 <= r * r && distance2 >= (r - 2) * (r - 2))
         blend(&argb[y * width + x], 0xFFFFFFFFU, 150U);
     }
+}
+
+void line(uint32_t *argb, int width, int height, int x0, int y0, int x1, int y1,
+          int thickness) {
+  const int span_x = std::abs(x1 - x0), step_x = x0 < x1 ? 1 : -1;
+  const int span_y = -std::abs(y1 - y0), step_y = y0 < y1 ? 1 : -1;
+  int error = span_x + span_y;
+  for (;;) {
+    for (int offset_y = -thickness; offset_y <= thickness; ++offset_y)
+      for (int offset_x = -thickness; offset_x <= thickness; ++offset_x) {
+        const int x = x0 + offset_x, y = y0 + offset_y;
+        if (x >= 0 && x < width && y >= 0 && y < height)
+          blend(&argb[y * width + x], 0xFFFFFFFFU, 190U);
+      }
+    if (x0 == x1 && y0 == y1)
+      break;
+    const int doubled = 2 * error;
+    if (doubled >= span_y) {
+      error += span_y;
+      x0 += step_x;
+    }
+    if (doubled <= span_x) {
+      error += span_x;
+      y0 += step_y;
+    }
+  }
+}
+
+void control_glyphs(uint32_t *argb, int width, int height) {
+  const int unit = std::max(2, std::min(width, height) / 160);
+  const int dpad_x = static_cast<int>(0.14F * width);
+  const int dpad_y = static_cast<int>(0.80F * height);
+  const int dpad_span = std::max(12, std::min(width, height) / 14);
+  line(argb, width, height, dpad_x - dpad_span, dpad_y, dpad_x + dpad_span,
+       dpad_y, unit);
+  line(argb, width, height, dpad_x, dpad_y - dpad_span, dpad_x,
+       dpad_y + dpad_span, unit);
+
+  const int fire_x = static_cast<int>(0.89F * width);
+  const int fire_y = static_cast<int>(0.85F * height);
+  const int fire_span = std::max(9, std::min(width, height) / 22);
+  line(argb, width, height, fire_x - fire_span, fire_y + fire_span,
+       fire_x + fire_span, fire_y, unit);
+  line(argb, width, height, fire_x + fire_span, fire_y, fire_x - fire_span,
+       fire_y - fire_span, unit);
+  line(argb, width, height, fire_x - fire_span, fire_y - fire_span,
+       fire_x - fire_span, fire_y + fire_span, unit);
+
+  if (pc_modern_touch()) {
+    const int interact_x = static_cast<int>(0.71F * width);
+    const int interact_y = static_cast<int>(0.77F * height);
+    const int interact_span = std::max(8, std::min(width, height) / 25);
+    line(argb, width, height, interact_x, interact_y - interact_span,
+         interact_x + interact_span, interact_y, unit);
+    line(argb, width, height, interact_x + interact_span, interact_y,
+         interact_x, interact_y + interact_span, unit);
+    line(argb, width, height, interact_x, interact_y + interact_span,
+         interact_x - interact_span, interact_y, unit);
+    line(argb, width, height, interact_x - interact_span, interact_y,
+         interact_x, interact_y - interact_span, unit);
+  }
+
+  const int pause_x = static_cast<int>(0.94F * width);
+  const int pause_y = static_cast<int>(0.08F * height);
+  const int pause_span = std::max(6, std::min(width, height) / 35);
+  line(argb, width, height, pause_x - pause_span / 2, pause_y - pause_span,
+       pause_x - pause_span / 2, pause_y + pause_span, unit);
+  line(argb, width, height, pause_x + pause_span / 2, pause_y - pause_span,
+       pause_x + pause_span / 2, pause_y + pause_span, unit);
 }
 
 } // namespace
@@ -166,6 +242,8 @@ extern "C" void touch_controls_draw(uint32_t *argb, int width, int height) {
     return;
   circle(argb, width, height, 0.14F, 0.80F, 0.13F); // D-pad envelope
   circle(argb, width, height, 0.89F, 0.85F, 0.13F); // Fire
-  circle(argb, width, height, 0.71F, 0.77F, 0.10F); // Interact
-  circle(argb, width, height, 0.94F, 0.08F, 0.06F); // Pause
+  if (pc_modern_touch())
+    circle(argb, width, height, 0.71F, 0.77F, 0.10F); // Interact
+  circle(argb, width, height, 0.94F, 0.08F, 0.06F);   // Pause
+  control_glyphs(argb, width, height);
 }

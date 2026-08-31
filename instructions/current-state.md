@@ -14,7 +14,10 @@
 - `src/port/touch_controls.cpp` is the touch owner. Lucent captures each contact to its first
   authored zone, so a drag cannot spuriously switch actions; controller connection cancels every
   virtual press and hides the overlay, and removal restores it. Touch, keyboard, and controller
-  feed the existing logical-action resolver rather than separate game input paths.
+  feed the existing logical-action resolver rather than separate game input paths. The overlay has
+  visible D-pad, Fire, Interact, and Pause glyphs; Interact is hidden and inactive unless modern
+  controls are enabled, leaving vanilla touch with Fire only. Android uses the vector launcher icon
+  at `platforms/android/app/src/main/res/drawable/ic_benefactor.xml`.
 - The disk-free AppImage and ARM64 release-signed APK are published as GitHub release `v0.1.0`.
   The APK's 4096-bit maintainer key is stored as GitHub repository secrets. The named-device
   correctness/performance matrix remains required before calling the Android release qualified.
