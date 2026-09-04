@@ -3,4 +3,6 @@ IndentWidth: 4
 ContinuationIndentWidth: 4
 BreakBeforeBraces: Attach
 ColumnLimit: 100
+DerivePointerAlignment: false
+PointerAlignment: Right
 SortIncludes: CaseSensitive
