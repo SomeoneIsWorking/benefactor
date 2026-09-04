@@ -1,4 +1,4 @@
-/* pc_level_select_ui.c — on-screen level-select overlay.
+/* src/port/level_select_ui.c — on-screen level-select overlay.
  *
  * Renders a panel into the SDL framebuffer (s_fb, ARGB8888, 352x282) AFTER
  * the game's native_render_frame composes the title menu / gameplay. Lives
@@ -13,83 +13,96 @@
  * stays out of the engine's input path.
  */
 #include <stdint.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 
-#include "port/port.h"   /* level/world layout + name accessors (single source of truth) */
-#include "common/game_state.h"   /* g_gameplay_active (menu subtext gate) */
+#include "common/game_state.h" /* g_gameplay_active (menu subtext gate) */
+#include "port/port.h"         /* level/world layout + name accessors (single source of truth) */
 
 int g_level_select_visible = 0;
 
 /* Minimal 5x7 bitmap font (uppercase + digits + a few punctuation).
  * Each glyph: 7 rows, low 5 bits = pixels. Bit 4 = leftmost column. */
 static const uint8_t s_font[][7] = {
-    /* SPACE (idx 0) */     {0x00,0x00,0x00,0x00,0x00,0x00,0x00},
-    /* ! */                 {0x04,0x04,0x04,0x04,0x00,0x04,0x00},
-    /* " */                 {0x0A,0x0A,0x00,0x00,0x00,0x00,0x00},
-    /* ' */                 {0x04,0x04,0x00,0x00,0x00,0x00,0x00},
-    /* , */                 {0x00,0x00,0x00,0x00,0x00,0x04,0x08},
-    /* - */                 {0x00,0x00,0x00,0x0E,0x00,0x00,0x00},
-    /* . */                 {0x00,0x00,0x00,0x00,0x00,0x04,0x00},
-    /* 0 */                 {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E},
-    /* 1 */                 {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E},
-    /* 2 */                 {0x0E,0x11,0x01,0x02,0x04,0x08,0x1F},
-    /* 3 */                 {0x1F,0x02,0x04,0x02,0x01,0x11,0x0E},
-    /* 4 */                 {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02},
-    /* 5 */                 {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E},
-    /* 6 */                 {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E},
-    /* 7 */                 {0x1F,0x01,0x02,0x04,0x08,0x08,0x08},
-    /* 8 */                 {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E},
-    /* 9 */                 {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C},
-    /* : */                 {0x00,0x04,0x00,0x00,0x04,0x00,0x00},
-    /* ? */                 {0x0E,0x11,0x01,0x02,0x04,0x00,0x04},
-    /* ( (idx 19) */        {0x02,0x04,0x08,0x08,0x08,0x04,0x02},
-    /* ) (idx 20) */        {0x08,0x04,0x02,0x02,0x02,0x04,0x08},
-    /* A */                 {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11},
-    /* B */                 {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E},
-    /* C */                 {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E},
-    /* D */                 {0x1E,0x09,0x09,0x09,0x09,0x09,0x1E},
-    /* E */                 {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F},
-    /* F */                 {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10},
-    /* G */                 {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F},
-    /* H */                 {0x11,0x11,0x11,0x1F,0x11,0x11,0x11},
-    /* I */                 {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E},
-    /* J */                 {0x07,0x02,0x02,0x02,0x02,0x12,0x0C},
-    /* K */                 {0x11,0x12,0x14,0x18,0x14,0x12,0x11},
-    /* L */                 {0x10,0x10,0x10,0x10,0x10,0x10,0x1F},
-    /* M */                 {0x11,0x1B,0x15,0x15,0x11,0x11,0x11},
-    /* N */                 {0x11,0x11,0x19,0x15,0x13,0x11,0x11},
-    /* O */                 {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E},
-    /* P */                 {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10},
-    /* Q */                 {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D},
-    /* R */                 {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11},
-    /* S */                 {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E},
-    /* T */                 {0x1F,0x04,0x04,0x04,0x04,0x04,0x04},
-    /* U */                 {0x11,0x11,0x11,0x11,0x11,0x11,0x0E},
-    /* V */                 {0x11,0x11,0x11,0x11,0x11,0x0A,0x04},
-    /* W */                 {0x11,0x11,0x11,0x15,0x15,0x1B,0x11},
-    /* X */                 {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11},
-    /* Y */                 {0x11,0x11,0x11,0x0A,0x04,0x04,0x04},
-    /* Z */                 {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F},
+    /* SPACE (idx 0) */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+    /* ! */ {0x04, 0x04, 0x04, 0x04, 0x00, 0x04, 0x00},
+    /* " */ {0x0A, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00},
+    /* ' */ {0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00},
+    /* , */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x08},
+    /* - */ {0x00, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x00},
+    /* . */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00},
+    /* 0 */ {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E},
+    /* 1 */ {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E},
+    /* 2 */ {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F},
+    /* 3 */ {0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E},
+    /* 4 */ {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02},
+    /* 5 */ {0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E},
+    /* 6 */ {0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E},
+    /* 7 */ {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08},
+    /* 8 */ {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E},
+    /* 9 */ {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C},
+    /* : */ {0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00},
+    /* ? */ {0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04},
+    /* ( (idx 19) */ {0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02},
+    /* ) (idx 20) */ {0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08},
+    /* A */ {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11},
+    /* B */ {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E},
+    /* C */ {0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E},
+    /* D */ {0x1E, 0x09, 0x09, 0x09, 0x09, 0x09, 0x1E},
+    /* E */ {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F},
+    /* F */ {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10},
+    /* G */ {0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F},
+    /* H */ {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11},
+    /* I */ {0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E},
+    /* J */ {0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C},
+    /* K */ {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11},
+    /* L */ {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F},
+    /* M */ {0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11},
+    /* N */ {0x11, 0x11, 0x19, 0x15, 0x13, 0x11, 0x11},
+    /* O */ {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E},
+    /* P */ {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10},
+    /* Q */ {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D},
+    /* R */ {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11},
+    /* S */ {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E},
+    /* T */ {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},
+    /* U */ {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E},
+    /* V */ {0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04},
+    /* W */ {0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11},
+    /* X */ {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11},
+    /* Y */ {0x11, 0x11, 0x11, 0x0A, 0x04, 0x04, 0x04},
+    /* Z */ {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F},
 };
 
 /* Map char to glyph index, -1 = unknown (drawn as space). */
-static int glyph_idx(char c)
-{
-    if (c == ' ') return 0;
-    if (c == '!') return 1;
-    if (c == '"') return 2;
-    if (c == '\'') return 3;
-    if (c == ',') return 4;
-    if (c == '-') return 5;
-    if (c == '.') return 6;
-    if (c >= '0' && c <= '9') return 7 + (c - '0');
-    if (c == ':') return 17;
-    if (c == '?') return 18;
-    if (c == '(') return 19;
-    if (c == ')') return 20;
-    if (c >= 'A' && c <= 'Z') return 21 + (c - 'A');
-    if (c >= 'a' && c <= 'z') return 21 + (c - 'a');
+static int glyph_idx(char c) {
+    if (c == ' ')
+        return 0;
+    if (c == '!')
+        return 1;
+    if (c == '"')
+        return 2;
+    if (c == '\'')
+        return 3;
+    if (c == ',')
+        return 4;
+    if (c == '-')
+        return 5;
+    if (c == '.')
+        return 6;
+    if (c >= '0' && c <= '9')
+        return 7 + (c - '0');
+    if (c == ':')
+        return 17;
+    if (c == '?')
+        return 18;
+    if (c == '(')
+        return 19;
+    if (c == ')')
+        return 20;
+    if (c >= 'A' && c <= 'Z')
+        return 21 + (c - 'A');
+    if (c >= 'a' && c <= 'z')
+        return 21 + (c - 'a');
     return -1;
 }
 
@@ -101,35 +114,39 @@ static int glyph_idx(char c)
  * target size so the panels span/center on the full wide view, not the 352 page. Set
  * by hw_present_frame via pc_overlay_set_dims before each overlay pass. */
 static int s_draw_w = FB_W, s_draw_h = FB_H;
-void pc_overlay_set_dims(int w, int h) { s_draw_w = (w > 0) ? w : FB_W; s_draw_h = (h > 0) ? h : FB_H; }
-int  pc_overlay_w(void) { return s_draw_w; }
-int  pc_overlay_h(void) { return s_draw_h; }
+void pc_overlay_set_dims(int w, int h) {
+    s_draw_w = (w > 0) ? w : FB_W;
+    s_draw_h = (h > 0) ? h : FB_H;
+}
+int pc_overlay_w(void) { return s_draw_w; }
+int pc_overlay_h(void) { return s_draw_h; }
 
-static void put_pixel(uint32_t *fb, int x, int y, uint32_t argb)
-{
-    if (x < 0 || x >= s_draw_w || y < 0 || y >= s_draw_h) return;
+static void put_pixel(uint32_t *fb, int x, int y, uint32_t argb) {
+    if (x < 0 || x >= s_draw_w || y < 0 || y >= s_draw_h)
+        return;
     fb[y * s_draw_w + x] = argb;
 }
 
-/* Exposed for pc_overrides_title.c (the native title menu). */
+/* Shared overlay drawing primitives used by the pause-menu and HUD modules. */
 void pc_fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb);
-int  pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb);
+int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb);
 
-static void fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb)
-{
+static void fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb) {
     for (int y = y0; y < y0 + h; y++) {
-        if (y < 0 || y >= s_draw_h) continue;
+        if (y < 0 || y >= s_draw_h)
+            continue;
         for (int x = x0; x < x0 + w; x++) {
-            if (x < 0 || x >= s_draw_w) continue;
+            if (x < 0 || x >= s_draw_w)
+                continue;
             fb[y * s_draw_w + x] = argb;
         }
     }
 }
 
 /* Draw a string at (x, y) scaled by `scale` (1 or 2). Returns advance x. */
-static int draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb)
-{
-    if (scale < 1) scale = 1;
+static int draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb) {
+    if (scale < 1)
+        scale = 1;
     for (; *s; s++) {
         int idx = glyph_idx(*s);
         if (idx >= 0) {
@@ -151,7 +168,7 @@ static int draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint3
     return x;
 }
 
-/* Public wrappers used by pc_overrides_title.c. */
+/* Public wrappers used by src/port/pause_menu.c and src/port/hud_icons.c. */
 void pc_fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb) {
     fill_rect(fb, x0, y0, w, h, argb);
 }
@@ -163,14 +180,13 @@ int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t 
  * A short message shown top-center for a couple of seconds. pc_toast_show sets
  * it (e.g. "STATE SAVED", or a reason it couldn't be); pc_toast_overlay draws +
  * counts it down, called from hw_present_frame after the game frame is composed. */
-static char     s_toast[96];
-static int      s_toast_frames = 0;
+static char s_toast[96];
+static int s_toast_frames = 0;
 static uint32_t s_toast_accent = 0xFF60FF80;
 
-void pc_toast_show(const char *msg, int is_error)
-{
+void pc_toast_show(const char *msg, int is_error) {
     snprintf(s_toast, sizeof s_toast, "%s", msg ? msg : "");
-    s_toast_frames = 160;                        /* ~2.7s @ 60fps */
+    s_toast_frames = 160; /* ~2.7s @ 60fps */
     s_toast_accent = is_error ? 0xFFFF6048u : 0xFF60FF80u;
 }
 
@@ -180,17 +196,18 @@ int pc_toast_visible(void) { return s_toast_frames > 0 && s_toast[0] != 0; }
  * by the widescreen margin so it tracks the centred 352-wide menu) and dimmed by the
  * menu's current palette fade — so it appears/fades exactly with the RE'd menu items
  * instead of popping at full brightness or drifting in widescreen. */
-static void menu_small_text(uint32_t *fb, int content_x, int content_y, const char *s)
-{
+static void menu_small_text(uint32_t *fb, int content_x, int content_y, const char *s) {
     extern int native_scanline_palette_luma(int y);
     int margin = (s_draw_w - FB_W) / 2;
-    if (margin < 0) margin = 0;
-    int fade = native_scanline_palette_luma(content_y) * 255 / 200;  /* full once palette >=200 */
-    if (fade > 255) fade = 255;
+    if (margin < 0)
+        margin = 0;
+    int fade = native_scanline_palette_luma(content_y) * 255 / 200; /* full once palette >=200 */
+    if (fade > 255)
+        fade = 255;
     const uint32_t tint = 0xD8E8C0u;
     uint32_t r = (((tint >> 16) & 0xFF) * (uint32_t)fade) / 255;
-    uint32_t g = (((tint >>  8) & 0xFF) * (uint32_t)fade) / 255;
-    uint32_t b = (( tint        & 0xFF) * (uint32_t)fade) / 255;
+    uint32_t g = (((tint >> 8) & 0xFF) * (uint32_t)fade) / 255;
+    uint32_t b = ((tint & 0xFF) * (uint32_t)fade) / 255;
     draw_text(fb, margin + content_x, content_y, s, 1, 0xFF000000u | (r << 16) | (g << 8) | b);
 }
 
@@ -198,14 +215,15 @@ static void menu_small_text(uint32_t *fb, int content_x, int content_y, const ch
  * DISK.4-loaded indicator. Both go through the small-text subsystem so they anchor
  * to the menu layout and fade with it. Gated on the menu being on screen
  * (g_pc_menu_visible) + the menu copper list. */
-void pc_menu_subtext_overlay(uint32_t *fb)
-{
+void pc_menu_subtext_overlay(uint32_t *fb) {
     extern int g_pc_menu_visible, g_menu_continue_x, g_menu_continue_y;
     extern int pc_menu_continue_level(void);
     extern int pc_extra_worlds_available(void);
     extern uint32_t hw_get_cop1lc(void);
-    if (!g_pc_menu_visible || g_gameplay_active) return;
-    if (hw_get_cop1lc() != 0x8302u) return;
+    if (!g_pc_menu_visible || g_gameplay_active)
+        return;
+    if (hw_get_cop1lc() != 0x8302u)
+        return;
 
     /* CONTINUE target — anchored just below the CONTINUE item, left-aligned to it. */
     if (g_menu_continue_x >= 0) {
@@ -213,8 +231,8 @@ void pc_menu_subtext_overlay(uint32_t *fb)
         int w = 0, liw = 0;
         pc_level_split(level, &w, &liw);
         char line[80];
-        snprintf(line, sizeof line, "%s (W%dL%d)",
-                 pc_static_level_name(level), w + 1, liw + 1);   /* level name only (no world name) */
+        snprintf(line, sizeof line, "%s (W%dL%d)", pc_static_level_name(level), w + 1,
+                 liw + 1); /* level name only (no world name) */
         /* g_menu_continue_y is the bitplane PAGE row; the menu composites ~12 lines
          * lower and the item font (+shadow) is ~24 tall, so drop the subtext into the
          * gap below CONTINUE (empirically +40 lands between CONTINUE and LEVEL SELECT);
@@ -227,49 +245,52 @@ void pc_menu_subtext_overlay(uint32_t *fb)
         menu_small_text(fb, 238, 168, "DISK.4 LOADED");
 }
 
-void pc_toast_overlay(uint32_t *fb)
-{
-    if (s_toast_frames <= 0 || !s_toast[0]) return;
+void pc_toast_overlay(uint32_t *fb) {
+    if (s_toast_frames <= 0 || !s_toast[0])
+        return;
     s_toast_frames--;
-    int tlen = (int)strlen(s_toast) * 6;         /* 6px / glyph at scale 1 */
-    int pad  = 8, ph = 16;
-    int pw   = tlen + pad * 2;
-    int px   = (s_draw_w - pw) / 2;
-    int py   = 14;
-    fill_rect(fb, px,          py,          pw, ph, 0xFF101830);
-    fill_rect(fb, px,          py,          pw, 1,  s_toast_accent);
-    fill_rect(fb, px,          py + ph - 1, pw, 1,  s_toast_accent);
-    fill_rect(fb, px,          py,          1,  ph, s_toast_accent);
-    fill_rect(fb, px + pw - 1, py,          1,  ph, s_toast_accent);
+    int tlen = (int)strlen(s_toast) * 6; /* 6px / glyph at scale 1 */
+    int pad = 8, ph = 16;
+    int pw = tlen + pad * 2;
+    int px = (s_draw_w - pw) / 2;
+    int py = 14;
+    fill_rect(fb, px, py, pw, ph, 0xFF101830);
+    fill_rect(fb, px, py, pw, 1, s_toast_accent);
+    fill_rect(fb, px, py + ph - 1, pw, 1, s_toast_accent);
+    fill_rect(fb, px, py, 1, ph, s_toast_accent);
+    fill_rect(fb, px + pw - 1, py, 1, ph, s_toast_accent);
     draw_text(fb, px + pad, py + 5, s_toast, 1, 0xFFFFFFFFu);
 }
 
-void pc_level_select_overlay(uint32_t *fb)
-{
-    if (!g_level_select_visible) return;
+void pc_level_select_overlay(uint32_t *fb) {
+    if (!g_level_select_visible)
+        return;
 
     int level = pc_get_start_level();
     int world = 0, liw = 0;
     pc_level_split(level, &world, &liw);
-    if (world < 0 || world >= pc_num_worlds_ui()) world = 0;
+    if (world < 0 || world >= pc_num_worlds_ui())
+        world = 0;
     int liw_count = pc_levels_in_world(world);
-    if (liw < 0)            liw = 0;
-    if (liw >= liw_count)   liw = liw_count - 1;
+    if (liw < 0)
+        liw = 0;
+    if (liw >= liw_count)
+        liw = liw_count - 1;
     const char *wn = pc_world_name(world);
 
     /* Panel: centered, large enough for header + world name + up to 10 rows. */
     const int pw = 280;
     const int row_h = 11;
-    const int ph = 36 + liw_count * row_h + 18;   /* header + rows + footer */
+    const int ph = 36 + liw_count * row_h + 18; /* header + rows + footer */
     const int px = (s_draw_w - pw) / 2;
     const int py = (s_draw_h - ph) / 2;
 
     /* Background + border. */
     fill_rect(fb, px, py, pw, ph, 0xFF101830);
-    fill_rect(fb, px,           py,            pw, 1, 0xFFFFD040);
-    fill_rect(fb, px,           py + ph - 1,   pw, 1, 0xFFFFD040);
-    fill_rect(fb, px,           py,            1,  ph, 0xFFFFD040);
-    fill_rect(fb, px + pw - 1,  py,            1,  ph, 0xFFFFD040);
+    fill_rect(fb, px, py, pw, 1, 0xFFFFD040);
+    fill_rect(fb, px, py + ph - 1, pw, 1, 0xFFFFD040);
+    fill_rect(fb, px, py, 1, ph, 0xFFFFD040);
+    fill_rect(fb, px + pw - 1, py, 1, ph, 0xFFFFD040);
 
     /* Header line. */
     draw_text(fb, px + 8, py + 5, "LEVEL SELECT", 1, 0xFFB0C0FF);
@@ -288,23 +309,23 @@ void pc_level_select_overlay(uint32_t *fb)
     int list_y0 = py + 33;
     for (int i = 0; i < liw_count; i++) {
         int row_level = pc_world_first_level(world) + i;
-        int unlocked  = pc_profile_unlocked(row_level);
+        int unlocked = pc_profile_unlocked(row_level);
         int completed = pc_profile_completed(row_level);
-        uint32_t col = (i == liw) ? 0xFFFFD040
-                     : unlocked   ? 0xFFB0B0B0 : 0xFF606070;
+        uint32_t col = (i == liw) ? 0xFFFFD040 : unlocked ? 0xFFB0B0B0 : 0xFF606070;
         int ry = list_y0 + i * row_h;
-        if (i == liw) draw_text(fb, px + 8, ry, ">", 1, col);
+        if (i == liw)
+            draw_text(fb, px + 8, ry, ">", 1, col);
         char rbuf[64];
         const char *nm = unlocked ? pc_static_level_name(row_level) : "??????";
         snprintf(rbuf, sizeof rbuf, "%2d. %s", row_level, nm);
         draw_text(fb, px + 20, ry, rbuf, 1, col);
-        if (completed) {                    /* cleared marker: green square */
+        if (completed) { /* cleared marker: green square */
             fill_rect(fb, px + pw - 16, ry + 1, 6, 6, 0xFF40C040);
             fill_rect(fb, px + pw - 15, ry + 2, 4, 4, 0xFF70E070);
         }
     }
 
     /* Footer. */
-    draw_text(fb, px + 8, py + ph - 12,
-              "FIRE START  UP/DN LEVEL  L/R WORLD  ESC CLOSE", 1, 0xFF808080);
+    draw_text(fb, px + 8, py + ph - 12, "FIRE START  UP/DN LEVEL  L/R WORLD  ESC CLOSE", 1,
+              0xFF808080);
 }

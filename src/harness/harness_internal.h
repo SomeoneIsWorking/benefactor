@@ -1,11 +1,13 @@
 /* harness_internal.h – Shared state and functions for harness modules */
 #pragma once
 
+#include "common/log.h"
+#include "engine/hw.h" /* HW_DISPLAY_W/H */
+#include "harness/artifacts.h"
+#include "harness/puae_state.h"
+#include "port/config.h"
 #include <stdint.h>
 #include <stdio.h>
-#include "common/log.h"
-#include "harness/puae_state.h"
-#include "engine/hw.h"   /* HW_DISPLAY_W/H */
 
 /* State logging */
 #define MAX_FRAMES 1000
@@ -36,7 +38,7 @@ extern uint32_t s_puae_fb[FB_W * FB_H];
  * renderer actually sees — compare with PUAE's bpl_data_crc (post-frame)
  * to detect mid-frame blitter modifications that pc_step skips. */
 extern uint32_t s_pc_prerender_bpl_crc;
-extern int      s_pc_prerender_bpl_crc_valid;
+extern int s_pc_prerender_bpl_crc_valid;
 
 /* Functions from harness_compare.c */
 int frames_differ(const FrameState *p, const FrameState *c);

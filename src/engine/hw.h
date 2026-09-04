@@ -1,5 +1,5 @@
 /*
- * recomp/hw.h  –  PC hardware abstraction for the recompiled game
+ * hw.h  –  PC hardware abstraction for the guest game
  *
  * Replaces Amiga OCS/CIA register accesses with SDL2 equivalents:
  *
@@ -9,22 +9,22 @@
  *   Disk Load calls    → direct fread from WHDLoad disk images
  */
 #pragma once
-#include <stdint.h>
 #include <SDL2/SDL.h>
+#include <stdint.h>
 
-/* ── Memory-mapped I/O (called from rt.c) ─────────────────────────────────── */
+/* ── Memory-mapped I/O (called from the runtime adapter) ──────────────────── */
 
-uint8_t  hw_read8 (uint32_t addr);
+uint8_t hw_read8(uint32_t addr);
 uint16_t hw_read16(uint32_t addr);
 uint32_t hw_read32(uint32_t addr);
-void     hw_write8 (uint32_t addr, uint8_t  v);
-void     hw_write16(uint32_t addr, uint16_t v);
-void     hw_write32(uint32_t addr, uint32_t v);
+void hw_write8(uint32_t addr, uint8_t v);
+void hw_write16(uint32_t addr, uint16_t v);
+void hw_write32(uint32_t addr, uint32_t v);
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────────── */
 
-int  hw_init(const char *title, const char **disk_paths, int n_disks);
-void hw_request_headless(void);  /* call before hw_init: render fb but open no window */
+int hw_init(const char *title, const char **disk_paths, int n_disks);
+void hw_request_headless(void); /* call before hw_init: render fb but open no window */
 void hw_fini(void);
 
 /* Frame watchdog: arm before a single-frame step; if the frame hangs longer than
@@ -57,30 +57,30 @@ void hw_audio_queue(const short *buf, int nframes);
 
 /* Native SFX voice (ch 0/1): play a whole sample in one shot from the descriptor,
  * bypassing the per-frame chunk-follow that truncated/quieted SFX. See hw_audio.c. */
-void hw_audio_sfx_play(int ch, uint32_t ptr, int len_bytes, int period,
-                       uint8_t vol, uint32_t loop_ptr, int loop_len);
+void hw_audio_sfx_play(int ch, uint32_t ptr, int len_bytes, int period, uint8_t vol,
+                       uint32_t loop_ptr, int loop_len);
 void hw_audio_sfx_stop(int ch);
 
 /* Get/set current input state (shared between harness and hw.c). */
-int  hw_get_fire(void);
-int  hw_get_mouse_lmb(void);
-int  hw_get_interact(void);          /* dedicated interact key (X/LShift), not fire */
+int hw_get_fire(void);
+int hw_get_mouse_lmb(void);
+int hw_get_interact(void); /* dedicated interact key (X/LShift), not fire */
 void hw_set_interact(int on);
-int  hw_get_drop(void);              /* dedicated DROP button — one of the drop bindings */
+int hw_get_drop(void); /* dedicated DROP button — one of the drop bindings */
 void hw_set_drop(int on);
-int  hw_get_hop(void);               /* HOP action — separate from the Up direction */
+int hw_get_hop(void); /* HOP action — separate from the Up direction */
 void hw_set_hop(int on);
 void hw_set_fire(int on);
 void hw_set_mouse_lmb(int on);
-void hw_set_joy_down(int on);        /* force the down direction (for the drop→fire+down bridge) */
-void hw_set_joy_up(int on);          /* force the up direction (for the hop/up gate) */
+void hw_set_joy_down(int on); /* force the down direction (for the drop→fire+down bridge) */
+void hw_set_joy_up(int on);   /* force the up direction (for the hop/up gate) */
 void hw_set_no_pace(int on);
 void hw_set_external_input(int on);
 void hw_set_joystick(int up, int down, int left, int right, int fire);
-int  hw_joy_up(void);
-int  hw_joy_down(void);
-int  hw_joy_left(void);
-int  hw_joy_right(void);
+int hw_joy_up(void);
+int hw_joy_down(void);
+int hw_joy_left(void);
+int hw_joy_right(void);
 /* Single shared keyboard→input mapper (SDL keysym). Used by both the standalone
  * and the harness so there is one input path. */
 void hw_handle_key(int sym, int down);
@@ -88,12 +88,12 @@ void hw_handle_key(int sym, int down);
 void hw_touch_controls_changed(void);
 /* Fire held on a device whose controls are VANILLA (not modern) — that fire
  * keeps its original interact/drop meaning in the pickup/input overrides. */
-int  hw_get_fire_vanilla(void);
-void hw_set_fire_vanilla(int on);    /* harness forced fire = vanilla semantics */
+int hw_get_fire_vanilla(void);
+void hw_set_fire_vanilla(int on); /* harness forced fire = vanilla semantics */
 /* Shared handler for controller (hot-plug/buttons/axes) + window SDL events;
  * called from both event pumps (standalone + harness). 1 = consumed. */
-int  hw_handle_sdl_event(const union SDL_Event *ev);
-int  hw_pad_count(void);             /* connected game controllers */
+int hw_handle_sdl_event(const union SDL_Event *ev);
+int hw_pad_count(void); /* connected game controllers */
 /* Re-resolve "widescreen_mode" (disabled|16:9|ultrawide|auto) and apply the
  * output width live (options menu / window resize). */
 void hw_widescreen_refresh(void);
@@ -105,16 +105,19 @@ void hw_set_ffwd(int held);
 /* 1 when a wall-clock 20ms music/audio frame is due. Always 1 at 100% speed
  * (per-game-frame, the deterministic harness path); at faster speeds music
  * ticks + PCM render are held to real time so audio doesn't speed up. */
-int  hw_audio_frame_due(void);
+int hw_audio_frame_due(void);
 
 /* Frame-time profiler (F3 overlay): EMA (1/32) microseconds per section +
  * once-per-second fps. pc_step times the game step; hw_present_frame times
  * render/compose/present. */
-typedef struct { uint32_t game_us, render_us, compose_us, present_us; int fps; } HwPerf;
+typedef struct {
+    uint32_t game_us, render_us, compose_us, present_us;
+    int fps;
+} HwPerf;
 extern HwPerf g_hw_perf;
 extern int g_hw_perf_overlay;
 uint64_t hw_perf_now_us(void);
-void     hw_perf_acc(uint32_t *ema_us, uint64_t t0_us);
+void hw_perf_acc(uint32_t *ema_us, uint64_t t0_us);
 
 /* ── Disk load (replaces ILLEGAL intercept) ────────────────────────────────── */
 
@@ -131,16 +134,16 @@ int hw_load_disk(int disk, uint32_t offset, uint32_t len, uint32_t dst_amiga);
  * panels and the in-game HUD extend into horizontal overscan; render ~10% wider
  * (352) so they aren't clipped. The renderer fills any area beyond the active
  * playfield with border colour, so widening never corrupts a screen. */
-#define HW_DISPLAY_W  352
-#define HW_DISPLAY_H  282
+#define HW_DISPLAY_W 352
+#define HW_DISPLAY_H 282
 
 /* Widescreen output: the engine renders the 4:3 playfield into s_fb at
  * HW_DISPLAY_W; the OUTPUT surface may be wider (HW_OUT_MAX cap). The 352-wide
  * content is composited centered into the output, the L/R margins start as black
  * pillarbox (Phase 2) and later carry native-rendered world (Phase 3+). The
  * harness/comparison path keeps using the 352-wide s_fb directly. */
-#define HW_OUT_MAX    960
-int  hw_output_width(void);                 /* current output width (>=HW_DISPLAY_W) */
+#define HW_OUT_MAX 960
+int hw_output_width(void);                       /* current output width (>=HW_DISPLAY_W) */
 const uint32_t *hw_get_output_framebuffer(void); /* wide composited surface (HW_OUT × H) */
 
 /*
@@ -170,7 +173,7 @@ uint8_t hw_cia_keyboard(void);
 void hw_set_fire(int pressed);
 void hw_set_mouse_lmb(int pressed);
 
-/* ── Recompiler helpers ────────────────────────────────────────────────────── */
+/* ── Guest-runtime helpers ───────────────────────────────────────────────────── */
 
 /* Read VPOSR byte (returns bit 0 = frame parity) */
 uint8_t hw_vposr_read(void);
@@ -192,25 +195,25 @@ void hw_vblank_wait(void);
  * busy-loop. want_pressed=1: block until fire is pressed; =0: until released. */
 void hw_wait_fire(int want_pressed);
 
-/* ── Harness hooks (used only when building benefactor-harness) ───────────── */
+/* ── Harness hooks (used only by the separate oracle harness) ───────────── */
 
 /* Set this to a callback that fires at the end of every hw_present_frame().
  * NULL (default) = disabled.  Used by the comparison harness. */
 extern void (*g_harness_frame_hook)(void);
 
 /* Set this to a callback that fires immediately before hw_present_frame()
- * renders the scanlines.  Fires from pc.c, not from hw.c.
+ * renders the scanlines. Fires from src/port/game_loop.c, not from hw.c.
  * Lets the harness capture the chip RAM state the renderer will actually see. */
 extern void (*g_harness_prerender_hook)(void);
 
 /* Native disk boot: when set, hw_read of $BFE000 with the title copper active
- * invokes this (it longjmps out of the recompiled cold-start to the frame loop). */
+ * invokes this (it exits the interpreter cold-start coroutine to the frame loop). */
 extern void (*g_hw_boot_handoff)(void);
 
 /* Disk-boot coroutine: when set, hw_vblank_wait() yields to the frame driver. */
 extern void (*g_hw_vblank_yield)(void);
 
-/* Set by pc.c when it owns the frame loop (presents explicitly once per frame).
+/* Set by src/port/game_loop.c when it owns the frame loop (presents explicitly once per frame).
  * Suppresses the VPOSR-read auto-present so presentation has a single driver. */
 extern int g_hw_pc_owns_present;
 

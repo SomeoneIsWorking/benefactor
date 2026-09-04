@@ -1,86 +1,83 @@
 #!/usr/bin/env python3
-"""Extract a fresh PUAE chip RAM dump for the intro/default recompiler bank.
+"""Capture a test-only PUAE oracle memory image at the main-image sync point.
 
-How it works: the harness writes logs/harness_puae_chipram.bin during PUAE
-boot (at the deterministic sync point — see src/harness/harness_puae.c).
-This script just runs the harness with an immediate-quit REPL command and
-then copies that dump to chip_ram_dump.bin at the repo root.
+The separately built oracle writes its capture below the stable
+``scratch/harness-puae`` activity directory after it reaches the deterministic
+boot checkpoint. This tool drives that oracle to the checkpoint and copies the
+result to the oracle-analysis scratch directory. The capture is RE evidence
+only: it is never a gameplay input or source-generation substrate.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
+from tools.paths import HARNESS_ACTIVITY, ROOT, SCRATCH
 
-def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None,
-        stdin_text: str | None = None) -> int:
-    proc = subprocess.run(cmd, cwd=str(cwd), env=env,
-                          input=stdin_text, text=True)
-    return int(proc.returncode)
+LOGGER = logging.getLogger("benefactor.oracle-capture")
+DEFAULT_ORACLE = ROOT / "build" / "test-oracle" / "benefactor-puae-oracle"
+ORACLE_DUMP = HARNESS_ACTIVITY / "harness_puae_chipram.bin"
+DEFAULT_OUTPUT = SCRATCH / "oracle" / "main_chipram.bin"
 
 
-def main() -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", default="chip_ram_dump.bin",
-                        help="Output chip RAM dump path (default: chip_ram_dump.bin at repo root)")
-    parser.add_argument("--kick-dir", default="harness", help="Kickstart directory")
-    parser.add_argument("--whdload", default="harness/Benefactor.slave",
-                        help="WHDLoad install file path")
-    parser.add_argument("--disk1", default="Disk.1")
-    parser.add_argument("--disk2", default="Disk.2")
-    parser.add_argument("--disk3", default="Disk.3")
-    parser.add_argument("--build", action="store_true",
-                        help="Build benefactor-harness before extracting")
-    args = parser.parse_args()
+    parser.add_argument("--oracle", type=Path, default=DEFAULT_ORACLE)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--kick-dir", type=Path, default=ROOT / "harness")
+    parser.add_argument("--whdload", type=Path, default=ROOT / "harness" / "Benefactor.slave")
+    parser.add_argument("disks", nargs=3, type=Path, metavar="DISK")
+    return parser
 
-    repo = Path(__file__).resolve().parent.parent
-    build_dir = repo / "build"
-    harness_bin = build_dir / "benefactor-harness"
-    harness_dump = repo / "logs" / "harness_puae_chipram.bin"
-    out_path = repo / args.output if not os.path.isabs(args.output) else Path(args.output)
 
-    if args.build:
-        cfg_rc = run(["cmake", "-S", ".", "-B", "build"], repo)
-        if cfg_rc != 0:
-            return cfg_rc
-        jobs = str(os.cpu_count() or 4)
-        bld_rc = run(["cmake", "--build", "build", "--target",
-                      "benefactor-harness", "-j", jobs], repo)
-        if bld_rc != 0:
-            return bld_rc
+def _run_oracle(oracle: Path, arguments: argparse.Namespace) -> int:
+    environment = dict(os.environ)
+    environment["SDL_VIDEODRIVER"] = "offscreen"
+    command = [
+        str(oracle),
+        str(arguments.kick_dir),
+        str(arguments.whdload),
+        *(str(path) for path in arguments.disks),
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=environment,
+        input="q\n",
+        text=True,
+        check=False,
+    )
+    return result.returncode
 
-    if not harness_bin.exists():
-        print("build/benefactor-harness not found. Pass --build or build it first.",
-              file=sys.stderr)
+
+def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    arguments = _parser().parse_args(argv)
+    oracle = arguments.oracle.resolve()
+    if not oracle.is_file():
+        LOGGER.error(
+            "separate PUAE oracle is missing: %s; the gameplay build never supplies this target",
+            oracle,
+        )
         return 2
 
-    harness_dump.parent.mkdir(parents=True, exist_ok=True)
-    if harness_dump.exists():
-        harness_dump.unlink()
+    ORACLE_DUMP.parent.mkdir(parents=True, exist_ok=True)
+    ORACLE_DUMP.unlink(missing_ok=True)
+    result = _run_oracle(oracle, arguments)
+    if not ORACLE_DUMP.is_file():
+        LOGGER.error("oracle produced no capture at %s", ORACLE_DUMP)
+        return result or 3
 
-    cmd = [str(harness_bin), args.kick_dir, args.whdload,
-           args.disk1, args.disk2, args.disk3]
-    env = os.environ.copy()
-    env["SDL_VIDEODRIVER"] = "offscreen"
-
-    # The harness boots PUAE (writes the chipram dump at sync) and then waits
-    # at its REPL. Feed it 'q' so it exits cleanly once the dump has been
-    # written.
-    rc = run(cmd, repo, env=env, stdin_text="q\n")
-
-    if not harness_dump.exists():
-        print("Failed to produce logs/harness_puae_chipram.bin", file=sys.stderr)
-        return 3 if rc == 0 else rc
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(harness_dump, out_path)
-    print(f"Wrote {out_path} ({out_path.stat().st_size} bytes)")
-    return 0
+    output = arguments.output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ORACLE_DUMP, output)
+    LOGGER.info("wrote %s (%d bytes)", output, output.stat().st_size)
+    return result
 
 
 if __name__ == "__main__":

@@ -1,8 +1,7 @@
 # Benefactor port
 
-Read `AGENTS.md` first. It defines the native/dynarec product, the freeze on the
-retired generated-C path, the representative-gameplay retirement gate, and the
-project's ownership and evidence authorities.
+Read `AGENTS.md` first. It defines the native/interpreter product, the deleted
+generated-C boundary, and the project's ownership and evidence authorities.
 
 The authoritative documents are:
 
@@ -13,6 +12,6 @@ The authoritative documents are:
 - `docs/re-frontier.md`
 - `docs/issues/`
 
-Do not regenerate, build, launch, or extend the offline 68000-to-C product.
-Preserve its independently verified binary, native-subsystem, and PUAE-harness
-facts while implementing the replacement through `shared/amigaport`.
+The offline 68000-to-C product no longer exists. Do not recreate it. Preserve
+binary, native-subsystem, and PUAE-oracle facts while implementing the product
+through `shared/amigaport`.

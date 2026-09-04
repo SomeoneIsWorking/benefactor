@@ -1,51 +1,52 @@
-# ROM Analysis
+# Benefactor binary analysis
 
-Disassemble and analyze the Benefactor M68K binary from the PUAE chip RAM dump.
+Analyze the original 68000 bytes, never a host-language translation of them.
+The authoritative inputs are the user's validated disks and exact memory/image
+captures made by the separately built PUAE oracle.
 
-## Source of Truth
-- Binary: `logs/harness_puae_chipram.bin` (524288 bytes)
-- Game code base: offset `$3000` in file = address `$3000` in chip RAM
-- Recompiled output: `src/engine/generated/game.c`
-- Symbol table (function → address): last entries in `game.c` dispatch table
+## Address model
 
-## Quick Disassembly (run in terminal)
-```python
-python3 -c "
-import struct
-data = open('logs/harness_puae_chipram.bin','rb').read()
-off = 0xADDR   # file offset = chip RAM address (base 0)
-for i in range(0, 64, 2):
-    w = (data[off+i]<<8)|data[off+i+1]
-    print('  \$%04X: %04X' % (off+i, w))
-"
-```
+- The preserved main-memory capture is `logs/harness_puae_chipram.bin` when an
+  operator has produced it locally. It is untracked user evidence.
+- File offset and chip-RAM address are equal in that 512 KiB capture.
+- Treat main/title/gameplay/credits as different executable-image identities.
+  An address is not sufficient without the active image and generation.
+- Use `tools/disasm2.py <image> <file-offset> <guest-address> <length>` for a
+  focused decode. Ghidra analysis may be used for call graphs and wider xrefs;
+  it is a maintainer tool, not a player prerequisite.
 
-## Procedure: Find What Writes to an Address
-1. Add `[WATCH16]` watchpoint in `rt.c:rt_write16` for the target address range.
-2. Build and run: `bash run_harness.sh --frames 3 --boot-frames 600 2>&1 | grep WATCH`
-3. Note the call stack (`[stack N] $XXXXXX`). The deepest frame is the writing function.
-4. Disassemble from that address to understand what the function computes.
-5. Cross-reference with `game.c` — search `gfn_00XXXX` for the C translation.
+## Find a writer
 
-## Procedure: Understand Per-Frame Call Sequence
-1. Start from `pc.c` S_TITLE loop: `call_fn(0x0041A4)` → `call_fn(0x00405C)` → `call_fn(0x0055A0)` → `hw_present_frame()`.
-2. Enable trace in `rt.c`: set `rt_trace_insns = 1` around a specific call to see all instructions.
-3. Or disassemble the M68K function directly from the chip dump.
+1. Select one exact image identity and address range.
+2. Add a diagnostic watchpoint at the canonical amigaport memory boundary, or
+   at the PUAE oracle boundary for an oracle-only run.
+3. Prove the diagnostic sees both a known write and a known non-write case.
+4. Capture the guest PC and image identity at the first matching write.
+5. Disassemble the original bytes around that PC and follow its callers.
+6. Record the recovered address/ABI/behavior fact in the nearest living note.
 
-## Procedure: Find Function that Writes a Copper Instruction
-1. Know the target copper address (e.g., BPLCON2 at `$8728`).
-2. Check if `rt_write16` fires for that address (watchpoint).
-3. If not, check blitter: add `[WATCH_BLT]` in `hw.c:hw_do_blit()`.
-4. If blitter clobbered it, find the REBUILD function — look for calls after the blitter fill.
-5. Search `game.c` for `MW16` with the register code value (e.g., `0x0104` = DFF104 = BPLCON2):
-   ```bash
-   grep -n "MW16.*0x0104\|0x0100\|0x0102" src/engine/generated/game.c | head -20
-   ```
-6. Note: copper instructions are pairs of 16-bit writes: reg-word then val-word. The reg-word is `$01xx` for display registers.
+Decode guest instructions from the authenticated retail image bytes. Do not add
+watchpoints through gameplay logging or environment-variable gates.
 
-## Known Facts (Do Not Re-Examine)
-- Blitter fill: `bltcon0=$19F0`, dest=`$8720`, writes `$FFFF` to `$8720–$872C` (BPLCON0/1/2 copper instructions).
-- `gfn_00405C` rebuilds BPL1PT–BPL4PT at `$8788–$87AE` only. Does NOT rebuild BPLCON entries.
-- `gfn_0041A4` triggers the blitter fill. It does NOT rebuild BPLCON copper entries.
-- BPLCON2=$0040 at `$872A` is set in PUAE's chip dump (from level-init run by PUAE, not PC port).
-- See `instructions/harness.md` for all confirmed addresses.
+## Find a copper-list owner
+
+1. Watch the exact copper address (for example, BPLCON2 at `$8728`).
+2. If no CPU write occurs, instrument the title-neutral blitter boundary and
+   identify the blit whose destination overlaps the address.
+3. Capture the subsequent guest writes that reconstruct the list.
+4. Decode the original routine and compare the resulting memory against PUAE.
+
+Copper instructions are pairs of 16-bit words: register then value. Display
+register words use the `$01xx` range.
+
+## Preserved findings
+
+- The observed blitter fill uses `BLTCON0=$19F0`, destination `$8720`, and
+  writes `$FFFF` through `$872C`, overlapping BPLCON0/1/2 entries.
+- Guest routine `$00405C` rebuilds BPL1PT through BPL4PT at
+  `$8788-$87AE`; it does not rebuild the BPLCON entries.
+- Guest routine `$0041A4` triggers that blitter fill; it does not rebuild the
+  BPLCON copper entries.
+- PUAE evidence has BPLCON2 value `$0040` at `$872A` after level setup.
+
+See `instructions/harness.md` for the corresponding oracle observations.

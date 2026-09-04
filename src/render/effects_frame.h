@@ -16,16 +16,16 @@
 
 /* Effect flags (bitmask from native_fx_flags(), live from cfg each frame). */
 enum {
-    FX_AMBIENT = 1 << 0,  /* ambient darkness — vignette toward the view edges */
-    FX_SHADOW  = 1 << 1,  /* drop shadow behind characters (player / Marry Men / enemies) */
+    FX_AMBIENT = 1 << 0, /* ambient darkness — vignette toward the view edges */
+    FX_SHADOW = 1 << 1,  /* drop shadow behind characters (player / Marry Men / enemies) */
 };
 
 typedef struct {
-    int valid;                 /* 1 = a gameplay playfield was found this frame */
-    int content_w, content_h;  /* composed output surface size */
-    int pf_top, pf_bot;        /* playfield row span [pf_top, pf_bot) in content px */
-    int light_sx, light_sy;    /* projected player centre, content px; <0 = none */
-    int flags;                 /* FX_* bitmask, resolved live from cfg */
+    int valid;                /* 1 = a gameplay playfield was found this frame */
+    int content_w, content_h; /* composed output surface size */
+    int pf_top, pf_bot;       /* playfield row span [pf_top, pf_bot) in content px */
+    int light_sx, light_sy;   /* projected player centre, content px; <0 = none */
+    int flags;                /* FX_* bitmask, resolved live from cfg */
 } FxFrame;
 
 /* Published by the native renderer each frame; consumed by hw.c at present time.

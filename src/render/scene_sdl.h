@@ -43,9 +43,9 @@ long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi
  * Textures belong to one SDL_Renderer: free with scene_sdl_cache_free() while
  * that renderer is still alive. Zero-initialize the struct before first use. */
 typedef struct SceneSdlCache {
-    SDL_Renderer *r;                 /* owning renderer (cache auto-resets if it changes) */
-    SDL_Texture  *atlas;             /* SCENE_SDL_ATLAS_W x _H, BLEND, streaming */
-    SDL_Texture  *base;              /* composed-output copy for non-scene rows  */
+    SDL_Renderer *r;    /* owning renderer (cache auto-resets if it changes) */
+    SDL_Texture *atlas; /* SCENE_SDL_ATLAS_W x _H, BLEND, streaming */
+    SDL_Texture *base;  /* composed-output copy for non-scene rows  */
     int base_w, base_h;
 } SceneSdlCache;
 void scene_sdl_cache_free(SceneSdlCache *c);
@@ -56,15 +56,14 @@ void scene_sdl_cache_free(SceneSdlCache *c);
  * clip range and [y_lo, y_hi)), then the SCREEN quads (banner) on top. This is
  * the routine the SDL present backend calls instead of blitting `base`.
  * `cache` (required) holds the persistent atlas/base textures. */
-int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi,
-                          const uint32_t *base, int ow, int oh,
-                          SceneSdlCache *cache);
+int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, const uint32_t *base,
+                          int ow, int oh, SceneSdlCache *cache);
 
 /* Headless gate for the windowed path: render scene_draw_sdl_window into an
  * offscreen software renderer and byte-diff the FULL frame against `base`
  * (the CPU-composed output, which the windowed path must reproduce exactly).
  * Returns differing-pixel count (0 = identical), -1 on error. */
-long scene_sdl_window_selftest(const Scene *s, const uint32_t *base,
-                               int ow, int oh, int y_lo, int y_hi, int *max_chan);
+long scene_sdl_window_selftest(const Scene *s, const uint32_t *base, int ow, int oh, int y_lo,
+                               int y_hi, int *max_chan);
 
 #endif /* RENDER_SCENE_SDL_H */

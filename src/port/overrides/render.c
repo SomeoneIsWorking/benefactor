@@ -1,8 +1,8 @@
-/* pc_overrides_render.c — Render pipeline hook overrides
+/* src/port/overrides/render.c — Render pipeline hook overrides
  *
  * These are stable hook points in the render pipeline, currently delegating
- * to the recompiled generated code.  As the native port matures each wrapper
- * will be replaced with a full PC-native implementation.
+ * to the original guest routines through the interpreter. Each wrapper can become
+ * a binary-grounded native implementation independently.
  *
  * Hook addresses and their roles in the frame render sequence:
  *
@@ -21,25 +21,18 @@
  */
 #include "port/port_internal.h"
 
-void native_text_sprite_render(M68KCtx *ctx)
-{
-    rt_call_generated(ctx, 0x00405Cu);
-}
-void native_dispatch_table    (M68KCtx *ctx) { rt_call_generated(ctx, 0x0040B6u); }
-void native_item_dispatch_1   (M68KCtx *ctx) { rt_call_generated(ctx, 0x0040B8u); }
-void native_item_dispatch_2   (M68KCtx *ctx) { rt_call_generated(ctx, 0x0040BAu); }
-void native_item_dispatch_3   (M68KCtx *ctx) { rt_call_generated(ctx, 0x0040BCu); }
-void native_item_decrement    (M68KCtx *ctx) { rt_call_generated(ctx, 0x0040BEu); }
-void native_item_scroll       (M68KCtx *ctx) { rt_call_generated(ctx, 0x0040CCu); }
-void native_item_position     (M68KCtx *ctx) { rt_call_generated(ctx, 0x004102u); }
-void native_item_blitter      (M68KCtx *ctx) { rt_call_generated(ctx, 0x00412Eu); }
-void native_blit_row_callback(M68KCtx *ctx)
-{
-    rt_call_generated(ctx, 0x004236u);
-}
+void native_text_sprite_render(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x00405Cu); }
+void native_dispatch_table(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040B6u); }
+void native_item_dispatch_1(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040B8u); }
+void native_item_dispatch_2(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040BAu); }
+void native_item_dispatch_3(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040BCu); }
+void native_item_decrement(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040BEu); }
+void native_item_scroll(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040CCu); }
+void native_item_position(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x004102u); }
+void native_item_blitter(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x00412Eu); }
+void native_blit_row_callback(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x004236u); }
 
-void native_post_blit_handler(M68KCtx *ctx)
-{
+void native_post_blit_handler(M68KCtx *ctx) {
     ctx->A[1] = ctx->D[0];
     ctx->A[2] = r32(ctx->A[5] - 0x101Eu);
     ctx->A[4] = ctx->A[5] - 0x1020u;
@@ -53,7 +46,7 @@ void native_post_blit_handler(M68KCtx *ctx)
          * instantly on PC so the blitter-wait inside $0052F0 returns at once —
          * no stall occurs.  PUAE harness also runs the blit instantly (v=19
          * compositing in the same retro_run), so deferral is incorrect. */
-        rt_call_generated(ctx, 0x0052F0u);
+        rt_call_original(ctx, ctx->image, 0x0052F0u);
         return;
     }
 
@@ -71,31 +64,27 @@ void native_post_blit_handler(M68KCtx *ctx)
     hw_write16(ctx->A[6] + 0x56u, 0x54u);
 }
 
-void native_timer_interrupt(M68KCtx *ctx)
-{
+void native_timer_interrupt(M68KCtx *ctx) {
     /* Call $0055A0 once per frame to match PUAE's CIA-B timer rate.
      * Confirmed by harness: PUAE fires the timer interrupt once per VBL
      * (ctr sequence: 1→8→7→6 over 3 frames). Two calls per frame causes
      * the PC counter to run at double rate (reaching 3 by frame 3 vs 6 for
      * PUAE), diverging the animation table and copper list BPL pointers. */
     static int s_calls_per_frame = 1;
-    static int s_trace = -1;
-    if (s_trace < 0) s_trace = getenv("TIMER_TRACE") ? 1 : 0;
     for (int i = 0; i < s_calls_per_frame; i++) {
-        if (s_trace) {
-            uint16_t before = r16(0x0067D2u);
-            uint8_t  d5before = r8(0x0067D5u);
-            uint32_t copptr_before = r32(0x0069DCu);
-            GLOBAL_LOG("[timer] call %d/%d  ctr=$%04X  d5=$%02X  copptr=$%08X  a5=$%06X a6=$%06X\n",
-                       i+1, s_calls_per_frame, before, d5before, copptr_before, ctx->A[5], ctx->A[6]);
-        }
-        rt_call_generated(ctx, 0x0055A0u);
-        if (s_trace) {
-            uint16_t after = r16(0x0067D2u);
-            uint32_t copptr_after = r32(0x0069DCu);
-            GLOBAL_LOG("[timer] call %d/%d  ctr after=$%04X  copptr after=$%08X\n",
-                       i+1, s_calls_per_frame, after, copptr_after);
-        }
+        uint16_t before = r16(0x0067D2u);
+        uint8_t d5before = r8(0x0067D5u);
+        uint32_t copptr_before = r32(0x0069DCu);
+        benefactor_log_write(BENEFACTOR_LOG_TRACE, "timer",
+                             "call %d/%d ctr=$%04X d5=$%02X copptr=$%08X a5=$%06X a6=$%06X", i + 1,
+                             s_calls_per_frame, before, d5before, copptr_before, ctx->A[5],
+                             ctx->A[6]);
+        rt_call_original(ctx, ctx->image, 0x0055A0u);
+        uint16_t after = r16(0x0067D2u);
+        uint32_t copptr_after = r32(0x0069DCu);
+        benefactor_log_write(BENEFACTOR_LOG_TRACE, "timer",
+                             "call %d/%d ctr after=$%04X copptr after=$%08X", i + 1,
+                             s_calls_per_frame, after, copptr_after);
     }
     /* NOTE: do NOT zero $0069F0-$006AE9 here.  $0055A0 writes palette animation
      * state to this region each frame (CIA-B timer modulation tables).  Clearing

@@ -1,0 +1,27 @@
+# Callback signatures fix parameter order, Annex K *_s APIs are not portable,
+# and the public C headers consistently use the supported pragma form. Their
+# corresponding heuristics are excluded while the substantive groups remain.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  performance-*,
+  portability-*,
+  -portability-avoid-pragma-once,
+  readability-avoid-const-params-in-decls,
+  readability-container-size-empty,
+  readability-duplicate-include,
+  readability-inconsistent-declaration-parameter-name,
+  readability-misleading-indentation,
+  readability-redundant-control-flow,
+  readability-redundant-declaration,
+  readability-redundant-function-ptr-dereference,
+  readability-redundant-preprocessor,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-cstr,
+  readability-redundant-string-init,
+  readability-simplify-boolean-expr
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^(.*/)?src/'

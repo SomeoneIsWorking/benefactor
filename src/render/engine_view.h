@@ -36,11 +36,16 @@
 /* Authoritative engine addresses (a5 = $57EE12; absolute = a5 + a5-offset).
  * Each is the SINGLE source for its quantity — cite the offset and the routine
  * that maintains it so the next reader can verify against the disassembly. */
-#define EV_CAMERA_ADDR   0x0057FDBAu /* a5+$0FA8  signed screen-left world X, engine-clamped (see gameplay-engine-map.md) */
-#define EV_LEVEL_LO_ADDR 0x0057FE8Cu /* a5+$107A  per-level world low bound  (clamp routine $57C79E) */
-#define EV_LEVEL_HI_ADDR 0x0057FE8Eu /* a5+$107C  per-level world high bound (clamp routine $57C79E) */
-#define EV_PHASETAB_ADDR 0x0057F4BCu /* row-offset/phase table; entry[1].d2adj (+4) = per-level tilemap row stride */
-#define EV_GFXTAB_ADDR   0x005A539Eu /* tile graphics base table */
+#define EV_CAMERA_ADDR                                                                             \
+    0x0057FDBAu /* a5+$0FA8  signed screen-left world X, engine-clamped (see                       \
+                   gameplay-engine-map.md) */
+#define EV_LEVEL_LO_ADDR                                                                           \
+    0x0057FE8Cu /* a5+$107A  per-level world low bound  (clamp routine $57C79E) */
+#define EV_LEVEL_HI_ADDR                                                                           \
+    0x0057FE8Eu /* a5+$107C  per-level world high bound (clamp routine $57C79E) */
+#define EV_PHASETAB_ADDR                                                                           \
+    0x0057F4BCu /* row-offset/phase table; entry[1].d2adj (+4) = per-level tilemap row stride */
+#define EV_GFXTAB_ADDR 0x005A539Eu /* tile graphics base table */
 
 /* The engine's camera-clamp transform, RE'd & verified in widescreen-plan.md:91-93
  * (L9 save: lo=144,hi=1648 -> cam in [0,1392]). These are the engine's own
@@ -52,13 +57,13 @@
  * Captured once per frame by engine_view_capture(); the composers receive a
  * const* and may read NOTHING else. */
 typedef struct EngineView {
-    int valid;          /* 0 if any sourced read failed (caller must bail; no fudge) */
+    int valid; /* 0 if any sourced read failed (caller must bail; no fudge) */
 
-    int camera;         /* EV_CAMERA_ADDR, sign-extended: screen-left world X (px) */
-    int level_lo;       /* engine min camera = (EV_LEVEL_LO_ADDR) - EV_CLAMP_LO_BIAS */
-    int level_hi;       /* engine max camera = (EV_LEVEL_HI_ADDR) - EV_CLAMP_HI_BIAS */
-    int row_stride;     /* per-level tilemap row stride (bytes), abs(EV_PHASETAB_ADDR+4) */
-    uint32_t gfxtab;    /* tile graphics base (EV_GFXTAB_ADDR) */
+    int camera;      /* EV_CAMERA_ADDR, sign-extended: screen-left world X (px) */
+    int level_lo;    /* engine min camera = (EV_LEVEL_LO_ADDR) - EV_CLAMP_LO_BIAS */
+    int level_hi;    /* engine max camera = (EV_LEVEL_HI_ADDR) - EV_CLAMP_HI_BIAS */
+    int row_stride;  /* per-level tilemap row stride (bytes), abs(EV_PHASETAB_ADDR+4) */
+    uint32_t gfxtab; /* tile graphics base (EV_GFXTAB_ADDR) */
 } EngineView;
 
 /* Fill `ev` from current engine state. Returns 1 on success, 0 if any sourced

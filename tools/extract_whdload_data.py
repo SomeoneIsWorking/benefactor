@@ -23,12 +23,16 @@ Output format (whdload_data.bin):
 
 Usage:
   python3 tools/extract_whdload_data.py \
-      --chip logs/harness_puae_chipram.bin \
-      --code logs/clean_code_region.bin \
+      --chip scratch/harness-puae/harness_puae_chipram.bin \
+      --code scratch/oracle/clean_code_region.bin \
       --game-base 0x3000 \
-      --out logs/whdload_data.bin [--verify]
+      --out scratch/oracle/whdload_data.bin [--verify]
 """
-import argparse, struct, sys, os
+
+import argparse
+import os
+import struct
+import sys
 
 GAME_BASE_DEFAULT = 0x3000
 CHIP_SIZE = 0x080000
@@ -38,11 +42,16 @@ MAGIC = b"WHLD"
 def find_segments(data, block_size=512):
     segs, in_seg, seg_start = [], False, 0
     for i in range(0, len(data), block_size):
-        if any(b != 0 for b in data[i:i+block_size]):
-            if not in_seg: seg_start = i; in_seg = True
+        if any(b != 0 for b in data[i : i + block_size]):
+            if not in_seg:
+                seg_start = i
+                in_seg = True
         else:
-            if in_seg: segs.append((seg_start, i)); in_seg = False
-    if in_seg: segs.append((seg_start, len(data)))
+            if in_seg:
+                segs.append((seg_start, i))
+                in_seg = False
+    if in_seg:
+        segs.append((seg_start, len(data)))
     return segs
 
 
@@ -72,56 +81,65 @@ def load_whld(packed):
     off = 8
     for _ in range(n):
         addr, sz = struct.unpack_from(">II", packed, off)
-        buf[addr:addr+sz] = packed[off+8:off+8+sz]
+        buf[addr : addr + sz] = packed[off + 8 : off + 8 + sz]
         off += 8 + sz
     return buf
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--chip",      required=True)
-    ap.add_argument("--code",      required=True, help="clean code image for $3000 region")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--chip", required=True)
+    ap.add_argument("--code", required=True, help="clean code image for $3000 region")
     ap.add_argument("--game-base", default=hex(GAME_BASE_DEFAULT))
-    ap.add_argument("--out",       required=True)
-    ap.add_argument("--verify",    action="store_true")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--verify", action="store_true")
     args = ap.parse_args()
 
     game_base = int(args.game_base, 0)
-    chip = open(args.chip, "rb").read()
-    game = open(args.code, "rb").read()
+    with open(args.chip, "rb") as source:
+        chip = source.read()
+    with open(args.code, "rb") as source:
+        game = source.read()
 
-    n_patch = sum(1 for i in range(min(len(game), len(chip)-game_base))
-                  if chip[game_base+i] != game[i])
+    n_patch = sum(
+        1 for i in range(min(len(game), len(chip) - game_base)) if chip[game_base + i] != game[i]
+    )
     if n_patch:
         print(f"Note: {n_patch} WHDLoad-patched bytes in game binary region", file=sys.stderr)
 
-    delta  = make_delta(chip, game, game_base)
+    delta = make_delta(chip, game, game_base)
     packed = pack_whld(delta)
-    segs   = find_segments(delta)
-    total  = sum(e-s for s,e in segs)
+    segs = find_segments(delta)
+    total = sum(e - s for s, e in segs)
 
     print(f"Chip RAM    : {len(chip):,} bytes")
-    print(f"Code image  : {len(game):,} bytes @ ${game_base:06X}–${game_base+len(game)-1:06X}")
+    print(f"Code image  : {len(game):,} bytes @ ${game_base:06X}–${game_base + len(game) - 1:06X}")
     print(f"WHDLoad data: {total:,} bytes in {len(segs)} segments")
     for s, e in segs:
-        print(f"  ${s:06X}–${e-1:06X}  ({e-s:,} bytes)")
+        print(f"  ${s:06X}–${e - 1:06X}  ({e - s:,} bytes)")
     print(f"Packed      : {len(packed):,} bytes → {args.out}")
 
     os.makedirs(os.path.dirname(args.out) if os.path.dirname(args.out) else ".", exist_ok=True)
-    open(args.out, "wb").write(packed)
+    with open(args.out, "wb") as output:
+        output.write(packed)
 
     if args.verify:
         print("\nVerifying...")
         # HLE load order: clean code image first, then whdload_data on top
         restored = bytearray(CHIP_SIZE)
-        restored[game_base:game_base+len(game)] = game
-        whld = load_whld(open(args.out, "rb").read())
+        restored[game_base : game_base + len(game)] = game
+        with open(args.out, "rb") as source:
+            whld = load_whld(source.read())
         for i in range(CHIP_SIZE):
             if whld[i] != 0:
                 restored[i] = whld[i]
-        bad = [(i, chip[i], restored[i]) for i in range(min(len(chip), CHIP_SIZE))
-               if chip[i] != restored[i]]
+        bad = [
+            (i, chip[i], restored[i])
+            for i in range(min(len(chip), CHIP_SIZE))
+            if chip[i] != restored[i]
+        ]
         if bad:
             print(f"VERIFY FAILED: {len(bad)} mismatches")
             for i, exp, got in bad[:10]:

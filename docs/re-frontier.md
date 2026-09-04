@@ -39,7 +39,7 @@ Statuses: `re-verified`, `re-partial`, `in-progress`, `hack`, `authored`,
 - evidence: recovered `$150 d0=3` path loads and ATN-decompresses Disk.3 payload to `$003330`; the documented W6L2 win route reaches credits and natural exit
 - where: src/engine/overlay_load.c, src/port/overrides/boot.c, instructions/gameplay-engine-map.md
 - gap:
-- notes: Address reuse with IMG-TITLE is the mandatory cache/override discriminator.
+- notes: Address reuse with IMG-TITLE is the mandatory image/override discriminator.
 
 ## machine-services
 
@@ -47,8 +47,8 @@ Statuses: `re-verified`, `re-partial`, `in-progress`, `hack`, `authored`,
 - status: re-partial
 - deps: IMG-MAIN
 - evidence: existing accessors distinguish ordinary RAM from OCS/CIA regions and the PUAE harness observes chip-memory/device effects
-- where: src/engine/rt.c, src/engine/hw.c, docs/hardware-layer.md
-- gap: adapt the verified map to one complete amigaport CPU/memory/service contract and notify executable-image writes
+- where: target Benefactor/amigaport adapter, src/engine/hw.c, docs/hardware-layer.md
+- gap: adapt the verified map to one complete amigaport CPU/memory/service contract
 - notes:
 
 ### MACH-INTERRUPTS — Level 3/6 interrupt and frame service
@@ -59,20 +59,20 @@ Statuses: `re-verified`, `re-partial`, `in-progress`, `hack`, `authored`,
 - gap: reproduce full SR masking, supervisor state, exception frames/vectors, cycles, and bounded exits through amigaport
 - notes:
 
-### MACH-DYNAREC — Runtime 68000 execution
+### MACH-INTERPRETER — Runtime 68000 execution
 - status: todo
 - deps: MACH-MEMORY
 - evidence:
 - where: shared/amigaport plus Benefactor executor adapter
-- gap: implement complete PC/SR/exception/cycle state, runtime decoding/lowering, host emission, cache lifetime, and a separately built test interpreter
-- notes: The reduced generated-function context is not sufficient.
+- gap: integrate a maintained 68000 interpreter behind complete PC/SR/exception/cycle and typed memory/service boundaries
+- notes: The retired reduced CPU context is not sufficient.
 
-### MACH-IMAGE-ID — Four-generation cache and override identity
+### MACH-IMAGE-ID — Four-generation execution and override identity
 - status: todo
-- deps: IMG-CREDITS, MACH-DYNAREC
+- deps: IMG-CREDITS, MACH-INTERPRETER
 - evidence:
-- where: shared/amigaport cache keys and Benefactor image/override owner
-- gap: prove title and credits at `$003330` cannot share blocks or override decisions; cover reload, restore, and controlled-negative invalidation
+- where: shared/amigaport execution boundary and Benefactor image/override owner
+- gap: prove title and credits at `$003330` cannot share active-image or override decisions; cover reload, restore, and a controlled negative
 - notes:
 
 ## native-ownership
@@ -90,7 +90,7 @@ Statuses: `re-verified`, `re-partial`, `in-progress`, `hack`, `authored`,
 - deps: MACH-MEMORY
 - evidence: PUAE comparisons grounded word-aligned OCS blitter pointers, copper lists, framebuffer production, and four-channel Paula mixing; current host exposes faithful/native/Vulkan render paths
 - where: src/engine/hw_blitter.c, src/engine/hw_audio.c, src/render/
-- gap: reconform these service inputs and outputs through the dynarec product over representative gameplay
+- gap: reconform these service inputs and outputs through the interpreter product over representative gameplay
 - notes:
 
 ### NATIVE-GAME — Title, gameplay, UI, and enhancement owners
@@ -98,12 +98,12 @@ Statuses: `re-verified`, `re-partial`, `in-progress`, `hack`, `authored`,
 - deps: IMG-GAME
 - evidence: binary-derived addresses and host behavior are recorded in the gameplay map; native menu, level flow, input, camera, object capture, interaction, physics, and presentation routes exist
 - where: src/port/overrides/, src/port/, instructions/gameplay-engine-map.md
-- gap: move each generated-body call to image-aware runtime dispatch/scoped original calls and reconform it through the dynarec
+- gap: finish the declared image-aware runtime adapter, inject its registry, and reconform every native owner through the interpreter
 - notes: Authored enhancements remain distinguished from faithful replacements.
 
 ### NATIVE-ORIGINAL — Scoped original-call behavior
 - status: todo
-- deps: MACH-DYNAREC, NATIVE-GAME
+- deps: MACH-INTERPRETER, NATIVE-GAME
 - evidence:
 - where: Benefactor executor adapter and native override registry
 - gap: prove disabled, enabled, and scoped-original sequences with complete image identity and no recursion
@@ -116,13 +116,13 @@ Statuses: `re-verified`, `re-partial`, `in-progress`, `hack`, `authored`,
 - deps: MACH-MEMORY
 - evidence: the harness drives and inspects both legs, compares state/chip memory/frames, and has historical matched checkpoints plus known positive divergences
 - where: src/harness/, vendor/libretro-uae/, instructions/harness.md
-- gap: compare the shipping dynarec path with complete CPU/SR/exception/timing state and denominated translated execution/invalidation
+- gap: compare the shipping interpreter path with complete CPU/SR/exception/timing state and denominated instruction/service coverage
 - notes: Historical four-frame equality is not representative gameplay parity.
 
-### CONF-GAMEPLAY — Representative native/dynarec gameplay
+### CONF-GAMEPLAY — Representative native/interpreter gameplay
 - status: todo
 - deps: MACH-IMAGE-ID, MACH-INTERRUPTS, NATIVE-HARDWARE, NATIVE-ORIGINAL, CONF-HARNESS
 - evidence:
 - where: docs/migration.md
-- gap: pass the bounded cavern, transition, audio, interrupt, four-image, conformance, and host-performance retirement gate
-- notes: Only this step permits removal of the static pipeline.
+- gap: pass the bounded cavern, transition, audio, interrupt, four-image, and sustained-performance gates on x86-64, Apple Silicon macOS, and Android arm64-v8a
+- notes: The static pipeline is already absent; it cannot be restored while pursuing this step.

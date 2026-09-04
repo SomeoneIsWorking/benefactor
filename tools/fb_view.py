@@ -6,35 +6,45 @@ The dump dimensions MUST match HW_DISPLAY_W x HW_DISPLAY_H in hw.h (352x282).
 A wrong width shears every row incrementally -> diagonal "warp".
 
 Usage:
-  fb_view.py png <in.bin> <out.png>
-  fb_view.py scroll <pc_prefix> <puae_prefix> <n>   # logs/<prefix><i>.bin for i in 0..n-1
+  uv run --frozen python -m tools.fb_view png <in.bin> <out.png>
+  uv run --frozen python -m tools.fb_view scroll <pc_prefix> <puae_prefix> <n>
 """
-import sys, struct
+
+import struct
+import sys
+
+from tools.paths import HARNESS_ACTIVITY
 
 W, H = 352, 282
+
 
 def load(path):
     with open(path, "rb") as f:
         data = f.read()
-    px = struct.unpack("<%dI" % (W * H), data[: W * H * 4])
+    px = struct.unpack(f"<{W * H}I", data[: W * H * 4])
     return px
+
 
 def to_png(px, out):
     import zlib
+
     raw = bytearray()
     for y in range(H):
         raw.append(0)
         for x in range(W):
             v = px[y * W + x]
             raw += bytes(((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF))
+
     def chunk(typ, data):
         c = typ + data
         return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
     sig = b"\x89PNG\r\n\x1a\n"
     ihdr = struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)
     idat = zlib.compress(bytes(raw), 9)
     with open(out, "wb") as f:
         f.write(sig + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b""))
+
 
 def row_lum(px, y):
     """Sum luminance of a row (background is dark, text bright)."""
@@ -44,6 +54,7 @@ def row_lum(px, y):
         v = px[base + x]
         s += ((v >> 16) & 0xFF) + ((v >> 8) & 0xFF) + (v & 0xFF)
     return s
+
 
 def best_shift(prev, cur, y0, y1, maxsh=8):
     """Find vertical shift (rows) that best matches cur[y0:y1] to prev (cross-corr
@@ -65,6 +76,7 @@ def best_shift(prev, cur, y0, y1, maxsh=8):
                 bestd, best = d, sh
     return best
 
+
 def sad(a, b, dx, dy, y0, y1):
     """Sum of abs RGB diff of a vs b shifted by (dx,dy), over rows [y0,y1)."""
     s = 0
@@ -83,6 +95,7 @@ def sad(a, b, dx, dy, y0, y1):
             s += abs((va & 0xFF) - (vb & 0xFF))
     return s
 
+
 def best_align(pc, puae_list, j_center, jrange=3, shiftmax=3, y0=110, y1=230):
     """Find (j, dx, dy) minimizing SAD of pc vs puae_list[j] shifted, in the
     moving-object band. Returns (j, dx, dy, sad)."""
@@ -95,9 +108,11 @@ def best_align(pc, puae_list, j_center, jrange=3, shiftmax=3, y0=110, y1=230):
                     best = (j, dx, dy, s)
     return best
 
+
 def triptych(pc, puae, dx, dy, out):
     """PC | PUAE(shifted to align) | residual-heatmap, side by side."""
     import zlib
+
     OW = W * 3
     raw = bytearray()
     for y in range(H):
@@ -118,14 +133,17 @@ def triptych(pc, puae, dx, dy, out):
             db = abs((vp & 0xFF) - ((vu) & 0xFF))
             mag = dr + dg + db
             raw += bytes((min(255, mag), 0, 0)) if mag > 48 else bytes((20, 20, 20))
+
     def chunk(typ, data):
         c = typ + data
         return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
     sig = b"\x89PNG\r\n\x1a\n"
     ihdr = struct.pack(">IIBBBBB", OW, H, 8, 2, 0, 0, 0)
     idat = zlib.compress(bytes(raw), 9)
     with open(out, "wb") as f:
         f.write(sig + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b""))
+
 
 if __name__ == "__main__":
     cmd = sys.argv[1]
@@ -134,9 +152,11 @@ if __name__ == "__main__":
         print("wrote", sys.argv[3])
     elif cmd == "zoom":
         # zoom <in.bin> <out.png> <x0> <y0> <w> <h> <scale>
-        px = load(sys.argv[2]); out = sys.argv[3]
+        px = load(sys.argv[2])
+        out = sys.argv[3]
         x0, y0, w, h, sc = (int(sys.argv[i]) for i in range(4, 9))
         import zlib
+
         OW, OH = w * sc, h * sc
         raw = bytearray()
         for oy in range(OH):
@@ -146,37 +166,43 @@ if __name__ == "__main__":
                 sx = x0 + ox // sc
                 v = px[sy * W + sx] if 0 <= sx < W and 0 <= sy < H else 0
                 raw += bytes(((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF))
+
         def chunk(typ, data):
             c = typ + data
             return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
         with open(out, "wb") as f:
-            f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", OW, OH, 8, 2, 0, 0, 0))
-                    + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b""))
+            f.write(
+                b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", OW, OH, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+                + chunk(b"IEND", b"")
+            )
         print("wrote", out)
     elif cmd == "align":
-        # align <pc_prefix> <puae_prefix> <lo> <hi>  (logs/fb_pc_<pre><i>.bin)
+        # align <pc_prefix> <puae_prefix> <lo> <hi>
         pcp, pup, lo, hi = sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
         idx = list(range(lo, hi + 1))
-        pc = {i: load("logs/fb_pc_%s%d.bin" % (pcp, i)) for i in idx}
-        pu = {i: load("logs/fb_puae_%s%d.bin" % (pup, i)) for i in idx}
+        pc = {i: load(HARNESS_ACTIVITY / f"fb_pc_{pcp}{i}.bin") for i in idx}
+        pu = {i: load(HARNESS_ACTIVITY / f"fb_puae_{pup}{i}.bin") for i in idx}
         pulist = [pu[i] for i in idx]
         print("PCidx -> best PUAEidx  dx dy   residualSAD   (lower=better match)")
         for i in idx:
             j, dx, dy, s = best_align(pc[i], pulist, i - lo)
             jj = idx[j]
-            out = "logs/align_%s%02d.png" % (pcp, i)
+            out = HARNESS_ACTIVITY / f"align_{pcp}{i:02d}.png"
             triptych(pc[i], pu[jj], dx, dy, out)
-            print("%5d -> %5d  %3d %3d  %12d   %s" % (i, jj, dx, dy, s, out))
+            print(f"{i:5d} -> {jj:5d}  {dx:3d} {dy:3d}  {s:12d}   {out}")
     elif cmd == "scroll":
         pcp, pup, n = sys.argv[2], sys.argv[3], int(sys.argv[4])
-        pc = [load("logs/fb_pc_%s%d.bin" % (pcp, i)) for i in range(n)]
-        pu = [load("logs/fb_puae_%s%d.bin" % (pup, i)) for i in range(n)]
+        pc = [load(HARNESS_ACTIVITY / f"fb_pc_{pcp}{i}.bin") for i in range(n)]
+        pu = [load(HARNESS_ACTIVITY / f"fb_puae_{pup}{i}.bin") for i in range(n)]
         # text crawl bands (text scrolls UP -> negative shift)
         UT0, UT1, LT0, LT1 = 105, 165, 165, 230
         print("frame |  PC up  PC low | PU up  PU low   (vert shift rows, -=up)")
         for i in range(1, n):
-            pct = best_shift(pc[i-1], pc[i], UT0, UT1)
-            pcb = best_shift(pc[i-1], pc[i], LT0, LT1)
-            put = best_shift(pu[i-1], pu[i], UT0, UT1)
-            pub = best_shift(pu[i-1], pu[i], LT0, LT1)
-            print("%5d | %6s %6s | %6s %6s" % (i, pct, pcb, put, pub))
+            pct = best_shift(pc[i - 1], pc[i], UT0, UT1)
+            pcb = best_shift(pc[i - 1], pc[i], LT0, LT1)
+            put = best_shift(pu[i - 1], pu[i], UT0, UT1)
+            pub = best_shift(pu[i - 1], pu[i], LT0, LT1)
+            print(f"{i:5d} | {pct!s:>6s} {pcb!s:>6s} | {put!s:>6s} {pub!s:>6s}")

@@ -16,9 +16,9 @@ product intent, status, ownership, and execution order live in
 | `gpu-renderer-plan.md` | Vulkan and scene-path facts |
 | `benmotion-plan.md` | alternate-physics behavior and evidence |
 | `current-state.md` | accumulated dated evidence; not the project-state authority |
-| `run-harness.md` | PUAE driving details that remain useful to the independent oracle |
 | `scratchpad.md` | investigation-note discipline |
 
-Do not follow an old command, generated-function name, or static execution plan
-from these evidence notes. Translate the underlying address/ABI/behavior fact
-into the native/dynarec owners described by `docs/migration.md`.
+Do not follow retired CPU-build procedures from
+these evidence notes. Translate the underlying address/ABI/behavior fact into
+the native owner or the image-qualified `shared/amigaport` interpreter boundary
+described by `docs/migration.md`.
