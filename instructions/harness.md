@@ -135,36 +135,18 @@ hw_present_frame()                  ← snap captured HERE
 - Matching palette conversion to PUAE's 16-bit path (RGB12 -> RGB565 -> RGB888) reduced frame-1 diff from `5886` to `5499` pixels.
 - **DO NOT RE-EXAMINE** pure copper-list corruption as cause of frame-1 render mismatch while coplist words match; remaining errors are renderer decode/alignment quality.
 
-## Build & Run Commands (DO NOT CHANGE)
-```bash
-# Build harness
-cd <repo>/build && cmake --build . --target benefactor-harness -j$(nproc)
+## Dynarec migration use
 
-# Run harness (headless, 3 frames, 600 boot frames)
-cd <repo> && bash run_harness_headless.sh 2>&1 | tee logs/harness_run.txt
-
-# Run harness (interactive, 60 frames, 600 boot frames)
-cd <repo> && bash run_harness_interactive.sh
-
-# Run harness (indefinite interactive)
-cd <repo> && bash run_harness_interactive.sh --frames 0
-
-# Run recompiler tests
-cd <repo> && python3 tools/test_recomp.py
-```
-
-## Native Override Pattern
-```c
-// In pc_overrides.c:
-static void native_XXXXXX(M68KCtx *ctx) { /* C implementation */ }
-// Register in pc_register_overrides():
-rt_register_override(0xXXXXXXu, native_XXXXXX);
-```
-Use this for functions that: use hardware waits, have recompiler bugs, or need per-frame side effects like copper list rebuilds.
+These observations are historical evidence, not commands to run the retired
+static product. Adapt the PUAE side to the shipping dynarec only after the
+separately built first-block discriminator passes. Native overrides are
+registered by image generation plus guest address, and original calls execute
+through the dynarec as specified in `docs/migration.md`.
 
 ## Harness Architecture Note
 - **PUAE/libretro-uae is compiled INTO the harness binary** (all sources in `vendor/libretro-uae/` are built as one TU). You can freely add tracing, watchpoints, or printf inside PUAE code — just rebuild the harness target. It is not a prebuilt library you cannot touch.
-- `fprintf(stderr, ...)` is suppressed inside PUAE vendor code — use `write(2, buf, n)` for debug prints in PUAE context.
+- Vendor-side diagnostic adaptation must route through the harness logging
+  boundary; do not add direct stderr or `write(2)` output.
 
 ## Recompiler Fixes Applied (DO NOT RE-FIX)
 - `addq/subq` to An: no CCR update (An-dest no-flags).

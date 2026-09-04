@@ -1,53 +1,24 @@
 # Gameplay engine map
 
-The recompiled gameplay-engine bank (`$577000+`, file `src/engine/generated/game_gpl_*.c`,
-1075 functions) is the largest piece of code we don't own. This document tracks what
-each high-leverage routine does so we can replace them with native C one subsystem
-at a time. **Updated by walking the recompiled output + `pc_freeze.bin` state.**
+This document preserves recovered behavior and address evidence for the live
+gameplay image at `$577000+`. The retired generated corpus helped discover some
+facts, but is not a runtime, oracle, or workflow. Every non-native path now
+belongs to `shared/amigaport` dynamic translation; native ownership and scoped
+original calls use image-generation-aware runtime addresses. See
+`docs/migration.md`.
 
-## Object-handler dispatch coverage (how the bank reaches 60/60 levels)
+## Object-handler dispatch evidence
 
-The engine dispatches per-object handlers via `jmp (a1,d0.w)` (`$57D3EC`, `$58C64E`,
-…) where the handler address is computed from runtime object data — static descent
-can't follow it, and `table_search` resolves a runtime jump by EXACT address, so
-every handler must be registered at its true start. Coverage comes from three
-AUTO-DERIVED static passes (no play-testing dependence), wired in `recomp.py` for
-`bank=='gpl'`, plus a small structured seed tree for the irreducible remainder:
+The engine dispatches per-object handlers via `jmp (a1,d0.w)` (`$57D3EC`,
+`$58C64E`, …), with targets computed from runtime object data. Static analysis
+recovered pc-relative jump tables, installed handler pointers, `dc.l` tables,
+and canonical `movem` handler prologues, but the dynarec does not need a complete
+seed list: it decodes the reached target from live gameplay-image bytes. Invalid
+or unsupported targets fail with image generation, PC, and bytes.
 
-1. **Jump-table extraction** (`extract_jumptables.discover_jumptable_targets`): pc-rel
-   `jmp $BASE(pc,Dn.w)` offset tables, installed handler-pointer immediates, and `dc.l`
-   function-pointer tables (~207 targets).
-2. **Prologue-pin** (`discover_object_handlers` in `scanner.py`): the canonical handler
-   opening `movem (a0)/(a0)+/d(a0), <regs>` ($4C90/98/A8 .w, $4CD0/D8/E8 .l), pinned at
-   its exact start (~276 targets; recovered ~19 levels, 35→54).
-3. **Gap-fill** (phase 3 in `collect_functions`): every validated, terminated, emittable
-   block not already covered. `_emittable` rejects misdecoded data (e.g. `ori.b #x,ccr`
-   → `UNK_R_27`). ⚠️ Gap-fill ALONE regresses (54→35): it registers blocks at gap
-   *starts*, so a dispatch target inside a fall-through chain gets absorbed — its exact
-   address stops being a table entry → miss. Always pair it with the prologue-pin.
-
-What the passes CAN'T reach is the **structured seed tree** `tools/recomp/seeds/`
-(~430 entries, down from a flat 831-line file): the bulk are **mutually-terminating
-dispatch-stub tables** (`$59DDxx-$59E0xx`, `$585xxx`, `$596xxx`) where each stub decodes
-*through* its neighbours to a shared terminator — `_scan_func` only stops early when the
-next stub is already a known entry, so they can only be segmented when the whole set is
-seeded (they defeat static auto-segmentation). Plus a few non-`movem` / mis-aligned
-stragglers (`09-dispatch-stragglers.txt`). A seed may carry a name
-(`577000 game_overlay_entry`) → `gfn_gpl_577000_<name>` (with a bare-address alias in
-the header) to document the engine map; add names as routines are understood.
-
-Regen command:
-```
-python3 tools/recomp/recomp.py logs/gmem_after_load.bin --chip-dump \
-  --base 3000 --code-size 5A0000 --areg 5=57EE12 --bank gpl \
-  --out-dir src/engine/generated --seed-dir tools/recomp/seeds
-```
-After regen, `python3 tools/recomp/check_unregistered_targets.py` flags any literal
-`rt_jump/rt_call` target that isn't a function (seed the clean-code ones; PC-rel-index /
-skipdata results are data artifacts — don't seed). Verify with the level-entry sweep
-(fire past the level card into `cop1lc=$003484` gameplay, run frames + joystick): all 60
-levels must enter and survive with no `rt_call: NO FUNCTION ...`. Also
-`grep UNK src/engine/generated/game_gpl_*.c`.
+The historical 60-level sweep established 240 distinct object targets from the
+three runtime-built handler lists. Preserve those addresses as RE evidence and
+coverage labels, not as an executable discovery manifest.
 
 ## `$57D3EC` object dispatcher — decoded (2026-05-31)
 
@@ -547,35 +518,7 @@ loader does `movea.l next, a0; movea.l (a0), a0; jmp (a0)` — i.e. it dereferen
 the pointer (e.g. `$100`, the dest-pointer stack) and jumps to whatever address
 got pushed there.
 
-## Credits / end-game engine (`$3330` post-d0=3) — owned (basic)
-
-**Recompiled as a third bank.** `tools/recomp/recomp.py --bank credits --base 3330
---code-size 1888C --areg 5=355C --seed "$(cat tools/recomp/credits_seeds.txt)"`
-produces `game_credits_*.c` + `game_credits.h` + `game_credits_table.c` with
-14 functions (entry `$3330`, LVL3 ISR `$350A`, LVL6 ISR `$351C`, plus 11 reached
-by static descent). Wired into the build via `GP_GAME_SRCS` glob.
-
-Bank selection: `g_credits_active` (in `g_state`) is flipped on by
-`native_overlay_loader_reloc d0=3` together with clearing `g_gameplay_active`
-and `g_overlay_active`. `rt.c`'s `dispatch_lookup` prefers
-`g_fn_table_credits` when this flag is set; the IRQ-delivery in `pc.c`
-(`coro_deliver_timer_irq` + `pc_music_tick`) treats `g_credits_active` like
-the gameplay/overlay path so the credits-engine's own LVL3/LVL6 vectors fire
-each frame.
-
-Seeds live in `tools/recomp/credits_seeds.txt` — extend if rt-misses surface
-during the credits run. 2026-06-10: the victory-cutscene MUSIC driver was
-missing (silent credits) — its ISRs are installed by vector poke ($3AD2 LVL6
-timer RTE + $3B02 Paula register-copy leg) plus 10 jump-table replayer
-handlers; all found to fixpoint with the rewritten
-`tools/recomp/discover_indirect.py --seeds tools/recomp/credits_seeds.txt
---script <repl-file>` (collect [rt-miss] → append seeds → rebuild loop).
-
-Status: with the user's "marry-man-with-gear" savestate, the credits engine
-runs clean to natural exit (0 rt-misses). Exits by calling `$150 d0=2` which
-is still unhandled (would load the return-to-title overlay).
-
-## Credits / end-game engine (`$3330` post-d0=3) — original notes (kept for reference)
+## Credits / end-game engine (`$3330` post-d0=3)
 
 After `$150 d0=3` runs, the bytes at `$3330` are a **separate ~98KB credits/
 cutscene engine**, not the gameplay engine. First instructions:
@@ -592,45 +535,25 @@ $003376  move.l #$351c, $78.w     ; install own LVL6 IRQ
 $00338C  jsr (a5)                  ; main entry into credits engine
 ```
 
-It's a complete mini-game (own IRQ vectors, own state base, own copper). The
-recompiler hasn't seen these bytes — they only exist in chip RAM after the d0=3
-load. Reaching the credits / "you beat the game" cutscene **requires** one of:
+It is a complete image with its own IRQ vectors, state base, copper, and replayer.
+The production loader and historical W6L2 route establish that it runs to a
+natural exit after `d0=3`; `d0=2` is the return-to-title load path still needing
+runtime conformance. `amigaport` translates this live `$003330` image and must
+not reuse title-image blocks or overrides at the same address.
 
-1. **Separate recompiler bank**: capture chip dump after d0=3 load (`PC_DUMP_CREDITS=1` style hook), run recompiler with `--bank credits --base 3330 --code-size 1888C`, integrate the resulting `game_credits_*.c`, route rt dispatch to that bank when `g_overlay_active` is the credits flavour. Same shape as the existing gpl bank.
-2. **Native port** of the credits sequence (text scroll + animation playback).
-3. **Stub-out**: replace `$5773A2`'s `jmp $150` with a native "show end card / return to title" override. Loses original credits visuals.
+## Grounded native boundaries
 
-This is the gating issue for the W6L2 win-sequence crash the user observed:
-`$5773A2` is now correctly handled (via `native_overlay_loader_reloc d0=3` path
-that loads the chunk + jumps `$3330`), but `$3330` post-load has no recompiled
-function so dispatch rt-misses.
+Native disk streaming at `$577B8C`, Level 3/6 interrupt service, audio-shadow
+copy, loaders, menus, input, rendering hooks, object/camera capture, interaction,
+physics, and game-flow behavior have independent address and runtime evidence.
+The authoritative ownership summary is `docs/re-frontier.md` and registration
+remains in `src/port/overrides/register.c`.
 
-## Subsystems we DO own (overrides)
-
-These hook the gameplay bank via `pc_register_overrides()`:
-
-| Addr | Native fn | Notes |
-|------|-----------|-------|
-| `$577B8C` | `native_gp_disk_read` | The engine's "stream-from-disk" routine (raw MFM on hardware, file-read on PC). Critical — every per-level data load goes through this. |
-| `$003160` / `$0055A0` | timer ISR | LVL6 music tick (not gameplay-bank but interacts) |
-| `$0058C2` | audio-shadow copy | LVL6 second leg |
-
-That's it. Everything else in `$577000+` is recompiled.
-
-## Highest-leverage next ownership targets
-
-1. **`$5782B4` level decompressor** — owns per-level data loading; once native, we control
-   every byte of per-level state and can directly fill `$1890.w`, the `$59AC6C` jump
-   table, etc. instead of relying on opaque decompressed disk data.
-2. **`$57D79A` outer object-list walker** — small loop, well-bounded. Once native, every
-   object-handler dispatch goes through C we wrote, so weird `jmp(a0)` cases like
-   `$59AC5E` become explicit C code we can reason about.
-3. **`$577000` engine prologue** — one-shot, foundational, easy to verify (compare chip RAM
-   + register state after). Replaces the implicit "engine boots itself" magic with code we
-   wrote.
-
-(1) gives the biggest ownership win because it eliminates the "what does the engine think
-the level is?" black box. (3) is the safest first step because it's bounded and one-shot.
+Remaining guest behavior is not a native-port backlog. It executes through the
+dynarec unless a deliberately owned native replacement has recovered ABI and
+observable evidence. `$5782B4`, `$57D79A`, and `$577000` remain useful bounded
+RE targets, but are not required native rewrites merely to complete CPU
+coverage.
 
 ## Player movement & JUMP state machine (RE'd 2026-06-02)
 

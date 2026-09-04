@@ -1,22 +1,24 @@
-# Instructions
+# Benefactor recovered behavior notes
 
-Per-topic deep dives for the Benefactor PC port. These are reference documents — read them when you need detailed knowledge on a specific topic.
+These files contain durable title-specific reverse-engineering evidence. Active
+product intent, status, ownership, and execution order live in
+`docs/project-goals.md`, `docs/project-state.md`, `docs/codemap.md`, and
+`docs/migration.md`.
 
-| File | Topic |
-|------|-------|
-| `master-workflow.md` | Master workflow, self-evolution rules, debugging philosophy, key facts |
-| `current-state.md` | Active debugging state, current DIFFs, porting progress, recent findings |
-| `harness.md` | Established facts about the comparison harness (DO NOT RE-EXAMINE list) |
-| `run-harness.md` | How to run the harness and interpret its output |
-| `recompiler.md` | Recompiler usage, improvement targets, workflow |
-| `create-override.md` | Native override patterns and existing overrides table |
-| `rom-analysis.md` | How to disassemble and trace the M68K binary |
-| `scratchpad.md` | How to keep a debugging scratchpad to avoid circular reasoning |
-| `gameplay-engine-map.md` | Working RE map of the `$577000+` gameplay engine (per-frame loop, objects, a5 state vars) |
-| `audio-engine.md` | Full RE map of the gameplay audio engine (replayer + SFX) + native-port plan |
-| `widescreen-plan.md` | Widescreen gameplay plan (wide tile renderer + margin sprites) |
-| `gpu-renderer-plan.md` | Per-sprite GPU renderer plan (Scene draw list, SDL/Vulkan consumers) |
-| `rendering-overhaul-plan.md` | Three-renderer (Vanilla/Software/Hardware) + BenRen VK plan |
-| `benmotion-plan.md` | Native player-motion (flight/jump) port plan |
+| File | Evidence subject |
+| --- | --- |
+| `gameplay-engine-map.md` | gameplay execution, addresses, state, objects, transitions, and images |
+| `audio-engine.md` | replayer, SFX, Paula/CIA paths, and interrupt facts |
+| `harness.md` | PUAE comparison observations and confirmed root causes |
+| `rom-analysis.md` | title-specific binary analysis notes |
+| `widescreen-plan.md` | recovered world/view/culling facts and enhancement design |
+| `rendering-overhaul-plan.md` | current renderer ownership and presentation facts |
+| `gpu-renderer-plan.md` | Vulkan and scene-path facts |
+| `benmotion-plan.md` | alternate-physics behavior and evidence |
+| `current-state.md` | accumulated dated evidence; not the project-state authority |
+| `run-harness.md` | PUAE driving details that remain useful to the independent oracle |
+| `scratchpad.md` | investigation-note discipline |
 
-> **Self-evolution:** When understanding deepens, update the relevant file here. Add DO NOT RE-EXAMINE entries to `harness.md`. Keep `current-state.md` as a current snapshot, not a history.
+Do not follow an old command, generated-function name, or static execution plan
+from these evidence notes. Translate the underlying address/ABI/behavior fact
+into the native/dynarec owners described by `docs/migration.md`.

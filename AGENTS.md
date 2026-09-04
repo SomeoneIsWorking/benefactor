@@ -1,213 +1,142 @@
-# AGENTS.md — Benefactor Amiga → PC Port
+# Benefactor port — working agreement
 
-Self-evolving workflow: every session should improve tools, skills, or instructions. Build tools for painful manual tasks; extend the harness when comparisons are insufficient; store verified facts via `store_memory` (no markdown journals). If docs conflict with build scripts or harness behavior, trust the executable source.
+Benefactor is becoming one native/dynarec product. Hand-written native owners
+provide the host shell, disk loading, Amiga hardware services, rendering,
+audio, input, UI, and deliberately replaced game behavior. Every other 68000
+instruction must execute on demand from the player's authenticated disk images
+through `shared/amigaport`.
 
-**This file is self-evolving.** After every session with confirmed findings, update this file and `instructions/current-state.md`. Add confirmed root causes to `instructions/harness.md` under "DO NOT RE-EXAMINE". If a new divergence category is found, add it to `skills/diagnose-divergence.md`. If a new tool is built, update the relevant skill. The session protocol below is mandatory.
+The checked-out tree still contains an offline 68000-to-C pipeline and its
+generated-call runtime. They are migration input, not a supported product or
+oracle. Do not regenerate, build, launch, extend, or use that path for new
+evidence. It is removed only after the representative-gameplay gate in
+`docs/migration.md` passes.
 
----
+## Read before non-trivial work
 
-## Mandatory Session Protocol
+| Authority | Answers |
+| --- | --- |
+| `docs/project-goals.md` | durable product outcomes and success conditions |
+| `docs/project-state.md` | verified, partial, blocked, and missing capabilities; current focus |
+| `docs/migration.md` | the Benefactor-specific native/dynarec migration and retirement gate |
+| `docs/codemap.md` | subsystem ownership and where new work belongs |
+| `docs/re-frontier.md` | ordered binary-grounded execution and native-replacement facts |
+| `docs/issues/` | atomic work, findings, blockers, and dead ends |
+| `instructions/gameplay-engine-map.md` | recovered gameplay addresses and behavior |
+| `instructions/audio-engine.md` | recovered replayer, SFX, and interrupt behavior |
+| `instructions/harness.md` | durable PUAE comparison facts |
 
-### Session Start (do these BEFORE touching any code)
+Start with `../shared/re-harness/tools/info.py brief <terms>` and search
+`docs/issues/` before re-deriving an address, ABI, state transition, or failed
+approach.
 
-1. Read `instructions/current-state.md` — know the current harness status before any action.
-2. Build and run the harness: `bash run_harness_and_analyze.sh 2>&1 | tee logs/harness_run.txt`
-3. Check output: `grep -E "WATCH|DIFF|MATCH|auto-rc|CAUSE|FIX" logs/harness_run.txt`
-4. If `PERFECT MATCH` → skip to porting. If `DIFF` → read the `[auto-rc]` root cause output inline.
+## Non-negotiable execution contract
 
-### Session End (do these AFTER any state change)
+- Gameplay is native code plus `amigaport`'s on-demand 68000 dynarec. No build,
+  install, launcher, or package step emits guest C/C++, objects, or a
+  precompiled title substrate.
+- An interpreter may exist only in a separately built test/diagnostic target.
+  Gameplay must not link it, select it, or fall back to it. Build, link, and
+  selector checks enforce absence.
+- `amigaport` owns the complete 68000 architectural state: D0-D7, A0-A7, PC,
+  complete SR/CCR and supervisor/interrupt state, exception frames and vectors,
+  instruction semantics, translated-block lifetime, and bounded executor exits.
+  Benefactor must not keep a reduced parallel CPU model.
+- Benefactor owns disk identity and loading, the live memory/image map, OCS/CIA
+  services, title policy, native override registration, and host subsystems.
+- The four runtime images—main/intro, title/menu, gameplay, and credits—reuse
+  guest addresses. Cache and override identity therefore includes image
+  generation plus address. Loading or restoring an image invalidates every
+  affected translation before execution resumes.
+- A normal guest call observes overrides. A native override's scoped original
+  call suppresses only that override for one call and executes the original
+  guest body through the dynarec without recursion. It never names a generated
+  host function.
+- Unsupported guest behavior fails with the guest PC, image generation, and
+  decoded bytes. It never becomes a no-op, interpreter step, or address-specific
+  guessed translation.
+- New comparison evidence comes from PUAE/hardware, direct binary analysis, or
+  the separately linked test interpreter—not the retired generated-C path.
 
-1. Update `instructions/current-state.md` with: new harness status, what changed, what was confirmed.
-2. Add any newly confirmed root cause to `instructions/harness.md` under a `## Confirmed Root Cause Fixed` entry.
-3. If the session discovered a new divergence category or pattern, update `skills/diagnose-divergence.md`.
-4. If a new tool was built, update the relevant skill with usage instructions.
-5. Run `python3 tools/test_recomp.py` after any recompiler change.
+## Preserve the working seams
 
-### Self-Evolution Rules
+The CPU migration adapts the existing port instead of rewriting it.
 
-- Any tool that is painful to use manually → build a better one, update the skill.
-- Any instruction that proved wrong → correct it and mark the old assumption as falsified.
-- Any new confirmed fact → add to `instructions/harness.md` "DO NOT RE-EXAMINE" section.
-- After 3 falsified hypotheses in a row → write a scratchpad (`session/scratchpad.md`) before continuing.
-- If `AGENTS.md` itself is stale (facts changed) → update it in the same commit as the fix.
+- `src/engine/disk_boot.*` and `src/engine/overlay_load.*` retain the verified
+  disk, ATN decompression, relocation, and four-image activation behavior.
+- `src/engine/hw*` retains chip RAM, OCS/CIA, blitter, audio, and frame-service
+  behavior behind a narrow `amigaport` memory/service interface.
+- `src/port/overrides/` retains grounded native behavior. Generated-symbol calls
+  become address-and-image runtime calls and scoped original calls.
+- `src/render/`, input, UI, touch, configuration, packaging, and platform code
+  remain peer host owners. Renderer redesign is not a prerequisite for CPU
+  execution.
+- `src/harness/` and PUAE remain the independent differential oracle, adapted
+  to compare the shipping dispatcher, decoder, translated blocks, cache, and
+  invalidation rather than generated functions.
+- Existing captures and traces establish historical facts only. Current product
+  claims require the native/dynarec path and denominated reachability.
 
----
+## First dynarec discriminator
 
-## Project Identity
+Before gameplay composition, a separate diagnostic target must authenticate the
+player's disks, load the main image through the production loader, execute a
+bounded real 68000 block through `amigaport`, and compare it with the separately
+linked test interpreter or PUAE. Compare PC, all data/address registers, full SR,
+supervisor and interrupt state, exception/return state, stack, cycles, and every
+guest write. Require nonzero translated blocks and a controlled negative that
+the comparison rejects. This checkpoint does not authorize a mixed static/JIT
+gameplay executable.
 
-Static recompilation port of *Benefactor* (Amiga 68k → native C + SDL2). The 68k binary is translated once offline by a Python recompiler; at runtime there is no interpreter. Hardware I/O (OCS custom chips, CIA) is intercepted and emulated in SDL2.
+## Representative-gameplay retirement gate
 
-- **Module map (canonical):** see `docs/codebase-layout.md`. Briefly: `src/port/` =
-  native PC driver + overrides; `src/engine/` = recompiled M68K + Amiga HW model (+
-  `generated/`); `src/render/` = renderer; `src/common/` = shared headers; `src/harness/`
-  = differential PUAE test harness; `src/main.c` = entry point.
-- **Generated code (never edit manually):** `src/engine/generated/game_*.c` — regenerated
-  from the disks by `tools/regen.sh`; change `tools/recomp/` instead.
+The offline translator, generated corpus, static dispatcher, seeds, and
+static-only tests are removed together only after one frozen native/dynarec tree:
 
-## Exact Build / Run / Test Commands
+- provisions from the three authenticated disks without offline translation;
+- proves gameplay links the dynarec and no interpreter or generated guest body;
+- traverses main, title, gameplay, and credits image generations and exercises
+  an address reused by different images with positive and controlled-negative
+  cache/override identity checks;
+- executes native overrides and one scoped original call through the shipping
+  dispatcher without recursion;
+- reaches representative interactive cavern gameplay with movement,
+  interaction, enemies, level/world updates, rendering, SFX, music, interrupts,
+  a transition that reloads an image, and normal quit;
+- compares complete CPU, memory, exception/interrupt, timing, device-event,
+  audio, and frame checkpoints against PUAE or hardware; and
+- meets a declared frame-time/correctness budget on every released host.
 
-```bash
-# Build comparison harness (most common)
-cd <repo>/build
-cmake --build . --target benefactor-harness -j$(nproc)
+Boot, a logo, title/menu, a clean trace, four matching frames, or a single level
+entry is a checkpoint, not this gate.
 
-# Build standalone game executable
-cmake --build . --target benefactor-pc -j$(nproc)
+## Ownership and quality guardrails
 
-# Run headless harness (3 frames, 600 boot frames)
-cd <repo>
-bash run_harness_headless.sh 2>&1 | tee logs/harness_run.txt
+- Follow the self-contained structure in `docs/codemap.md`. In C, stateful
+  owners use opaque contexts and cohesive module APIs; in C++, use focused RAII
+  classes with constructor-injected dependencies and composition. Entry points
+  only compose owners.
+- New source files are capped at 1,200 lines. Existing oversized files may not
+  grow, and 2,000+ lines require extraction before extension. The normal
+  verifier must reject forbidden layer edges, direct stderr/debug output outside
+  the logging owner, and process-environment reads outside configuration.
+- Lucent is the one configurable process logger. Product modules emit one record
+  per call site through the logging boundary; no direct `printf`, `fprintf`,
+  `write(2)`, or debug-flag-wrapped logging.
+- One configuration owner parses CLI, environment/`.env`, files, defaults, and
+  precedence into immutable typed configuration. Other modules receive only the
+  fields they use and never call `getenv`.
+- Tests and diagnostics exercise production seams, report denominators, and
+  prove that they can show the opposite answer.
+- Build products live in `build/`; disposable diagnostics live in stable
+  `scratch/<activity>/` paths. Project automation is Python; `run.sh` is only
+  the thin locked-environment launcher. Never issue raw `rm` or `pkill`.
 
-# Quick filtered view
-grep -E "WATCH|SNAP|DIFF|ok$|MATCH" logs/harness_run.txt
+## Knowledge and landing
 
-# One-shot capture + analysis
-bash run_harness_and_analyze.sh
-
-# Run interactive side-by-side PUAE | PC display
-bash run_harness_interactive.sh
-
-# Run standalone game (not harness)
-./run_pc_game.sh --build
-
-# Recompiler tests (run before and after any recomp.py change)
-python3 tools/test_recomp.py
-
-# Force regenerate game.c/game.h (or just delete them and rebuild)
-python3 tools/recomp/recomp.py chip_ram_dump.bin --chip-dump \
-  --out-c src/engine/generated/game.c \
-  --out-h src/engine/generated/game.h
-```
-
-## Android / release ownership (2026-08-31)
-
-- `platforms/android/` owns the Android manifest, Gradle contract, and the title-specific
-  Storage Access Framework setup policy. It imports a user-selected `Disk.1`/`Disk.2`/`Disk.3`
-  folder through Lucent into app-private storage; no disk images are packaged.
-- `src/platform/android_bridge.c` owns the narrow JNI handoff from that setup flow to the C
-  runtime, establishes Lucent's app-private user-data directory, and reasserts the title's
-  landscape window policy after SDL creates its native window. It is not input code.
-- `src/port/touch_controls.cpp` owns the Android-only touch layout. It uses
-  `lucent::touch::Router` to capture/cancel contacts and emits the existing logical input
-  actions; `hw.c` remains the only hardware/action-resolution boundary. Any controller connect
-  cancels touch state and hides the visual controls; they return when the last controller leaves.
-- Build an APK with `BENEFACTOR_SDL2_DIR`, `BENEFACTOR_LUCENT_DIR`, `ANDROID_SDK_ROOT`, and
-  `BENEFACTOR_JAVA_HOME` (JDK 26) set: `python3 tools/build_android.py [--release]`. The source checkouts are explicit dependencies;
-  they are never vendored into this repository. The shared Android package helper resolves at
-  `../shared/android-port` or `BENEFACTOR_ANDROID_PORT_DIR`; it stages the ABI-matched
-  `libc++_shared.so` and the APK inspector requires it. `--release` requires the documented
-  signing environment variables and refuses an unsigned APK.
-- `tools/build_appimage.py` stages a disk-free AppImage. `platforms/appimage/AppRun` presents a
-  first-run folder picker (Zenity) and saves only the selected disk-folder path under XDG config.
-  Recompiler releases are built locally with the operator's `Disk.1`/`Disk.2`/`Disk.3` inputs and
-  uploaded manually as asset-free APK/AppImage artifacts; this project deliberately has no CI.
-
-**Prerequisites:** GCC 15.2, CMake 3.31, SDL2 (`libsdl2-dev`), Python 3.14 + `capstone` (`pip install capstone`).
-
-## Architecture & Boundaries
-
-```
-chip_ram_dump.bin (512 KB PUAE snapshot)
-      │
-      ▼
-recomp.py  (capstone 5.0, offline)
-      │
-      ▼
-src/engine/generated/game.c  – one native C function per 68k subroutine
-src/engine/generated/game.h  – forward decls + dispatch table
-      │
-      ├── src/engine/rt.c / rt.h  – memory routing, dispatch, M68KCtx
-      └── src/engine/hw.c / hw.h  – SDL2 hardware layer (OCS/CIA)
-```
-
-- `CMakeLists.txt` drives recompilation as a build step; deleting `game.c`/`game.h` triggers regeneration automatically.
-- `benefactor-harness` embeds the full PUAE/libretro-uae emulator (vendor submodule) plus the PC port and compares them frame-by-frame.
-- `benefactor-pc` is the standalone runtime; `run_pc_game.sh` is the canonical launcher.
-
-## Comparison Harness Workflow (Always Verify First)
-
-1. Build harness: `cd build && cmake --build . --target benefactor-harness -j$(nproc)`
-2. Run: `bash run_harness_and_analyze.sh 2>&1 | tee logs/harness_run.txt`
-3. If `PERFECT MATCH` → safe to port (replace a recompiled `gfn_` with native C).
-4. If `DIFF` → the harness **automatically** prints `[auto-rc]` root cause inline — read that first.
-   - `[auto-rc] CAUSE:` + `[auto-rc] FIX:` give the classification.
-   - Never skip to fixing code without reading the root cause output.
-   - Do not paper over divergences with hardcoded state or shortcuts.
-
-**Auto root-cause output appears inline — no need to run Python scripts manually after a DIFF.**
-
-**Harness evaluates three criteria per frame:**
-1. `cop1lc` equality
-2. Full copper list word content (`coplist[]` from `cop1lc`)
-3. Rendered framebuffer pixels
-
-**Cosmetic diffs (not harness failures):**
-- `bplcon0` / `bpl1mod` register shadow values (timing artifacts)
-- `palette[]` / `bplpt[]` snapshot values (PUAE frame-start vs PC frame-end)
-- `audio[n].vol` (incomparable by design)
-
-## Critical Conventions & Gotchas
-
-- **ONE code path — no committed A/B toggles, dual implementations, or fallbacks.** Don't ship `if (g_use_new) new(); else old();`, env-gated `RECOMP_A`/`RECOMP_B`-style variants, a coroutine path *and* a host-driven path, or a native override that keeps the recompiled body around as a live alternative. Pick the approach, make it the single path, and DELETE the one you don't want (code, flags, env reads, dead branches). A/B toggles are fine *transiently while developing/validating a change in the working tree*, but they must be collapsed to one path before committing — a committed toggle is tech debt and a second thing to keep working. (This overrides the recomp-overrides "keep the recomp body for A/B" guidance: keep it only during the diff, then delete it.)
-  - **The single permitted exception:** ONE global "overridden vs vanilla" switch, and only at the `rt_call` dispatch level — i.e. a master flag that makes `rt_call` either run native overrides or the plain recompiled body, for the WHOLE program at once. No per-feature/per-screen toggles. (Not implemented yet — do NOT add it preemptively; this just reserves the one allowed dual path.)
-- **Prefer ONE struct for global/module state, not many separate top-level variables.** Group related globals into a single struct instance (the established pattern is `GameState g_state` in `game_state.h`, with legacy-name `#define g_foo (g_state.foo)` accessors). One struct means one place to reset/snapshot/serialise (savestates), clearer ownership, and no scattered `extern` sprawl. When adding new global state, extend an existing state struct or introduce a small dedicated one — don't drop loose `int g_thing;` / `int g_other;` at file scope. (Applies to runtime state in `rt.c` too, e.g. the continuation-stack/yield state.)
-- **Hardware address routing:** `is_hw()` gates `$BFD000`, `$BFE000`, `$DFF000`. All other addresses are plain RAM.
-- **A5 = `$00531C`**, **A6 = `$00DFF002`** (hardware base offset by 2). Defined in `pc_internal.h`.
-- **Copper lists:** `$7BC8` = title screen; `$86CC` = gameplay. The game rebuilds them each frame.
-- **Always use `w16` for copper value-words.** `w32` across a copper instruction boundary corrupts the adjacent register word.
-- **Output paths are fixed** — use `logs/` for everything; never `/tmp/`.
-- **`fprintf(stderr, ...)` is suppressed inside PUAE vendor code** — use `write(2, buf, n)` for debug prints in PUAE context.
-- **PUAE/libretro-uae is compiled INTO the harness binary** (all sources in `vendor/libretro-uae/` are built as one TU). You can freely add tracing, watchpoints, or printf inside PUAE code — just rebuild the harness target. It is not a prebuilt library you cannot touch.
-- **Do not delete `src/engine/generated/game.c`** unless forcing a recompile.
-
-## Native Override Pattern
-
-Use this to replace a recompiled function with hand-written C:
-
-```c
-// In pc_overrides.c:
-static void native_XXXXXX(M68KCtx *ctx) { /* C implementation */ }
-
-// Register in pc_register_overrides():
-rt_register_override(0xXXXXXXu, native_XXXXXX);
-```
-
-Macros in `pc_internal.h`: `r8/r16/r32(addr)`, `w8/w16/w32(addr,v)`, `hw_write16(reg,v)`, `call_fn(ctx, addr)`, `A5`, `A6`.
-
-## Recompiler Workflow
-
-- Fix `recomp.py`, never `generated/game.c`.
-- Run `test_recomp.py` before and after changes (unit + artifact scopes must
-  pass; `RECOMP_SLOW=1` adds the regen determinism / reproduces-committed tests).
-- Regenerate, rebuild harness, verify with `run_harness_headless.sh`.
-
-## Debugging Loop (Never Fix a "Likely" Cause)
-
-```
-Observe → Hypothesize → Test → Eliminate → Repeat
-```
-
-**Always find the root problem through observable evidence.** Use logs, watchpoints, Python scripts, and the harness. If a tool doesn't exist to make the observation, build it first.
-
-**The core decision tree:**
-1. Analyze the problem and find the root cause
-2. Is it a recompiler bug? → Fix `recomp.py` (with a test)
-3. Is it an engine/hardware behavior issue? → Add a PC native override
-4. Are BOTH true? → Do BOTH: fix the recompiler AND create a PC native override
-
-Never shortcut this. Never paper over divergences with hardcoded state.
-
-## Where Knowledge Lives
-
-Consult these before asking the user:
-
-- `instructions/master-workflow.md` — master workflow, self-evolution rules, key facts
-- `instructions/current-state.md` — active debugging state, current DIFFs, porting progress
-- `instructions/scratchpad.md` — how to keep a debugging scratchpad to avoid circular reasoning
-- `instructions/*.md` — per-topic deep dives (harness, recompiler, divergence diagnosis, overrides, ROM analysis)
-- `skills/*.md` — action-oriented skills for ROM analysis, recompiler fixes, harness runs, divergence diagnosis, override creation, debug journaling
-- `docs/` — reference docs: `build-and-run.md`, `codebase-layout.md`, `hardware-layer.md`, `recompiler-notes.md`, `capstone-m68k-facts.md`
-
-**Keep `instructions/current-state.md` up to date** whenever harness status changes (new DIFF found, DIFF fixed, override added, root cause confirmed).
-
-**Start a scratchpad at `session/scratchpad.md`** when a divergence is not obvious after 10 minutes or when exploring parameter spaces.
+Update one nearest living authority when a fact changes. Project state owns
+capability coverage, the codemap owns placement, the frontier owns ordered RE
+grounding, and issues own atomic work. A verified milestone must leave no
+unexplained worktree changes and is committed and pushed on `main` by the
+operator after combined validation. Never commit or package original disks,
+Kickstart, WHDLoad files, derived guest code, or reconstructable game data.
