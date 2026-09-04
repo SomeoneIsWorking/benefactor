@@ -1,145 +1,197 @@
 # Project state
 
-## Current focus
-
-S005 is the current focus.
+This is the factual capability inventory for the intended Benefactor
+native/dynarec product. Goals are in `docs/project-goals.md`, execution order
+and gates in `docs/migration.md`, and atomic work in `docs/issues/`.
 
 ## Comparison baseline
 
-The baseline is the unmodified 1994 Amiga release running under a conventional emulator, including
-its original 320-pixel presentation, controls and jump behavior, password flow, floppy timing, and
-Amiga startup sequence.
+The user-facing baseline is the unmodified 1994 Amiga release under a
+conventional emulator: 320-pixel presentation, original controls and jump
+behavior, password flow, floppy timing, and Amiga startup.
+
+The implementation baseline is this repository's native host plus
+offline-generated 68000-to-C execution. That execution method is retired and
+must not be regenerated, built, or run for new evidence. Its durable binary,
+native-subsystem, and PUAE-harness facts define the frontier that the intended
+native/dynarec product must re-establish independently.
+
+## Current focus
+
+S005 is the current focus: establish `shared/amigaport` and integrate its
+runtime 68000 dynarec without disturbing the existing native host owners.
 
 ## Capability inventory
 
 | ID | Capability or outcome | State | Factual dependency | Goals |
 | --- | --- | --- | --- | --- |
-| S001 | The game boots and plays natively from player-supplied disks without an Amiga emulator in the shipping process | verified | — | G001 |
-| S002 | A native pause and options interface applies and persists modern settings without editing configuration files | verified | S001 | G001 |
-| S003 | Keyboard, hot-pluggable controllers, touch input, rebinding, and an optional alternate control scheme work in the shipping game | verified | S001 | G001 |
-| S004 | AppImage and Android releases provide no-terminal disk setup without packaging game assets | verified | S001 | G001 |
-| S005 | Recompiled M68K gameplay behavior is replaced by readable native engine subsystems | partial | S001 | G001 |
-| S006 | A side-by-side PUAE comparison harness and runtime debugging tools can drive, inspect, capture, and compare execution | verified | S001 | G001 |
-| S007 | Turbo, hyper, and hold-to-fast-forward increase game speed while music and sound effects remain at normal speed | verified | S001, S002 | G001 |
-| S008 | An optional platformer-physics model adds variable-height jumping, air control, momentum, and tunable motion while preserving classic physics | verified | S001, S002 | G001 |
-| S009 | A 60-level selector, completion progress, and level locks replace password entry | verified | S001, S002 | G001 |
-| S010 | Selectable native software and hardware renderers add ambient-darkness and character drop-shadow effects while retaining the faithful renderer | verified | S001, S002 | G001 |
-| S011 | True widescreen renders additional simulated world at 16:9, 21:9, or the live window width instead of stretching the original frame | verified | S001, S010 | G001 |
-| S012 | Native one-frame boot bypasses the Amiga startup sequence, and direct disk loading removes multi-second floppy loading waits | verified | S001 | G001 |
-| S013 | A free camera can detach from gameplay and pan in real time or while paused | verified | S001, S002, S011 | G001 |
-| S014 | The original Easy, Normal, and Hard difficulty selector is restored and usable from the main menu | verified | S001 | G001 |
-| S015 | Skip-intro, unlock-all-levels, and light-or-disabled fall-damage options provide cheats and accessibility controls | verified | S001, S002 | G001 |
-| S016 | Pickup and interaction reach can be extended independently of the selected control scheme | verified | S001, S002 | G001 |
-| S017 | Savestates, direct level entry, headless execution, frame profiling, and runtime probes support development and testing | verified | S001 | G001 |
-| S018 | Player-facing save slots include names, timestamps, and screenshot previews | missing | S017 | G001 |
-| S019 | Hold-to-rewind restores recent game states through a bounded savestate history | missing | S017 | G001 |
+| S001 | The complete game boots, transitions among all runtime images, and plays all 60 levels through the intended product | partial | S005, S023 | G001, G002 |
+| S002 | Native pause/options apply and persist modern settings in game | verified | — | G002 |
+| S003 | Keyboard, hot-pluggable controllers, touch, rebinding, and alternate controls share logical actions | verified | — | G002 |
+| S004 | AppImage and Android provide no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
+| S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | missing | S020 | G001 |
+| S006 | PUAE differential and interactive tools can drive, inspect, capture, and compare the port | verified | — | G001 |
+| S007 | Turbo, hyper, and hold-to-fast-forward change gameplay pace while audio remains at normal speed | verified | — | G002 |
+| S008 | Optional platformer physics provides variable jump, air control, momentum, and tunable motion while classic physics remains | verified | — | G002 |
+| S009 | A 60-level selector, completion progress, and locks replace password entry | verified | — | G002 |
+| S010 | Faithful, native software, and Vulkan renderers provide selectable lighting and shadow effects | verified | — | G002 |
+| S011 | 16:9, 21:9, and live-window widescreen reveal additional simulated world rather than stretching | verified | S010 | G002 |
+| S012 | Native boot and disk/decompression owners remove Amiga startup and floppy waits | verified | — | G002 |
+| S013 | Free camera pans in real time or while paused | verified | S011 | G002 |
+| S014 | Easy, Normal, and Hard selection is restored in the main menu | verified | — | G002 |
+| S015 | Skip intro, unlock all levels, and reduced/disabled fall damage are configurable | verified | — | G002 |
+| S016 | Pickup and interaction reach can be extended independently of control scheme | verified | — | G002 |
+| S017 | Savestates, direct level entry, headless driving, profiling, and runtime probes support development | partial | S020 | G002 |
+| S018 | Player-facing save slots provide names, timestamps, and screenshot previews | missing | S017 | G002 |
+| S019 | Hold-to-rewind restores recent states from a bounded history | missing | S017, S020 | G002 |
+| S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a qualified runtime dynarec | missing | — | G001 |
+| S021 | Image-generation-aware cache, overrides, and scoped original calls work across all four address-reusing images | missing | S005 | G001, G003 |
+| S022 | Gameplay build/link/selector surfaces contain no interpreter, generated guest body, or fallback | missing | S005 | G001, G003 |
+| S023 | Representative interactive gameplay conforms through native/dynarec execution on each released host | missing | S005, S021, S022 | G001, G002, G003 |
+| S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | missing | S023 | G001, G003 |
 
 ## Capability details
 
-### S001 — Native playable product
+### S001 — Complete game flow
 
-Evidence: the documented `benefactor-pc` product boots directly from the three validated disk images,
-reaches all 60 levels, and runs without PUAE, Kickstart, Workbench, or another Amiga emulator in the
-shipping process.
+The pre-migration native host has documented routes through the three disks,
+all 60 levels, title/gameplay transitions, game over, and ending/credits.
 
-### S002 — Native pause and options interface
+Gap: that frontier has not been re-established through the intended
+native/dynarec product; the old generated-C runs are not current product
+evidence.
 
-Evidence: the in-game pause surface provides Resume, Options, Retry, Exit to main menu, and Quit, and
-its Graphics, Controls, and Extra pages apply supported settings live and persist them to
-`benefactor.json`.
+### S002 — Native pause and options
 
-### S003 — Native and alternate input
+Evidence: the in-game pause UI provides Resume, Options, Retry, Exit to main
+menu, and Quit; supported Graphics, Controls, and Extra settings apply live and
+persist.
 
-Evidence: keyboard, SDL controller, and Android touch paths share logical actions; controllers are
-hot-pluggable; keyboard and controller bindings can be captured in game; and classic and alternate
-Interact/Drop control policies can be selected independently per device.
+### S003 — Unified input
+
+Evidence: keyboard, SDL controller, and Android touch feed logical actions;
+controllers hot-plug, bindings are captured in game, and classic/alternate
+Interact and Drop policies are selectable per device.
 
 ### S004 — Packaged setup
 
-Evidence: the AppImage selects a disk folder through a graphical first-run path and Android imports
-the validated three-disk set into private storage; neither package contains the disks. Android touch
-controls hide when a physical controller is connected and return when it disconnects.
+The AppImage graphical flow selects a disk folder and Android imports a
+validated three-disk set into private storage without packaging the disks.
 
-### S005 — Native engine ownership
+Gap: clean-machine packages must be rebuilt around the native/dynarec gameplay
+product and prove interpreter/generated-content absence.
 
-The renderer, blitter, audio, disk loading, decompression, menus, and selected game flows have native
-owners while the gameplay bank still contains mechanically translated M68K functions.
+### S005 — Native/dynarec execution
 
-Gap: replace the remaining recompiled gameplay behavior with readable, verified native subsystems.
+Missing capability: create and consume `shared/amigaport`, adapt the existing
+memory, disk-image, OCS/CIA, interrupt, and override boundaries, and execute
+every remaining guest path from live bytes through its dynarec. Issue #1.
 
-### S006 — Differential harness and debug tools
+### S006 — Independent oracle and control
 
-Evidence: the side-by-side PUAE harness can step or drive both executions, compare framebuffers and
-state, inspect scanlines and display windows, watch chip-memory access, locate readers and writers,
-capture screenshots and raw frames, manipulate inputs, and exercise savestate and level-entry paths.
+Evidence: the PUAE harness can step or drive both executions, compare frames and
+state, inspect display/chip memory, capture output, manipulate input, and reach
+savestate and level-entry paths.
 
-### S007 — Faster game speed with normal audio
+### S007 — Speed controls
 
-Evidence: Game Speed exposes Normal, Turbo, and Hyper pacing, while hold-to-fast-forward runs at 5x;
-the audio clock remains wall-time based so music and effects do not pitch up or accelerate.
+Evidence: Normal, Turbo, Hyper, and 5x hold-to-fast-forward change gameplay
+pacing while the audio clock remains wall-time based.
 
-### S008 — Alternate platformer physics
+### S008 — Alternate physics
 
-Evidence: Jump Physics switches live between Classic and Platformer. The native model owns rise and
-fall, variable-height cuts, air steering, momentum, terminal velocity, trampoline hand-off, wall
-feedback, carried-character trails, and the original animation and sound side effects.
+Evidence: Classic and Platformer policies are live-selectable; the native model
+owns variable-height rise/fall, air steering, momentum, terminal velocity,
+trampoline hand-off, collision feedback, animation, and sound side effects.
 
-### S009 — Level selection instead of passwords
+### S009 — Level selection
 
-Evidence: the main menu replaces Enter Password with a world-grouped selector for all 60 levels.
-Completion is persisted, finished levels are marked, locked levels are hidden as question marks, and
-the completion banner says Level Complete instead of showing the next password.
+Evidence: the main menu exposes all 60 levels by world, persists completion,
+marks finished levels, and enforces locks without password entry.
 
-### S010 — Native renderers and special effects
+### S010 — Renderer choices and effects
 
-Evidence: Graphics can switch among the faithful renderer, the native software renderer, and the
-native Vulkan hardware renderer. The hardware path exposes live ambient-darkness and character
-drop-shadow effects while the faithful path remains available for comparison.
+Evidence: the running host switches among faithful, native software, and Vulkan
+renderers and exposes ambient darkness and character drop shadows.
 
-### S011 — Unbounded-aspect widescreen
+### S011 — True widescreen
 
-Evidence: 16:9, 21:9, and Auto modes re-derive level tiles, objects, characters, and merry men beyond
-the original 320-pixel camera. Auto follows the window width at runtime; the result reveals additional
-simulated world rather than stretching the original image.
+Evidence: curated 16:9 and ultrawide captures plus native view/camera/object
+routes show additional simulated level tiles and actors with preserved source
+geometry rather than a stretched final frame.
 
-### S012 — Native boot and no floppy waits
+### S012 — Native boot and loading
 
-Evidence: launch enters the title flow in one frame without executing an Amiga ROM, Workbench, or
-floppy startup sequence. Native disk reads and ATN decompression replace timed MFM/Paula access, so
-the original multi-second Accessing waits do not become loading screens in the port.
+Evidence: the native disk/ATN owners enter title flow without Kickstart,
+Workbench, or timed floppy I/O and preserve the loader/relocation effects.
 
 ### S013 — Free camera
 
-Evidence: the Free Cam action detaches the widescreen camera for horizontal exploration, displays a
-camera indicator, and supports both real-time and paused panning policies.
+Evidence: the Free Cam action detaches the widescreen camera, exposes an
+indicator, pans horizontally, and supports running or paused policies.
 
-### S014 — Restored difficulty selection
+### S014 — Difficulty selector
 
-Evidence: left and right on Play Game cycle Easy, Normal, and Hard through the original difficulty
-state that was present but not wired into the port's menu flow.
+Evidence: left/right on Play Game cycles Easy, Normal, and Hard through the
+original difficulty state.
 
 ### S015 — Cheats and accessibility
 
-Evidence: the Extra options page can skip the intro, unlock every level, and select Vanilla, Light,
-or None fall damage. Fall-damage scaling preserves the original landing animation, sound, and state
-side effects.
+Evidence: Extra options can skip the intro, unlock levels, and select vanilla,
+light, or no fall damage while retaining landing animation/sound/state effects.
 
-### S016 — Configurable interaction reach
+### S016 — Interaction reach
 
-Evidence: the Controls page extends horizontal pickup and interaction reach without changing vertical
-reach, and the setting applies to both classic and alternate control schemes.
+Evidence: the Controls setting extends horizontal pickup/interaction windows
+without changing vertical reach and applies to both control schemes.
 
-### S017 — Savestates and runtime diagnostics
+### S017 — Runtime diagnostics
 
-Evidence: the executable supports save/load state, direct `--level` entry, headless execution, a
-frame-time profiler, framebuffer and scene probes, forced completion/game-over diagnostics, and the
-interactive control paths used by the comparison harness.
+The existing host supports save/load state, direct level entry, headless
+execution, frame profiling, framebuffer/scene probes, and interactive control.
 
-### S018 — Player-facing save slots
+Gap: savestate and CPU inspection currently encode the reduced generated-call
+context and must move to complete `amigaport` state; diagnostics must then
+exercise the shipping dynarec path.
 
-Missing capability: the existing single diagnostic savestate has no player-facing slot browser,
-names, timestamps, or framebuffer previews.
+### S018 — Save-slot UI
+
+Missing capability: provide a player-facing slot browser with names,
+timestamps, thumbnails, validation, and OS user-data storage.
 
 ### S019 — Rewind
 
-Missing capability: no bounded history of recent savestates or hold-to-rewind player action exists.
+Missing capability: provide a bounded recent-state history and hold-to-rewind
+action over complete image-aware runtime state.
+
+### S020 — Complete 68000 framework
+
+Missing capability: `shared/amigaport` must own full architectural PC and SR,
+all register/supervisor/interrupt state, exception frames/vectors, timing,
+decoder/lowering, host backends, executable memory, cache lifetime, and a
+separately linkable test interpreter. Issue #2.
+
+### S021 — Four-image runtime identity
+
+Missing capability: key translation and override decisions by main/title/
+gameplay/credits image generation plus address, invalidate on load/restore, and
+prove enabled/disabled/scoped-original behavior without recursion. Issue #3.
+
+### S022 — Product composition excludes old engines
+
+Missing capability: build/link/selector audits must prove gameplay contains no
+interpreter, interpreter-backed helper, generated guest function, static
+dispatcher, or fallback route.
+
+### S023 — Representative conformance
+
+Missing capability: pass the bounded interactive cavern scenario and four-image
+transition checks in `docs/migration.md`, including complete CPU, memory,
+exception/interrupt, timing, service, audio, frame, and host-performance
+evidence. Issue #4.
+
+### S024 — Static pipeline removed
+
+Missing capability: after S023 passes, delete the offline translator, generated
+corpus and build rules, static dispatcher, generation-only seeds, static-only
+tests, and stale methodology in one milestone without a compatibility mode.

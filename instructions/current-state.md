@@ -1,6 +1,12 @@
-# Benefactor PC Port — Current State
+# Benefactor accumulated evidence
 
-**Update this file whenever state changes. Not a journal — just the current truth.**
+This dated notebook preserves independently useful runtime, platform, renderer,
+audio, input, and harness observations from the pre-dynarec product. It is not
+the current-state or workflow authority; use `docs/project-state.md` and
+`docs/migration.md` for those. Any command, generated-function procedure,
+"next" item, or static-recompiler recommendation below is retired and must not
+be followed. Migrate only the underlying measured address, ABI, state, or
+behavior fact into the native/dynarec owners.
 
 ---
 
