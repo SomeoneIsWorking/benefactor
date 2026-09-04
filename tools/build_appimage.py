@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
+from tools.launcher import runtime_blocker
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,9 +33,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, default=ROOT / "build/clang")
     parser.add_argument("--appimagetool", type=Path)
-    parser.add_argument("--output", type=Path, default=ROOT / "build/release/Benefactor-x86_64.AppImage")
+    parser.add_argument(
+        "--output", type=Path, default=ROOT / "build/release/Benefactor-x86_64.AppImage"
+    )
     parser.add_argument("--stage-only", action="store_true")
     args = parser.parse_args()
+    blocker = runtime_blocker()
+    if blocker:
+        refuse(f"Benefactor gameplay product unavailable: {blocker}")
     build = args.build_dir.resolve()
     if not (build / "benefactor-pc").is_file():
         refuse(f"{build}/benefactor-pc is missing; build the desktop target first")
@@ -45,10 +51,11 @@ def main() -> int:
     environment = dict(os.environ)
     environment["DESTDIR"] = str(appdir)
     run(["cmake", "--install", str(build), "--prefix", "/usr"], environment=environment)
-    shutil.copy2(ROOT / "platforms/appimage/AppRun", appdir / "AppRun")
-    (appdir / "AppRun").chmod(0o755)
-    shutil.copy2(ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.desktop",
-                 appdir / "io.github.SomeoneIsWorking.benefactor.desktop")
+    (appdir / "AppRun").symlink_to("usr/bin/benefactor-pc")
+    shutil.copy2(
+        ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.desktop",
+        appdir / "io.github.SomeoneIsWorking.benefactor.desktop",
+    )
     icon = ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.svg"
     shutil.copy2(icon, appdir / ".DirIcon")
     shutil.copy2(icon, appdir / icon.name)

@@ -1,9 +1,9 @@
 # Gameplay engine map
 
 This document preserves recovered behavior and address evidence for the live
-gameplay image at `$577000+`. The retired generated corpus helped discover some
-facts, but is not a runtime, oracle, or workflow. Every non-native path now
-belongs to `shared/amigaport` dynamic translation; native ownership and scoped
+gameplay image at `$577000+`. Historical host-side observations are evidence,
+not a runtime, oracle, or workflow. Every non-native path now belongs to the
+`shared/amigaport` interpreter; native ownership and scoped
 original calls use image-generation-aware runtime addresses. See
 `docs/migration.md`.
 
@@ -12,8 +12,8 @@ original calls use image-generation-aware runtime addresses. See
 The engine dispatches per-object handlers via `jmp (a1,d0.w)` (`$57D3EC`,
 `$58C64E`, …), with targets computed from runtime object data. Static analysis
 recovered pc-relative jump tables, installed handler pointers, `dc.l` tables,
-and canonical `movem` handler prologues, but the dynarec does not need a complete
-seed list: it decodes the reached target from live gameplay-image bytes. Invalid
+and canonical `movem` handler prologues. The interpreter decodes each reached
+target from live gameplay-image bytes. Invalid
 or unsupported targets fail with image generation, PC, and bytes.
 
 The historical 60-level sweep established 240 distinct object targets from the
@@ -98,7 +98,7 @@ re-extract names. See [[reference_compare_tool]] (`lnames`/`levelinfo` REPL).
 ## Per-frame main loop — `$577114` callee list
 
 Each call is `jsr -$X(a5)`. **Status = OWNED if there's a native override registered**;
-otherwise we still run the recompiled function.
+otherwise the ordinary gameplay-image routine executes through the interpreter.
 
 Order is significant — the engine relies on subsystem A having run before subsystem B
 in the same frame. Don't reorder when native-porting.
@@ -247,7 +247,8 @@ plus a word *counter*:
   `$57D7CC`; 32-byte stride) — the only instance-unique key. The gfx descriptor A1
   is SHARED across instances of one object type — never key per-object state by it.
 
-`native_objdraw_capture` (gameplay.c) replicates this decision pre-super-call and
+`native_objdraw_capture` (gameplay.c) replicates this decision before its scoped
+call to the original image-address routine and
 keeps a node-keyed committed map so BenRen mirrors page persistence exactly
 (EMIT=commit live, PERSIST=render committed, CULL=live for the widescreen margins).
 The map is cleared on level load and `pc_loadstate`. The earlier c70636e attempt
@@ -277,7 +278,8 @@ word in the a4 `$5A43A0` queue) it instead writes the clean background buffer `$
 so dirty-rect restores keep the patch. Page row = (rec0+tbl)/46 = playfield-relative
 worldY (pf_top + row = view y, verified row 188 → y 201).
 **Owned:** `native_anim_patch` (gameplay.c, override of `$57D81C`) captures every record
-PRE-cull and delegates to the recomp body (vanilla byte-identical, verified);
+PRE-cull and delegates to the original gameplay-image routine (vanilla
+byte-identical, verified);
 `native_wswater_compose` (native_renderer.c) draws all patches as opaque 16×2 quads —
 this fixed the water line missing in BenRen (in view AND wide margins). REPL `wswater`
 dumps the capture; `WS_NOWATER=1` disables the compose.
@@ -550,7 +552,7 @@ The authoritative ownership summary is `docs/re-frontier.md` and registration
 remains in `src/port/overrides/register.c`.
 
 Remaining guest behavior is not a native-port backlog. It executes through the
-dynarec unless a deliberately owned native replacement has recovered ABI and
+interpreter unless a deliberately owned native replacement has recovered ABI and
 observable evidence. `$5782B4`, `$57D79A`, and `$577000` remain useful bounded
 RE targets, but are not required native rewrites merely to complete CPU
 coverage.
@@ -750,7 +752,8 @@ in zone, $f96 is presented clamped into the handler's own window so its check pa
 SHIFTED right by extend; nudging to the window edge made reach uneven because vanilla
 windows are arbitrary offset slices of the tile, e.g. the lever's [objX+4,objX+12].)
 Y ($f94) is never touched (horizontal-only by design). Logging: REPL `pklog`. Revert:
-`BENEFACTOR_RECOMP_PICKUP=1`.
+The old in-process comparison selector no longer exists; compare the native
+owner against PUAE or the separately built test oracle.
 
 ### Held-item USE / THROW / DROP system (for the X+Down drop port — task #9)
 
@@ -787,8 +790,8 @@ DROP execution = `$57EB20` ("place carried item at tile"): no input check of its
 it's *called only when fire+down+carrying* selected it (confirmed at runtime via the
 `BENEFACTOR_DBG_DROP` probe — `native_place_probe`, registered on `$57EB20`: fires with
 `$f80=$0022` (fire+down), `d4` bit1=down, `$1094!=0`; then clears `$1094`/`$109c` at
-`$57EBA2`). It's reached by `rt_jump` (so `rt_get_last_insn`=0), i.e. via the action
-state, NOT a literal `$f70` write or a direct `rt_call`.
+`$57EBA2`). It is reached by an image-qualified tail transfer from the action
+state, not by a literal `$f70` write or a direct subroutine call.
 
 **Port plan (task #9):** move the held-item-use ENTRY from FIRE to the interact key
 (same decoupling already done for pickup/levers), so interact+down drops / interact+

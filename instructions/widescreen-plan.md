@@ -184,7 +184,8 @@ re-implement every blitter quirk (phantom ASH columns, per-plane FILL) → endle
 That violates [[feedback_render_full_native_not_hybrid]]. DELETE it; render objects from the
 engine's own resolved per-object draw values instead.
 
-**The choke point = `$57D8D0`** (`gfn_gpl_57D8D0`, a registered/overridable fn). EVERY
+**The choke point = gameplay-image address `$57D8D0`** (a registered/overridable
+routine). EVERY
 "normal" object handler (`$59AC38` etc., the per-type animation-script VM) runs first
 (advancing the frame even off-screen — camera-independent) then `jmp -$1542(a5)` = `$57D8D0`.
 So at `$57D8D0` ENTRY the engine has each object's resolved values, BEFORE the camera-clip
@@ -208,8 +209,9 @@ Also: **special multi-tile path `$57D81C`** (high-bit objects, `(a1) bmi`) — a
 Both secondary; the normal `$57D8D0` path covers most objects (player/enemies/pickups).
 
 **Plan:** native override of `$57D8D0` → capture `{worldX=d0, worldY=d1, src=objGfxBase+d5,
-mod, w=SIZE&$3F, h=SIZE>>6, masked}` into a native per-frame list, then super-call the recomp
-body (vanilla center unaffected). Native renderer draws bg (tilemap, done) + this object list
+mod, w=SIZE&$3F, h=SIZE>>6, masked}` into a native per-frame list, then call the
+original `$57D8D0` routine through the scoped interpreter path (vanilla center
+unaffected). Native renderer draws bg (tilemap, done) + this object list
 at `(worldX-camera, worldY)` across the wide buffer — ONE renderer, no magic, no blit-replay.
 Verify wide=0 == vanilla (sprite decode must match the engine's `BLTCON0=$09F0` straight copy
 / cookie-cut for masked). Source spec verified by disasm of `logs/savestate.bin` (L9, file
@@ -324,15 +326,18 @@ back a minimal screen-overlay lifetime for banners, gated on the real state flag
 **Decorations (torches) culled where vanilla culls — FIXED (2026-06-05, list-A).** The cull is
 a per-object camera-window test in the WALKER, in TWO places (the RE first found only one):
 - `$57D804..$57D812` (main, $30/$170) — most objects. Widened in override `native_objstep`
-  ($57D7BC). `native_objwalk` ($57D79A) now ports the 6-instr setup then `rt_jump($57D7BC)`
-  so the override catches the first object (the recomp $57D79A inline-falls-through to $57D7BC).
+  ($57D7BC). `native_objwalk` ($57D79A) owns the six-instruction setup then makes
+  an image-qualified tail transfer to `$57D7BC`
+  so the override catches the first object (the original `$57D79A` routine
+  inline-falls-through to `$57D7BC`).
 - `$57D8B4..$57D8C8` (animated, $30/**$1b0**) — objects with a non-zero anim nibble go here via
   `and.w -$c(a1),d2; bne $57D8B4`. The **$06xxxx torches/teleporter/enemies take THIS path**;
   widening only the main cull left them popping out. Widened in override `native_objstep_b`.
 Both widen by `(out_w-320)/2` per side, **0 at the default 352** (gated `ow>HW_DISPLAY_W`) → the
 352 `wsobjs` capture is byte-identical to pre-fix (verified by diff). Each override leaves the
-Amiga stack exactly as the recomp fall-through (one a0 pushed; DISPATCH $57D816/$57D8CA push
-a2-a4, SKIP $57D8A8/$57D8F2 pop a0); recomp handlers + $57D8D0 draw unchanged. Verified L9 960px:
+Amiga stack exactly as the original fall-through (one a0 pushed; DISPATCH
+$57D816/$57D8CA push a2-a4, SKIP $57D8A8/$57D8F2 pop a0); original handlers and
+the `$57D8D0` draw remain unchanged. Verified L9 960px:
 torch at worldX 912 stays out to screenX −131 (was culled at −49). Multi-tile path ($57D826
 `cmpi.w #$150`) is still narrow → issue #1 (Marry Men), separate.
 
@@ -461,10 +466,10 @@ Two things must each become wider than the game makes them:
 
 ## Approaches
 
-**A. Widen the engine's blit (shortcut, fights the recompiled engine).** Override the
+**A. Widen the engine's blit (shortcut, fights the guest engine).** Override the
 scroll/tile-blit setup so the game blits a wider region into a wider bitplane buffer
 (wider DDFSTOP, modulos, double-buffer allocation), then render that. Pro: reuses the
-game's exact tile blit. Con: deep surgery in recompiled scroll code; buffer sizes,
+game's exact tile blit. Con: deep surgery in guest scroll behavior; buffer sizes,
 BPL2MOD, DIW/DDF, page-flip all have to widen consistently; high risk of subtle scroll
 corruption. Good for a quick experiment, poor as the final design.
 
@@ -541,7 +546,8 @@ instead of reading ground truth:
   tail-jumps here (continuation after `jmp (a1,d0.w)` dispatch at `$57D3F0`), so it's hit
   ONCE PER CHARACTER with resolved values live, BEFORE the `[cam, cam+$180]` clip. It builds
   6-long descriptors into TWO queues consumed by executors `$57D6C4` (small chars) and
-  `$57D688` (the w=3 walkers). Capture at entry, super-call. Regs: `d0`=worldX, `d1`=worldY,
+  `$57D688` (the w=3 walkers). Capture at entry, then make a scoped call to the
+  original image-address routine. Regs: `d0`=worldX, `d1`=worldY,
   `d5`=anim frame offset, `a1`=descriptor.
 - **Descriptor `a1`:** maskoff=`MR16(a1+0)`; BMOD=`(int16)MR16(a1+2)` (modulos hi word);
   SIZE=`MR16(a1+8)` → w=`&$3F` words, h=`>>6`; gfxBase=`MR32(a1+$A)`.

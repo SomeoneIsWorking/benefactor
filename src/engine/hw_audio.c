@@ -1,20 +1,22 @@
 /*
- * recomp/hw_audio.c  –  Amiga OCS audio channel simulation
+ * hw_audio.c  –  Amiga OCS audio channel simulation
  *
  * Implements SDL2-backed audio mixing for the 4 Amiga audio DMA channels.
  * Audio is triggered by writes to AUDxDAT in hw.c's hw_write16().
  */
 
+#include "common/log.h"
 #include "engine/hw_private.h"
-#include <string.h>
+#include "port/config.h"
 #include <stdio.h>
+#include <string.h>
 
 /* OCS audio register offsets (local, relative to DFF000) */
-#define _AUD0LCH  0x0A0
-#define _AUD0LCL  0x0A2
-#define _AUD0LEN  0x0A4
-#define _AUD0PER  0x0A6
-#define _AUD0VOL  0x0A8
+#define _AUD0LCH 0x0A0
+#define _AUD0LCL 0x0A2
+#define _AUD0LEN 0x0A4
+#define _AUD0PER 0x0A6
+#define _AUD0VOL 0x0A8
 
 /* State definitions (declared extern in hw_private.h, defined in hw.c) */
 
@@ -24,18 +26,16 @@
  * per output sample tick += PAULA_CLOCK_PAL, advance while tick >= period*OUTPUT_RATE.
  * (Using a rounded 3546895/22050≈161 drifts ~0.09%, ~20 samples/s — audible desync.) */
 #define PAULA_CLOCK_PAL 3546895
-#define OUTPUT_RATE     22050
+#define OUTPUT_RATE 22050
 
 /* Live register reads for one channel (Paula reads these continuously). */
-static inline uint32_t aud_lc(int ch)
-{
+static inline uint32_t aud_lc(int ch) {
     int b = _AUD0LCH + ch * 0x10;
     return (((uint32_t)s_regs[b >> 1] << 16) | s_regs[(b + 2) >> 1]) & 0xFFFFFF;
 }
 static inline uint16_t aud_len(int ch) { return s_regs[(_AUD0LCH + ch * 0x10 + 4) >> 1]; }
 static inline uint16_t aud_per(int ch) { return s_regs[(_AUD0LCH + ch * 0x10 + 6) >> 1]; }
-static inline uint8_t  aud_vol(int ch)
-{
+static inline uint8_t aud_vol(int ch) {
     uint8_t v = (uint8_t)(s_regs[(_AUD0LCH + ch * 0x10 + 8) >> 1] & 0x7F);
     return v > 64 ? 64 : v;
 }
@@ -53,31 +53,37 @@ static inline uint8_t  aud_vol(int ch)
  * flag ($57fe4e/$57fe4f) is set. Faithful — same bytes Paula would play, minus the
  * chunk-follow artifact. */
 typedef struct {
-    int      active;
-    uint32_t ptr;        /* current byte address in g_mem        */
-    int      rem;        /* bytes left in the current span       */
-    uint32_t loop_ptr;   /* loop restart addr (loop_len>0)       */
-    int      loop_len;   /* loop span in bytes (0 = one-shot)    */
-    int      period;     /* Paula period                         */
-    uint8_t  vol;        /* 0..64                                */
-    int64_t  tick;       /* exact-rate accumulator               */
+    int active;
+    uint32_t ptr;      /* current byte address in g_mem        */
+    int rem;           /* bytes left in the current span       */
+    uint32_t loop_ptr; /* loop restart addr (loop_len>0)       */
+    int loop_len;      /* loop span in bytes (0 = one-shot)    */
+    int period;        /* Paula period                         */
+    uint8_t vol;       /* 0..64                                */
+    int64_t tick;      /* exact-rate accumulator               */
 } SfxVoice;
 static SfxVoice s_sfx[2];
 
 /* Start a native SFX voice on ch (0/1). len_bytes = total one-shot length;
  * loop_len>0 makes it loop from loop_ptr after the first pass. */
-void hw_audio_sfx_play(int ch, uint32_t ptr, int len_bytes, int period,
-                       uint8_t vol, uint32_t loop_ptr, int loop_len)
-{
-    if (ch < 0 || ch > 1 || len_bytes <= 0) return;
+void hw_audio_sfx_play(int ch, uint32_t ptr, int len_bytes, int period, uint8_t vol,
+                       uint32_t loop_ptr, int loop_len) {
+    if (ch < 0 || ch > 1 || len_bytes <= 0)
+        return;
     SfxVoice *v = &s_sfx[ch];
-    v->ptr = ptr;  v->rem = len_bytes;
-    v->loop_ptr = loop_ptr;  v->loop_len = loop_len;
+    v->ptr = ptr;
+    v->rem = len_bytes;
+    v->loop_ptr = loop_ptr;
+    v->loop_len = loop_len;
     v->period = period > 0 ? period : 1;
     v->vol = vol > 64 ? 64 : vol;
-    v->tick = 0;  v->active = 1;
+    v->tick = 0;
+    v->active = 1;
 }
-void hw_audio_sfx_stop(int ch) { if (ch >= 0 && ch < 2) s_sfx[ch].active = 0; }
+void hw_audio_sfx_stop(int ch) {
+    if (ch >= 0 && ch < 2)
+        s_sfx[ch].active = 0;
+}
 
 /* Benefactor's music driver uses DMA-streaming audio: it enables audio DMA once
  * (before our chip-RAM save-state was captured) and thereafter only updates
@@ -85,61 +91,77 @@ void hw_audio_sfx_stop(int ch) { if (ch >= 0 && ch < 2) s_sfx[ch].active = 0; }
  * DMA: a channel plays its current sample, and at each loop boundary reloads the
  * pointer/length from the *live* registers (which the driver keeps swapping to
  * stream the next sample).  Period and volume are read live every callback. */
-static void hw_audio_mix(short *buf, int nsamples)
-{
-    static int s_only_ch = -2;   /* AUDCH_ONLY: render only this channel (debug) */
-    if (s_only_ch == -2) { const char *e = getenv("AUDCH_ONLY"); s_only_ch = e ? atoi(e) : -1; }
-    /* AUDIO_SFX_ONLY: isolate SFX from music for capture WITHOUT freezing the CIA
-     * timer (BENEFACTOR_MUTE_MUSIC gates LVL6, stalling GET READY + SFX output).
+static void hw_audio_mix(short *buf, int nsamples) {
+    static int s_only_ch = -2;
+    if (s_only_ch == -2)
+        s_only_ch = pc_cfg_int("audio_channel_only", -1);
+    /* audio_sfx_only: isolate SFX from music for capture WITHOUT freezing the CIA
+     * timer (mute_music gates LVL6, stalling GET READY + SFX output).
      * SFX now lives in the native voices below; this just drops the music (the
      * normal hw_audio channels). */
     static int s_sfx_only = -2;
-    if (s_sfx_only == -2) s_sfx_only = getenv("AUDIO_SFX_ONLY") ? 1 : 0;
+    if (s_sfx_only == -2)
+        s_sfx_only = pc_cfg_bool("audio_sfx_only", 0);
     extern uint8_t *g_mem;
     for (int ch = 0; ch < 4; ch++) {
-        if (s_only_ch >= 0 && ch != s_only_ch) continue;
+        if (s_only_ch >= 0 && ch != s_only_ch)
+            continue;
 
         /* Native SFX voice owns ch0/ch1 while the engine's SFX-pending flag is set
          * ($57fe4e / $57fe4f). It mixes onto Paula's fixed pan (ch0 left, ch1
          * right) and replaces the streamer-fed channel for that channel. */
         if (ch < 2) {
-            SfxVoice *v   = &s_sfx[ch];
-            uint8_t   flg = (ch == 0) ? g_mem[0x57fe4e] : g_mem[0x57fe4f];
-            if (v->active && !flg) v->active = 0;   /* engine ended the sound */
+            SfxVoice *v = &s_sfx[ch];
+            uint8_t flg = (ch == 0) ? g_mem[0x57fe4e] : g_mem[0x57fe4f];
+            if (v->active && !flg)
+                v->active = 0; /* engine ended the sound */
             if (v->active) {
                 int64_t step = (int64_t)v->period * OUTPUT_RATE;
-                int     side = (ch == 0) ? 0 : 1;   /* ch0 -> left, ch1 -> right */
+                int side = (ch == 0) ? 0 : 1; /* ch0 -> left, ch1 -> right */
                 for (int i = 0; i < nsamples && v->active; i++) {
                     int8_t sample = (v->ptr < RT_MEM_SIZE) ? (int8_t)g_mem[v->ptr] : 0;
-                    int s   = sample * v->vol;
-                    int idx = i*2 + side;
-                    int vv  = buf[idx] + s;
-                    if (vv > 32767) vv = 32767; else if (vv < -32768) vv = -32768;
+                    int s = sample * v->vol;
+                    int idx = i * 2 + side;
+                    int vv = buf[idx] + s;
+                    if (vv > 32767)
+                        vv = 32767;
+                    else if (vv < -32768)
+                        vv = -32768;
                     buf[idx] = (short)vv;
                     v->tick += PAULA_CLOCK_PAL;
                     while (v->tick >= step) {
                         v->tick -= step;
                         v->ptr++;
                         if (--v->rem <= 0) {
-                            if (v->loop_len > 0) { v->ptr = v->loop_ptr; v->rem = v->loop_len; }
-                            else { v->active = 0; break; }
+                            if (v->loop_len > 0) {
+                                v->ptr = v->loop_ptr;
+                                v->rem = v->loop_len;
+                            } else {
+                                v->active = 0;
+                                break;
+                            }
                         }
                     }
                 }
-                continue;   /* voice replaces the streamer-fed channel this frame */
+                continue; /* voice replaces the streamer-fed channel this frame */
             }
         }
 
-        if (s_sfx_only) continue;   /* SFX isolation: only the native voices play */
+        if (s_sfx_only)
+            continue; /* SFX isolation: only the native voices play */
 
         AudioChannel *a = &s_audio[ch];
-        if (!a->active) continue;
+        if (!a->active)
+            continue;
 
-        uint8_t  vol    = aud_vol(ch);
-        int      period = aud_per(ch) > 0 ? aud_per(ch) : 1;
-        int      total  = (int)a->len * 2;   /* bytes in current sample */
-        if (total <= 0) { a->active = 0; continue; }
-        int64_t  step   = (int64_t)period * OUTPUT_RATE;
+        uint8_t vol = aud_vol(ch);
+        int period = aud_per(ch) > 0 ? aud_per(ch) : 1;
+        int total = (int)a->len * 2; /* bytes in current sample */
+        if (total <= 0) {
+            a->active = 0;
+            continue;
+        }
+        int64_t step = (int64_t)period * OUTPUT_RATE;
 
         for (int i = 0; i < nsamples; i++) {
             a->tick += PAULA_CLOCK_PAL;
@@ -150,23 +172,33 @@ static void hw_audio_mix(short *buf, int nsamples)
                     /* Loop boundary: reload from live registers (DMA stream). */
                     a->ptr = aud_lc(ch);
                     a->len = aud_len(ch);
-                    total  = (int)a->len * 2;
+                    total = (int)a->len * 2;
                     a->pos = 0;
-                    if (total <= 0) { a->active = 0; break; }
+                    if (total <= 0) {
+                        a->active = 0;
+                        break;
+                    }
                 }
             }
-            if (!a->active) break;
+            if (!a->active)
+                break;
             uint32_t raddr = a->ptr + (uint32_t)a->pos;
-            if (raddr >= RT_MEM_SIZE) { a->active = 0; break; }
+            if (raddr >= RT_MEM_SIZE) {
+                a->active = 0;
+                break;
+            }
             int8_t sample = (int8_t)g_mem[raddr];
             /* 8-bit signed (±128) * vol(0-64) = ±8192 per channel. Amiga stereo:
              * channels 0 and 3 are routed to the LEFT output, channels 1 and 2
              * to the RIGHT (Paula's fixed hardware panning). Two channels per
              * side sum to ±16384, well within int16. */
             int s = sample * vol;
-            int idx = (ch == 0 || ch == 3) ? (i*2+0) : (i*2+1);
+            int idx = (ch == 0 || ch == 3) ? (i * 2 + 0) : (i * 2 + 1);
             int v = buf[idx] + s;
-            if (v >  32767) v =  32767; else if (v < -32768) v = -32768;
+            if (v > 32767)
+                v = 32767;
+            else if (v < -32768)
+                v = -32768;
             buf[idx] = (short)v;
         }
     }
@@ -176,14 +208,13 @@ static void hw_audio_mix(short *buf, int nsamples)
      * rests on one side makes that side drop out, while PUAE keeps it cushioned by
      * ~19% bleed from the other side (the gp title's left "break"). */
     for (int i = 0; i < nsamples; i++) {
-        int l = buf[i*2+0], r = buf[i*2+1];
-        buf[i*2+0] = (short)((l * 26 + r * 6) / 32);
-        buf[i*2+1] = (short)((r * 26 + l * 6) / 32);
+        int l = buf[i * 2 + 0], r = buf[i * 2 + 1];
+        buf[i * 2 + 0] = (short)((l * 26 + r * 6) / 32);
+        buf[i * 2 + 1] = (short)((r * 26 + l * 6) / 32);
     }
 }
 
-void hw_audio_callback(void *userdata, Uint8 *stream, int len)
-{
+void hw_audio_callback(void *userdata, Uint8 *stream, int len) {
     (void)userdata;
     short *buf = (short *)stream;
     int nsamples = len / (int)sizeof(short) / 2;
@@ -193,70 +224,70 @@ void hw_audio_callback(void *userdata, Uint8 *stream, int len)
 
 /* Render nsamples of stereo PCM from the current channel state (for offline
  * capture/comparison, e.g. the harness). Same path as the SDL callback. */
-void hw_audio_render(short *buf, int nsamples)
-{
+void hw_audio_render(short *buf, int nsamples) {
     memset(buf, 0, (size_t)nsamples * 2 * sizeof(short));
     hw_audio_mix(buf, nsamples);
 
-    /* Diagnostic tap (env AUDIO_DUMP=path): append the rendered PCM so a headless
+    /* Diagnostic tap (audio_dump=path): append the rendered PCM so a headless
      * run can be checked for non-silence (the SDL queue is dead in headless). */
-    const char *dp = getenv("AUDIO_DUMP");
-    if (dp) {
-        FILE *f = fopen(dp, "ab");
-        if (f) { fwrite(buf, sizeof(short), (size_t)nsamples * 2, f); fclose(f); }
+    char dump_path[512];
+    if (pc_cfg_string("audio_dump", "", dump_path, sizeof dump_path) && dump_path[0]) {
+        FILE *f = fopen(dump_path, "ab");
+        if (f) {
+            fwrite(buf, sizeof(short), (size_t)nsamples * 2, f);
+            fclose(f);
+        }
     }
 }
 
 /* Start (or restart) a channel from its current registers. */
-static void hw_audio_start(int ch)
-{
+static void hw_audio_start(int ch) {
     AudioChannel *a = &s_audio[ch];
-    a->ptr    = aud_lc(ch);
-    a->start  = a->ptr;
-    a->len    = aud_len(ch);
+    a->ptr = aud_lc(ch);
+    a->start = a->ptr;
+    a->len = aud_len(ch);
     a->period = aud_per(ch);
-    a->vol    = aud_vol(ch);
-    a->pos    = 0;
-    a->tick   = 0;
+    a->vol = aud_vol(ch);
+    a->pos = 0;
+    a->tick = 0;
     a->active = 1;
 }
 
 /* AUDxLEN write: the driver points the channel at a sample.  If the channel is
  * not already streaming, start it now; if it is, the new LC/LEN are picked up at
  * the next loop boundary (matching Paula's reload-on-completion behavior). */
-void hw_audio_dma_kick(int ch)
-{
-    if (s_audio[ch].active) return;
-    if (aud_len(ch) == 0) return;
+void hw_audio_dma_kick(int ch) {
+    if (s_audio[ch].active)
+        return;
+    if (aud_len(ch) == 0)
+        return;
     hw_audio_start(ch);
 }
 
 /* AUDxDAT write: explicit one-shot kick (rarely used by this game). */
-void hw_audio_trigger(int ch)
-{
-    hw_audio_start(ch);
-}
+void hw_audio_trigger(int ch) { hw_audio_start(ch); }
 
 /* Restart all channels from the current register shadows. Used after the harness
  * seeds the Paula registers from PUAE's sync-point state, so each channel's live
  * playback pointer/length matches the seeded AUDxLC/LEN. Channels with LEN==0 are
  * left inactive (silent). */
-void hw_audio_resync(void)
-{
+void hw_audio_resync(void) {
     for (int ch = 0; ch < 4; ch++) {
-        if (aud_len(ch) == 0) { s_audio[ch].active = 0; continue; }
+        if (aud_len(ch) == 0) {
+            s_audio[ch].active = 0;
+            continue;
+        }
         hw_audio_start(ch);
     }
 }
 
-int hw_audio_open(void)
-{
+int hw_audio_open(void) {
     SDL_AudioSpec want;
     SDL_memset(&want, 0, sizeof(want));
-    want.freq     = 22050;
-    want.format   = AUDIO_S16SYS;
+    want.freq = 22050;
+    want.format = AUDIO_S16SYS;
     want.channels = 2;
-    want.samples  = 512;
+    want.samples = 512;
     /* Queue (push) mode: the game loop renders each frame's audio itself and
      * pushes it via hw_audio_queue(), delivering the gp music ISR in sub-frame
      * chunks so the CIA-timer-driven song plays at full tempo (a pull callback
@@ -266,26 +297,25 @@ int hw_audio_open(void)
     s_audio_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_audio_spec, 0);
     if (s_audio_dev) {
         SDL_PauseAudioDevice(s_audio_dev, 0);
-        GLOBAL_LOG( "[audio] opened: %d Hz %d ch\n",
-                s_audio_spec.freq, s_audio_spec.channels);
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "audio", "opened: %d Hz %d channels",
+                             s_audio_spec.freq, s_audio_spec.channels);
         return 0;
     }
-    GLOBAL_LOG( "[audio] not available: %s\n", SDL_GetError());
+    benefactor_log_write(BENEFACTOR_LOG_WARNING, "audio", "not available: %s", SDL_GetError());
     return -1;
 }
 
 /* Push `nframes` stereo samples to the audio device (queue mode). Drops the
  * frame if the queue is backing up badly (>4 frames) so we never lag the video. */
-void hw_audio_queue(const short *buf, int nframes)
-{
-    if (!s_audio_dev) return;
+void hw_audio_queue(const short *buf, int nframes) {
+    if (!s_audio_dev)
+        return;
     if (SDL_GetQueuedAudioSize(s_audio_dev) > (Uint32)(441 * 4 * 2 * (int)sizeof(short)))
         SDL_ClearQueuedAudio(s_audio_dev);
     SDL_QueueAudio(s_audio_dev, buf, (Uint32)(nframes * 2 * (int)sizeof(short)));
 }
 
-void hw_audio_close(void)
-{
+void hw_audio_close(void) {
     if (s_audio_dev) {
         SDL_CloseAudioDevice(s_audio_dev);
         s_audio_dev = 0;

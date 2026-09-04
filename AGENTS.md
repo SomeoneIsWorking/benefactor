@@ -1,142 +1,92 @@
 # Benefactor port — working agreement
 
-Benefactor is becoming one native/dynarec product. Hand-written native owners
-provide the host shell, disk loading, Amiga hardware services, rendering,
-audio, input, UI, and deliberately replaced game behavior. Every other 68000
-instruction must execute on demand from the player's authenticated disk images
-through `shared/amigaport`.
+Benefactor is one native/interpreter hybrid product. Hand-written native owners provide
+disk loading, Amiga services, rendering, audio, input, UI, and deliberately
+replaced game behavior. Every other 68000 instruction executes directly from
+the player's authenticated disks through `shared/amigaport`'s maintained 68000
+execution owner.
 
-The checked-out tree still contains an offline 68000-to-C pipeline and its
-generated-call runtime. They are migration input, not a supported product or
-oracle. Do not regenerate, build, launch, extend, or use that path for new
-evidence. It is removed only after the representative-gameplay gate in
-`docs/migration.md` passes.
+The offline 68000-to-C translator, generated corpus, static dispatcher, and
+static launch/build paths have been deleted. Never recreate them as a bridge,
+comparison arm, cache, fallback, or convenience.
 
 ## Read before non-trivial work
 
 | Authority | Answers |
 | --- | --- |
 | `docs/project-goals.md` | durable product outcomes and success conditions |
-| `docs/project-state.md` | verified, partial, blocked, and missing capabilities; current focus |
-| `docs/migration.md` | the Benefactor-specific native/dynarec migration and retirement gate |
-| `docs/codemap.md` | subsystem ownership and where new work belongs |
-| `docs/re-frontier.md` | ordered binary-grounded execution and native-replacement facts |
+| `docs/project-state.md` | verified, partial, blocked, and missing capabilities |
+| `docs/migration.md` | runtime integration order and conformance gate |
+| `docs/codemap.md` | subsystem ownership and placement |
+| `docs/re-frontier.md` | ordered binary-grounded facts and gaps |
 | `docs/issues/` | atomic work, findings, blockers, and dead ends |
-| `instructions/gameplay-engine-map.md` | recovered gameplay addresses and behavior |
-| `instructions/audio-engine.md` | recovered replayer, SFX, and interrupt behavior |
-| `instructions/harness.md` | durable PUAE comparison facts |
 
-Start with `../shared/re-harness/tools/info.py brief <terms>` and search
-`docs/issues/` before re-deriving an address, ABI, state transition, or failed
-approach.
+Start with `../shared/re-harness/tools/info.py brief <terms>` and consult the
+issues before re-deriving an address, ABI, state transition, or failed approach.
 
-## Non-negotiable execution contract
+## Execution contract
 
-- Gameplay is native code plus `amigaport`'s on-demand 68000 dynarec. No build,
-  install, launcher, or package step emits guest C/C++, objects, or a
-  precompiled title substrate.
-- An interpreter may exist only in a separately built test/diagnostic target.
-  Gameplay must not link it, select it, or fall back to it. Build, link, and
-  selector checks enforce absence.
-- `amigaport` owns the complete 68000 architectural state: D0-D7, A0-A7, PC,
-  complete SR/CCR and supervisor/interrupt state, exception frames and vectors,
-  instruction semantics, translated-block lifetime, and bounded executor exits.
-  Benefactor must not keep a reduced parallel CPU model.
-- Benefactor owns disk identity and loading, the live memory/image map, OCS/CIA
-  services, title policy, native override registration, and host subsystems.
-- The four runtime images—main/intro, title/menu, gameplay, and credits—reuse
-  guest addresses. Cache and override identity therefore includes image
-  generation plus address. Loading or restoring an image invalidates every
-  affected translation before execution resumes.
-- A normal guest call observes overrides. A native override's scoped original
-  call suppresses only that override for one call and executes the original
-  guest body through the dynarec without recursion. It never names a generated
-  host function.
-- Unsupported guest behavior fails with the guest PC, image generation, and
-  decoded bytes. It never becomes a no-op, interpreter step, or address-specific
-  guessed translation.
-- New comparison evidence comes from PUAE/hardware, direct binary analysis, or
-  the separately linked test interpreter—not the retired generated-C path.
+- Gameplay is native code plus `amigaport`'s maintained 68000 interpreter. It
+  consumes the player's disk images directly and never emits guest C/C++ or
+  host objects. Benefactor does not embed its own CPU core or full emulator.
+- The interpreter is a permitted shipping CPU for this Amiga-class title.
+  Representative interactive gameplay—not boot, menus, video, or idle
+  presentation—must prove correctness and sustained performance on x86-64,
+  Apple Silicon macOS, and Android arm64-v8a.
+- `amigaport` owns the complete architectural CPU state, instruction semantics,
+  execution lifetime, exceptions, interrupts, and bounded exits.
+  Benefactor must not maintain a reduced parallel CPU model.
+- Benefactor owns exact disk identity, live image mapping, OCS/CIA services,
+  title policy, native override registration, and host subsystems.
+- Main, title, gameplay, and credits reuse guest addresses. Override and active
+  execution identity includes image kind, generation, and address. Loading or
+  restoring an image replaces that executable-image identity before execution resumes.
+- A scoped original call suppresses only its current override key and executes
+  the original guest body through the execution owner. It never names a host-generated
+  function.
+- Unsupported behavior fails with guest PC, image generation, and decoded bytes.
+  New evidence comes from independent PUAE/hardware comparisons, binary
+  analysis, or the shipping `amigaport` interpreter path.
 
-## Preserve the working seams
+## Preserved native seams
 
-The CPU migration adapts the existing port instead of rewriting it.
+- `src/engine/disk_boot.*` and `src/engine/overlay_load.*` retain disk, ATN,
+  relocation, and four-image knowledge. Move them to explicit adapter memory;
+  do not regenerate source from their bytes.
+- `src/engine/hw*`, `src/render/`, and `src/port/` retain native device,
+  presentation, input, UI, and enhancement behavior.
+- `src/port/overrides/` calls guest addresses through the image-qualified seam
+  in `src/runtime/guest_runtime.h`. Finish that seam through `amigaport`; do not
+  reintroduce generated-body symbols.
+- `src/harness/`, `vendor/libretro-uae/`, and `instructions/harness.md` preserve
+  oracle scenarios. Recompose them only as a separate diagnostic product.
 
-- `src/engine/disk_boot.*` and `src/engine/overlay_load.*` retain the verified
-  disk, ATN decompression, relocation, and four-image activation behavior.
-- `src/engine/hw*` retains chip RAM, OCS/CIA, blitter, audio, and frame-service
-  behavior behind a narrow `amigaport` memory/service interface.
-- `src/port/overrides/` retains grounded native behavior. Generated-symbol calls
-  become address-and-image runtime calls and scoped original calls.
-- `src/render/`, input, UI, touch, configuration, packaging, and platform code
-  remain peer host owners. Renderer redesign is not a prerequisite for CPU
-  execution.
-- `src/harness/` and PUAE remain the independent differential oracle, adapted
-  to compare the shipping dispatcher, decoder, translated blocks, cache, and
-  invalidation rather than generated functions.
-- Existing captures and traces establish historical facts only. Current product
-  claims require the native/dynarec path and denominated reachability.
+## Structure and quality
 
-## First dynarec discriminator
+- The repository is self-contained; no external project is a structure guide.
+  In C, stateful owners use opaque contexts and injected cohesive interfaces.
+  In C++, use focused RAII classes and composition. Entry points only wire owners.
+- One configurable logger in `src/common/log.*` owns process output through a
+  narrow sink that can be composed with Lucent. Product code does not write
+  directly to stderr. `log_level` controls its global filter and category
+  filters belong to the same owner. One configuration owner reads environment, JSON, and
+  test-session overrides through typed accessors; other modules never call
+  `getenv`.
+- `tools/source_policy.py` scans every retained first-party product and test
+  source, not merely CMake-selected files. It prevents retired static paths,
+  interfaces, and vocabulary; direct product coupling to the diagnostic PUAE
+  harness; process-stream
+  output outside `src/common/log.c`; environment reads outside
+  `src/port/config.c`; non-launcher shell tooling; new source above 1,200 lines;
+  and growth of the explicitly frozen oversized files.
+- Project automation is modular Python. `run.sh` is the only shell exception and
+  remains a slim `uv run --frozen` launcher. Builds live in `build/`; disposable
+  diagnostics use bounded stable paths under `scratch/`.
+- Use Clang for agent C/C++ verification without rejecting other supported user
+  compilers. Format and lint first-party code, keep files cohesive, and do not
+  grow a monolith.
+- Never use raw `rm`, `pkill`, or commit/package copyrighted game inputs.
 
-Before gameplay composition, a separate diagnostic target must authenticate the
-player's disks, load the main image through the production loader, execute a
-bounded real 68000 block through `amigaport`, and compare it with the separately
-linked test interpreter or PUAE. Compare PC, all data/address registers, full SR,
-supervisor and interrupt state, exception/return state, stack, cycles, and every
-guest write. Require nonzero translated blocks and a controlled negative that
-the comparison rejects. This checkpoint does not authorize a mixed static/JIT
-gameplay executable.
-
-## Representative-gameplay retirement gate
-
-The offline translator, generated corpus, static dispatcher, seeds, and
-static-only tests are removed together only after one frozen native/dynarec tree:
-
-- provisions from the three authenticated disks without offline translation;
-- proves gameplay links the dynarec and no interpreter or generated guest body;
-- traverses main, title, gameplay, and credits image generations and exercises
-  an address reused by different images with positive and controlled-negative
-  cache/override identity checks;
-- executes native overrides and one scoped original call through the shipping
-  dispatcher without recursion;
-- reaches representative interactive cavern gameplay with movement,
-  interaction, enemies, level/world updates, rendering, SFX, music, interrupts,
-  a transition that reloads an image, and normal quit;
-- compares complete CPU, memory, exception/interrupt, timing, device-event,
-  audio, and frame checkpoints against PUAE or hardware; and
-- meets a declared frame-time/correctness budget on every released host.
-
-Boot, a logo, title/menu, a clean trace, four matching frames, or a single level
-entry is a checkpoint, not this gate.
-
-## Ownership and quality guardrails
-
-- Follow the self-contained structure in `docs/codemap.md`. In C, stateful
-  owners use opaque contexts and cohesive module APIs; in C++, use focused RAII
-  classes with constructor-injected dependencies and composition. Entry points
-  only compose owners.
-- New source files are capped at 1,200 lines. Existing oversized files may not
-  grow, and 2,000+ lines require extraction before extension. The normal
-  verifier must reject forbidden layer edges, direct stderr/debug output outside
-  the logging owner, and process-environment reads outside configuration.
-- Lucent is the one configurable process logger. Product modules emit one record
-  per call site through the logging boundary; no direct `printf`, `fprintf`,
-  `write(2)`, or debug-flag-wrapped logging.
-- One configuration owner parses CLI, environment/`.env`, files, defaults, and
-  precedence into immutable typed configuration. Other modules receive only the
-  fields they use and never call `getenv`.
-- Tests and diagnostics exercise production seams, report denominators, and
-  prove that they can show the opposite answer.
-- Build products live in `build/`; disposable diagnostics live in stable
-  `scratch/<activity>/` paths. Project automation is Python; `run.sh` is only
-  the thin locked-environment launcher. Never issue raw `rm` or `pkill`.
-
-## Knowledge and landing
-
-Update one nearest living authority when a fact changes. Project state owns
-capability coverage, the codemap owns placement, the frontier owns ordered RE
-grounding, and issues own atomic work. A verified milestone must leave no
-unexplained worktree changes and is committed and pushed on `main` by the
-operator after combined validation. Never commit or package original disks,
-Kickstart, WHDLoad files, derived guest code, or reconstructable game data.
+The product is intentionally unavailable until `shared/amigaport` and the
+Benefactor runtime adapter exist. CMake and `./run.sh` must refuse with that one
+named boundary; they must never launch PUAE or the deleted implementation.

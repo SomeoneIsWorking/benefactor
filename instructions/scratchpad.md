@@ -78,5 +78,6 @@ Start one when any of these are true:
 ## When NOT to Use a Scratchpad
 
 - Trivial one-line fixes (just fix it)
-- Recompiler test failures (the test IS the scratchpad)
+- A focused CPU-conformance test failure whose report already records the
+  complete input, expected state, actual state, and first divergence
 - Harness PERFECT MATCH (nothing to debug)

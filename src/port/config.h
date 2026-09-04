@@ -18,15 +18,16 @@
  */
 #pragma once
 
-void pc_config_load(void);                          /* load benefactor.json / $BENEFACTOR_CONFIG */
+void pc_config_load(void); /* load benefactor.json / $BENEFACTOR_CONFIG */
 
 /* Unified resolvers (ENV > REPL > JSON > def). Use these for all settings. */
-int  pc_cfg_int (const char *key, int def);
-int  pc_cfg_bool(const char *key, int def);
-void pc_cfg_set (const char *key, const char *val); /* REPL/session override; val=NULL clears */
+int pc_cfg_int(const char *key, int def);
+int pc_cfg_bool(const char *key, int def);
+int pc_cfg_string(const char *key, const char *def, char *out, int cap);
+void pc_cfg_set(const char *key, const char *val); /* REPL/session override; val=NULL clears */
 /* Resolve to a display string + report which source won ("env"/"repl"/"json"/
  * "default"). Returns 1 if a value was found (else *src="default", out=""). */
-int  pc_cfg_show(const char *key, char *out, int cap, const char **src);
+int pc_cfg_show(const char *key, char *out, int cap, const char **src);
 /* Persist a knob to the config file (benefactor.json / $BENEFACTOR_CONFIG),
  * creating the file if needed, and apply it live (session layer). `json_val` is
  * the raw JSON token to write: `5`, `true`, `"auto"` (quotes included). */
@@ -34,14 +35,14 @@ void pc_cfg_persist(const char *key, const char *json_val);
 
 /* Per-device modern-controls flags (options menu). Each defaults to the legacy
  * "modern_controls" knob so existing configs keep working. */
-int  pc_modern_kb(void);     /* "modern_controls_keyboard"   */
-int  pc_modern_pad(void);    /* "modern_controls_controller" */
-int  pc_modern_touch(void);  /* "modern_controls_touch" (Android virtual controls) */
-int  pc_modern_any(void);
+int pc_modern_kb(void);    /* "modern_controls_keyboard"   */
+int pc_modern_pad(void);   /* "modern_controls_controller" */
+int pc_modern_touch(void); /* "modern_controls_touch" (Android virtual controls) */
+int pc_modern_any(void);
 /* Declared knobs, for `cfg` with no args (discoverability). */
-int          pc_cfg_count(void);
-const char  *pc_cfg_key (int i);
-const char  *pc_cfg_desc(int i);
+int pc_cfg_count(void);
+const char *pc_cfg_key(int i);
+const char *pc_cfg_desc(int i);
 
 /* Frame-renderer mode — WHAT composes the frame (distinct from the present
  * backend, BENEFACTOR_RENDER=sdl|vulkan, which is only HOW the finished surface
@@ -58,6 +59,6 @@ typedef enum { PC_RENDER_AUTO = 0, PC_RENDER_VANILLA, PC_RENDER_BENREN } PcRende
 PcRenderMode pc_render_mode(void);
 
 /* Legacy JSON-only primitives (no ENV/REPL layer). Prefer pc_cfg_* above. */
-int  pc_config_int (const char *key, int def);      /* number, or def if absent  */
-int  pc_config_bool(const char *key, int def);      /* true/false/1/0, or def    */
-int  pc_config_str (const char *key, char *out, int cap); /* quoted string → out; 1 if found */
+int pc_config_int(const char *key, int def);            /* number, or def if absent  */
+int pc_config_bool(const char *key, int def);           /* true/false/1/0, or def    */
+int pc_config_str(const char *key, char *out, int cap); /* quoted string → out; 1 if found */

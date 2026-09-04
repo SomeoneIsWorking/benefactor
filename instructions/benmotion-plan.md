@@ -1,7 +1,8 @@
 # BENMOTION — native ownership of all player physics & movement
 
 Status 2026-06-12: **Stages 0(core)+1+2+3 SHIPPED** (platformer.c rewritten:
-native flight owns $579D84 rise + $579F3A descent with NO super-call; JUMP
+native flight owns $579D84 rise + $579F3A descent without calling the original
+routine; JUMP
 trigger wraps the terrain pass $57A934; vanilla UP-hop/long-jump commits
 suppressed; JUMP defaults pad A / Space on the modern scheme). Knob OFF
 verified byte-identical (90-frame hop+long-jump A/B). Stage 0 RE results are
@@ -34,7 +35,7 @@ release within 4 air frames → vy/3 + vx/2 (a minimal diagonal was ~40px at
 full cap; now ~12px/4px vs 42px/18px held).
 
 User goals, verbatim:
-1. **Own all the player physics and movement** (no more hybrid super-call/TRACK
+1. **Own all the player physics and movement** (no more hybrid original-call/TRACK
    riding of the vanilla table arcs).
 2. **One jump, dedicated button** — replace vanilla's two jumps (UP = hop,
    Fire+direction = long/rolling jump) with a single jump on its own binding.
@@ -46,8 +47,8 @@ and EXTENDS to the ground.
 
 ## Why the current shape isn't enough
 
-Today's platformer mode is a hybrid: hop/fall super-call the recompiled handler and
-re-shape d1/d2; the long-jump family runs the vanilla arc in TRACK mode with a steer
+Today's platformer mode is a hybrid: hop/fall call the original image-address
+handler through `shared/amigaport` and reshape d1/d2; the long-jump family runs the vanilla arc in TRACK mode with a steer
 bolted on. That means three different feels mid-air, the vanilla arc's fixed shape
 still dominates the long jump, and two separate jump inputs with different physics.
 Owning the whole thing gives ONE consistent movement model and frees FIRE entirely
@@ -106,7 +107,8 @@ Replace hop/long-jump/abort/fall handling with a single native flight model:
   via the same descriptor/trigger ($775c(a5)), anim/flags bookkeeping ($f6e, d4).
 - Engine-visible state: hold $f70 at ONE canonical air state ($579F3A — already
   a legitimate "airborne" value every other system tests against) for the whole
-  flight; our override fully replaces its body in platformer mode (NO super-call).
+  flight; our override fully replaces its body in platformer mode (no call to
+  the original image-address routine).
   The other air states ($579D84, $579A62, $579Dxx) become entry shims: seed the
   model from how vanilla entered (shouldn't trigger at all once Stage 3 lands,
   but must be safe if something engine-internal enters them, e.g. knockback).
@@ -164,5 +166,6 @@ Replace hop/long-jump/abort/fall handling with a single native flight model:
   reveal it (if yes, the native model must track fall distance).
 - Enemy/hazard collision may read the phase counter d5 or $f82 of air states —
   holding a canonical state must not change hit behavior; verify on a hazard level.
-- The $5796A4 wrap point must respect the rt_jump trampoline limitation (can't
+- The $5796A4 wrap point must respect the image-qualified tail-transfer
+  limitation (it cannot
   bracket-promote captures — read state at present; see rope memory note).

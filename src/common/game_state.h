@@ -10,61 +10,61 @@
  * No field is duplicated outside this struct. */
 #pragma once
 
+#include "runtime/guest_runtime.h"
 #include <stdint.h>
-#include "engine/rt.h"   /* M68KCtx */
 
 /* Audio channel state — mirrored from the live Paula register shadows. Lives
  * inside GameState so it round-trips with everything else. */
 typedef struct AudioChannel {
-    uint32_t ptr;      /* current play position (chip RAM address) */
-    uint32_t start;    /* start of audio data (from LCH/LCL) */
-    uint16_t len;      /* length in words */
-    uint16_t period;   /* period value (~pitch) */
-    uint8_t  vol;      /* volume 0-64 */
-    uint8_t  active;   /* 1 = playing */
-    int      pos;      /* current byte index */
-    int64_t  tick;     /* sub-sample accumulator (Paula clock ticks, exact) */
+    uint32_t ptr;    /* current play position (chip RAM address) */
+    uint32_t start;  /* start of audio data (from LCH/LCL) */
+    uint16_t len;    /* length in words */
+    uint16_t period; /* period value (~pitch) */
+    uint8_t vol;     /* volume 0-64 */
+    uint8_t active;  /* 1 = playing */
+    int pos;         /* current byte index */
+    int64_t tick;    /* sub-sample accumulator (Paula clock ticks, exact) */
 } AudioChannel;
 
 typedef struct GameState {
     /* ── M68K register file (the game thread's CPU state) ────────────────── */
-    M68KCtx    game_ctx;
+    M68KCtx game_ctx;
 
-    int        game_done;        /* set when the game flow returns from rt_call */
-    int        coro_quit;        /* (legacy) host-requested quit */
+    int game_done; /* set when the game flow returns from rt_call */
+    int coro_quit; /* (legacy) host-requested quit */
 
     /* ── Amiga custom-chip register shadows ──────────────────────────────── */
-    uint16_t regs[512];           /* indexed by (DFF offset >> 1) */
+    uint16_t regs[512]; /* indexed by (DFF offset >> 1) */
     uint16_t dmacon, intena, intreq;
     uint16_t bplcon0;
     uint32_t bplptr[6];
     uint32_t sprpt[8];
-    uint32_t palette[32];         /* ARGB8888, derived from COLOR regs */
+    uint32_t palette[32]; /* ARGB8888, derived from COLOR regs */
     uint16_t diwstrt;
     uint16_t diwstop;
-    int      blt_bzero;
-    int      vposr_counter;
+    int blt_bzero;
+    int vposr_counter;
 
     /* ── CIA-B timer (music tick rate) ───────────────────────────────────── */
     uint16_t ciab_ta_latch;
     uint16_t ciab_ta_cnt;
-    uint8_t  ciab_cra;
-    uint8_t  ciab_icr_data;
-    uint8_t  ciab_icr_mask;
+    uint8_t ciab_cra;
+    uint8_t ciab_icr_data;
+    uint8_t ciab_icr_mask;
 
     /* ── Paula audio channel state ───────────────────────────────────────── */
     AudioChannel audio[4];
 
     /* ── Current screen / active bank — single source of truth ───────────────
-     * rt.c picks credits vs gpl vs gp vs intro from this. The overlay/gameplay/
-     * credits "active" flags are DERIVED from it (read-only macros below), so they
-     * can never disagree. Set it via g_pc_screen = PC_SCR_*, not the flags. */
-    int screen;     /* PC_SCR_* (see enum in this header) */
+     * The runtime adapter picks credits vs gameplay vs title vs intro from this. The
+     * overlay/gameplay/ credits "active" flags are DERIVED from it (read-only macros below), so
+     * they can never disagree. Set it via g_pc_screen = PC_SCR_*, not the flags. */
+    int screen; /* PC_SCR_* (see enum in this header) */
 
     /* ── Game-state machine (cross-coroutine restart flags) ──────────────── */
-    int      enter_gameplay;
+    int enter_gameplay;
     uint32_t gameplay_entry;
-    int      pc_start_level;
+    int pc_start_level;
 } GameState;
 
 extern GameState g_state;
@@ -78,38 +78,38 @@ extern GameState g_state;
  * a syntax error — those have been removed from call sites and replaced by
  * `#include "common/game_state.h"`. */
 
-#define s_regs                    (g_state.regs)
-#define s_dmacon                  (g_state.dmacon)
-#define s_intena                  (g_state.intena)
-#define s_intreq                  (g_state.intreq)
-#define s_bplcon0                 (g_state.bplcon0)
-#define s_bplptr                  (g_state.bplptr)
-#define s_sprpt                   (g_state.sprpt)
-#define s_palette                 (g_state.palette)
-#define s_diwstrt                 (g_state.diwstrt)
-#define s_diwstop                 (g_state.diwstop)
-#define s_blt_bzero               (g_state.blt_bzero)
-#define s_vposr_counter           (g_state.vposr_counter)
-#define s_ciab_ta_latch           (g_state.ciab_ta_latch)
-#define s_ciab_ta_cnt             (g_state.ciab_ta_cnt)
-#define s_ciab_cra                (g_state.ciab_cra)
-#define s_ciab_icr_data           (g_state.ciab_icr_data)
-#define s_ciab_icr_mask           (g_state.ciab_icr_mask)
-#define s_audio                   (g_state.audio)
+#define s_regs (g_state.regs)
+#define s_dmacon (g_state.dmacon)
+#define s_intena (g_state.intena)
+#define s_intreq (g_state.intreq)
+#define s_bplcon0 (g_state.bplcon0)
+#define s_bplptr (g_state.bplptr)
+#define s_sprpt (g_state.sprpt)
+#define s_palette (g_state.palette)
+#define s_diwstrt (g_state.diwstrt)
+#define s_diwstop (g_state.diwstop)
+#define s_blt_bzero (g_state.blt_bzero)
+#define s_vposr_counter (g_state.vposr_counter)
+#define s_ciab_ta_latch (g_state.ciab_ta_latch)
+#define s_ciab_ta_cnt (g_state.ciab_ta_cnt)
+#define s_ciab_cra (g_state.ciab_cra)
+#define s_ciab_icr_data (g_state.ciab_icr_data)
+#define s_ciab_icr_mask (g_state.ciab_icr_mask)
+#define s_audio (g_state.audio)
 
 /* The current screen / active bank (single source of truth). INTRO = the cold
  * boot + intro/logos/cover-art (none of the overlay banks active). */
 enum { PC_SCR_INTRO = 0, PC_SCR_OVERLAY, PC_SCR_GAMEPLAY, PC_SCR_CREDITS };
-#define g_pc_screen               (g_state.screen)
+#define g_pc_screen (g_state.screen)
 /* DERIVED, read-only — do NOT assign these; set g_pc_screen instead. */
-#define g_overlay_active          (g_state.screen == PC_SCR_OVERLAY)
-#define g_gameplay_active         (g_state.screen == PC_SCR_GAMEPLAY)
-#define g_credits_active          (g_state.screen == PC_SCR_CREDITS)
-#define g_enter_gameplay          (g_state.enter_gameplay)
-#define g_gameplay_entry          (g_state.gameplay_entry)
-#define g_pc_start_level          (g_state.pc_start_level)
+#define g_overlay_active (g_state.screen == PC_SCR_OVERLAY)
+#define g_gameplay_active (g_state.screen == PC_SCR_GAMEPLAY)
+#define g_credits_active (g_state.screen == PC_SCR_CREDITS)
+#define g_enter_gameplay (g_state.enter_gameplay)
+#define g_gameplay_entry (g_state.gameplay_entry)
+#define g_pc_start_level (g_state.pc_start_level)
 
-/* Game-thread state (only referenced inside pc.c) — legacy short names. */
-#define s_game_ctx                (g_state.game_ctx)
-#define s_game_done               (g_state.game_done)
-#define s_coro_quit               (g_state.coro_quit)
+/* Game-thread state (owned by src/port/game_loop.c) — legacy short names. */
+#define s_game_ctx (g_state.game_ctx)
+#define s_game_done (g_state.game_done)
+#define s_coro_quit (g_state.coro_quit)

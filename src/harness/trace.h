@@ -6,21 +6,21 @@
 #ifndef HARNESS_TRACE_H
 #define HARNESS_TRACE_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #define TRACE_SIDE_PUAE 0
-#define TRACE_SIDE_PC   1
+#define TRACE_SIDE_PC 1
 
 typedef struct TraceEntry {
-    uint32_t addr;       /* chip RAM address written */
-    uint32_t old_val;    /* value before write (zero-extended) */
-    uint32_t new_val;    /* value after write  (zero-extended) */
-    uint32_t pc;         /* M68K PC (or 0 if unknown) */
-    uint8_t  size;       /* 1, 2 or 4 */
-    uint8_t  side;       /* TRACE_SIDE_PUAE or TRACE_SIDE_PC */
-    uint8_t  is_blitter; /* 1 if write came from blitter hardware */
+    uint32_t addr;      /* chip RAM address written */
+    uint32_t old_val;   /* value before write (zero-extended) */
+    uint32_t new_val;   /* value after write  (zero-extended) */
+    uint32_t pc;        /* M68K PC (or 0 if unknown) */
+    uint8_t size;       /* 1, 2 or 4 */
+    uint8_t side;       /* TRACE_SIDE_PUAE or TRACE_SIDE_PC */
+    uint8_t is_blitter; /* 1 if write came from blitter hardware */
 } TraceEntry;
 
 /* Maximum entries in the ring buffer (≈ 32 MB) */
@@ -30,18 +30,16 @@ typedef struct TraceEntry {
 void trace_reset(void);
 
 /* Record a write.  Safe to call from any thread (both sides are single-threaded). */
-void trace_write(int side, uint32_t addr, uint32_t old_val, uint32_t new_val,
-                 uint8_t size, uint32_t pc, uint8_t is_blitter);
+void trace_write(int side, uint32_t addr, uint32_t old_val, uint32_t new_val, uint8_t size,
+                 uint32_t pc, uint8_t is_blitter);
 
 /* Convenience wrappers */
-static inline void trace_write_puae(uint32_t addr, uint32_t old_v, uint32_t new_v,
-                                    uint8_t size, uint32_t pc, uint8_t is_blitter)
-{
+static inline void trace_write_puae(uint32_t addr, uint32_t old_v, uint32_t new_v, uint8_t size,
+                                    uint32_t pc, uint8_t is_blitter) {
     trace_write(TRACE_SIDE_PUAE, addr, old_v, new_v, size, pc, is_blitter);
 }
-static inline void trace_write_pc(uint32_t addr, uint32_t old_v, uint32_t new_v,
-                                  uint8_t size, uint32_t pc, uint8_t is_blitter)
-{
+static inline void trace_write_pc(uint32_t addr, uint32_t old_v, uint32_t new_v, uint8_t size,
+                                  uint32_t pc, uint8_t is_blitter) {
     trace_write(TRACE_SIDE_PC, addr, old_v, new_v, size, pc, is_blitter);
 }
 

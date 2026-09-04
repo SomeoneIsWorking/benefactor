@@ -1,26 +1,23 @@
-/* pc_overrides_gameplay.c — Native maps of high-level gameplay behaviors.
+/* src/port/overrides/gameplay.c — Native maps of high-level gameplay behaviors.
  *
  * These overrides exist so WE own the game-flow decision points in readable C,
- * rather than leaving them buried in recompiled M68K. They capture the
+ * rather than leaving them buried in original retail-image M68K. They capture the
  * high-level behavior (the "what" and "when") and delegate the heavy
  * hardware/teardown work to the existing handlers for now.
  */
 #include "port/port_internal.h"
-#include "engine/generated/game_gpl.h"   /* raw gfn_gpl_* (to delegate without re-dispatch) */
 
 /* gameplay work-area globals (a5 = $0057EE12) */
-#define GP_MODE_001E   0x001Eu    /* screen/mode word: 2 = in a level, 8 = game-over menu */
-#define GP_FLAGS_10AC  0x10ACu    /* a5-relative end-of-level flags word (bit15 = level ended) */
-
-static int s_dbg_endlevel = -1;   /* BENEFACTOR_DBG_ENDLEVEL=1 logs the win/lose trigger state */
+#define GP_MODE_001E 0x001Eu  /* screen/mode word: 2 = in a level, 8 = game-over menu */
+#define GP_FLAGS_10AC 0x10ACu /* a5-relative end-of-level flags word (bit15 = level ended) */
 
 /* The opt-in modern control scheme (X = interact, X+Down = drop, Hop as its own
  * action) is now PER DEVICE: pc_modern_kb()/pc_modern_pad() (config.c), resolved
  * live so the pause-menu options apply without a restart. */
 
-extern uint32_t hw_get_cop1lc(void);   /* for GO_TRACE diagnostics */
+extern uint32_t hw_get_cop1lc(void); /* for GO_TRACE diagnostics */
 
-long g_diag_objwalk = 0, g_diag_objdraw = 0, g_diag_char = 0;  /* per-frame call counts */
+long g_diag_objwalk = 0, g_diag_objdraw = 0, g_diag_char = 0; /* per-frame call counts */
 
 /* ── $578C3E — end-of-level handler ──────────────────────────────────────────
  * Reached once a level ends. A level ends two ways, both of which set bit15 of
@@ -30,7 +27,7 @@ long g_diag_objwalk = 0, g_diag_objdraw = 0, g_diag_char = 0;  /* per-frame call
  *   WIN   (all merry men teleported away, then
  *          the player re-enters the teleporter) — win graphic set upstream
  *
- * CORRECTED RE (2026-06-03, verified with BENEFACTOR_GO_TRACE + screenshots — the
+ * CORRECTED RE (2026-06-03, verified with game-flow trace + screenshots — the
  * OLD comment here had the two branches BACKWARDS):
  *   $1E != 8 → $578C74 — sets up selectable handlers ($585ac6/$578afc/$578a4a) and
  *              IS the CONTINUE / GAME OVER menu path (renders at gp-bank cop1lc
@@ -46,16 +43,11 @@ long g_diag_objwalk = 0, g_diag_objdraw = 0, g_diag_char = 0;  /* per-frame call
  * (jsr -$6576/-$627e, reads $5859cd) and force the reload, OR find the level-reload
  * entry and drive it (e.g. set g_enter_gameplay + g_gameplay_entry=$577000 for the
  * current $20.w level). $57731C is a dead end — fix or avoid it. For now: passthrough. */
-void native_end_of_level(M68KCtx *ctx)
-{
-    if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
-    if (s_dbg_endlevel) {
-        uint32_t a5 = ctx->A[5];
-        fprintf(stderr, "[end-of-level] $578C3E: $1E=%u $10AC=%04X "
-                "(%s)\n", r16(GP_MODE_001E), r16(a5 + GP_FLAGS_10AC),
-                (r16(GP_MODE_001E) == 8) ? "-> game-over menu" : "-> banner+load");
-        fflush(stderr);
-    }
+void native_end_of_level(M68KCtx *ctx) {
+    uint32_t a5 = ctx->A[5];
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow", "$578C3E: $1E=%u $10AC=%04X (%s)",
+                         r16(GP_MODE_001E), r16(a5 + GP_FLAGS_10AC),
+                         (r16(GP_MODE_001E) == 8) ? "-> game-over menu" : "-> banner+load");
     /* Bypass the CONTINUE / GAME OVER screen: when lives run out the engine sets
      * $1E=8 and routes to the game-over menu ($57731C). We instead force the normal
      * death path ($1E!=8 → lose banner + reload of the CURRENT level), so the player
@@ -65,10 +57,10 @@ void native_end_of_level(M68KCtx *ctx)
      * The CONTINUE/GAME OVER menu is the $578C74 ($1E!=8) path; forcing $1E=8 hits
      * $57731C which HANGS. The likely real fix is to make $578C74 take its reload
      * (level-card) branch on game-over — TBD. For now: clean passthrough (vanilla). */
-    if (getenv("BENEFACTOR_GO_TRACE"))
-        fprintf(stderr, "[GO] $578C3E enter $1E=%u cop1lc=%06X $10AC=%04X\n",
-                r16(GP_MODE_001E), hw_get_cop1lc(), r16(ctx->A[5] + GP_FLAGS_10AC));
-    gfn_gpl_578C3E(ctx);   /* let the banner play; the menu is intercepted at $585AC6 */
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow",
+                         "$578C3E enter $1E=%u cop1lc=%06X $10AC=%04X", r16(GP_MODE_001E),
+                         hw_get_cop1lc(), r16(ctx->A[5] + GP_FLAGS_10AC));
+    rt_call_original(ctx, ctx->image, 0x00578C3Eu);
 }
 
 /* ── $59C5B0 — card/menu screen renderer: port the game-over transition ───────
@@ -93,11 +85,10 @@ void native_end_of_level(M68KCtx *ctx)
  * `bset #6,$1093` at $578C84 (the game-over setup), so this never fires on a win
  * or normal play. Read it ABSOLUTE at $57FEA5, NOT a5-relative: by the time
  * $59C5B0 runs, $59BA7A has done `movea.l a6,a5` so a5 = $DFF000. */
-void native_gameover_menu(M68KCtx *ctx)
-{
-    uint8_t f = MR8(0x57FEA5u);        /* $1093: bit6 game-over, bit5 menu-phase */
-    if (getenv("BENEFACTOR_GO_TRACE"))
-        fprintf(stderr, "[GO] $59C5B0 $57FEA5=%02X cop1lc=%06X\n", f, hw_get_cop1lc());
+void native_gameover_menu(M68KCtx *ctx) {
+    uint8_t f = MR8(0x57FEA5u); /* $1093: bit6 game-over, bit5 menu-phase */
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow", "$59C5B0 $57FEA5=%02X cop1lc=%06X", f,
+                         hw_get_cop1lc());
     /* Banner phase = bit6 set, bit5 clear ($40): leave it alone so the skull
      * GAME OVER animation + fade play in full. Menu phase = bit6+bit5 ($60): the
      * banner has faded and the engine is about to show the CONTINUE/GAME OVER
@@ -105,16 +96,16 @@ void native_gameover_menu(M68KCtx *ctx)
      * thread re-entry we already own. */
     if ((f & 0x60u) == 0x60u) {
         extern void pc_request_level_restart(void);
-        MW8(0x57FEA5u, f & ~0x60u);    /* drop the markers for a clean restarted state */
-        pc_request_level_restart();    /* respawn at $577000 (current level) → level card */
-        if (getenv("BENEFACTOR_GO_TRACE"))
-            fprintf(stderr, "[GO] menu phase → reload current level (level card)\n");
+        MW8(0x57FEA5u, f & ~0x60u); /* drop the markers for a clean restarted state */
+        pc_request_level_restart(); /* respawn at $577000 (current level) → level card */
+        benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow",
+                             "menu phase → reload current level (level card)");
         /* Set-flags-and-return (the proven $150 hand-off pattern): we skip the
          * menu render; the flow parks at its next vblank wait and pc_step_threaded
          * tears this thread down and respawns at $577000. */
         return;
     }
-    gfn_gpl_59C5B0(ctx);               /* banner / in-game level card → render as usual */
+    rt_call_original(ctx, ctx->image, 0x0059C5B0u);
 }
 
 /* ── $57DEAC — gameplay input read: re-gate item DROP onto the interact key ────
@@ -142,8 +133,7 @@ void native_gameover_menu(M68KCtx *ctx)
  * Adding a controller button later is just OR-ing another source into `drop`; the
  * translation + prone handling below are binding-agnostic. $bfe001 bit7 reads as
  * (s_fire_pressed || s_mouse_lmb), so both are driven. State is restored after decode. */
-void native_gameplay_input(M68KCtx *ctx)
-{
+void native_gameplay_input(M68KCtx *ctx) {
     extern int hw_get_interact(void), hw_get_fire(void), hw_get_mouse_lmb(void);
     extern int hw_joy_down(void), hw_get_drop(void), hw_joy_up(void), hw_get_hop(void);
     extern int hw_get_fire_vanilla(void);
@@ -153,7 +143,10 @@ void native_gameplay_input(M68KCtx *ctx)
     /* No device on the modern scheme → fully vanilla decode, untouched. (hw.c
      * gates interact/drop/hop signals to modern devices, so they'd all be 0
      * here anyway — this also skips the down/fire reshuffling below.) */
-    if (!pc_modern_any()) { gfn_gpl_57DEAC(ctx); return; }
+    if (!pc_modern_any()) {
+        rt_call_original(ctx, ctx->image, 0x0057DEACu);
+        return;
+    }
 
     int down = hw_joy_down();
     int carrying = MR16(ctx->A[5] + 0x1094u) != 0;
@@ -178,14 +171,16 @@ void native_gameplay_input(M68KCtx *ctx)
      * interact = pick up AND put down, symmetric. Stationary-only in BOTH
      * states: with a direction held the presented fire would decode as a
      * long jump, not a lift/let-go ($f80 != $20). */
-    extern int native_hands_full(M68KCtx *ctx);   /* $10AC bit14: merry man held */
+    extern int native_hands_full(M68KCtx * ctx); /* $10AC bit14: merry man held */
     static int s_mm_intent_consumed = 0;
     int interact = hw_get_interact();
     int mm_carried = native_hands_full(ctx);
-    if (!interact) s_mm_intent_consumed = 0;               /* release → rearm */
-    int mm_pickup_intent = interact && !s_mm_intent_consumed && !carrying &&
-                           !down && !hw_joy_left() && !hw_joy_right();
-    if (interact) s_mm_intent_consumed = 1;                /* one shot per press */
+    if (!interact)
+        s_mm_intent_consumed = 0; /* release → rearm */
+    int mm_pickup_intent = interact && !s_mm_intent_consumed && !carrying && !down &&
+                           !hw_joy_left() && !hw_joy_right();
+    if (interact)
+        s_mm_intent_consumed = 1; /* one shot per press */
 
     /* And the reverse: bare MODERN fire must trigger NEITHER the lift NOR the
      * let-go. Both are "fire ALONE" pose actions — every site (the inline
@@ -203,8 +198,7 @@ void native_gameplay_input(M68KCtx *ctx)
      * pose re-writes $10AC bit14 every frame from INLINE code, $57EA76 is not
      * on that path. Bare fire then cleared bit14 without freeing the record =
      * frozen detached man.) */
-    int bare_fire = (hw_get_fire() || hw_get_mouse_lmb()) &&
-                    !interact && !hw_get_fire_vanilla() &&
+    int bare_fire = (hw_get_fire() || hw_get_mouse_lmb()) && !interact && !hw_get_fire_vanilla() &&
                     !down && !hw_joy_left() && !hw_joy_right() && !hw_joy_up();
 
     /* HOP: a dedicated Hop binding ORs into the up/jump input. The Up *direction* is left
@@ -215,18 +209,19 @@ void native_gameplay_input(M68KCtx *ctx)
      * (native_pf_collision trigger) and must NOT present as Up — a jump next to
      * a ladder/door would climb/enter instead of jumping. */
     extern int pc_platformer_on(void);
-    int up_dir   = hw_joy_up();
-    int want_up  = up_dir || (hw_get_hop() && !pc_platformer_on());
+    int up_dir = hw_joy_up();
+    int want_up = up_dir || (hw_get_hop() && !pc_platformer_on());
     /* (The 2026-06-13 "modern UP diagonal-freeze guard" was removed same day:
      * UP is now the hop/jump trigger on EVERY device — the platformer trigger
      * normalizes the engine's UP/diagonal commits into a native takeoff, so
      * the commit/suppress freeze can no longer occur.) */
     int up_restore = (want_up != up_dir);
-    if (up_restore) hw_set_joy_up(want_up);
+    if (up_restore)
+        hw_set_joy_up(want_up);
 
     /* DROP via the engine's real place (it dispatches the held-item action by player pose
      * through the $5834de table — all those targets, incl. the prone pose's, are now
-     * recompiled; see the $57EB16 seed):
+     * original retail-image; see the $57EB16 seed):
      *   - drop intent + carrying → present Fire+Down so the engine drops in whatever pose
      *     the player is in (correct placement + SFX); the place action runs instead of
      *     prone, so it never prones.
@@ -235,80 +230,95 @@ void native_gameplay_input(M68KCtx *ctx)
      *   - plain Down (no drop intent) → strip Fire so a real Fire+Down can't drop. */
     int restore = 0, sf = 0, sl = 0, down_add = 0, down_strip = 0;
     if (mm_pickup_intent) {
-        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
-        hw_set_fire(1); hw_set_mouse_lmb(1);               /* interact → MM pickup */
+        sf = hw_get_fire();
+        sl = hw_get_mouse_lmb();
+        hw_set_fire(1);
+        hw_set_mouse_lmb(1); /* interact → MM pickup */
         restore = 1;
     } else if (drop_intent && carrying) {
-        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
-        hw_set_fire(1); hw_set_mouse_lmb(1);
-        if (!down) { hw_set_joy_down(1); down_add = 1; }   /* button-only press supplies Down */
+        sf = hw_get_fire();
+        sl = hw_get_mouse_lmb();
+        hw_set_fire(1);
+        hw_set_mouse_lmb(1);
+        if (!down) {
+            hw_set_joy_down(1);
+            down_add = 1;
+        } /* button-only press supplies Down */
         restore = 1;
     } else if (drop_intent) {
-        if (down) { hw_set_joy_down(0); down_strip = 1; }  /* empty-handed: no prone, no flow */
+        if (down) {
+            hw_set_joy_down(0);
+            down_strip = 1;
+        } /* empty-handed: no prone, no flow */
     } else if (down && !hw_get_fire_vanilla()) {
         /* Plain Down with fire held only on MODERN devices → prone, never drop.
          * Fire from a vanilla-scheme device keeps its original Fire+Down drop. */
-        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
-        hw_set_fire(0); hw_set_mouse_lmb(0);
+        sf = hw_get_fire();
+        sl = hw_get_mouse_lmb();
+        hw_set_fire(0);
+        hw_set_mouse_lmb(0);
         restore = 1;
     } else if (bare_fire) {
         /* Bare directionless modern fire → no lift / no let-go (see above). */
-        sf = hw_get_fire(); sl = hw_get_mouse_lmb();
-        hw_set_fire(0); hw_set_mouse_lmb(0);
+        sf = hw_get_fire();
+        sl = hw_get_mouse_lmb();
+        hw_set_fire(0);
+        hw_set_mouse_lmb(0);
         restore = 1;
     }
 
-    gfn_gpl_57DEAC(ctx);
+    rt_call_original(ctx, ctx->image, 0x0057DEACu);
 
-    if (restore)     { hw_set_fire(sf); hw_set_mouse_lmb(sl); }
-    if (down_add)    hw_set_joy_down(0);
-    if (down_strip)  hw_set_joy_down(1);
-    if (up_restore)  hw_set_joy_up(up_dir);
+    if (restore) {
+        hw_set_fire(sf);
+        hw_set_mouse_lmb(sl);
+    }
+    if (down_add)
+        hw_set_joy_down(0);
+    if (down_strip)
+        hw_set_joy_down(1);
+    if (up_restore)
+        hw_set_joy_up(up_dir);
 
-    if (getenv("BENEFACTOR_DBG_DROP") && (drop_intent || down))
-        fprintf(stderr, "[drop-input] f80=%04X int=%d down=%d carry=%d intent=%d\n",
-                MR16(ctx->A[5] + 0xf80u), hw_get_interact(), down, carrying, drop_intent);
+    if (drop_intent || down)
+        benefactor_log_write(
+            BENEFACTOR_LOG_TRACE, "input", "drop f80=%04X int=%d down=%d carry=%d intent=%d",
+            MR16(ctx->A[5] + 0xf80u), hw_get_interact(), down, carrying, drop_intent);
 }
 
 /* ── $57EB20 — "place carried item at tile" PROBE (BENEFACTOR_DBG_DROP=1) ──────
  * Logs the caller PC + input state each time the place routine runs, to pin the
  * fire+down gate that selects the drop (so we can port it to interact+down). */
-void native_place_probe(M68KCtx *ctx)
-{
-    static int dbg = -1;
-    if (dbg < 0) dbg = getenv("BENEFACTOR_DBG_DROP") ? 1 : 0;
-    if (dbg) {
-        extern uint32_t rt_get_last_insn(void);
-        uint32_t a5 = ctx->A[5];
-        fprintf(stderr, "[place] $57EB20 from $%06X  $f80=%04X d4=%08X $1094=%04X $109c=%08X\n",
-                rt_get_last_insn(), MR16(a5 + 0xf80u),
-                ctx->D[4], MR16(a5 + 0x1094u), MR32(a5 + 0x109Cu));
-        fflush(stderr);
-    }
-    gfn_gpl_57EB20(ctx);
+void native_place_probe(M68KCtx *ctx) {
+    extern uint32_t rt_get_last_insn(void);
+    uint32_t a5 = ctx->A[5];
+    benefactor_log_write(BENEFACTOR_LOG_TRACE, "gameplay",
+                         "$57EB20 from $%06X $f80=%04X d4=%08X $1094=%04X $109c=%08X",
+                         rt_get_last_insn(), MR16(a5 + 0xf80u), ctx->D[4], MR16(a5 + 0x1094u),
+                         MR32(a5 + 0x109Cu));
+    rt_call_original(ctx, ctx->image, 0x0057EB20u);
 }
 
 /* ── $5782B4 — level setup (runs on every level entry, incl. the win's next
  * level — where it FREEZES). Log how it's dispatched (the jumping instruction
  * via rt_get_last_insn) and the level-selecting registers, so we learn the
  * dispatch mechanism from the level-1 entry we can reach headless. */
-void native_level_setup(M68KCtx *ctx)
-{
-    if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
-    if (s_dbg_endlevel) {
-        extern uint32_t rt_get_last_insn(void);
-        extern int rt_insn_ring_snapshot(uint32_t *out, int max);
-        fprintf(stderr, "[level-setup] $5782B4 entered from insn $%06X  "
-                "d0=%08X d1=%08X d4=%08X d5=%08X d6=%08X d7=%08X a3=%08X\n",
-                rt_get_last_insn(), ctx->D[0], ctx->D[1], ctx->D[4], ctx->D[5],
-                ctx->D[6], ctx->D[7], ctx->A[3]);
-        uint32_t ins[64]; int in = rt_insn_ring_snapshot(ins, 64);
-        fprintf(stderr, "[level-setup]   lead-up insns:");
-        for (int i = 0; i < in; i++) fprintf(stderr, " %06X", ins[i]);
-        fprintf(stderr, "\n");
-        fflush(stderr);
-    }
-    gfn_gpl_5782B4(ctx);
+void native_level_setup(M68KCtx *ctx) {
+    extern uint32_t rt_get_last_insn(void);
+    extern int rt_insn_ring_snapshot(uint32_t *out, int max);
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-setup",
+                         "$5782B4 entered from insn $%06X "
+                         "d0=%08X d1=%08X d4=%08X d5=%08X d6=%08X d7=%08X a3=%08X",
+                         rt_get_last_insn(), ctx->D[0], ctx->D[1], ctx->D[4], ctx->D[5], ctx->D[6],
+                         ctx->D[7], ctx->A[3]);
+    uint32_t ins[64];
+    int in = rt_insn_ring_snapshot(ins, 64);
+    char lead_up[512];
+    int used = snprintf(lead_up, sizeof lead_up, "lead-up insns:");
+    for (int i = 0; i < in && used > 0 && used < (int)sizeof lead_up; i++)
+        used += snprintf(lead_up + used, sizeof lead_up - (size_t)used, " %06X", ins[i]);
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-setup", "%s", lead_up);
+    rt_call_original(ctx, ctx->image, 0x005782B4u);
 }
 
 /* ── $59DC02 — level loader ───────────────────────────────────────────────────
@@ -316,20 +326,18 @@ void native_level_setup(M68KCtx *ctx)
  * next-level load on a WIN currently freezes; log its inputs so we can see how
  * the win-path load differs from the (working) game-over load. Pure passthrough
  * otherwise. */
-void native_wsobj_commit_reset(void);   /* defined with the wsobj capture below */
+void native_wsobj_commit_reset(void); /* defined with the wsobj capture below */
 
-void native_level_load(M68KCtx *ctx)
-{
-    native_wsobj_commit_reset();        /* object nodes are per-level */
-    { extern void native_lc_text_set(void);
-      native_lc_text_set(); }           /* re-pin "LEVEL COMPLETE" over the password text */
-    if (s_dbg_endlevel < 0) s_dbg_endlevel = getenv("BENEFACTOR_DBG_ENDLEVEL") ? 1 : 0;
-    if (s_dbg_endlevel) {
-        fprintf(stderr, "[level-load] $59DC02: d0=%08X d1=%08X a0=%08X a1=%08X a2=%08X a3=%08X\n",
-                ctx->D[0], ctx->D[1], ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3]);
-        fflush(stderr);
-    }
-    gfn_gpl_59DC02(ctx);
+void native_level_load(M68KCtx *ctx) {
+    native_wsobj_commit_reset(); /* object nodes are per-level */
+    {
+        extern void native_lc_text_set(void);
+        native_lc_text_set();
+    } /* re-pin "LEVEL COMPLETE" over the password text */
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-load",
+                         "$59DC02: d0=%08X d1=%08X a0=%08X a1=%08X a2=%08X a3=%08X", ctx->D[0],
+                         ctx->D[1], ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3]);
+    rt_call_original(ctx, ctx->image, 0x0059DC02u);
 }
 
 /* ── Native object capture for widescreen ($57D79A walk + $57D8D0 draw) ───────
@@ -339,7 +347,7 @@ void native_level_load(M68KCtx *ctx)
  * and emits a blit descriptor — or, for off-screen objects, a no-blit sentinel
  * (so they vanish). We capture each object's UNCLIPPED draw params at $57D8D0
  * ENTRY (before the clip), so the native widescreen renderer can draw it at its
- * true world position across the full wide view, then super-call the recomp body
+ * true world position across the full wide view, then call the original guest body
  * so the vanilla center is byte-for-byte unaffected.
  *
  * Regs at entry (the engine already ran the VM, even for off-screen objects —
@@ -348,13 +356,17 @@ void native_level_load(M68KCtx *ctx)
  * (height<<6)|width_words, gfxBase=MR32(A1-$A); gfx src = gfxBase + (int16)D5.
  * Sprite is 5-plane plane-major, plane stride $2A0C, w words x h rows.
  * Full RE: instructions/widescreen-plan.md "Phase 4 RE — object draw path". */
-typedef struct { int x, y, w, h; uint32_t src, mod; uint32_t a1, gfxbase; int d5; } WsObj;
+typedef struct {
+    int x, y, w, h;
+    uint32_t src, mod;
+    uint32_t a1, gfxbase;
+    int d5;
+} WsObj;
 #define WS_OBJ_MAX 256
 static WsObj s_wsobj[WS_OBJ_MAX];
-static int   s_wsobj_n = 0;       /* count being built this frame              */
+static int s_wsobj_n = 0; /* count being built this frame              */
 static WsObj s_wsobj_done[WS_OBJ_MAX];
-static int   s_wsobj_done_n = 0;  /* last COMPLETE frame's list (for renderer) */
-static int   s_wsobj_log = -1;
+static int s_wsobj_done_n = 0; /* last COMPLETE frame's list (for renderer) */
 
 /* Per-INSTANCE committed (page) state, mirroring the engine's own persistence.
  * The walker keeps a 6-byte dirty record per object in its a4 queue (long gfx
@@ -366,23 +378,26 @@ static int   s_wsobj_log = -1;
  * $57D8D0 entry), which is instance-unique; the gfx descriptor (A1) is NOT (two
  * instances of one object type share it — keying by it duplicated one instance
  * and lost the other, the c70636e bug). Cleared per level load. */
-typedef struct { uint32_t node; WsObj obj; } WsObjCommit;
+typedef struct {
+    uint32_t node;
+    WsObj obj;
+} WsObjCommit;
 static WsObjCommit s_wsobj_commit[WS_OBJ_MAX];
 static int s_wsobj_commit_n = 0;
 
 void native_wsobj_commit_reset(void) { s_wsobj_commit_n = 0; }
 
-static WsObj *wsobj_commit_find(uint32_t node)
-{
+static WsObj *wsobj_commit_find(uint32_t node) {
     for (int i = 0; i < s_wsobj_commit_n; i++)
-        if (s_wsobj_commit[i].node == node) return &s_wsobj_commit[i].obj;
+        if (s_wsobj_commit[i].node == node)
+            return &s_wsobj_commit[i].obj;
     return NULL;
 }
-static void wsobj_commit_put(uint32_t node, const WsObj *o)
-{
+static void wsobj_commit_put(uint32_t node, const WsObj *o) {
     WsObj *c = wsobj_commit_find(node);
     if (!c) {
-        if (s_wsobj_commit_n >= WS_OBJ_MAX) return;
+        if (s_wsobj_commit_n >= WS_OBJ_MAX)
+            return;
         s_wsobj_commit[s_wsobj_commit_n].node = node;
         c = &s_wsobj_commit[s_wsobj_commit_n++].obj;
     }
@@ -392,21 +407,28 @@ static void wsobj_commit_put(uint32_t node, const WsObj *o)
 /* Renderer-facing API (called from native_renderer.c). Returns the last fully
  * captured frame's object list — stable while the next frame is being built. */
 int native_wsobj_count(void) { return s_wsobj_done_n; }
-int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint32_t *mod)
-{
-    if (i < 0 || i >= s_wsobj_done_n) return 0;
+int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint32_t *mod) {
+    if (i < 0 || i >= s_wsobj_done_n)
+        return 0;
     const WsObj *o = &s_wsobj_done[i];
-    *x = o->x; *y = o->y; *w = o->w; *h = o->h; *src = o->src; *mod = o->mod;
+    *x = o->x;
+    *y = o->y;
+    *w = o->w;
+    *h = o->h;
+    *src = o->src;
+    *mod = o->mod;
     return 1;
 }
 
 /* Raw descriptor inputs (debug): A1 handler, gfxBase=MR32(A1-$A), D5 anim offset.
  * src = gfxBase + (int16)D5. Used by the `wsobjs` REPL dump to spot a wrong D5. */
-int native_wsobj_getraw(int i, uint32_t *a1, uint32_t *gfxbase, int *d5)
-{
-    if (i < 0 || i >= s_wsobj_done_n) return 0;
+int native_wsobj_getraw(int i, uint32_t *a1, uint32_t *gfxbase, int *d5) {
+    if (i < 0 || i >= s_wsobj_done_n)
+        return 0;
     const WsObj *o = &s_wsobj_done[i];
-    *a1 = o->a1; *gfxbase = o->gfxbase; *d5 = o->d5;
+    *a1 = o->a1;
+    *gfxbase = o->gfxbase;
+    *d5 = o->d5;
     return 1;
 }
 
@@ -434,22 +456,30 @@ int native_wsobj_getraw(int i, uint32_t *a1, uint32_t *gfxbase, int *d5)
  *                BMOD=-2 makes consecutive rows overlap 2 bytes). DATA plane stride
  *                = the B-channel auto-advance per blit = h*(w*2+BMOD) = h*rowstride
  *                (executor steps only the DEST by $2A0C/plane; B advances in HW). */
-typedef struct { int x, y, w, h; uint32_t data, mask; int rowstride; } WsChar;
+typedef struct {
+    int x, y, w, h;
+    uint32_t data, mask;
+    int rowstride;
+} WsChar;
 #define WS_CHAR_MAX 64
 static WsChar s_wschar[WS_CHAR_MAX];
-static int    s_wschar_n = 0;
+static int s_wschar_n = 0;
 static WsChar s_wschar_done[WS_CHAR_MAX];
-static int    s_wschar_done_n = 0;
-static int    s_wschar_log = -1;
+static int s_wschar_done_n = 0;
 
 int native_wschar_count(void) { return s_wschar_done_n; }
-int native_wschar_get(int i, int *x, int *y, int *w, int *h,
-                      uint32_t *data, uint32_t *mask, int *rowstride)
-{
-    if (i < 0 || i >= s_wschar_done_n) return 0;
+int native_wschar_get(int i, int *x, int *y, int *w, int *h, uint32_t *data, uint32_t *mask,
+                      int *rowstride) {
+    if (i < 0 || i >= s_wschar_done_n)
+        return 0;
     const WsChar *c = &s_wschar_done[i];
-    *x = c->x; *y = c->y; *w = c->w; *h = c->h;
-    *data = c->data; *mask = c->mask; *rowstride = c->rowstride;
+    *x = c->x;
+    *y = c->y;
+    *w = c->w;
+    *h = c->h;
+    *data = c->data;
+    *mask = c->mask;
+    *rowstride = c->rowstride;
     return 1;
 }
 
@@ -483,95 +513,116 @@ int native_wschar_get(int i, int *x, int *y, int *w, int *h,
  * (a5-$3712)=$57B700+d7 {stride-unit w0, BLTSIZE, yoff}; data=5*w0+$1876A,
  * mask=w0+$19A3E, BMOD=-2. Blind build has no cloud tail (verified: the
  * btst#5,$9(a0) encoding appears once in the bank). */
-typedef struct { int worldX, worldY, frame, flags, blind; uint32_t handler;
-                 int cloud, cloudX, cloudY, cloudIdx; } WsBuild;
+typedef struct {
+    int worldX, worldY, frame, flags, blind;
+    uint32_t handler;
+    int cloud, cloudX, cloudY, cloudIdx;
+} WsBuild;
 #define WS_BUILD_MAX 32
-static WsBuild s_wsbuild[WS_BUILD_MAX];      static int s_wsbuild_n = 0;
-static WsBuild s_wsbuild_done[WS_BUILD_MAX]; static int s_wsbuild_done_n = 0;
+static WsBuild s_wsbuild[WS_BUILD_MAX];
+static int s_wsbuild_n = 0;
+static WsBuild s_wsbuild_done[WS_BUILD_MAX];
+static int s_wsbuild_done_n = 0;
 
 int native_wsbuild_count(void) { return s_wsbuild_done_n; }
-int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind)
-{
-    if (i < 0 || i >= s_wsbuild_done_n) return 0;
+int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind) {
+    if (i < 0 || i >= s_wsbuild_done_n)
+        return 0;
     const WsBuild *b = &s_wsbuild_done[i];
-    *x = b->worldX; *y = b->worldY; *frame = b->frame; *flags = b->flags; *blind = b->blind;
+    *x = b->worldX;
+    *y = b->worldY;
+    *frame = b->frame;
+    *flags = b->flags;
+    *blind = b->blind;
     return 1;
 }
 
 /* Repair dust-cloud overlay of build i (see WsBuild). Returns 0 when none. */
-int native_wsbuild_cloud(int i, int *x, int *y, int *idx)
-{
-    if (i < 0 || i >= s_wsbuild_done_n || !s_wsbuild_done[i].cloud) return 0;
+int native_wsbuild_cloud(int i, int *x, int *y, int *idx) {
+    if (i < 0 || i >= s_wsbuild_done_n || !s_wsbuild_done[i].cloud)
+        return 0;
     const WsBuild *b = &s_wsbuild_done[i];
-    *x = b->cloudX; *y = b->cloudY; *idx = b->cloudIdx;
+    *x = b->cloudX;
+    *y = b->cloudY;
+    *idx = b->cloudIdx;
     return 1;
 }
 /* The marry man's CURRENT pose handler (a1 at the build) — diagnostic only (`wsmm` REPL). */
-uint32_t native_wsbuild_handler(int i)
-{
+uint32_t native_wsbuild_handler(int i) {
     return (i >= 0 && i < s_wsbuild_done_n) ? s_wsbuild_done[i].handler : 0u;
 }
 
-static void wsbuild_capture(M68KCtx *ctx, int blind)
-{
-    if (s_wsbuild_n >= WS_BUILD_MAX) return;
+static void wsbuild_capture(M68KCtx *ctx, int blind) {
+    if (s_wsbuild_n >= WS_BUILD_MAX)
+        return;
     /* At the build entry a0 = the pose-HANDLER SLOT inside the placement record
      * (= rec+$C; verified live: a0=$5A456E with rec0=$5A4562). The cloud-tail
      * $57B562 sees a0 rewound to the record base; here it's still the slot. */
     uint32_t rec = ctx->A[0] - 0xCu;               /* placement record (stride $40) */
     int cloud = !blind && (MR8(rec + 9u) & 0x20u); /* $57B562 btst #5,$9(a0) */
-    { extern int g_pickup_log; if (g_pickup_log)
-        fprintf(stderr, "[wsbuild] a0=%06X a1=%06X a2=%06X a3=%06X d1=%d d2=%d d4=%04X "
-                "rec?=%06X bytes@a2-2: %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X\n",
-                ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3],
-                (int16_t)ctx->D[1], (int16_t)ctx->D[2], ctx->D[4]&0xFFFF, rec,
-                MR8(rec),MR8(rec+1),MR8(rec+2),MR8(rec+3),MR8(rec+4),MR8(rec+5),
-                MR8(rec+6),MR8(rec+7),MR8(rec+8),MR8(rec+9),MR8(rec+10),MR8(rec+11)); }
-    s_wsbuild[s_wsbuild_n++] = (WsBuild){
-        (int16_t)(uint16_t)ctx->D[1], (int16_t)(uint16_t)ctx->D[2],
-        (int)(ctx->D[3] & 0xFFFFu), (int)(ctx->D[4] & 0xFFFFu), blind, ctx->A[1],
-        cloud, (int16_t)MR16(rec + 2u), (int16_t)MR16(rec + 4u),
-        (int)MR16(rec + 0xAu) };
+    benefactor_log_write(
+        BENEFACTOR_LOG_DEBUG, "override",
+        "[wsbuild] a0=%06X a1=%06X a2=%06X a3=%06X d1=%d d2=%d d4=%04X "
+        "rec?=%06X bytes@a2-2: %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X\n",
+        ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3], (int16_t)ctx->D[1], (int16_t)ctx->D[2],
+        ctx->D[4] & 0xFFFF, rec, MR8(rec), MR8(rec + 1), MR8(rec + 2), MR8(rec + 3), MR8(rec + 4),
+        MR8(rec + 5), MR8(rec + 6), MR8(rec + 7), MR8(rec + 8), MR8(rec + 9), MR8(rec + 10),
+        MR8(rec + 11));
+    s_wsbuild[s_wsbuild_n++] = (WsBuild){(int16_t)(uint16_t)ctx->D[1],
+                                         (int16_t)(uint16_t)ctx->D[2],
+                                         (int)(ctx->D[3] & 0xFFFFu),
+                                         (int)(ctx->D[4] & 0xFFFFu),
+                                         blind,
+                                         ctx->A[1],
+                                         cloud,
+                                         (int16_t)MR16(rec + 2u),
+                                         (int16_t)MR16(rec + 4u),
+                                         (int)MR16(rec + 0xAu)};
 }
-void native_build_red(M68KCtx *ctx)   { wsbuild_capture(ctx, 0); gfn_gpl_57B19E(ctx); }
-void native_build_blind(M68KCtx *ctx) { wsbuild_capture(ctx, 1); gfn_gpl_57B856(ctx); }
-void native_build_clear(M68KCtx *ctx) { s_wsbuild_n = 0; gfn_gpl_57B07C(ctx); }  /* compositor frame start */
+void native_build_red(M68KCtx *ctx) {
+    wsbuild_capture(ctx, 0);
+    rt_call_original(ctx, ctx->image, 0x0057B19Eu);
+}
+void native_build_blind(M68KCtx *ctx) {
+    wsbuild_capture(ctx, 1);
+    rt_call_original(ctx, ctx->image, 0x0057B856u);
+}
+void native_build_clear(M68KCtx *ctx) {
+    s_wsbuild_n = 0;
+    rt_call_original(ctx, ctx->image, 0x0057B07Cu);
+}
 
-void native_char_capture(M68KCtx *ctx)
-{
+void native_char_capture(M68KCtx *ctx) {
     g_diag_char++;
-    int      worldX = (int16_t)(uint16_t)ctx->D[0];
-    int      worldY = (int16_t)(uint16_t)ctx->D[1];
-    uint32_t d5     = ctx->D[5];
-    uint32_t a1     = ctx->A[1];
+    int worldX = (int16_t)(uint16_t)ctx->D[0];
+    int worldY = (int16_t)(uint16_t)ctx->D[1];
+    uint32_t d5 = ctx->D[5];
+    uint32_t a1 = ctx->A[1];
 
     uint16_t maskoff = MR16(a1 + 0x00u);
-    int16_t  bmod    = (int16_t)(uint16_t)MR16(a1 + 0x02u); /* modulos hi word = BMOD */
-    uint16_t size    = MR16(a1 + 0x08u);
-    int      w       = size & 0x3F;
-    int      h       = size >> 6;
+    int16_t bmod = (int16_t)(uint16_t)MR16(a1 + 0x02u); /* modulos hi word = BMOD */
+    uint16_t size = MR16(a1 + 0x08u);
+    int w = size & 0x3F;
+    int h = size >> 6;
     uint32_t gfxBase = MR32(a1 + 0x0Au);
 
-    uint32_t data1x = gfxBase + d5;                        /* gfxBase + D5 (×1) */
-    uint32_t mask   = data1x + maskoff;
+    uint32_t data1x = gfxBase + d5; /* gfxBase + D5 (×1) */
+    uint32_t mask = data1x + maskoff;
     /* DATA = gfxBase + 5*D5, replicating add.w d5,d5 (×2) twice then add.l d5,d1
      * (the *4 is 16-bit; the original full-width D5 was already added in data1x). */
-    uint32_t d5mul  = (d5 & 0xFFFF0000u) | (((d5 & 0xFFFFu) * 4u) & 0xFFFFu);
-    uint32_t data   = data1x + d5mul;
-    int      rowstride = w * 2 + bmod;
+    uint32_t d5mul = (d5 & 0xFFFF0000u) | (((d5 & 0xFFFFu) * 4u) & 0xFFFFu);
+    uint32_t data = data1x + d5mul;
+    int rowstride = w * 2 + bmod;
 
     if (s_wschar_n < WS_CHAR_MAX && w > 0 && h > 0 && rowstride > 0)
-        s_wschar[s_wschar_n++] = (WsChar){ worldX, worldY, w, h, data, mask, rowstride };
+        s_wschar[s_wschar_n++] = (WsChar){worldX, worldY, w, h, data, mask, rowstride};
 
-    if (s_wschar_log < 0)
-        s_wschar_log = getenv("WSCHAR_LOG") ? atoi(getenv("WSCHAR_LOG")) : 0;
-    if (s_wschar_log && s_wschar_n <= s_wschar_log) {
-        int cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
-        GLOBAL_LOG("[wschar] x=%d y=%d (screenX=%d) w=%d h=%d data=%06X mask=%06X rs=%d\n",
-                   worldX, worldY, worldX - cam, w, h, data, mask, rowstride);
-    }
+    int log_cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
+    benefactor_log_write(BENEFACTOR_LOG_TRACE, "widescreen-character",
+                         "x=%d y=%d (screenX=%d) w=%d h=%d data=%06X mask=%06X rs=%d", worldX,
+                         worldY, worldX - log_cam, w, h, data, mask, rowstride);
 
-    gfn_gpl_57D3F4(ctx);
+    rt_call_original(ctx, ctx->image, 0x0057D3F4u);
 }
 
 /* ROPES — the engine builds a per-frame line-segment list ($57DCAE driver) by walking a
@@ -585,19 +636,24 @@ void native_char_capture(M68KCtx *ctx)
  * there. Reset at the driver $57DCAE (rt_jump is a trampoline, so the emit chain runs after
  * the driver wrapper returns — don't promote here; the renderer reads the buffer at present,
  * after the whole frame's chain has run). WORLD coords. */
-typedef struct { int16_t x0, y0, x1, y1; } WsRope;
+typedef struct {
+    int16_t x0, y0, x1, y1;
+} WsRope;
 #define WS_ROPE_MAX 128
-static WsRope s_wsrope[WS_ROPE_MAX];   static int s_wsrope_n = 0;
-int  native_wsrope_count(void) { return s_wsrope_n; }
-void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1)
-{
+static WsRope s_wsrope[WS_ROPE_MAX];
+static int s_wsrope_n = 0;
+int native_wsrope_count(void) { return s_wsrope_n; }
+void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1) {
     const WsRope *r = &s_wsrope[i];
-    *x0 = r->x0; *y0 = r->y0; *x1 = r->x1; *y1 = r->y1;
+    *x0 = r->x0;
+    *y0 = r->y0;
+    *x1 = r->x1;
+    *y1 = r->y1;
 }
-void native_wsrope_build(M68KCtx *ctx)   /* $57DCAE — driver; reset before the emit chain */
+void native_wsrope_build(M68KCtx *ctx) /* $57DCAE — driver; reset before the emit chain */
 {
     s_wsrope_n = 0;
-    gfn_gpl_57DCAE(ctx);
+    rt_call_original(ctx, ctx->image, 0x0057DCAEu);
 }
 /* ANIMATED PAGE PATCHES (water surface line etc.) — the object-list walker's
  * "multi-tile" path $57D81C (reached from $57D7BC via `bmi` when the object record's
@@ -615,43 +671,50 @@ void native_wsrope_build(M68KCtx *ctx)   /* $57DCAE — driver; reset before the
  * Source: a2 = *(a1+8).l; src = a2 + *((a1+16) + rec4 + phase).w where
  * phase = -$273e(a5) (global animation phase). Dest: a3 = $67e(a5) page base
  * + rec0 + *($5A1D18 + rec2).w → page row = off/46, byte col = off%46.
- * Capture only; the recompiled body then runs unchanged (engine behaviour identical). */
-typedef struct { int16_t worldX; int16_t row; int16_t col; uint32_t src; } WsWater;
+ * Capture only; the original guest body then runs unchanged (engine behaviour identical). */
+typedef struct {
+    int16_t worldX;
+    int16_t row;
+    int16_t col;
+    uint32_t src;
+} WsWater;
 #define WS_WATER_MAX 128
-static WsWater s_wswater[WS_WATER_MAX]; static int s_wswater_n = 0;
-int  native_wswater_count(void) { return s_wswater_n; }
-int  native_wswater_get(int i, int *worldX, int *row, int *col, uint32_t *src)
-{
-    if (i < 0 || i >= s_wswater_n) return 0;
-    *worldX = s_wswater[i].worldX; *row = s_wswater[i].row;
-    *col = s_wswater[i].col;       *src = s_wswater[i].src;
+static WsWater s_wswater[WS_WATER_MAX];
+static int s_wswater_n = 0;
+int native_wswater_count(void) { return s_wswater_n; }
+int native_wswater_get(int i, int *worldX, int *row, int *col, uint32_t *src) {
+    if (i < 0 || i >= s_wswater_n)
+        return 0;
+    *worldX = s_wswater[i].worldX;
+    *row = s_wswater[i].row;
+    *col = s_wswater[i].col;
+    *src = s_wswater[i].src;
     return 1;
 }
 void native_wswater_reset(void) { s_wswater_n = 0; }
-void native_anim_patch(M68KCtx *ctx)     /* $57D81C — capture pre-cull, then delegate */
+void native_anim_patch(M68KCtx *ctx) /* $57D81C — capture pre-cull, then delegate */
 {
     uint32_t a0 = ctx->A[0], a1 = ctx->A[1], a5 = ctx->A[5];
     if (s_wswater_n < WS_WATER_MAX) {
         uint16_t rec0 = MR16(a0), rec2 = MR16(a0 + 2u), rec4 = MR16(a0 + 4u);
-        int16_t  wx   = (int16_t)MR16(a0 + 6u);
-        uint16_t tbl  = MR16(0x5A1D18u + rec2);                  /* adda.w (a4),a3 */
-        uint16_t off  = (uint16_t)(rec0 + tbl);                  /* page-relative  */
-        uint32_t a2   = MR32(a1 + 8u);                           /* movea.l (a1)+  */
-        uint16_t ph   = MR16(a5 - 0x273Eu);                      /* anim phase     */
-        uint32_t sp   = a1 + 16u + (uint32_t)(int16_t)rec4 + (uint32_t)(int16_t)ph;
-        uint32_t src  = a2 + (uint32_t)(int16_t)MR16(sp);
-        s_wswater[s_wswater_n++] = (WsWater){ wx, (int16_t)(off / 46u),
-                                              (int16_t)(off % 46u), src };
+        int16_t wx = (int16_t)MR16(a0 + 6u);
+        uint16_t tbl = MR16(0x5A1D18u + rec2); /* adda.w (a4),a3 */
+        uint16_t off = (uint16_t)(rec0 + tbl); /* page-relative  */
+        uint32_t a2 = MR32(a1 + 8u);           /* movea.l (a1)+  */
+        uint16_t ph = MR16(a5 - 0x273Eu);      /* anim phase     */
+        uint32_t sp = a1 + 16u + (uint32_t)(int16_t)rec4 + (uint32_t)(int16_t)ph;
+        uint32_t src = a2 + (uint32_t)(int16_t)MR16(sp);
+        s_wswater[s_wswater_n++] = (WsWater){wx, (int16_t)(off / 46u), (int16_t)(off % 46u), src};
     }
-    gfn_gpl_57D81C(ctx);
+    rt_call_original(ctx, ctx->image, 0x0057D81Cu);
 }
 
-void native_wsrope_seg(M68KCtx *ctx)     /* $57DCD4 — shared clip/emit entry, PRE-cull */
+void native_wsrope_seg(M68KCtx *ctx) /* $57DCD4 — shared clip/emit entry, PRE-cull */
 {
     if (s_wsrope_n < WS_ROPE_MAX)
-        s_wsrope[s_wsrope_n++] = (WsRope){ (int16_t)ctx->D[0], (int16_t)ctx->D[1],
-                                           (int16_t)ctx->D[2], (int16_t)ctx->D[3] };
-    gfn_gpl_57DCD4(ctx);
+        s_wsrope[s_wsrope_n++] = (WsRope){(int16_t)ctx->D[0], (int16_t)ctx->D[1],
+                                          (int16_t)ctx->D[2], (int16_t)ctx->D[3]};
+    rt_call_original(ctx, ctx->image, 0x0057DCD4u);
 }
 
 /* Object anim+draw dispatcher $59AC38 (one of the per-object-type handlers the
@@ -668,16 +731,18 @@ void native_wsrope_seg(M68KCtx *ctx)     /* $57DCD4 — shared clip/emit entry, 
  * iff $1890==$0200, i.e. the low-RAM init ran. When it didn't (a stale savestate that
  * bypassed the loader), the gate fails and the engine bails to `jmp(a0)` — but a0 is
  * still the OBJECT-RECORD pointer, so it wild-jumps into object DATA, surfacing as a
- * bogus "no function" dispatch miss. That's not a recompiler/discovery bug and not a
+ * bogus "no function" dispatch miss. That's not a retired-translator discovery bug and not a
  * state we support; owning the handler turns the cryptic wild-jump into a clear,
  * breakpoint-able diagnostic in our own code. Good state delegates to the faithful
- * recompiled body. */
-void native_obj_anim_59AC38(M68KCtx *ctx)
-{
-    uint16_t d2   = (uint16_t)(MR16(0x1890u) - 0x1C4u);     /* $59AC4A/$59AC4E */
-    uint32_t a3   = (uint32_t)(int16_t)MR16(ctx->A[5] - 0xF22u); /* $59AC52 movea.w (sign-ext) */
-    uint16_t gate = MR16(a3);                               /* $59AC56 cmp.w (a3),d2 */
-    if (gate == d2) { gfn_gpl_59AC38(ctx); return; }        /* beq: normal anim+draw dispatch */
+ * original guest body. */
+void native_obj_anim_59AC38(M68KCtx *ctx) {
+    uint16_t d2 = (uint16_t)(MR16(0x1890u) - 0x1C4u);          /* $59AC4A/$59AC4E */
+    uint32_t a3 = (uint32_t)(int16_t)MR16(ctx->A[5] - 0xF22u); /* $59AC52 movea.w (sign-ext) */
+    uint16_t gate = MR16(a3);                                  /* $59AC56 cmp.w (a3),d2 */
+    if (gate == d2) {
+        rt_call_original(ctx, ctx->image, 0x0059AC38u);
+        return;
+    }
 
     /* bne bail with a0=object → wild jump into data. Corrupt low-RAM init.
      * Historic cause (FIXED 2026-06-10): every overlay reload re-ran the
@@ -686,13 +751,14 @@ void native_obj_anim_59AC38(M68KCtx *ctx)
      * (and the rest of the low-RAM block). overlay_load.c's loader_block_copy
      * now re-decrunches the boot image first. A savestate captured while
      * poisoned still trips this; re-save from a clean run. */
-    fprintf(stderr,
+    benefactor_log_write(
+        BENEFACTOR_LOG_DEBUG, "override",
         "\n*** [obj $59AC38] corrupt low-RAM init: $1890=$%04X (expected $0200), "
         "gate (a5-$f22)->$%04X != d2 $%04X.\n"
         "    The object handler would jmp(a0=$%06X) into object DATA. The engine state was "
         "poisoned by a stale $6D734->$150 block copy (fixed in overlay_load.c 2026-06-10)\n"
         "    or this is a savestate captured while poisoned — re-save from a clean run. "
-        "NOT a recompiler bug. (a0=$%06X a5=$%06X)\n",
+        "NOT an interpreter bug. (a0=$%06X a5=$%06X)\n",
         MR16(0x1890u), gate, d2, ctx->A[0], ctx->A[0], ctx->A[5]);
     abort();
 }
@@ -712,18 +778,25 @@ void native_obj_anim_59AC38(M68KCtx *ctx)
  * GET READY (where the per-frame loop pauses), so "retain last" matches vanilla. The
  * damage BLINK is NOT a skipped draw — the engine draws the player every frame, just
  * as a black silhouette on alternate frames (the `black` field). */
-typedef struct { int x, y; uint32_t dbase, mbase; int valid, black; } WsPlayer;
+typedef struct {
+    int x, y;
+    uint32_t dbase, mbase;
+    int valid, black;
+} WsPlayer;
 static WsPlayer s_wsplayer_done;
 
 /* GET READY / GAME OVER banner overlay state (set by native_banner_capture). */
-static int  s_banner_active     = 0;  /* set on draw, cleared when the walker resumes    */
-static int  s_banner_row        = 80; /* page row (= screen row offset below pf_top)     */
-static int  s_banner_ttl        = 0;  /* safety cap (frames)                            */
-static int  s_banner_fresh      = 0;  /* first present after draw latches the objwalk #  */
-static long s_banner_objwalk_at = 0;  /* objwalk count at end of the banner setup frame  */
+static int s_banner_active = 0;      /* set on draw, cleared when the walker resumes    */
+static int s_banner_row = 80;        /* page row (= screen row offset below pf_top)     */
+static int s_banner_ttl = 0;         /* safety cap (frames)                            */
+static int s_banner_fresh = 0;       /* first present after draw latches the objwalk #  */
+static long s_banner_objwalk_at = 0; /* objwalk count at end of the banner setup frame  */
 
-void native_ws_diag(long *ow, long *od, long *ch)
-{ *ow = g_diag_objwalk; *od = g_diag_objdraw; *ch = g_diag_char; }
+void native_ws_diag(long *ow, long *od, long *ch) {
+    *ow = g_diag_objwalk;
+    *od = g_diag_objdraw;
+    *ch = g_diag_char;
+}
 
 /* Per-side widescreen object-cull margin (px). The wide camera (native_render_wide_bg)
  * extends the view by (output_width - 320)/2 each side, so the object-list walker's
@@ -743,16 +816,15 @@ void native_ws_diag(long *ow, long *od, long *ch)
  *    using the SAME ws_view_left() the renderer uses. This is the fix for "culled because the
  *    cull tracked the vanilla camera while the wide view was clamped at a level edge": the
  *    window now tracks what's actually on screen, so an object in the wide view never culls. */
-static int ws_obj_cull_skip(uint16_t worldX, uint16_t cam, uint16_t origLeft, uint16_t origWidth)
-{
+static int ws_obj_cull_skip(uint16_t worldX, uint16_t cam, uint16_t origLeft, uint16_t origWidth) {
     int ow = hw_output_width();
-    if (ow <= HW_DISPLAY_W) {                /* default / non-wide: vanilla window on the camera */
+    if (ow <= HW_DISPLAY_W) { /* default / non-wide: vanilla window on the camera */
         uint16_t d1 = (uint16_t)(worldX + origLeft - cam);
         return d1 > origWidth;
     }
     extern int ws_view_left(int ow);
-    int vl  = ws_view_left(ow);
-    int PAD = 48;                            /* object-width slop so edge sprites still dispatch */
+    int vl = ws_view_left(ow);
+    int PAD = 48; /* object-width slop so edge sprites still dispatch */
     int rel = (int)(int16_t)worldX - (vl - PAD);
     return rel < 0 || rel > ow + 2 * PAD;
 }
@@ -773,32 +845,31 @@ static int ws_obj_cull_skip(uint16_t worldX, uint16_t cam, uint16_t origLeft, ui
  * `*_done` always reflect the latest build, and — because the clear is at objwalk
  * (rebuild), not present — the build PERSISTS across the paused frames, exactly
  * mirroring the engine's static queue + per-frame executor. */
-void native_objwalk(M68KCtx *ctx)
-{
+void native_objwalk(M68KCtx *ctx) {
     g_diag_objwalk++;
-    s_wsobj_n  = 0;       /* start a fresh build; the dispatched builders repopulate */
+    s_wsobj_n = 0; /* start a fresh build; the dispatched builders repopulate */
     s_wschar_n = 0;
-    s_wswater_n = 0;      /* animated page patches re-captured each walk ($57D81C) */
+    s_wswater_n = 0; /* animated page patches re-captured each walk ($57D81C) */
 
     /* Faithful port of the $57D79A SETUP (instructions $57D79A..$57D7B6), then jump to
      * the loop top $57D7BC so the per-object override native_objstep ($57D7BC) catches
-     * the FIRST object. (The recompiled gfn_gpl_57D79A inline-falls-through to $57D7BC,
+     * the FIRST object. (The original routine at $57D79A falls through to $57D7BC,
      * so calling it would bypass the override on iteration 1.) */
     uint32_t a5 = ctx->A[5];
-    MW32(a5 + 30944u, 0x5a27dcu);          /* move.l #$5a27dc, $78e0(a5)  */
-    ctx->A[0] = a5 + 5798u;                /* lea $16a6(a5), a0  (anim/aux table)  */
-    ctx->A[2] = a5 + 4450u;                /* lea $1162(a5), a2  (object-ptr list) */
-    ctx->A[3] = 0x5a3b6cu;                 /* lea $5a3b6c, a3                      */
-    ctx->A[4] = 0x5a43a0u;                 /* lea $5a43a0, a4                      */
-    ctx->A[6] = 0x5a3f86u;                 /* lea $5a3f86, a6                      */
+    MW32(a5 + 30944u, 0x5a27dcu); /* move.l #$5a27dc, $78e0(a5)  */
+    ctx->A[0] = a5 + 5798u;       /* lea $16a6(a5), a0  (anim/aux table)  */
+    ctx->A[2] = a5 + 4450u;       /* lea $1162(a5), a2  (object-ptr list) */
+    ctx->A[3] = 0x5a3b6cu;        /* lea $5a3b6c, a3                      */
+    ctx->A[4] = 0x5a43a0u;        /* lea $5a43a0, a4                      */
+    ctx->A[6] = 0x5a3f86u;        /* lea $5a3f86, a6                      */
 
-    rt_jump(ctx, 0x57D7BCu);
+    rt_jump(ctx, ctx->image, 0x57D7BCu);
     return;
 }
 
 /* ── Widescreen per-object loop step — override of $57D7BC ────────────────────
  * Re-implements ONE iteration of the object-list walker's body ($57D7BC..$57D812),
- * faithfully ported from gfn_gpl_57D79A in src/generated/game_gpl_0.c, with the
+ * faithfully ported from the original retail-image routine at $57D79A, with the
  * camera-window CULL ($57D804..$57D812) WIDENED for widescreen so off-screen objects
  * in the wide margins still dispatch their handlers and reach the $57D8D0 draw choke
  * (where native_objdraw_capture records them). At default width (margin==0) the window
@@ -806,16 +877,18 @@ void native_objwalk(M68KCtx *ctx)
  *
  * The walker + handlers + draw routine are one flat rt_jump trampoline loop, so EVERY
  * object iteration re-enters $57D7BC → this override fires once per object. It must
- * leave the Amiga stack (ctx->A[7]) exactly as the recompiled fall-through would:
+ * leave the Amiga stack (ctx->A[7]) exactly as the original retail-image fall-through would:
  *   - DISPATCH ($57D816): one a0 pushed (from $57D7CC) — $57D816 then pushes a2-a4.
  *   - SKIP     ($57D8A8): one a0 pushed — $57D8A8 pops it (a2-a4 were never pushed).
  *   - zero-aux continue : pop a0 ($57D7EA), advance, jump back to $57D7BC ourselves.
  *   - exit     ($57DA28): nothing pushed.
- * The widened window is the ONLY deviation from the recompiled body. */
-void native_objstep(M68KCtx *ctx)
-{
+ * The widened window is the ONLY deviation from the original guest body. */
+void native_objstep(M68KCtx *ctx) {
     /* 57D7BC: tst.l (a2); 57D7BE: beq $57DA28  (object-ptr list null-terminated) */
-    if (MR32(ctx->A[2]) == 0) { rt_jump(ctx, 0x57DA28u); return; }
+    if (MR32(ctx->A[2]) == 0) {
+        rt_jump(ctx, ctx->image, 0x57DA28u);
+        return;
+    }
 
     /* 57D7C2: movea.l (a2)+, a1 */
     ctx->A[1] = MR32(ctx->A[2]);
@@ -824,7 +897,10 @@ void native_objstep(M68KCtx *ctx)
     /* 57D7C4: move.w (a1), d2; 57D7C6: bmi $57D81C  (high-bit => multi-tile path) */
     uint16_t d2w = MR16(ctx->A[1]);
     ctx->D[2] = (ctx->D[2] & 0xFFFF0000u) | d2w;
-    if ((int16_t)d2w < 0) { rt_jump(ctx, 0x57D81Cu); return; }
+    if ((int16_t)d2w < 0) {
+        rt_jump(ctx, ctx->image, 0x57D81Cu);
+        return;
+    }
 
     /* 57D7CA: adda.w d2, a1 */
     ctx->A[1] += RT_SX16(d2w);
@@ -845,22 +921,31 @@ void native_objstep(M68KCtx *ctx)
     if (aux == 0) {
         /* zero-aux: write the no-blit sentinel and continue to the next object.
          * 57D7E0: move.l #$ffffffff, (a4)+ ; 57D7E6: move.w #$3, (a4)+ */
-        MW32(ctx->A[4], 0xffffffffu); ctx->A[4] += 4;
-        MW16(ctx->A[4], 0x3u);        ctx->A[4] += 2;
+        MW32(ctx->A[4], 0xffffffffu);
+        ctx->A[4] += 4;
+        MW16(ctx->A[4], 0x3u);
+        ctx->A[4] += 2;
         /* 57D7EA: movea.l (a7)+, a0 ; 57D7EC: lea $20(a0), a0 ; 57D7F0: bra $57D7BC */
-        ctx->A[0] = MR32(ctx->A[7]); ctx->A[7] += 4;
+        ctx->A[0] = MR32(ctx->A[7]);
+        ctx->A[7] += 4;
         ctx->A[0] += 32u;
-        rt_jump(ctx, 0x57D7BCu);
+        rt_jump(ctx, ctx->image, 0x57D7BCu);
         return;
     }
 
     /* 57D7F2: moveq #$3f, d2 ; 57D7F4: and.w -$c(a1), d2 ; 57D7F8: bne $57D8B4 */
     uint16_t d2m = (uint16_t)(0x3Fu & MR16(ctx->A[1] - 12u));
     ctx->D[2] = (ctx->D[2] & 0xFFFF0000u) | d2m;
-    if (d2m != 0) { rt_jump(ctx, 0x57D8B4u); return; }
+    if (d2m != 0) {
+        rt_jump(ctx, ctx->image, 0x57D8B4u);
+        return;
+    }
 
     /* 57D7FC: btst #6, -$2(a1) ; 57D802: bne $57D816  (bit6 fast-path bypasses cull) */
-    if (MR8(ctx->A[1] - 2u) & (1u << 6)) { rt_jump(ctx, 0x57D816u); return; }
+    if (MR8(ctx->A[1] - 2u) & (1u << 6)) {
+        rt_jump(ctx, ctx->image, 0x57D816u);
+        return;
+    }
 
     /* 57D804..57D812: the per-object camera-window CULL.
      *   worldX = (a0)  [a0 already advanced past the aux word at $57D7DC]
@@ -871,12 +956,16 @@ void native_objstep(M68KCtx *ctx)
      * uses: native_render_wide_bg extends (ow-320)/2 each side). At margin==0 this is
      * byte-identical to the original. */
     uint16_t worldX = MR16(ctx->A[0]);
-    uint16_t cam    = (uint16_t)MR16(0x57FDBAu);
-    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(worldX + 0x30u - cam); /* original d1 for downstream */
-    if (ws_obj_cull_skip(worldX, cam, 0x30u, 0x170u)) { rt_jump(ctx, 0x57D8A8u); return; } /* 57D812: skip */
+    uint16_t cam = (uint16_t)MR16(0x57FDBAu);
+    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) |
+                (uint16_t)(worldX + 0x30u - cam); /* original d1 for downstream */
+    if (ws_obj_cull_skip(worldX, cam, 0x30u, 0x170u)) {
+        rt_jump(ctx, ctx->image, 0x57D8A8u);
+        return;
+    }
 
     /* fall-through: DISPATCH at $57D816 (it pushes a2-a4 then jmp (a1)) */
-    rt_jump(ctx, 0x57D816u);
+    rt_jump(ctx, ctx->image, 0x57D816u);
     return;
 }
 
@@ -892,20 +981,26 @@ void native_objstep(M68KCtx *ctx)
  *   $57D8B4: tst.w -$2(a1); bpl $57D8CA  (flag >= 0 => dispatch unconditionally)
  *   $57D8BA..$57D8C8: d1 = (uint16)(auxX + $30 - cam); skip ($57D8F2) iff d1 > $1b0.
  * Stack: arrives with one a0 pushed (from $57D7CC). $57D8CA pushes a2-a4 then jmp;
- * $57D8F2 pops a0. We leave the stack as the recompiled fall-through would. */
-void native_objstep_b(M68KCtx *ctx)
-{
+ * $57D8F2 pops a0. We leave the stack as the original retail-image fall-through would. */
+void native_objstep_b(M68KCtx *ctx) {
     /* 57D8B4: tst.w -$2(a1); 57D8B8: bpl $57D8CA (dispatch unconditionally) */
-    if ((int16_t)MR16(ctx->A[1] - 2u) >= 0) { rt_jump(ctx, 0x57D8CAu); return; }
+    if ((int16_t)MR16(ctx->A[1] - 2u) >= 0) {
+        rt_jump(ctx, ctx->image, 0x57D8CAu);
+        return;
+    }
 
     /* 57D8BA..57D8C8: camera-window test (view-tracking for wide; vanilla $1b0 at 352) */
     uint16_t auxX = MR16(ctx->A[0]);
-    uint16_t cam  = (uint16_t)MR16(0x57FDBAu);
-    ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(auxX + 0x30u - cam); /* original d1 for downstream */
-    if (ws_obj_cull_skip(auxX, cam, 0x30u, 0x1b0u)) { rt_jump(ctx, 0x57D8F2u); return; } /* 57D8C8: skip */
+    uint16_t cam = (uint16_t)MR16(0x57FDBAu);
+    ctx->D[1] =
+        (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(auxX + 0x30u - cam); /* original d1 for downstream */
+    if (ws_obj_cull_skip(auxX, cam, 0x30u, 0x1b0u)) {
+        rt_jump(ctx, ctx->image, 0x57D8F2u);
+        return;
+    }
 
     /* fall-through: DISPATCH at $57D8CA (pushes a2-a4 then jmp (a1)) */
-    rt_jump(ctx, 0x57D8CAu);
+    rt_jump(ctx, ctx->image, 0x57D8CAu);
     return;
 }
 
@@ -916,10 +1011,9 @@ void native_objstep_b(M68KCtx *ctx)
  * clears once the walker advances again (gameplay resumed → the page banner is wiped
  * by the scroll). The very first present after the draw latches the walker count at
  * end-of-setup so the same-frame setup objwalk doesn't immediately clear it. */
-void native_wsbanner_clear_children(void);   /* defined in the banner section below */
+void native_wsbanner_clear_children(void); /* defined in the banner section below */
 
-void native_ws_promote(void)
-{
+void native_ws_promote(void) {
     memcpy(s_wsobj_done, s_wsobj, sizeof(WsObj) * (size_t)s_wsobj_n);
     s_wsobj_done_n = s_wsobj_n;
     memcpy(s_wschar_done, s_wschar, sizeof(WsChar) * (size_t)s_wschar_n);
@@ -928,28 +1022,32 @@ void native_ws_promote(void)
     s_wsbuild_done_n = s_wsbuild_n;
 
     if (s_banner_active) {
-        if (s_banner_fresh) { s_banner_objwalk_at = g_diag_objwalk; s_banner_fresh = 0; }
-        else if (g_diag_objwalk > s_banner_objwalk_at) s_banner_active = 0; /* resumed */
-        if (--s_banner_ttl <= 0) s_banner_active = 0;                       /* safety  */
-        if (!s_banner_active) native_wsbanner_clear_children();
+        if (s_banner_fresh) {
+            s_banner_objwalk_at = g_diag_objwalk;
+            s_banner_fresh = 0;
+        } else if (g_diag_objwalk > s_banner_objwalk_at)
+            s_banner_active = 0; /* resumed */
+        if (--s_banner_ttl <= 0)
+            s_banner_active = 0; /* safety  */
+        if (!s_banner_active)
+            native_wsbanner_clear_children();
     }
 }
 
 /* $57D8D0 — per-object draw choke point. Capture unclipped, then super-call. */
-void native_objdraw_capture(M68KCtx *ctx)
-{
+void native_objdraw_capture(M68KCtx *ctx) {
     g_diag_objdraw++;
-    int      worldX = (int16_t)(uint16_t)ctx->D[0];
-    int      worldY = (int16_t)(uint16_t)ctx->D[1];
-    uint32_t obj    = ctx->A[1];
-    uint16_t size   = MR16(obj - 0x0Cu);
-    int      w      = size & 0x3F;          /* width in words (0 => 64) */
-    int      h      = size >> 6;            /* height in rows           */
-    uint32_t mod    = MR32(obj - 0x10u);
+    int worldX = (int16_t)(uint16_t)ctx->D[0];
+    int worldY = (int16_t)(uint16_t)ctx->D[1];
+    uint32_t obj = ctx->A[1];
+    uint16_t size = MR16(obj - 0x0Cu);
+    int w = size & 0x3F; /* width in words (0 => 64) */
+    int h = size >> 6;   /* height in rows           */
+    uint32_t mod = MR32(obj - 0x10u);
     uint32_t gfxbase = MR32(obj - 0x0Au);
-    int      d5raw   = (int)(int16_t)(uint16_t)ctx->D[5];
-    uint32_t src    = gfxbase + (uint32_t)(int32_t)d5raw;
-    WsObj    cur    = (WsObj){ worldX, worldY, w, h, src, mod, obj, gfxbase, d5raw };
+    int d5raw = (int)(int16_t)(uint16_t)ctx->D[5];
+    uint32_t src = gfxbase + (uint32_t)(int32_t)d5raw;
+    WsObj cur = (WsObj){worldX, worldY, w, h, src, mod, obj, gfxbase, d5raw};
 
     /* Replicate the body's OWN clip/dirty decision (read BEFORE the super-call;
      * the body consumes/updates the a4 record). Stack at entry: the dispatch
@@ -962,9 +1060,9 @@ void native_objdraw_capture(M68KCtx *ctx)
      *        32-bit d5) unchanged AND counter==1 -> NO EMIT (page persists,
      *        $57DA1A); anything else EMITs. */
     uint32_t a4slot = MR32(ctx->A[7] + 8u);
-    uint32_t node   = MR32(ctx->A[7] + 12u);
-    uint16_t cam    = (uint16_t)MR16(0x57FDBAu);
-    uint16_t w16    = (uint16_t)(MR16(obj - 0x0Cu) & 0x3Fu);
+    uint32_t node = MR32(ctx->A[7] + 12u);
+    uint16_t cam = (uint16_t)MR16(0x57FDBAu);
+    uint16_t w16 = (uint16_t)(MR16(obj - 0x0Cu) & 0x3Fu);
     enum { EMIT, PERSIST, CULL } dec;
     int16_t d3 = (int16_t)((uint16_t)((uint16_t)ctx->D[0] - cam));
     if (d3 < 0) {
@@ -973,9 +1071,11 @@ void native_objdraw_capture(M68KCtx *ctx)
     } else {
         uint16_t d4 = (uint16_t)((uint16_t)(cam + 0x160u) >> 4);
         int16_t span = (int16_t)(uint16_t)(d4 - (uint16_t)(((uint16_t)ctx->D[0]) >> 4));
-        if (span <= 0)                  dec = CULL;
-        else if (span < (int16_t)w16)   dec = EMIT;          /* right clip */
-        else {                                                /* in window  */
+        if (span <= 0)
+            dec = CULL;
+        else if (span < (int16_t)w16)
+            dec = EMIT; /* right clip */
+        else {          /* in window  */
             uint32_t sig = MR32(a4slot);
             uint16_t cnt = (uint16_t)MR16(a4slot + 4u);
             dec = (sig == ctx->D[5] && cnt == 1u) ? PERSIST : EMIT;
@@ -983,29 +1083,29 @@ void native_objdraw_capture(M68KCtx *ctx)
     }
 
     if (s_wsobj_n < WS_OBJ_MAX) {
-        if (dec == EMIT) {                 /* engine draws this -> page = cur   */
+        if (dec == EMIT) { /* engine draws this -> page = cur   */
             wsobj_commit_put(node, &cur);
             s_wsobj[s_wsobj_n++] = cur;
-        } else if (dec == PERSIST) {       /* engine skips -> page keeps commit */
+        } else if (dec == PERSIST) { /* engine skips -> page keeps commit */
             WsObj *c = wsobj_commit_find(node);
-            if (!c) { wsobj_commit_put(node, &cur); c = wsobj_commit_find(node); }
+            if (!c) {
+                wsobj_commit_put(node, &cur);
+                c = wsobj_commit_find(node);
+            }
             s_wsobj[s_wsobj_n++] = c ? *c : cur;
-        } else {                           /* CULLed: margin object the engine
-                                            * never blits -> draw live so the
-                                            * widescreen margins still animate */
+        } else { /* CULLed: margin object the engine
+                  * never blits -> draw live so the
+                  * widescreen margins still animate */
             s_wsobj[s_wsobj_n++] = cur;
         }
     }
 
-    if (s_wsobj_log < 0)
-        s_wsobj_log = getenv("WSOBJ_LOG") ? atoi(getenv("WSOBJ_LOG")) : 0;
-    if (s_wsobj_log && s_wsobj_n <= s_wsobj_log) {
-        int cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
-        GLOBAL_LOG("[wsobj] x=%d y=%d (screenX=%d) w=%d h=%d src=%06X mod=%08X\n",
-                   worldX, worldY, worldX - cam, w, h, src, mod);
-    }
+    int log_cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
+    benefactor_log_write(BENEFACTOR_LOG_TRACE, "widescreen-object",
+                         "x=%d y=%d (screenX=%d) w=%d h=%d src=%06X mod=%08X", worldX, worldY,
+                         worldX - log_cam, w, h, src, mod);
 
-    gfn_gpl_57D8D0(ctx);
+    rt_call_original(ctx, ctx->image, 0x0057D8D0u);
 }
 
 /* ── Native PLAYER capture for widescreen ($57A666) ──────────────────────────
@@ -1013,7 +1113,7 @@ void native_objdraw_capture(M68KCtx *ctx)
  * so it isn't in the s_wsobj capture. It's also camera-CENTERED (never in the
  * margins) but is invisible in the native renderer today because that renderer
  * reads neither the engine page nor this blit. Capture its resolved draw params
- * at entry, then super-call the recomp body (vanilla center unaffected).
+ * at entry, then call the original guest body (vanilla center unaffected).
  *
  * RE (disasm of $57A666, verified by standalone decode scratch/ws_player.py):
  *   player block $10A6(a5)=$57FEB8: worldX,worldY,animidx,state (movem.w d1-d4);
@@ -1032,11 +1132,13 @@ void native_objdraw_capture(M68KCtx *ctx)
  *   (WsPlayer/s_wsplayer_* are declared above native_objwalk for the per-frame
  *   promote/clear that makes the player vanish on undrawn frames — the blink.) */
 
-int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black)
-{
-    if (!s_wsplayer_done.valid) return 0;
-    *x = s_wsplayer_done.x; *y = s_wsplayer_done.y;
-    *dbase = s_wsplayer_done.dbase; *mbase = s_wsplayer_done.mbase;
+int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black) {
+    if (!s_wsplayer_done.valid)
+        return 0;
+    *x = s_wsplayer_done.x;
+    *y = s_wsplayer_done.y;
+    *dbase = s_wsplayer_done.dbase;
+    *mbase = s_wsplayer_done.mbase;
     *black = s_wsplayer_done.black;
     return 1;
 }
@@ -1045,26 +1147,29 @@ int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *b
  * Compute table addresses as A5 + disp so hand hex-arithmetic can't go wrong. */
 #define GP_A5 0x57EE12u
 
-void native_player_capture(M68KCtx *ctx)
-{
-    int      worldX  = (int16_t)(uint16_t)MR16(GP_A5 + 0x10A6u);
-    int      worldY  =          (uint16_t)MR16(GP_A5 + 0x10A8u); /* unsigned clamp below */
-    uint16_t animidx =          (uint16_t)MR16(GP_A5 + 0x10AAu);
-    uint16_t state   =          (uint16_t)MR16(GP_A5 + 0x10ACu);
-    uint8_t  fbyte   =          (uint8_t) MR8 (GP_A5 + 0x10ADu);
+void native_player_capture(M68KCtx *ctx) {
+    int worldX = (int16_t)(uint16_t)MR16(GP_A5 + 0x10A6u);
+    int worldY = (uint16_t)MR16(GP_A5 + 0x10A8u); /* unsigned clamp below */
+    uint16_t animidx = (uint16_t)MR16(GP_A5 + 0x10AAu);
+    uint16_t state = (uint16_t)MR16(GP_A5 + 0x10ACu);
+    uint8_t fbyte = (uint8_t)MR8(GP_A5 + 0x10ADu);
 
     uint16_t frameoff = (uint16_t)MR16(GP_A5 + 0x2286u + animidx);
-    if (fbyte & 2) frameoff = (uint16_t)(frameoff + 0x14);
+    if (fbyte & 2)
+        frameoff = (uint16_t)(frameoff + 0x14);
 
     int xoff = (int16_t)(uint16_t)MR16(GP_A5 + 0x23E2u + animidx);
-    if (state & 2) xoff = -xoff + 2;
+    if (state & 2)
+        xoff = -xoff + 2;
     int wxleft = worldX - 8 + xoff;
 
     int d2 = worldY;
-    if (d2 > 0xD8) d2 = 0xD8;                 /* cmpi #$d8 / bcs (unsigned) clamp */
+    if (d2 > 0xD8)
+        d2 = 0xD8; /* cmpi #$d8 / bcs (unsigned) clamp */
     d2 -= 8;
     d2 += (int16_t)(uint16_t)MR16(GP_A5 + 0x253Eu + animidx);
-    if (d2 < 0) d2 = 0;
+    if (d2 < 0)
+        d2 = 0;
 
     /* Damage-invincibility BLINK ($57A666): when the player block's flag byte
      * $57FEBF ($10AD) bit7 is set (invincible), the engine draws the player NORMAL
@@ -1076,14 +1181,14 @@ void native_player_capture(M68KCtx *ctx)
     int blink = (fbyte & 0x80) != 0;
     int black = blink && !((uint8_t)MR8(GP_A5 + 0x0F9Fu) & 4);
 
-    s_wsplayer_done = (WsPlayer){
-        wxleft, d2,
-        0x19E02u + frameoff,                  /* B = DATA (5-plane, stride $2800) */
-        0x52AA0u + frameoff,                  /* A = MASK (single plane)          */
-        1, black
-    };
+    s_wsplayer_done = (WsPlayer){wxleft,
+                                 d2,
+                                 0x19E02u + frameoff, /* B = DATA (5-plane, stride $2800) */
+                                 0x52AA0u + frameoff, /* A = MASK (single plane)          */
+                                 1,
+                                 black};
 
-    gfn_gpl_57A666(ctx);
+    rt_call_original(ctx, ctx->image, 0x0057A666u);
 }
 
 /* ── Native GET READY / GAME OVER BANNER capture for widescreen ($578974) ──────
@@ -1111,20 +1216,19 @@ void native_player_capture(M68KCtx *ctx)
  * is paused (no playfield redraw). native_objwalk clears it the first ACTIVE
  * gameplay frame (when it captures >=1 real object → the engine's scroll has wiped
  * the page banner). A frame-count safety cap bounds a 0-object level. */
-#define WS_BANNER_DATA   0x0A49Au
-#define WS_BANNER_MASK   0x0BDCCu
-#define WS_BANNER_PSTRIDE 0x50Au   /* DATA plane stride (B auto-advance = h*rowstride) */
-#define WS_BANNER_ROWS    43
-#define WS_BANNER_RS      30       /* row stride bytes (w*2 + bmod = 32-2)             */
-#define WS_BANNER_WW      15       /* displayed width words (rowstride/2) = 240px      */
-
+#define WS_BANNER_DATA 0x0A49Au
+#define WS_BANNER_MASK 0x0BDCCu
+#define WS_BANNER_PSTRIDE 0x50Au /* DATA plane stride (B auto-advance = h*rowstride) */
+#define WS_BANNER_ROWS 43
+#define WS_BANNER_RS 30 /* row stride bytes (w*2 + bmod = 32-2)             */
+#define WS_BANNER_WW 15 /* displayed width words (rowstride/2) = 240px      */
 
 /* Box position is page-relative ($578974): byte-off = (cam>>4 + 3)*2 + MR16($5A1DB8).
  * The teleport anim ($578B94) and text ($57892E from $578860) are at the SAME camera
  * coarse + their own table offsets, so their page-offset DELTA from the box is
  * camera-independent — the renderer places them relative to the (centered) box via
  * that delta. */
-static int  s_banner_rel = 0;        /* box page-relative byte offset                 */
+static int s_banner_rel = 0; /* box page-relative byte offset                 */
 /* The box art is blitted with a non-zero blitter A-shift (BLTCON0 ASH nibble): the
  * engine's box ($578974) uses con0 $AFCA → ASH=$A=10, so the box appears 10px right of
  * its byte-aligned dest. The anim ($578B94 con0 $09F0, ASH=0) and text ($57892E, a CPU
@@ -1132,79 +1236,93 @@ static int  s_banner_rel = 0;        /* box page-relative byte offset           
  * at its calibrated VISUAL left, so the children — positioned by their page DELTA from
  * the box dest — must subtract the box's A-shift to land in the same place vanilla shows
  * them. Captured from the box con0 immediate so it tracks the engine, not a magic 10. */
-static int  s_banner_ash = 0;        /* box blit A-shift (px); children subtract it     */
+static int s_banner_ash = 0; /* box blit A-shift (px); children subtract it     */
 /* teleport animation ($578B94): a 32x28 opaque 5-plane sprite drawn into the box's
  * right circle; the frame cycles (anim list at a5-$6418). */
-static int      s_tel_active = 0;
-static uint32_t s_tel_src    = 0;    /* current frame gfx base                        */
-static int      s_tel_rel    = 0;    /* page-relative byte offset                     */
+static int s_tel_active = 0;
+static uint32_t s_tel_src = 0; /* current frame gfx base                        */
+static int s_tel_rel = 0;      /* page-relative byte offset                     */
 /* banner TEXT ($57892E font, called from $578860 GET READY / $57889C GAME OVER): an
  * 8px column-major font at $5A0E00 (glyph row stride $56), drawn in colour 16. */
-static int      s_txt_active = 0;
-static uint32_t s_txt_str    = 0;    /* ASCII string (NUL-terminated)                 */
-static int      s_txt_rel    = 0;    /* page-relative byte offset                     */
+static int s_txt_active = 0;
+static uint32_t s_txt_str = 0; /* ASCII string (NUL-terminated)                 */
+static int s_txt_rel = 0;      /* page-relative byte offset                     */
 
-void native_wsbanner_clear_children(void) { s_tel_active = 0; s_txt_active = 0; }
+void native_wsbanner_clear_children(void) {
+    s_tel_active = 0;
+    s_txt_active = 0;
+}
 
-int native_wsbanner_get(int *row, int *rel, uint32_t *data, uint32_t *mask,
-                        int *pstride, int *rs, int *ww, int *rows)
-{
-    if (!s_banner_active) return 0;
-    *row = s_banner_row; *rel = s_banner_rel;
-    *data = WS_BANNER_DATA; *mask = WS_BANNER_MASK;
-    *pstride = WS_BANNER_PSTRIDE; *rs = WS_BANNER_RS;
-    *ww = WS_BANNER_WW; *rows = WS_BANNER_ROWS;
+int native_wsbanner_get(int *row, int *rel, uint32_t *data, uint32_t *mask, int *pstride, int *rs,
+                        int *ww, int *rows) {
+    if (!s_banner_active)
+        return 0;
+    *row = s_banner_row;
+    *rel = s_banner_rel;
+    *data = WS_BANNER_DATA;
+    *mask = WS_BANNER_MASK;
+    *pstride = WS_BANNER_PSTRIDE;
+    *rs = WS_BANNER_RS;
+    *ww = WS_BANNER_WW;
+    *rows = WS_BANNER_ROWS;
     return 1;
 }
-int native_wstelanim_get(uint32_t *src, int *rel, int *w, int *h)
-{
-    if (!s_banner_active || !s_tel_active) return 0;
-    *src = s_tel_src; *rel = s_tel_rel; *w = 2; *h = 28;
+int native_wstelanim_get(uint32_t *src, int *rel, int *w, int *h) {
+    if (!s_banner_active || !s_tel_active)
+        return 0;
+    *src = s_tel_src;
+    *rel = s_tel_rel;
+    *w = 2;
+    *h = 28;
     return 1;
 }
-int native_wstext_get(uint32_t *str, int *rel)
-{
-    if (!s_banner_active || !s_txt_active) return 0;
-    *str = s_txt_str; *rel = s_txt_rel;
+int native_wstext_get(uint32_t *str, int *rel) {
+    if (!s_banner_active || !s_txt_active)
+        return 0;
+    *str = s_txt_str;
+    *rel = s_txt_rel;
     return 1;
 }
 int native_wsbanner_ash(void) { return s_banner_ash; }
 
 static int banner_cam_tile(M68KCtx *ctx) { return (int)(int16_t)(uint16_t)MR16(0x57FDBAu) >> 4; }
 
-void native_banner_capture(M68KCtx *ctx)      /* $578974 — box */
+void native_banner_capture(M68KCtx *ctx) /* $578974 — box */
 {
     int rel = (banner_cam_tile(ctx) + 3) * 2 + (int)(uint16_t)MR16(0x5A1DB8u);
-    s_banner_rel    = rel;
-    s_banner_row    = rel / 0x2E;                  /* box screen row below displayed top */
-    s_banner_ash    = (MR16(0x5789A6u) >> 12) & 0xF; /* box con0 ($AFCA) A-shift = 10px   */
+    s_banner_rel = rel;
+    s_banner_row = rel / 0x2E;                    /* box screen row below displayed top */
+    s_banner_ash = (MR16(0x5789A6u) >> 12) & 0xF; /* box con0 ($AFCA) A-shift = 10px   */
     s_banner_active = 1;
-    s_banner_fresh  = 1;                            /* latch objwalk# at next present  */
-    s_banner_ttl    = 1200;                         /* ~20s cap; cleared earlier on resume */
-    gfn_gpl_578974(ctx);
+    s_banner_fresh = 1;  /* latch objwalk# at next present  */
+    s_banner_ttl = 1200; /* ~20s cap; cleared earlier on resume */
+    rt_call_original(ctx, ctx->image, 0x00578974u);
 }
 
-void native_telanim_capture(M68KCtx *ctx)     /* $578B94 — teleport animation */
+void native_telanim_capture(M68KCtx *ctx) /* $578B94 — teleport animation */
 {
-    uint32_t a1 = MR32(GP_A5 - 0x6418u);           /* current frame ptr (this frame's gfx) */
-    s_tel_src    = (uint32_t)(uint16_t)MR16(a1) + 0xC2D6u;
-    s_tel_rel    = (banner_cam_tile(ctx) + 16) * 2 + (int)(uint16_t)MR16(0x5A1DCAu);
+    uint32_t a1 = MR32(GP_A5 - 0x6418u); /* current frame ptr (this frame's gfx) */
+    s_tel_src = (uint32_t)(uint16_t)MR16(a1) + 0xC2D6u;
+    s_tel_rel = (banner_cam_tile(ctx) + 16) * 2 + (int)(uint16_t)MR16(0x5A1DCAu);
     s_tel_active = 1;
-    gfn_gpl_578B94(ctx);
+    rt_call_original(ctx, ctx->image, 0x00578B94u);
 }
 
 /* GET READY ($578860, string a5-$6584) and GAME OVER ($57889C, string a5-$6542):
  * the string is `[posword][ASCII...]`; the engine adds posword to the text dst. */
-static void banner_text_capture(M68KCtx *ctx, uint32_t strbase, void (*super)(M68KCtx*))
-{
-    uint16_t pos = MR16(strbase);                  /* position word prefix            */
-    s_txt_str    = strbase + 2;
-    s_txt_rel    = banner_cam_tile(ctx) * 2 + (int)(uint16_t)MR16(0x5A1DEEu) + (int)pos;
+static void banner_text_capture(M68KCtx *ctx, uint32_t strbase, uint32_t guest_address) {
+    uint16_t pos = MR16(strbase); /* position word prefix            */
+    s_txt_str = strbase + 2;
+    s_txt_rel = banner_cam_tile(ctx) * 2 + (int)(uint16_t)MR16(0x5A1DEEu) + (int)pos;
     s_txt_active = 1;
-    super(ctx);
+    rt_call_original(ctx, ctx->image, guest_address);
 }
-void native_getready_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x6584u, gfn_gpl_578860); }
-void native_gameover_text_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5 - 0x6542u, gfn_gpl_57889C); }
+void native_getready_capture(M68KCtx *ctx) {
+    banner_text_capture(ctx, GP_A5 - 0x6584u, 0x00578860u);
+}
+void native_gameover_text_capture(M68KCtx *ctx) {
+    banner_text_capture(ctx, GP_A5 - 0x6542u, 0x0057889Cu);
+}
 
 /* LEVEL COMPLETE banner text ($5788DE, string a5-$64FC = $578916): vanilla
  * draws "PASSWORD: xxxxxxxxxx" (the x's = the NEXT level's password, generated
@@ -1216,18 +1334,20 @@ void native_gameover_text_capture(M68KCtx *ctx) { banner_text_capture(ctx, GP_A5
  * and the BenRen capture reads the position word at $5788DE ENTRY, before
  * $57901E runs, so it must already be ours). $5788DE is also captured for the
  * BenRen banner like its GET READY / GAME OVER siblings. */
-void native_lc_text_set(void)
-{
+void native_lc_text_set(void) {
     static const char txt[] = "LEVEL COMPLETE";
     extern uint8_t *g_mem;
-    uint32_t base = GP_A5 - 0x64FCu;                      /* $578916 */
-    g_mem[base] = 0; g_mem[base + 1] = 15;                /* position word (8px cols): 14=centered, +1 nudges right slightly */
-    for (uint32_t i = 0; i < sizeof txt; i++)             /* incl. the NUL */
+    uint32_t base = GP_A5 - 0x64FCu; /* $578916 */
+    g_mem[base] = 0;
+    g_mem[base + 1] = 15; /* position word (8px cols): 14=centered, +1 nudges right slightly */
+    for (uint32_t i = 0; i < sizeof txt; i++) /* incl. the NUL */
         g_mem[base + 2u + i] = (uint8_t)txt[i];
 }
-void native_password_build(M68KCtx *ctx) { gfn_gpl_57901E(ctx); native_lc_text_set(); }
-void native_levelcomplete_text_capture(M68KCtx *ctx)
-{
+void native_password_build(M68KCtx *ctx) {
+    rt_call_original(ctx, ctx->image, 0x0057901Eu);
+    native_lc_text_set();
+}
+void native_levelcomplete_text_capture(M68KCtx *ctx) {
     /* This routine runs exactly on a WIN (lose/game-over banners are separate
      * paths), so it is the completion signal for the player profile. By banner
      * time $20.w has ALREADY advanced to the NEXT level — that is the whole
@@ -1236,5 +1356,5 @@ void native_levelcomplete_text_capture(M68KCtx *ctx)
      * winning level 3 reads $20 == 4 here. */
     extern uint8_t *g_mem;
     pc_profile_mark_completed((int)((g_mem[0x20] << 8) | g_mem[0x21]) - 1);
-    banner_text_capture(ctx, GP_A5 - 0x64FCu, gfn_gpl_5788DE);
+    banner_text_capture(ctx, GP_A5 - 0x64FCu, 0x005788DEu);
 }

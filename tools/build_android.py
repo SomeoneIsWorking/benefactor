@@ -1,28 +1,24 @@
 #!/usr/bin/env python3
-"""Build a signed Benefactor Android APK from user-supplied disks.
-
-The APK never contains disk images.  The generated recompiler output is made
-locally from the user's disks before cross-compiling, while first launch uses
-Lucent's SAF importer to stage a separate disk set in private app storage.
-"""
+"""Android packaging flow for the future native/interpreter product."""
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
+from tools.launcher import runtime_blocker
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build" / "android"
 ABI = "arm64-v8a"
-API = 24
+MIN_API = 21
 
 
 def refuse(message: str) -> None:
@@ -61,7 +57,9 @@ def android_ndk(sdk: Path) -> Path:
 
 def shared_android_port_tool():
     configured = os.environ.get("BENEFACTOR_ANDROID_PORT_DIR")
-    candidates = [Path(configured).expanduser()] if configured else [ROOT.parent / "shared" / "android-port"]
+    candidates = (
+        [Path(configured).expanduser()] if configured else [ROOT.parent / "shared" / "android-port"]
+    )
     for candidate in candidates:
         tool = candidate.resolve() / "tools" / "android_port.py"
         if not tool.is_file():
@@ -73,7 +71,10 @@ def shared_android_port_tool():
         sys.modules[specification.name] = module
         specification.loader.exec_module(module)
         return module
-    refuse("cannot find shared Android packaging tool; tried: " + ", ".join(str(path) for path in candidates))
+    refuse(
+        "cannot find shared Android packaging tool; tried: "
+        + ", ".join(str(path) for path in candidates)
+    )
 
 
 def required_jdk() -> Path:
@@ -87,39 +88,49 @@ def required_jdk() -> Path:
         refuse(f"BENEFACTOR_JAVA_HOME must contain bin/java and bin/javac: {home}")
 
     def major_version(executable: Path) -> int | None:
-        result = subprocess.run([str(executable), "-version"], text=True, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, check=False)
+        result = subprocess.run(
+            [str(executable), "-version"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
         match = re.search(r"(?:version )?\"?(\d+)(?:[._]|\")", result.stdout)
         return int(match.group(1)) if result.returncode == 0 and match else None
 
     java_major = major_version(java)
     javac_major = major_version(javac)
     if java_major != 26 or javac_major != 26:
-        refuse(f"BENEFACTOR_JAVA_HOME must provide matching JDK 26 java/javac (found {java_major}/{javac_major})")
+        refuse(
+            "BENEFACTOR_JAVA_HOME must provide matching JDK 26 java/javac "
+            f"(found {java_major}/{javac_major})"
+        )
     return home
-
-
-def regenerate() -> None:
-    required = [ROOT / f"Disk.{index}" for index in range(1, 4)]
-    missing = [str(path) for path in required if not path.is_file()]
-    if missing:
-        refuse("the release builder needs your original disk images: " + ", ".join(missing))
-    run(["bash", "tools/regen.sh"])
-    if not (ROOT / "src/engine/generated/game.h").is_file():
-        refuse("tools/regen.sh did not produce src/engine/generated/game.h")
 
 
 def configure_native(sdk: Path, ndk: Path, sdl: Path, lucent: Path) -> Path:
     native = BUILD / "native"
     toolchain = ndk / "build/cmake/android.toolchain.cmake"
-    run([
-        "cmake", "-S", str(ROOT), "-B", str(native), "-G", "Ninja",
-        f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={ABI}",
-        f"-DANDROID_PLATFORM=android-{API}", "-DANDROID_STL=c++_shared",
-        "-DCMAKE_BUILD_TYPE=Release", f"-DBENEFACTOR_SDL2_DIR={sdl}",
-        f"-DBENEFACTOR_LUCENT_DIR={lucent}", "-DVulkan_FOUND=FALSE",
-    ])
-    run(["cmake", "--build", str(native), "--target", "benefactor-pc", "--parallel"])
+    run(
+        [
+            "cmake",
+            "-S",
+            str(ROOT),
+            "-B",
+            str(native),
+            "-G",
+            "Ninja",
+            f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",
+            f"-DANDROID_ABI={ABI}",
+            f"-DANDROID_PLATFORM=android-{MIN_API}",
+            "-DANDROID_STL=c++_shared",
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DBENEFACTOR_SDL2_DIR={sdl}",
+            f"-DBENEFACTOR_LUCENT_DIR={lucent}",
+            "-DVulkan_FOUND=FALSE",
+        ]
+    )
+    run(["cmake", "--build", str(native), "--target", "benefactor_product", "--parallel"])
     library = native / "libmain.so"
     if not library.is_file():
         refuse(f"native build did not produce {library}")
@@ -150,7 +161,11 @@ def stage_gradle_project(sdl: Path, lucent: Path, native: Path, ndk: Path) -> Pa
     shutil.copytree(android_project, project)
     for relative in ("build.gradle", "settings.gradle", "gradle-wrapper.properties"):
         source = ROOT / "platforms/android" / relative
-        destination = project / ("gradle/wrapper/gradle-wrapper.properties" if relative == "gradle-wrapper.properties" else relative)
+        destination = project / (
+            "gradle/wrapper/gradle-wrapper.properties"
+            if relative == "gradle-wrapper.properties"
+            else relative
+        )
         copy_required(source, destination)
     shutil.copytree(ROOT / "platforms/android/app", project / "app", dirs_exist_ok=True)
     java_root = project / "app/src/main/java"
@@ -158,7 +173,9 @@ def stage_gradle_project(sdl: Path, lucent: Path, native: Path, ndk: Path) -> Pa
     libraries = project / "app/src/main/jniLibs" / ABI
     copy_required(native, libraries / "libmain.so")
     copy_required(find_unique(BUILD / "native", "libSDL2.so"), libraries / "libSDL2.so")
-    copy_required(shared_android_port_tool().ndk_cxx_shared_library(ndk, ABI), libraries / "libc++_shared.so")
+    copy_required(
+        shared_android_port_tool().ndk_cxx_shared_library(ndk, ABI), libraries / "libc++_shared.so"
+    )
     return project
 
 
@@ -183,14 +200,18 @@ def inspect_apk(apk: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--release", action="store_true", help="assemble a signing-required release APK")
+    parser.add_argument(
+        "--release", action="store_true", help="assemble a signing-required release APK"
+    )
     args = parser.parse_args()
+    blocker = runtime_blocker()
+    if blocker:
+        refuse(f"Benefactor gameplay product unavailable: {blocker}")
     sdk = android_sdk()
     ndk = android_ndk(sdk)
     jdk = required_jdk()
     sdl = required_directory("BENEFACTOR_SDL2_DIR")
     lucent = required_directory("BENEFACTOR_LUCENT_DIR")
-    regenerate()
     native = configure_native(sdk, ndk, sdl, lucent)
     project = stage_gradle_project(sdl, lucent, native, ndk)
     environment = dict(os.environ)

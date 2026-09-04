@@ -1,4 +1,4 @@
-/* pc_overrides_hw.c — Hardware wait loop eliminators and blitter init
+/* src/port/overrides/hw.c — Hardware wait loop eliminators and blitter init
  *
  * Overrides for functions that poll Amiga hardware registers in tight loops.
  * The PC port uses a synchronous blitter; all BBUSY polls become no-ops.
@@ -27,11 +27,10 @@ void native_hw_wait(M68KCtx *ctx) { (void)ctx; }
  *   BLTDMOD          ($DFF066)          = 0
  *   BLTSIZE          ($DFF058)          = $803C  → triggers 512×60-word fill
  * ───────────────────────────────────────────────────────────────────────────── */
-void native_blitter_wait_clear(M68KCtx *ctx)
-{
+void native_blitter_wait_clear(M68KCtx *ctx) {
     (void)ctx;
-    hw_write32(0xdff054u, 0x00070930u);  /* BLTDPTH/BLTDPTL = $070930        */
-    hw_write32(0xdff040u, 0x01000000u);  /* BLTCON0=$0100 (D only), BLTCON1=0 */
-    hw_write16(0xdff066u, 0x0000u);      /* BLTDMOD = 0                       */
-    hw_write16(0xdff058u, 0x803cu);      /* BLTSIZE = 512×60 words → go       */
+    hw_write32(0xdff054u, 0x00070930u); /* BLTDPTH/BLTDPTL = $070930        */
+    hw_write32(0xdff040u, 0x01000000u); /* BLTCON0=$0100 (D only), BLTCON1=0 */
+    hw_write16(0xdff066u, 0x0000u);     /* BLTDMOD = 0                       */
+    hw_write16(0xdff058u, 0x803cu);     /* BLTSIZE = 512×60 words → go       */
 }

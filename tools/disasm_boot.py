@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Disassemble key parts of Disk.1 to understand the boot sequence."""
 
-import capstone, struct, sys, os
+import os
 
-disk = os.path.join(os.path.dirname(__file__), '../Disk.1')
+import capstone
+
+disk = os.path.join(os.path.dirname(__file__), "../Disk.1")
+
 
 def disasm(data, base, label=""):
     md = capstone.Cs(capstone.CS_ARCH_M68K, capstone.CS_MODE_M68K_000)
@@ -12,7 +15,8 @@ def disasm(data, base, label=""):
     for i in md.disasm(data, base):
         print(f"  0x{i.address:06x}:  {i.mnemonic:<12} {i.op_str}")
 
-with open(disk, 'rb') as f:
+
+with open(disk, "rb") as f:
     all_boot = f.read(0x1600)
 
 # Full bootloader from $76000 to $77600

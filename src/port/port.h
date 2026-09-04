@@ -6,12 +6,23 @@
 extern uint8_t *g_chip;
 
 /* Read/write helpers for chip RAM */
-static inline uint8_t  r8 (uint32_t a) { return g_chip[a]; }
-static inline uint16_t r16(uint32_t a) { return (g_chip[a]<<8)|g_chip[a+1]; }
-static inline uint32_t r32(uint32_t a) { return ((uint32_t)g_chip[a]<<24)|((uint32_t)g_chip[a+1]<<16)|((uint32_t)g_chip[a+2]<<8)|g_chip[a+3]; }
-static inline void     w8 (uint32_t a, uint8_t  v) { g_chip[a]=v; }
-static inline void     w16(uint32_t a, uint16_t v) { g_chip[a]=v>>8; g_chip[a+1]=v; }
-static inline void     w32(uint32_t a, uint32_t v) { g_chip[a]=v>>24; g_chip[a+1]=v>>16; g_chip[a+2]=v>>8; g_chip[a+3]=v; }
+static inline uint8_t r8(uint32_t a) { return g_chip[a]; }
+static inline uint16_t r16(uint32_t a) { return (g_chip[a] << 8) | g_chip[a + 1]; }
+static inline uint32_t r32(uint32_t a) {
+    return ((uint32_t)g_chip[a] << 24) | ((uint32_t)g_chip[a + 1] << 16) |
+           ((uint32_t)g_chip[a + 2] << 8) | g_chip[a + 3];
+}
+static inline void w8(uint32_t a, uint8_t v) { g_chip[a] = v; }
+static inline void w16(uint32_t a, uint16_t v) {
+    g_chip[a] = v >> 8;
+    g_chip[a + 1] = v;
+}
+static inline void w32(uint32_t a, uint32_t v) {
+    g_chip[a] = v >> 24;
+    g_chip[a + 1] = v >> 16;
+    g_chip[a + 2] = v >> 8;
+    g_chip[a + 3] = v;
+}
 
 /* Screen dimensions */
 #define SCR_W 320
@@ -28,7 +39,7 @@ int pc_init_from_disk(const char **disks, int n_disks);
 int pc_init_to_gameplay(const char **disks, int n_disks, int level);
 
 int pc_run(void);
-int pc_step(void);  /* single frame, returns 0=continue, 1=quit */
+int pc_step(void); /* single frame, returns 0=continue, 1=quit */
 void pc_fini(void);
 /* Save/restore the game coroutine + 8MB M68K memory to disk. Call between
  * pc_step()s — the coro is paused at coro_yield then, the cleanest boundary.
@@ -54,35 +65,35 @@ void pc_debug_game_over(void);
  * {9,9,10,10,10,10,2} split or re-extract names anywhere else. Names are
  * decoded once from the disk overlays (pc_preload_all_level_names), applying
  * the per-level name-slot permutation read from the engine's $32 table. */
-#define PC_NUM_WORLDS 7          /* vanilla worlds (levels 1..60) */
+#define PC_NUM_WORLDS 7 /* vanilla worlds (levels 1..60) */
 #define PC_NUM_LEVELS 60
 /* EXTRA LEVELS (Disk.4): the base game's world-descriptor table at $577452
  * defines 6 additional world slots (7..12, five levels each = 61..90) whose
  * names+level-data chunk lives on Disk.4 at fixed offsets. A data disk fills
  * some prefix of those slots (the fan BenDisk4 fills 2 = levels 61..70). */
 #define PC_EXTRA_WORLDS 6
-#define PC_MAX_LEVELS   90
-int  pc_extra_worlds_available(void);  /* 0..6 contiguous filled extra worlds */
-int  pc_num_worlds_ui(void);           /* 7 + extras — picker/UI world count  */
-int  pc_num_levels_ui(void);           /* 60 + 5*extras                       */
-int  pc_menu_continue_level(void);     /* first uncleared vanilla level (CONTINUE) */
+#define PC_MAX_LEVELS 90
+int pc_extra_worlds_available(void); /* 0..6 contiguous filled extra worlds */
+int pc_num_worlds_ui(void);          /* 7 + extras — picker/UI world count  */
+int pc_num_levels_ui(void);          /* 60 + 5*extras                       */
+int pc_menu_continue_level(void);    /* first uncleared vanilla level (CONTINUE) */
 
-int  pc_levels_in_world(int world);    /* # levels in world (0 if out of range) */
-int  pc_world_first_level(int world);  /* 1-based global level # of world's first level (0 if OOR) */
+int pc_levels_in_world(int world);   /* # levels in world (0 if out of range) */
+int pc_world_first_level(int world); /* 1-based global level # of world's first level (0 if OOR) */
 void pc_level_split(int level, int *world_out, int *level_in_world_out);
 
-void        pc_preload_all_level_names(void);
+void pc_preload_all_level_names(void);
 const char *pc_world_name(int world);
-const char *pc_static_level_name(int level);  /* name of global level 1..60 */
-const char *pc_current_level_name(void);      /* name of the level in $20.w */
+const char *pc_static_level_name(int level); /* name of global level 1..60 */
+const char *pc_current_level_name(void);     /* name of the level in $20.w */
 
 /* Player progress (profile.json — src/port/profile.c). */
-int  pc_profile_completed(int level);          /* level 1..60 won at least once  */
-int  pc_profile_highest_completed(void);       /* 0 if none                      */
-void pc_profile_mark_completed(int level);     /* idempotent; saves profile.json */
-int  pc_profile_unlocked(int level);           /* selectable in LEVEL SELECT     */
-int  pc_profile_try_select(int level);         /* set start level iff unlocked   */
+int pc_profile_completed(int level);       /* level 1..60 won at least once  */
+int pc_profile_highest_completed(void);    /* 0 if none                      */
+void pc_profile_mark_completed(int level); /* idempotent; saves profile.json */
+int pc_profile_unlocked(int level);        /* selectable in LEVEL SELECT     */
+int pc_profile_try_select(int level);      /* set start level iff unlocked   */
 
 /* Pending level-select choice, applied at the $150 hand-off. */
 void pc_set_start_level(int n);
-int  pc_get_start_level(void);
+int pc_get_start_level(void);

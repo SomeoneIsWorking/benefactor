@@ -10,13 +10,14 @@
  *   fx_shadow  — drop shadow behind characters (player / Marry Men / enemies), bool
  *
  * Each is OFF by default. They are independent and may combine. */
-#include "render/effects_frame.h"
 #include "port/config.h"
+#include "render/effects_frame.h"
 
-int native_fx_flags(void)
-{
+int native_fx_flags(void) {
     int f = 0;
-    if (pc_cfg_bool("fx_ambient", 0)) f |= FX_AMBIENT;
-    if (pc_cfg_bool("fx_shadow",  0)) f |= FX_SHADOW;
+    if (pc_cfg_bool("fx_ambient", 0))
+        f |= FX_AMBIENT;
+    if (pc_cfg_bool("fx_shadow", 0))
+        f |= FX_SHADOW;
     return f;
 }

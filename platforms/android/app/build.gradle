@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         applicationId = 'io.github.someoneisworking.benefactor'
-        minSdk = 24
+        minSdk = 21
         targetSdk = 35
         versionCode = (System.getenv('BENEFACTOR_ANDROID_VERSION_CODE') ?: '1').toInteger()
         versionName = System.getenv('BENEFACTOR_ANDROID_VERSION_NAME') ?: '0.1.0'

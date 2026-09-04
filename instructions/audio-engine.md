@@ -15,8 +15,9 @@ into / steals the music voice). Two clocks drive it:
 The replayer prepares, per frame, each channel's next sample CHUNK in a work buffer and
 sets the Paula shadow regs; the CIA ISR then latches them to hardware. PC's `hw_audio.c`
 mixer currently RE-INTERPRETS those shadow regs (continuous DMA, reload-at-loop-boundary)
-— a lossy second layer. The native port replaces the recompiled replayer with C we own
-and (ideally) generates PCM directly, removing the guesswork.
+— a lossy second layer. The native port can replace the guest replayer with an
+evidence-backed native owner and ideally produce PCM directly, removing the
+guesswork.
 
 ## Per-frame dispatch — `$59BA7A` (from vblank `$578272`)
 1. Tempo accumulator at `$59b806` (`+= $59b808`, clamp/wrap `$40`) — song speed.
@@ -69,7 +70,8 @@ verify gpl), tempo `$59b806`/`$59b808`. Full per-note RE still TODO.
 ## Native port plan (staged)
 1. **Own the per-channel state** as a C struct (mirror `$57fe4e/50/78`, buffers).
 2. **Port the SFX path first** (bug locus): `$58656E` trigger + `$586612`/`$58684C`
-   streamers + `$586790`, as native overrides (keep recomp alive, A/B via dispatch).
+   streamers + `$586790`, as native overrides. Keep the ordinary image-address
+   interpreter path available for an A/B comparison.
    Verify with `sfxcmp` (set parity) + WAV capture.
 3. **Port the output stage** (`$59BF3E`/`$59BFA6`) — or better, have the native streamer
    write a clean per-channel state a native MIXER reads directly (bypass Paula-shadow
@@ -93,7 +95,8 @@ Verify each stage behaviorally vs PUAE (WAV compare + sfxcmp), never blind.
   `chunks(+c) * (chunk_longs_m1(+a)+1) * 4` bytes from base `$57fe78`; loop if `+e`≠0.
 - **OPEN: overall level gap.** PC full-mix peaks ~18% vs PUAE ~48% (same fire+left run).
   Separate from the drop bug — looks like a master/mix-gain difference; not yet resolved.
-- **Music replayer (`$59BA7A`/`$59BB5E`+)** still recompiled, not yet native-owned.
+- **Music replayer (`$59BA7A`/`$59BB5E`+)** still executes from the gameplay
+  image through the interpreter, not yet native-owned.
 
 ### Tooling
 - `AUDIO_SFX_ONLY=1` — mixer renders only the native SFX voices (drops music) WITHOUT

@@ -1,37 +1,32 @@
-/* pc_internal.h – Internal shared declarations for pc.c and pc_overrides.c */
+/* Internal declarations shared by the game-loop and native-override modules. */
 #pragma once
-#include "port/port.h"
+#include "common/game_state.h" /* single g_state instance + legacy-name macros */
 #include "common/log.h"
 #include "engine/hw.h"
-#include "engine/rt.h"
-#include "common/game_state.h"   /* single g_state instance + legacy-name macros */
-/* NOTE: generated/game.h is intentionally NOT included here.
- * pc_overrides.c and boot/engine code must not call gfn_* functions by name.
- * Use rt_call(ctx, addr) for sub-functions without an override, or
- * rt_call_generated(ctx, addr) from within an override to invoke the
- * original recompiled logic without re-entering the override. */
+#include "port/config.h"
+#include "port/port.h"
+#include "runtime/guest_runtime.h"
+/* Native owners call retail-image guest addresses through the image-qualified
+ * runtime adapter. */
 
 #ifdef HARNESS_BUILD
 #include "harness/trace.h"
 #endif
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* ── Logging ─────────────────────────────────────────────────────────────────── */
-#ifdef HARNESS_BUILD
-# define PC_VERBOSE 0
-#else
-# define PC_VERBOSE 1
-#endif
-#define PC_LOG(...) GLOBAL_LOG_IF(PC_VERBOSE, __VA_ARGS__)
+#define PC_LOG(...) benefactor_log_write(BENEFACTOR_LOG_DEBUG, "port", __VA_ARGS__)
 
-#define TRACE_CHIP_MEMSET(offset, value, length) do { \
-    GLOBAL_LOG("[memset] %s addr=$%06X len=$%04X val=$%02X\n", __func__, \
-               (unsigned)(offset), (unsigned)(length), (unsigned)(value)); \
-    memset(g_chip + (offset), (value), (length)); \
-} while (0)
+#define TRACE_CHIP_MEMSET(offset, value, length)                                                   \
+    do {                                                                                           \
+        benefactor_log_write(BENEFACTOR_LOG_TRACE, "memory",                                       \
+                             "[memset] %s addr=$%06X len=$%04X val=$%02X", __func__,               \
+                             (unsigned)(offset), (unsigned)(length), (unsigned)(value));           \
+        memset(g_chip + (offset), (value), (length));                                              \
+    } while (0)
 
 /* ── Chip RAM pointer ─────────────────────────────────────────────────────────── */
 extern uint8_t *g_chip;
@@ -39,57 +34,56 @@ extern uint8_t *g_chip;
 /* ── Override registration ─────────────────────────────────────────────────────── */
 void pc_register_overrides(void);
 
-/* ── Native override function declarations (implementations in pc_overrides_*.c) ── */
-/* pc_overrides_hw.c */
+/* ── Native override function declarations (`src/port/overrides/`) ── */
+/* overrides/hw.c */
 void native_hw_wait(M68KCtx *ctx);
 void native_blitter_wait_clear(M68KCtx *ctx);
-/* pc_overrides_boot.c */
+/* overrides/boot.c */
 void native_boot_anim_iterator(M68KCtx *ctx);
 void native_overlay_loader(M68KCtx *ctx);
 void native_overlay_loader_reloc(M68KCtx *ctx);
 void native_overlay_load(void);
 void native_gp_disk_read(M68KCtx *ctx);
 void native_overlay_load_d0(void);
-/* pc_overrides_audio.c — native gameplay audio engine (staged) */
+/* overrides/audio.c — native gameplay audio engine (staged) */
 void native_sfx_trigger(M68KCtx *ctx);
-/* pc_overrides_pickup.c — native object-pickup mechanic (widened range) */
+/* overrides/pickup.c — native object-pickup mechanic (widened range) */
 void pickup_register(void);
 void pickup_register_scan(void);
-/* pc_overrides_copper.c */
+/* overrides/copper.c */
 void native_sprite_blitter_setup(M68KCtx *ctx);
 void native_game_frame(M68KCtx *ctx);
-/* pc_overrides_render.c */
+/* overrides/render.c */
 void native_text_sprite_render(M68KCtx *ctx);
-void native_dispatch_table    (M68KCtx *ctx);
-void native_item_dispatch_1   (M68KCtx *ctx);
-void native_item_dispatch_2   (M68KCtx *ctx);
-void native_item_dispatch_3   (M68KCtx *ctx);
-void native_item_decrement    (M68KCtx *ctx);
-void native_item_scroll       (M68KCtx *ctx);
-void native_item_position     (M68KCtx *ctx);
-void native_item_blitter      (M68KCtx *ctx);
-void native_blit_row_callback (M68KCtx *ctx);
-void native_post_blit_handler (M68KCtx *ctx);
-void native_timer_interrupt   (M68KCtx *ctx);
-/* pc_overrides_gameplay.c */
-void native_end_of_level      (M68KCtx *ctx);
-void native_level_load        (M68KCtx *ctx);
-void native_level_setup       (M68KCtx *ctx);
-void native_objwalk           (M68KCtx *ctx);   /* $57D79A — per-frame object-list walker */
-void native_objstep           (M68KCtx *ctx);   /* $57D7BC — per-object loop step (wide cull) */
-void native_objstep_b         (M68KCtx *ctx);   /* $57D8B4 — animated-object loop step (wide cull) */
-void native_objdraw_capture   (M68KCtx *ctx);   /* $57D8D0 — capture object for widescreen */
-void native_player_capture    (M68KCtx *ctx);   /* $57A666 — capture player for widescreen */
-void native_char_capture      (M68KCtx *ctx);   /* $57D3F4 — capture cookie-cut characters */
+void native_dispatch_table(M68KCtx *ctx);
+void native_item_dispatch_1(M68KCtx *ctx);
+void native_item_dispatch_2(M68KCtx *ctx);
+void native_item_dispatch_3(M68KCtx *ctx);
+void native_item_decrement(M68KCtx *ctx);
+void native_item_scroll(M68KCtx *ctx);
+void native_item_position(M68KCtx *ctx);
+void native_item_blitter(M68KCtx *ctx);
+void native_blit_row_callback(M68KCtx *ctx);
+void native_post_blit_handler(M68KCtx *ctx);
+void native_timer_interrupt(M68KCtx *ctx);
+/* overrides/gameplay.c */
+void native_end_of_level(M68KCtx *ctx);
+void native_level_load(M68KCtx *ctx);
+void native_level_setup(M68KCtx *ctx);
+void native_objwalk(M68KCtx *ctx);         /* $57D79A — per-frame object-list walker */
+void native_objstep(M68KCtx *ctx);         /* $57D7BC — per-object loop step (wide cull) */
+void native_objstep_b(M68KCtx *ctx);       /* $57D8B4 — animated-object loop step (wide cull) */
+void native_objdraw_capture(M68KCtx *ctx); /* $57D8D0 — capture object for widescreen */
+void native_player_capture(M68KCtx *ctx);  /* $57A666 — capture player for widescreen */
+void native_char_capture(M68KCtx *ctx);    /* $57D3F4 — capture cookie-cut characters */
 /* Widescreen object capture, read by native_renderer.c (last complete frame). */
-int  native_wsobj_count(void);
-int  native_wsobj_get(int i, int *x, int *y, int *w, int *h,
-                      uint32_t *src, uint32_t *mod);
+int native_wsobj_count(void);
+int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint32_t *mod);
 /* Captured player draw params (cookie-cut 16x16, 5-plane data + 1-plane mask).
  * black=1 on a damage-blink black-silhouette frame (fill the mask with colour 0). */
-int  native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black);
+int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black);
 /* Captured cookie-cut characters (walkers/enemies) drawn via $57D3F4/$57D6C4.
  * 5-plane DATA (plane stride h*rowstride) + 1-plane MASK, both row stride rowstride. */
-int  native_wschar_count(void);
-int  native_wschar_get(int i, int *x, int *y, int *w, int *h,
-                       uint32_t *data, uint32_t *mask, int *rowstride);
+int native_wschar_count(void);
+int native_wschar_get(int i, int *x, int *y, int *w, int *h, uint32_t *data, uint32_t *mask,
+                      int *rowstride);

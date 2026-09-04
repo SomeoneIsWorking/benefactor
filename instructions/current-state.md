@@ -1,12 +1,11 @@
 # Benefactor accumulated evidence
 
 This dated notebook preserves independently useful runtime, platform, renderer,
-audio, input, and harness observations from the pre-dynarec product. It is not
-the current-state or workflow authority; use `docs/project-state.md` and
-`docs/migration.md` for those. Any command, generated-function procedure,
-"next" item, or static-recompiler recommendation below is retired and must not
-be followed. Migrate only the underlying measured address, ABI, state, or
-behavior fact into the native/dynarec owners.
+audio, input, and harness observations. It is not the current-state or workflow
+authority; use `docs/project-state.md` and `docs/migration.md` for those. Old
+CPU-build procedures are not instructions. Carry
+only the underlying measured address, ABI, state, or behavior fact into a native
+owner or the image-qualified `shared/amigaport` interpreter boundary.
 
 ---
 
@@ -27,8 +26,7 @@ behavior fact into the native/dynarec owners.
   `shared/port-assets/sets/touch-controls`. Android uses the vector launcher icon at
   `platforms/android/app/src/main/res/drawable/ic_benefactor.xml`.
 - The disk-free AppImage and ARM64 release-signed APK are published as GitHub release `v0.1.0`.
-  Static-recompiler releases are assembled locally with the operator's disk inputs and uploaded
-  manually; this project has no CI workflow and never uploads game inputs. The named-device
+  No release contains or uploads game inputs. The named-device
   correctness/performance matrix remains required before calling the Android release qualified.
 - Emulator verification on `codex_shared_api35` passed the actual first-run route: the disk picker
   accepted a user-supplied `Disk.1`/`Disk.2`/`Disk.3` folder, Lucent staged it privately, the game
@@ -40,11 +38,11 @@ behavior fact into the native/dynarec owners.
 
 ## Execution model (2026-06-02): game thread + SDL main thread
 
-The recompiled game runs on its **own OS thread**; the SDL **main thread** paces
-frames. They hand off via a condvar (`s_hand_cv`/`s_turn` in `pc.c`) so EXACTLY
+The guest CPU loop runs on its **own OS thread**; the SDL **main thread** paces
+frames. They hand off via a condvar (`s_hand_cv`/`s_turn` in `src/port/game_loop.c`) so EXACTLY
 ONE runs at a time — no data races on `s_game_ctx`/`g_mem`, deterministic.
 
-- A frame wait is a **plain blocking call**: the emitter folds VPOSR/vblank →
+- A frame wait is a **plain blocking call**: the guest service boundary maps vblank →
   `hw_vblank_wait()`, fire → `hw_wait_fire()`, blitter → `hw_blitter_sync()`.
   `hw_vblank_wait()` calls `g_hw_vblank_yield` = `game_thread_yield()` which parks
   the game thread until the host releases it (one frame).
@@ -55,20 +53,15 @@ ONE runs at a time — no data races on `s_game_ctx`/`g_mem`, deterministic.
   $577000, `$150`+`g_enter_gameplay`) = cooperatively stop the old game thread +
   spawn a fresh one at the new entry.
 
-This **REPLACES the CPS continuation transform** (commit 56e0f53), which broke the
-game (diverged in the first frames). The CPS revert: emitter emits straight-line
-blocking C (no resume switch / `rt_cont_push` / `g_rt.yield`); `rt.c` lost the
-continuation runtime (`g_rt`/`rt_cont_*`); `pc.c` lost `pc_step_cps`. It is a 1:1
-re-expression of the ucontext coroutine (commit 5a7717a) that was working, using
-real threads + a mutex per the user's request.
+Historical evidence showed that a CPS-style continuation experiment diverged in
+the first frames. Preserve the resulting behavioral constraint: guest waits are
+blocking service calls, and the guest CPU loop and SDL main thread alternate
+under an explicit handoff rather than mutating shared state concurrently.
 
 **VERIFIED via headless harness:** boots → intro crawl renders/scrolls →
 title/screens transition on fire → `goto 1` (thread restart) → level card
-($003914) → cavern ($003484) "GET READY!" renders, engine running, **0 rt-misses,
-no watchdog**. `benefactor-pc` links pthread.
-
-Regen all banks with `TMPDIR=scratch/tmp` (main/gp/gpl; credits has no CPS, no
-input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
+($003914) → cavern ($003484) "GET READY!" renders, engine running, no unresolved
+guest-address dispatches and no watchdog. The retained game-loop owner uses pthread.
 
 ---
 
@@ -206,23 +199,19 @@ input dump — leave it). The `g_rt`-referencing banks were main+gp+gpl.
   on MM): X lifts / MM follows / bare fire blocked / fire (held ≥2f) drops /
   X re-lifts after cooldown — same key every cycle.
 - Verified: build clean; persistence round-trip unit-tested (valid JSON);
-  900 frames of cavern gameplay at 658 px ultrawide headless, 0 rt-misses;
+  900 frames of cavern gameplay at 658 px ultrawide headless with no unresolved
+  guest-address dispatches;
   the quit-time core dump in the harness is pre-existing (identical on the
   baseline build). Controller hardware + the menu UI itself still need a
   headed manual pass.
 
-## How to drive the game (CANONICAL — 2026-06-03)
+## Preserved interactive oracle scenario
 
-**Invocation is identical to the standalone — disks are POSITIONAL:**
-```
-./build/benefactor-harness Disk.1 Disk.2 Disk.3        # PUAE oracle + PC port, REPL
-./build/benefactor-pc      Disk.1 Disk.2 Disk.3        # standalone (SDL window)
-```
-PUAE restores `logs/puae_sync.state`, so it needs NO real Kickstart/WHDLoad for
-normal runs. `--kick DIR` / `--whdload PATH` are only for `BENEFACTOR_REFREEZE=1`.
-*(The old `<kick> <whdload> <disk1..3>` positional order silently ate Disk.1+Disk.2
-as kick/whdload and loaded only Disk.3 → garbage decrunch → boot crash at `$005EB0`
-/ `$B0461FFC`. That footgun is removed; both binaries now parse disks the same way.)*
+There is no current harness or gameplay executable. When the separate PUAE
+oracle is recomposed, its disk arguments remain positional and its frozen state
+bundle belongs under `scratch/harness-puae/`. States without the matching
+scratch-contract marker are rejected; the old mount-dependent state is not a
+supported input. `instructions/harness.md` owns the future invocation contract.
 
 **Reach controllable gameplay in ONE step:** REPL command **`rungame`**
 - From cold boot: holds fire through the intro → menu, confirms PLAY GAME → level
@@ -244,7 +233,7 @@ PC alone (PUAE REPL cmds then unavailable).
 
 **Current status: PERFECT MATCH — frames 1–34 match**.
 
-Last confirmed harness run: `bash run_harness.sh --frames 40` with:
+The last historical 40-frame comparison reported:
 - `Boot frame 0: MATCH` ✓
 - Frames 1–34: all `ok` ✓
 - Frame 35: `DIFF (BPL data CRC)` — buf_a staging area `$0718BA` (1 bit), not in active copper list BPL
@@ -298,18 +287,18 @@ The "final" value after full copper execution is from section 3. PUAE snapshots 
 
 ---
 
-## Native Overrides in Place (pc_overrides.c)
+## Native overrides retained in `src/port/overrides/`
 
 | Address | Function | Notes |
 |---------|----------|-------|
 | `$0030C2` | `native_hw_wait` | No-op |
 | `$0031A0` | `native_blitter_wait_clear` | Fully native — direct hw_write32/hw_write16 (no delegation) |
 | `$003488` | `native_game_frame` | Delegates + copper static rebuild |
-| `$003818` | `native_sprite_table_init` | No-op (broken recompiled) |
-| `$0040B6`–`$004236` | render wrappers | All delegate to recompiled |
-| `$00405C` | `native_text_sprite_render` | Delegates to recompiled; overwrites $7BC8 BPLPTRs with screen-0 values |
+| `$003818` | `native_sprite_table_init` | No-op boundary; original behavior must be revalidated through the interpreter |
+| `$0040B6`–`$004236` | render wrappers | Delegate to original image-address routines |
+| `$00405C` | `native_text_sprite_render` | Delegates to the original image-address routine; overwrites $7BC8 BPLPTRs with screen-0 values |
 | `$0041A4` | `native_sprite_blitter_setup` | Delegates + copper static rebuild |
-| `$0055A0` | `native_timer_interrupt` | Delegates to recompiled |
+| `$0055A0` | `native_timer_interrupt` | Delegates to the original image-address routine |
 | `$0074AA` | `native_boot_anim_iterator` | Delegates with iteration guard |
 | helper | `native_rebuild_copper_static` | Restores BPLPTRs + palette + mod lane in both $86CC and $7BC8 copper lists |
 | helper | `TRACE_CHIP_MEMSET` | Traced chip-RAM scrub wrapper used for timer scratch resets |
@@ -322,27 +311,34 @@ After the car demo the flow reaches the **title/cover-art screen** cop1lc=**$008
 
 ### Bug 1 (FIXED, commit 3d0fa98): cover-art bottom half never drew
 Symptom: only the TOP ~128 logical rows of the cover art drew; bottom stayed black.
-**Root cause was the BLITTER, not the gp reveal logic** (my earlier "reveal index doesn't advance" theory was WRONG — the $47B0/$4534 reveal routines animate the RIGHT-panel title text, not the cover art). The cover art is drawn by gfn_gp_003330: it loads BLTAPT=$975A / BLTDPT=$49000 once ($3414/$341C) then triggers BLTSIZE=$C00D **twice** ($3424, $3430), relying on OCS auto-advancing the channel pointers so the 2nd blit continues into the bottom half ($50800+). `hw_do_blit()` advanced its *local* apt/bpt/cpt/dpt but never wrote them back to the BLTxPT shadow registers, so the 2nd blit restarted at $49000 → bottom half all zeros. FIX: write the advanced pointers back to s_regs at the end of hw_do_blit (`src/engine/hw_blitter.c`). Verified: full art + title now match the PUAE reference (`logs/cov_pu_s81_5.png`); no intro/credits regression.
+**Root cause was the BLITTER, not the gp reveal logic** (my earlier "reveal index doesn't advance" theory was WRONG — the $47B0/$4534 reveal routines animate the RIGHT-panel title text, not the cover art). The cover art routine at `$003330` loads BLTAPT=$975A / BLTDPT=$49000 once ($3414/$341C) then triggers BLTSIZE=$C00D **twice** ($3424, $3430), relying on OCS auto-advancing the channel pointers so the 2nd blit continues into the bottom half ($50800+). `hw_do_blit()` advanced its *local* apt/bpt/cpt/dpt but never wrote them back to the BLTxPT shadow registers, so the 2nd blit restarted at $49000 → bottom half all zeros. FIX: write the advanced pointers back to s_regs at the end of hw_do_blit (`src/engine/hw_blitter.c`). Verified: full art + title matched the captured PUAE reference; no intro/credits regression.
 
 ### Bug 2 (FIXED): leaderboard ($00844A) water-reflection animation missing on PC
 The reflection is a copper-driven per-scanline effect: ~78 per-line re-points of BPL2PT ($00E4/$00E6) + BPLCON1 ($0102) horizontal wobble + COLOR09 ($0192) shimmer (confirmed in PC's copper — it animates frame-to-frame). The native renderer (`native_renderer.c`) capped BPL-pointer anchors at `MAX_ANCHORS=16`, silently dropping reflection lines past ~16 → only the top of the mirror tracked, rest was static/wrong. FIX: raise `MAX_ANCHORS` to `HW_DISPLAY_H + 8` (one re-point per scanline). Reflection now renders fully and ripples.
 
-### Tooling notes for reaching these screens in the REPL
-`./build/benefactor-harness Disk.1 Disk.2 Disk.3` (disks positional; see "How to drive" above). Reach the title: `f 1; g 250; f 0` (fire advances the intro, then release — fire SKIPS the title, so observe with fire OFF). gp bank a5=$511E. Title reveal counters: bottom $4330 (a5-$dee), top $4332 (a5-$dec), toggle $34C8 (a5-$1c56). Leaderboard $00844A appears after ~2400 fire-off frames (`sp 2450`). PUAE cannot be driven to these screens in-harness (it dwells indefinitely at the $976 overlay-load screen, ~1s/frame) — use the saved `logs/cov_pu_s81_*.png`/`fb_puae_s81_*.bin` references instead.
+### Historical oracle evidence for these screens
+The title was reached by advancing with fire and then releasing it before the
+title screen. gp image a5=$511E. Title reveal counters: bottom $4330
+(a5-$dee), top $4332 (a5-$dec), toggle $34C8 (a5-$1c56). Leaderboard $00844A
+appeared after roughly 2400 fire-off frames. These are evidence points, not a
+current runnable command.
 
-### Menu freeze — FIXED (2026-05-28, two recompiler bugs)
-Pressing fire on the title transitions to the **menu** (cop1lc=**$008302**, set at `$394A` in gfn_gp_003872). The menu setup calls the recompiled **ATN! decruncher `$3700`** (src $1339A "ATN!" $C800 → dest $49000), which spun forever and froze the whole app. Two emitter bugs (both fixed in `tools/recomp/emitter.py`, see "Confirmed Fixes Applied"):
+### Menu freeze — required interpreter semantics (2026-05-28)
+Pressing fire on the title transitions to the **menu** (cop1lc=**$008302**, set at `$394A` in the routine beginning at `$003872`). The menu setup calls the original **ATN! decruncher `$3700`** (src $1339A "ATN!" $C800 → dest $49000). A historical CPU implementation spun forever because it violated two 68000 semantics:
 1. **byte/word add/sub flags**: result truncated before the flag macro → carry/X always 0; byte ops used 16-bit N/Z/V. Broke the decruncher's `add.b d3,d3`→`bcc` bit-reader.
 2. **`move X,-(An)` missing predecrement**: `wr()` only special-cased `(An)+`; `-(An)` wrote to `A[n]-sz` without decrementing `A[n]`. The decruncher's `move.b -(a3),-(a4)` literal copy left `a4` frozen → never terminated.
-Now the menu reaches and renders (left "BENEFACTOR" panel, green textured bg, beach scene, a "NORMAL" option). Deterministic intro comparison still a PERFECT MATCH; cover-art/leaderboard unaffected.
-**gp-bank regen gotcha:** must use the FULL `tools/recomp/gp_seeds.txt` seed list (`--seed "$(cat …/gp_seeds.txt)"`), NOT just `3330` — the extra seeds are indirectly-reached entries; `3330` alone drops ~16 of 44 functions. (CMakeLists comment now documents this.)
+With those semantics corrected, the menu reached and rendered (left
+"BENEFACTOR" panel, green textured background, beach scene, and a "NORMAL"
+option). Preserve both cases as interpreter conformance tests.
 
 ### Menu → gameplay (NEXT PHASE — input model mapped, not yet launching)
-The menu ($008302) main loop is `gfn_gp_003872` @ `$3960` (hw_vblank_wait top). Per-frame it reads input via `jsr $3BAA(=a5-$1574)` → d0, then `$39B8 btst #5,d0`:
+The menu ($008302) main loop begins in the routine at `$003872`; its per-frame
+wait is at `$3960`. It reads input via `jsr $3BAA(=a5-$1574)` → d0, then
+`$39B8 btst #5,d0`:
 - **bit5 clear** → `$39BE`: `tst $2be2(a5)`; if nonzero loop, else fade ($7C22) + `jmp $33E2` (back toward title/attract).
 - **bit5 set** → `$39D0`: navigation keyed on selection `-$18be(a5)`(=$3860) and sub-flag `-$15b6(a5)`(=$3B68). With sel==0 & -$15b6==0 it falls to `$39F2`: the **start-game** path — palette fade, `jsr a5-$b22`, then sets low-mem timers `$1c.w=$bf`, `$20.w=1`, and runs a timer/flag-gated menu-out animation ($3A26–$3A6C) comparing `$1c`/`$20` vs `$bf`/`$3c` and testing flag `$38.w`.
 
-Empirical (harness REPL): idling the menu with NO fire stays rendered indefinitely (attract timer `$2be2`=900 does NOT decrement on PC — likely the gp timer ISR `$53A2` should decrement it; not yet). A *held fire* turns the screen **black** but does NOT reach the start path (`$1c`/`$20`/`$38` stay 0, sel stays 0) — so the harness's `hw_set_fire`/$bfe001 injection is NOT what `$3BAA` decodes as bit5. The menu's real input source ($3BAA / `$1e.w` = keyboard/CIA buffer) needs mapping before the menu can be driven to launch. **The standalone game (`run_pc_game.sh`) with a real keyboard/joystick may navigate it even though the harness can't inject the right input.** NEXT: RE `$3BAA` (a5-$1574) to learn what bit5 is and where `$1e.w` is populated; ensure the gp timer ISR `$53A2` updates `$2be2`/`$1c`/`$20`; then the start path + gameplay/level entry.
+Empirical oracle REPL evidence: idling the menu with NO fire stays rendered indefinitely (attract timer `$2be2`=900 does NOT decrement on PC — likely the gp timer ISR `$53A2` should decrement it; not yet). A *held fire* turns the screen **black** but does NOT reach the start path (`$1c`/`$20`/`$38` stay 0, sel stays 0) — so the harness's `hw_set_fire`/$bfe001 injection is NOT what `$3BAA` decodes as bit5. The menu's real input source ($3BAA / `$1e.w` = keyboard/CIA buffer) needs mapping before the menu can be driven to launch. NEXT: RE `$3BAA` (a5-$1574) to learn what bit5 is and where `$1e.w` is populated; ensure the gp timer ISR `$53A2` updates `$2be2`/`$1c`/`$20`; then the start path + gameplay/level entry.
 - **Menu text**: a menu label renders as garbled "3MOLGPOLGP" (may be a scramble-in animation, or a remaining text-routine issue — unverified).
 - **Title ($0081D2) music — tempo FIXED, volume residual OPEN.**
   - **FIXED (tempo, commit e7e45f0):** the gp music engine is the level-6 (CIA-B Timer A) ISR `$3544`→`$53A2`; on HW it fires several times/frame but `coro_deliver_timer_irq` delivered it once/frame → ~3× slow. Fix: live audio now QUEUE/push mode (`hw_audio_open` callback=NULL); `pc_run` renders each frame's 441 samples in `GP_MUSIC_TICKS=3` chunks, calling `pc_music_tick()` (delivers the $78/v6 ISR) before each chunk so the song advances at full tempo AND each sub-frame note is rendered. `g_pc_music_external` gates the v6 delivery out of `coro_deliver_timer_irq`. N=3 (not 7) — N=7 played right notes ~2.3× too fast. Harness BOOT_DISK has the same chunked render under `GP_MUS_MULT`.
@@ -352,28 +348,28 @@ Empirical (harness REPL): idling the menu with NO fire stays rendered indefinite
 
 ## Confirmed Fixes Applied
 
-- **Blitter: byte-odd channel pointers not word-aligned — FIXED (2026-05-28)** (`hw_blitter.c`, where `apt/bpt/cpt/dpt` are read from `BLT*PT`). The OCS blitter is WORD-addressed — it ignores bit 0 of the channel pointers (chip-RAM DMA is word-granular). The PC blitter honored a byte-odd pointer, writing the data 8px off. The title-car bob ($91D0) computes `dpt = $73680 + (carX>>3)` — a *byte* offset that is odd whenever `carX>>3` is odd — and puts the fine sub-word X in `BLTCON1` BSH (0-15). On hardware the odd byte is dropped and BSH supplies the fine position, so X = carX (smooth). On PC the odd byte shifted the car 8px on those frames → the car LURCHED (smooth −10px/frame on PUAE became −18,−3,−18,−3… on PC, i.e. the "car animation stutter"). FIX: mask bit 0 off all four pointers (`& ~1u`). Verified: car buffer `$73680-$77000` is now **0-diff (bit-exact)** vs PUAE on every frame (was oscillating 2200/0/0), leading-edge motion is smooth −10→−6/frame matching PUAE; title ($86CC) unchanged. ROOT-CAUSED with the lockstep REPL: `dc` of the car buffer with PUAE advanced +1 frame (`su 1`) showed the offset oscillating 0/2200 (matched 2 of 3 frames, jumped the 3rd) → not a phase/render issue but a position bug on the odd-`carX>>3` frames. NOTE: a native motion-player reimplementation of `gfn_game_frame` was tried first and reverted — the recompiled handler + word-aligned blitter is bit-exact, so no native rewrite was needed; the motion table lives at `a5-$2082` (64-word ease-in/center-pause/ease-out X path), phase at `a5-$2084` (+2/frame), cell toggle `a5-$2088 ^= $f1e`.
+- **Blitter: byte-odd channel pointers not word-aligned — FIXED (2026-05-28)** (`hw_blitter.c`, where `apt/bpt/cpt/dpt` are read from `BLT*PT`). The OCS blitter is WORD-addressed — it ignores bit 0 of the channel pointers (chip-RAM DMA is word-granular). The PC blitter honored a byte-odd pointer, writing the data 8px off. The title-car bob ($91D0) computes `dpt = $73680 + (carX>>3)` — a *byte* offset that is odd whenever `carX>>3` is odd — and puts the fine sub-word X in `BLTCON1` BSH (0-15). On hardware the odd byte is dropped and BSH supplies the fine position, so X = carX (smooth). On PC the odd byte shifted the car 8px on those frames → the car LURCHED (smooth −10px/frame on PUAE became −18,−3,−18,−3… on PC, i.e. the "car animation stutter"). FIX: mask bit 0 off all four pointers (`& ~1u`). Verified: car buffer `$73680-$77000` is now **0-diff (bit-exact)** vs PUAE on every frame (was oscillating 2200/0/0), leading-edge motion is smooth −10→−6/frame matching PUAE; title ($86CC) unchanged. ROOT-CAUSED with the lockstep REPL: `dc` of the car buffer with PUAE advanced +1 frame (`su 1`) showed the offset oscillating 0/2200 (matched 2 of 3 frames, jumped the 3rd) → not a phase/render issue but a position bug on the odd-`carX>>3` frames. A native motion-player experiment was unnecessary: the original `$003488` routine plus the word-aligned blitter was bit-exact. The motion table lives at `a5-$2082` (64-word ease-in/center-pause/ease-out X path), phase at `a5-$2084` (+2/frame), and cell toggle at `a5-$2088 ^= $f1e`.
 
 - **Blitter: B-channel not shifted in ASCENDING mode — FIXED (2026-05-27)** (`hw_blitter.c`, the `else` branch of the per-word shift). The ascending path shifted A by ASH (`a = ((prev_a<<16)|a_masked) >> a_shift`) but set `b = b_raw` (UNSHIFTED), while the descending path shifted B correctly. The car-demo bob ($91D0) is an ascending cookie-cut (con0=`$XFCA`, con1=`$X000`): A=mask, B=data, both want the same sub-pixel shift X. With B unshifted, the mask and data misaligned by X; since X cycles 0–15 every frame (the moving car's fine position), the car garbled DIFFERENTLY each frame → looked "stuttery / glitchy / incorrect" in motion (driver flickered in/out, edges fringed). Fix: `b = ((prev_b<<16)|b_raw) >> b_shift` (mirrors A, and the descending path). Verified frame-by-frame: PC car now matches PUAE (e.g. f707/f710 zoomed identical modulo the constant ~2px capture offset); title screen unaffected (only blits with `b_shift != 0` change; `b_shift==0` is identity). FALSIFIES the line-85 claim "car renders clean" and the line-89 note "the B-shift lead was wrong" — those were about the GREEN-BOX symptom (con1 mode, fixed by `ror`); the B-channel-shift bug was a SEPARATE, still-present defect that the green-px-count check didn't catch. Diagnosed by: (1) per-frame state vars `-$2088/-$2084(a5)` MATCH PUAE, (2) blit params MATCH PUAE once you account for PUAE logging pointers POST-blit vs PC PRE-blit (the apparent "one cell off" apt was `BLTAMOD×height`), (3) `dc` of the car buffer `$73680-$77000` showed PC `80 00` where PUAE had `87 FC` — PC losing the bits a right-shift spills into the next word.
 
-- **Recompiler: `ror`/`rol` implemented — fixes the car-demo green box** (`tools/recomp/emitter.py`). The recompiler emitted `ror`/`rol` as empty comments (`/* ror: ... */`) — total no-ops. The car-demo draw (`game_frame` $3604) does `ror.w #4, d2` to move the bob's sub-pixel shift into BLTCON1 bits 15-12 (BSH). With ror a no-op, the shift stayed in bits 0-3, where it set the **descending/fill** bits of BLTCON1 → the blitter ran the car blit in the wrong mode → a bright-green ($1F1) box + duplicated fragment around the car as it scrolled in. ROOT-CAUSED by comparing PC vs PUAE BLTCON1 in the blit traces (`BLIT_TRACE_ALL=1 BLIT_TRACE_DIR=<abs>`): PUAE con1=`$1000/$2000/...` (BSH in bits 12-15), PC con1=`$0001/$0006/$000E...` (shift in low bits → desc/fill). Fix: implement `ror`/`rol` (8/16/32-bit, register or memory dest, C/N/Z flags). Verified: car renders clean at entrance (380) and center (440), 0 green px vs PUAE 0; title still matches frames 1-31; tests 51/51. This was the LAST comment-only no-op in the generated code (`grep '/\* ror\|/\* rol\|UNK:'` now empty). NOTE: the blitter also gained correct **descending mode** (validated by the `BLIT_SELFTEST` oracle — descending copy + cookie-cut both PASS); the car blits are now ascending (correct con1) so it isn't exercised by them, but other descending blits are now handled.
+- **Required `ror`/`rol` semantics — fixes the car-demo green box.** The car-demo draw at `$3604` does `ror.w #4,d2` to move the bob's sub-pixel shift into `BLTCON1` bits 15-12 (BSH). A historical CPU path treated the rotate as a no-op, leaving the shift in the descending/fill bits and producing a bright-green `$1F1` box plus a duplicate fragment. PUAE reported `BLTCON1=$1000/$2000/...`; the failing path reported `$0001/$0006/$000E...`. The maintained interpreter must implement 8/16/32-bit register and memory rotates with correct C/N/Z results. The native blitter's descending mode is independently covered by descending-copy and cookie-cut oracle cases.
 
-- **Recompiler: `Scc`/`st`/`sf` implemented** (`tools/recomp/emitter.py`). The recompiler had NO handler for `Scc` (set-byte-on-condition), so it emitted `/* UNK: st.b ... */` no-ops. This silently broke the car-demo screen ($91D0, `gfn_game_frame` $3488): `$35DA st.b -$2002(a5)` and `$35E6 st.b -$2001(a5)` set the screen's exit flags when the animation phase `-$2084(a5)` hits `$3e`/`$7e`. Un-set → the exit check at `$3652` always looped back → the car demo **never ended** (car kept re-blitting → corruption). Fix: emit `MW8(ea, 0xFF)` for `st`, `0x00` for `sf`, `(RT_CC_x?0xFF:0x00)` for conditional `Scc` (data-reg dest sets low byte). This was the **last `UNK` instruction in the entire generated codebase** — `grep 'UNK:' src/engine/generated/*.c` is now empty. Verified: car demo advances $91D0→$7770 and the exit flags ($331A/$331B) become $FF, matching PUAE's "car leaves → fade → next screen". Tests 51/51 pass. ALSO fixed the CMake regen dependency: `recompile_game` now depends on emitter.py/scanner.py/helpers.py (it only listed entries.py, so emitter edits didn't trigger regeneration).
+- **Required `Scc`/`st`/`sf` semantics.** The car-demo screen at `$91D0` writes exit flags using `$35DA st.b -$2002(a5)` and `$35E6 st.b -$2001(a5)` when phase `-$2084(a5)` reaches `$3e`/`$7e`. Treating those instructions as no-ops makes the `$3652` exit check loop forever. The maintained interpreter must write `$FF` for true, `$00` for false, and update only the low byte of a data-register destination. Verified behavior advances `$91D0->$7770` with `$331A/$331B=$FF`, matching PUAE's car-leaves/fade/next-screen flow.
 
 - **(RESOLVED) car-demo green box + right-edge fragment** — was the `ror`/`rol` no-op above (BLTCON1 BSH shift landed in the desc/fill bits). Fixed by implementing `ror`/`rol`. The earlier "1-frame timing offset" and "B-shift" leads were both wrong; the real cause was found by diffing PC vs PUAE BLTCON1 in the blit traces.
 
-- **Harness determinism save-state missing** (`logs/puae_sync.state`): not present, so the PUAE side live-boots non-deterministically and the auto-comparison frame-0 lands on either double-buffer half ($7BC8 vs $86CC). Root: `harness_puae.c` writes the state to the RELATIVE path `logs/puae_sync.state`, but PUAE chdir's away from the repo root, so the write silently fails (same CWD bug as the blit trace). FIX NEEDED: resolve the state path (and trace paths) to absolute at startup before PUAE chdir's. This is independent of the car-demo work.
+- **Harness state path contract replaced:** the old relative state path was resolved after PUAE changed directories and could not be written reliably; older frozen states also embedded a transient host mount. The retained oracle now resolves `scratch/harness-puae/` through the project path owner before PUAE starts and restores only a state with the matching scratch-contract marker. Runtime verification awaits recomposition of the separate oracle target.
 
 - **Blitter does NOT implement descending mode** (`hw_blitter.c`): `desc = (bltcon1>>1)&1` is read but unused — the blit always processes ascending (apt/dpt += per row). Latent bug for any DDOWN blit; the car bob is ascending so unaffected here, but worth fixing.
 
 ## Debugging tools: live HTTP server + savestate render
 
 - **HTTP debug server** (`src/port/http_debug.c`, opt-in via `BENEFACTOR_HTTP=<port>`):
-  runs a localhost-only thread in `benefactor-pc` so you can inspect the game WHILE
-  someone plays. Use it with `BENEFACTOR_HTTP=8080 ./run_pc_game.sh` (env passes
-  through). Endpoints (GET): `/state` (level, cop1lc, bank flags, `$57FEB8` player
+  is retained for future product recomposition but is not currently built.
+  Endpoints (GET): `/state` (level, cop1lc, image identity, `$57FEB8` player
   block), `/mem?addr=HEX&len=N`, `/poke?addr=HEX&val=HEX`, `/fb.ppm`, `/fb.bin`
-  (raw ARGB8888 352×282 → `tools/fb_view.py png`). Zero overhead when the env var
+  (raw ARGB8888 352×282 →
+  `uv run --frozen python -m tools.fb_view png`). Zero overhead when the env var
   is unset.
 - **harness REPL `loadmem <file>` + `render`:** `loadmem` loads g_state+g_mem from a
   savestate WITHOUT resuming the parked game thread (works across binaries — the
@@ -386,7 +382,7 @@ Empirical (harness REPL): idling the menu with NO fire stays rendered indefinite
 ## Known bug: savestate LOAD crashes (mid-gameplay)
 
 Loading a mid-gameplay savestate from a fresh boot crashes (user-reported). Root
-cause is the STOPGAP documented on `pc_savestate` (pc.c): the save captures
+cause is the STOPGAP documented on `pc_savestate` (`src/port/game_loop.c`): the save captures
 `g_state` (incl. the M68K `game_ctx`) + `g_mem` but NOT the game THREAD's C call
 stack, so the resume can't continue the thread at its suspended point. The thread
 model can't serialise the C stack. Proper fix direction: on load, RESPAWN the game
@@ -429,13 +425,14 @@ AUDxLC/LEN swaps and intermittently truncated/dropped grunts to near-silence
 `AUDIO_SFX_ONLY=1` (keeps the timer; `BENEFACTOR_MUTE_MUSIC` does NOT — it freezes
 LVL6). STILL OPEN (separate, lower priority): PC full-mix is a uniform ~2× quieter
 than PUAE (master/mix gain, affects music+SFX equally — not the drop bug). Music
-replayer ($59BA7A/$59BB5E+) still recompiled, not yet native-owned.
+replayer ($59BA7A/$59BB5E+) still executes from the gameplay image through the
+interpreter, not yet native-owned.
 
 ### Historical investigation notes (pre-fix)
 
 Repro: compare harness, level 1, past GET READY, hold fire+left → repeated jumps
 + grunt SFX; PC sometimes plays a wrong/different sound. Tools added: `SFX_TRACE=1`
-(logs/sfx_pc.txt: ch/AUDxLC/len/per/vol on each audio-DMA enable) + REPL `audlc`
+(historical ch/AUDxLC/len/per/vol capture on each audio-DMA enable) + REPL `audlc`
 (PC vs PUAE per-channel sample ptr).
 
 RESOLVED separation (2026-06-02): SFX has its OWN state, separate from music —
@@ -501,7 +498,8 @@ grunt) — it's present at baseline = a MUSIC sample. The grunt sample is still
 UNIDENTIFIED; derive it empirically by fire-correlation (sample that recurs right
 after each fire press across many jumps), NOT by trusting the old "idle" label.
 
-TOOLS: `mute [0|1]` REPL + `BENEFACTOR_MUTE_MUSIC` env (pc.c `g_mute_music`, gates
+TOOLS: `mute [0|1]` REPL + `BENEFACTOR_MUTE_MUSIC` config (`src/port/game_loop.c`
+`g_mute_music`, gates
 `pc_music_tick`); SFX_TRACE now logs `fn=` (g_rt_last_call) per DMACON-enable.
 
 NEXT (to actually isolate SFX): intercept UPSTREAM, not at the ISR. Find (a) the
@@ -532,9 +530,14 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 
 ## Debugging tool: interactive REPL
 
-`./build/benefactor-harness Disk.1 Disk.2 Disk.3` (disks positional) boots the native disk coroutine and drops to a stdin REPL — step the flow and inspect chip RAM live without recompiling per probe. Commands: `s [n]` step, `g <frame>` run-to-frame, `u <addr> <val> [w|l]` step-until-memory-equals, `f <0|1>` hold fire/start, `p <addr> [n]` peek bytes, `w <addr>` peek word, `c` frame+cop1lc, `fb <path>` dump framebuffer, `q` quit. This replaced the env-var recompile cycle for the car-demo root-cause.
+The test-only harness REPL steps the flow and inspects chip RAM live against the
+PUAE oracle. Its historical commands were: `s [n]` step, `g <frame>`
+run-to-frame, `u <addr> <val> [w|l]` step-until-memory-equals, `f <0|1>` hold
+fire/start, `p <addr> [n]` peek bytes, `w <addr>` peek word, `c` frame+cop1lc,
+`fb <path>` dump framebuffer, and `q` quit. Current invocation belongs to the
+test harness documentation, not this evidence notebook.
 
-- **Logo palette fades restored** (`pc_overrides_boot.c` `native_boot_anim_iterator`, $0074AA = `$218e(a5)`, a5=$531C). This routine is the game's palette-fade iterator: the recompiled screen handlers ($3218/$31C2/$366A) call it ONCE per fade and expect it to BLOCK for the whole ramp (original $74AA waits `(delay+1)` vblank frames per pass via the `btst #0,$3(a6)` toggle + `dbra`, steps every R/G/B nibble one step toward target, repeats `outer` times → `outer*(delay+1)` ≈ 16*2 = 32 frames). The native override had been written for the OLD per-frame native-title design (one step per call, vblank delay skipped), so when the coroutine flow calls it once it collapsed the whole fade into a single frame — logo fade-ins/outs were invisible and pressing fire appeared to skip everything instantly. Fix: faithfully wait `(delay+1)` frames per pass with `hw_vblank_wait()` (which yields through the game coroutine, same as the recompiled hold loops). Verified: PC now matches PUAE frame-exact through the post-title logo screens — same screen transitions ($78F0 f=171, $77C0 f=237, $91D0 f=323 on both sides) and identical COLOR ramp each frame (black→full→black). LESSON: native overrides written for the dead per-frame native-title loop can silently break under the recompiled coroutine flow, which calls them once and expects original blocking semantics.
+- **Logo palette fades restored** (`src/port/overrides/boot.c` `native_boot_anim_iterator`, $0074AA = `$218e(a5)`, a5=$531C). This routine is the game's palette-fade iterator: original screen handlers at $3218/$31C2/$366A call it once per fade and expect it to block for the whole ramp. Original $74AA waits `(delay+1)` vblank frames per pass via the `btst #0,$3(a6)` toggle + `dbra`, steps every R/G/B nibble one step toward target, and repeats `outer` times, normally about `16*2=32` frames. A native override written for an obsolete per-frame title loop collapsed the whole fade into one frame. Fix: wait `(delay+1)` frames per pass with `hw_vblank_wait()`. Verified transitions matched PUAE at $78F0 f=171, $77C0 f=237, and $91D0 f=323 with an identical color ramp. Native overrides must preserve the original blocking-call contract when the scoped interpreter calls them once.
 
 - **Copper WAIT next-frame guard** (`hw_copper.c` `copper_pos_reached`): the Amiga copper 8-bit vertical counter wraps at 255. After line 255, any WAIT with `vp < 128` where `(cmp_line - vp) > 127` is a "next-frame" wait that should only fire after the counter wraps. Without this guard, WAIT(vp=1..43) fired immediately at line 255 (cmp=255 > 1), causing BPLCON0=$0200 to execute at line 255 (out_y=228 with top_border=17), rendering star-field lines 228–255 as black. The guard defers these WAITs to lines 257–299 where cmp_line properly equals vp. Fix: `if (cmp_line > vp && (cmp_line - vp) > 127) return 0;` in `copper_pos_reached`.
 
@@ -542,9 +545,9 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 
 ## Key Facts (Do Not Re-Examine)
 
-- **gfn_blitter_wait_clear** ($0031A0): zeros $070930–$07F930 (61440 bytes). PUAE ran this during BOOT. PC must NOT run it again (sync dump is already post-init state). `call_fn(0x0031A0)` was removed from `if (s_first)` block in pc.c.
+- **Guest routine `$0031A0`** zeros `$070930-$07F930` (61,440 bytes). PUAE ran this during boot. A restored post-init oracle snapshot must not run it a second time.
 - **Blitter fill** `bltcon0=$19F0` overwrites `$8720–$872C` with `$FFFF` each frame. `native_sprite_blitter_setup` restores BPLCON0/1/2 afterwards.
-- **Counter at $67D2**: timer interrupt (`gfn_0055A0`) decrements this. When 0, runs full palette computation. Starts at 7 in sync dump (so first palette compute is frame 7).
+- **Counter at $67D2**: timer interrupt routine `$0055A0` decrements this. When 0, it runs the full palette computation. It starts at 7 in the synchronization snapshot, so the first palette computation is frame 7.
 - **Palette animation data** at A6=MR32($69DC)=$06231A. First byte=$80 (bit7 set = negative path in timer interrupt).
 - **A5 = $DFF000** always. **A6 = $DFF002** in some contexts (hardware base offset).
 - **coplist[] in frames_differ()** is chip RAM bytes from cop1lc — correct timing-independent comparison.
@@ -554,33 +557,32 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 
 ## Current Confirmed Findings
 
-- `run_pc_game.sh` now launches `benefactor-pc` with `chip_ram_dump.bin`; the `benefactor-pc` target itself was switched to the `pc.c` runtime path (old `recomp_main.c` target path removed) so standalone and harness PC execution share one runtime.
+- Historical standalone and harness runs shared the game-loop owner now in `src/port/game_loop.c`. Current launch ownership is defined by `docs/migration.md`; old launcher names and snapshot-start commands are not supported interfaces.
 - `$0091D0` gameplay copper corruption is fixed: PC blitter wrote `$0120 -> $99B9` at frame 0 because gameplay-copper protection ended at `< $91D0`. Expanding to `< $91D4` removed boot-frame coplist DIFF (`Boot frame 0: MATCH`).
-- **Frame-sequence regression FIXED:** `native_sprite_blitter_setup` (`pc_overrides_copper.c`) was skipping the original `$0041A4` `not.w -$117A(a5)` toggle that controls title/gameplay selection via `$41A2`. This caused PC to stay on gameplay copper (`$86CC`) at frame 1 while PUAE correctly switched to title (`$7BC8`). Fix: added the `$41A2` toggle to `native_sprite_blitter_setup`. Harness now shows `Frame 1: PIXEL DIFF (copper matches)` with all BPL ranges MATCH.
+- **Frame-sequence regression FIXED:** `native_sprite_blitter_setup` (`src/port/overrides/copper.c`) was skipping the original `$0041A4` `not.w -$117A(a5)` toggle that controls title/gameplay selection via `$41A2`. This caused PC to stay on gameplay copper (`$86CC`) at frame 1 while PUAE correctly switched to title (`$7BC8`). Fix: added the `$41A2` toggle to `native_sprite_blitter_setup`. Harness now shows `Frame 1: PIXEL DIFF (copper matches)` with all BPL ranges MATCH.
 - Disabling `$0041A4/$00405C` in PC removes the large bitplane-write divergence (BPL ranges become MATCH), but leaves a smaller pixel DIFF and PUAE-only state updates (`$0042FC..`, `$0069F1..`, `$006A27..`, `$07FFA2..`). This confirms call-sequence mismatch is central but requires a sequence-correct replacement, not a blind skip.
 - The first differing bitplane bytes are written by the **PC blitter**, not by CPU `MW16/MW32` stores. Harness trace now shows `[PC BLT]` at the first diff addresses in BPL1/BPL2/BPL3/BPL4.
 - At the first-diff addresses, PC blitter math is internally consistent (`out` matches `A` with `C=0` for `bltcon0=$0BFA`), so the immediate mismatch is upstream source-buffer content (`A` words) rather than the final store itself.
 - Upstream source words feeding BPL2 first diff (`$070934`) come from prior PC blits into `$06942x` (e.g. `$06942C=$B4FC`, `bltsize=$06A8`, `apt≈$061EA4`, `bltcon0=$0BFA`); no CPU writes were observed to those source windows.
 - PUAE writes zeros at the BPL2 diff window (`$070934..$070944`) while PC writes nonzero (`$B4FC...`), confirming divergence in the blit data stream before pixel conversion.
 - The blitter passes hitting the live bitplanes use `bltcon0=$0BFA`, `$FBFA`, and `$19F0` with destinations inside the title-screen bitplane ranges.
-- Concrete fix point is now isolated in `gfn_sprite_blitter_setup` (`$0041A4`) loop: PC emits a unique `BLTSIZE=$7D60` (PUAE never emits this size in the compared window), then immediately writes first bad word at `$070934` (`[BLT_PROBE_DIFF]`).
+- The historical divergence was isolated to the guest `$0041A4` loop: the failing CPU path emitted a unique `BLTSIZE=$7D60` (PUAE never emitted this size in the compared window), then immediately wrote the first bad word at `$070934` (`[BLT_PROBE_DIFF]`).
 - At that bad launch, PC writes `BLTDPT=$0007030C` and enters blitter with `d2=$7D60`, `a1=$0007030C`, and `a2=$00004218` (`[BLTDPT_LIVE_PC]`), which means `(a2)+` has advanced outside the intended `$4166..$4178` word table and is feeding an invalid height/size into `$56(a6)`.
-- Root cause confirmed: runtime flag macros in `recomp/rt.h` used internal locals named `_d/_s/_r`, colliding with generated compare blocks that also declare `_d/_s`; this produced undefined flag results at `$004212 cmpa.l` and made `$004218 bne` take when `a2==$417A`.
-- Applied fix: renamed macro internals to collision-proof identifiers (`__rtf_*`) in `RT_ADD_FLAGS_*` and `RT_SUB_FLAGS_*`; this removed the bad `BLTSIZE=$7D60` / `BLTDPT=$07030C` launch entirely.
+- Root cause confirmed in the retired CPU path: temporary-name collisions produced undefined flag results at `$004212 cmpa.l` and made `$004218 bne` branch when `a2==$417A`. The shipping interpreter must execute the architectural compare and branch directly. The discriminator is absence of the bad `BLTSIZE=$7D60` / `BLTDPT=$07030C` launch.
 - Post-fix behavior: PUAE and PC blit-launch streams now match exactly after the known startup-only PUAE launch (`$0031BA`, `BLTSIZE=$803C`, `dpt=$070930`) is skipped.
 - The current runtime still executes blits synchronously on `BLTSIZE` writes. A first deferred-blit experiment did **not** remove or move the frame-1 diff, so "simple late completion" is not yet proven as the full root cause.
-- The generated `st.b -$1cb4(a5)` at `$0052CA` is still unimplemented, but its target byte `$003668` stays `00` in boot / PUAE / PC snapshots for this frame and is **not** the controlling difference here.
+- The `st.b -$1cb4(a5)` at `$0052CA` targets byte `$003668`, which stayed `00` in boot, PUAE, and PC snapshots for this frame and was **not** the controlling difference here.
 - In PC frame 0, timer interrupt path `$0055A0` writes `$0069DC=$00DFF002` (`[STATE_CPU32]`), while sync/PUAE keep `$0069DC=$000622DA`. This pointer feeds `movea.l $69dc(pc),a6` in the same routine and is upstream of `$0069F0-$006A70` state-table updates.
 - Sprite base pointers are not the missing display surface for the current frame-1 diff: harness snapshots now capture `sprpt[8]` on both sides, and the failing 2-frame run reports `[sprite-ptrs] all 8 match` while the `6.7%` pixel diff remains.
 - Disabling PC sprite drawing (`PC_DISABLE_SPRITES=1`) leaves the frame-1 diff unchanged (`5499`, same first pixel), so active sprite overlay is not the controlling path.
-- Renderer mapping knobs move the pixel diff while PC chip RAM remains byte-identical (`cmp logs/harness_pc_after_frame_baseline.bin logs/harness_pc_after_frame_tuned.bin` returns equal):
+- Renderer mapping knobs moved the pixel diff while the compared PC chip-RAM captures remained byte-identical:
 	- default (`TOP=17`, `X=56`) => `5499` diff
 	- `TOP=16`, `X=50` => `5072` diff
 	This confirms the remaining issue is primarily render interpretation/alignment, not missing game-state mutation.
 - Decode-mode sweep results: `BENEFACTOR_LORES_X2=1` worsens diff; `BENEFACTOR_WAIT_AT_FETCH` is negligible; `BENEFACTOR_ADVANCE_BEFORE=1` has non-monotonic interaction with x/y bias and is not a standalone fix.
 - Additional renderer probes falsified: forcing hires downscale had no effect; doubling computed DDF fetch width made divergence much worse (`11.9%`).
-- New artifact/tooling: harness now dumps framebuffer binaries on pixel diff (`logs/harness_puae_fb_diff.bin`, `logs/harness_pc_fb_diff.bin`), and `tools/analyze_fb_alignment.py` reports shift sensitivity; current baseline best overlap shift is `dx=8, dy=5` with residual `4810/78312` (still high), ruling out a pure constant translation fix.
-- Row-vs-mode correlation (`logs/fb_mode_correlation.txt`) localizes the residual by active `BPLCON0` segment: `$4200` contributes `3569` diff pixels, `$3600` contributes `1926`, `$0200` contributes only `4`. This shifts focus to renderer semantics for those two display modes, not global state divergence.
+- Historical framebuffer analysis found best overlap shift `dx=8, dy=5` with residual `4810/78312` (still high), ruling out a pure constant translation fix. Future captures belong in `scratch/harness-puae/`.
+- Historical row-vs-mode correlation localized the residual by active `BPLCON0` segment: `$4200` contributes `3569` diff pixels, `$3600` contributes `1926`, `$0200` contributes only `4`. This shifts focus to renderer semantics for those two display modes, not global state divergence.
 - Mode-specific mapping probes confirm the mismatch is segment-dependent, not a single global offset:
 	- `BENEFACTOR_XDELTA_4200=-6` (default global settings) reduces diff `5499 -> 5257`.
 	- Combining `BENEFACTOR_TOP_BORDER=16` with `BENEFACTOR_XDELTA_4200=-6` reduces further to `5048`.
@@ -590,7 +592,7 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 	- `$4200`-only fetch-width doubling probe (`BENEFACTOR_FETCH_X2_4200=1`) worsens to `7537` (`9.2%`) and is rejected.
 	- Approximate dual-playfield decode probe (`BENEFACTOR_DUALPF_DECODE=1`) only reduces `5499 -> 5490` (all in `$3600` segment), so it is not the primary cause.
 	- One-line `BPLCON0` transition-delay probe (`BENEFACTOR_DELAY_BPLCON0=1`) worsens slightly (`5507`) and is rejected.
-- New reusable analyzer `tools/analyze_fb_mode_offsets.py` emits per-row best-dx and per-mode totals from log + dumps. Current baseline report (`logs/fb_mode_offsets_report.txt`) shows:
+- Historical per-row and per-mode analysis showed:
 	- `BPLCON0=$4200` dominates (`3569` diff px) with row best-dx centered around `~+5`.
 	- `BPLCON0=$3600` is secondary (`1926` diff px) and mostly near `dx=0` except transition bands.
 
@@ -643,7 +645,6 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 	- `base8,extra8 -> 4852`
 	So current phase gates are not yet capturing a physically distinct rule; they mostly act as additive alignment pressure.
 - Safety re-check after the two-phase additions: default run remains unchanged (`5499`, first mismatch `(120,17)`).
-- New analysis entrypoint: `run_harness_and_analyze.sh` runs one harness capture and then both root-cause analyzers on the same logs.
 - New non-offset `$3600` probes added and evaluated:
 	- Pointer-phase (source-row) probes: `BENEFACTOR_BPL_LINE_OFFSET_3600`, `_ZERO`, `_FFD8`.
 	- Decode-window probe: `BENEFACTOR_FETCH_WORDS_BIAS_3600`.
@@ -660,7 +661,7 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 	- Extreme low hpos (`0x00`) degrades badly (`5380`).
 	- Broad mid/high range (`0x70..0xFE`) is effectively flat (`~4902`), with only tiny variation (`4910` at low-mid values).
 	This suggests the remaining residual is not primarily due to the current single-cur_hp simplification, except for obviously wrong low-hpos choices.
-- ROM-side clue captured from generated code: `gfn_sprite_playfield_setup` (`$00377A`, core loop `$00378A..$0037FE`) explicitly emits copper words containing `BPL2MOD` payloads `#$10a0000` and `#$10affd8` while building the late playfield section. This confirms the `$3600` phase pattern is intentional game data generation, reinforcing that the mismatch is in render interpretation/timing rather than missing copper construction.
+- Direct retail-image decode of routine `$00377A` (core loop `$00378A-$0037FE`) shows copper words containing `BPL2MOD` payloads `#$10a0000` and `#$10affd8` while building the late playfield section. This confirms the `$3600` phase pattern is intentional game behavior, reinforcing that the mismatch is in render interpretation/timing rather than missing copper construction.
 - New per-line `$3600` trace (`BENEFACTOR_TRACE_3600_LINES`) correlates row diffs with renderer inputs. Under the current non-overfit branch (`TOP=17`, `XDELTA_4200=-6`, `XDELTA_3600=0`, `$4200` rule enabled), the highest-diff `$3600` rows are mixed across both `BPL2MOD=$0000` and `$FFD8`; no single phase dominates the worst rows.
 - Corrected phase comparison for `XDELTA_3600=12` versus base `0` shows broad, weakly phase-selective improvement rather than a semantic signature:
 	- `BPL2MOD=$0000`: `976 -> 947` (`-29`)
@@ -671,10 +672,10 @@ playfield priority. Verify against the PUAE oracle; guard the deterministic intr
 	- On `y=116` (`BPL2MOD=$0000`), the base run samples nonzero plane bits (`$04/$05`, `cidx=4/5`) around `x≈224..235`; `x12` shifts `sx` left by 12 so those same output pixels sample zeros instead and become correct. The same `$04/$05` island then reappears at later `x≈239..246`, creating new errors.
 	- On `y=93` (`BPL2MOD=$FFD8`), the same pattern repeats: `x12` turns some early wrong `$04/$05` pixels into zeros, but moves that nonzero island to later x positions, trading one set of row-local errors for another.
 	- This is strong evidence that `$3600` x-origin tuning is purely translational; it does not reveal the missing renderer semantics.
-- Direct ROM decode of `gfn_sprite_playfield_setup` (`$00378A`) shows the `$3600` phase table is dense, mostly alternating `BPL2MOD=$0000/$FFD8` line by line; there are no large phase blocks to explain the residual as a coarse row scheduling issue.
+- Direct retail-image decode at `$00378A` shows the `$3600` phase table is dense, mostly alternating `BPL2MOD=$0000/$FFD8` line by line; there are no large phase blocks to explain the residual as a coarse row scheduling issue.
 - Cheap timing check falsified: rendering `$3600` with the previous line's `BPL2MOD` (`BENEFACTOR_3600_USE_PREV_BPL2MOD=1`) leaves the diff unchanged (`4902 / 81920`, same first mismatch).
 - Dual-playfield decode clarifies but does not fix the representative wrong islands: on rows `y=116` and `y=93`, enabling `BENEFACTOR_DUALPF_DECODE=1` simply renumbers the sampled islands from `cidx=4/5` to `pf1=2/3`, while those pixels remain wrong versus PUAE.
-- Crucial narrowing fact: the representative wrong islands are plane bits `$04/$05`, i.e. planes `0` and `2` only (`BPL1/BPL3` in Amiga numbering). Those planes advance with `BPL1MOD`, not the alternating `BPL2MOD` schedule emitted by `gfn_sprite_playfield_setup`. The `$3600` `BPL2MOD` table is therefore a region marker, but it does not directly explain the sampled bad pixels.
+- Crucial narrowing fact: the representative wrong islands are plane bits `$04/$05`, i.e. planes `0` and `2` only (`BPL1/BPL3` in Amiga numbering). Those planes advance with `BPL1MOD`, not the alternating `BPL2MOD` schedule emitted by the `$00378A` loop. The `$3600` `BPL2MOD` table is therefore a region marker, but it does not directly explain the sampled bad pixels.
 - Gameplay copper list sanity check: `BPLCON1` is written once to `$0000` at `$8724`; there is no split-nibble horizontal scroll programmed here. The residual is not coming from ignored per-playfield `BPLCON1` scroll.
 - Important correction from copper decode: `BPL1MOD` is not constant in gameplay. At `$87C0` the copper switches `BPL1MOD` from `$003C` to `$0028`, and the traced `$3600` `BPL1/BPL3` bases then advance by `+80` bytes per line, matching `bytes_per_line (40) + BPL1MOD (40)` exactly. The current renderer is following that odd-plane modulo change consistently.
 - New targeted probe: shifting only the `$3600` `pf1` sampling path (`BENEFACTOR_PF1_SHIFT_3600`) improves the harness materially without touching `pf2`.
@@ -775,15 +776,16 @@ a5+$294); (b) loading at REPL time let the old thread run one more frame
 over fresh memory (the 2nd-goto crash). goto now routes through the
 restart-reinit path (reload happens in pc_step_threaded after the final old
 frame) WITHOUT pc_request_level_restart's early PC_SCR_GAMEPLAY flip (that
-poisons an in-flight title frame -> $3330 rt-miss).
+poisons an in-flight title frame and dispatches `$003330` under the wrong image
+identity).
 **EXTRA LEVELS (Disk.4) SHIPPED (2026-06-11):** the base game's world table
 at $577452 defines 6 extra-world slots (7..12 = levels 61..90, 5 each, names+
 data on Disk.4 at fixed offsets $F500/$13E80/$18800/$1D180/$21B00/$26480);
 the fan BenDisk4 fills 2 (61-70: UNDERWORLD + TOMBS OF EGYPT extras). Its
 blobs are "IMP!"-crunched — same Imploder container/bitstream as "ATN!", only
 the magic differs — so atn_decrunch accepts both and native_level_decrunch
-overrides the engine decruncher $577E96 (ATN! stays on the recompiled body;
-the recomp falls through to rts on non-ATN, which left the blob crunched and
+overrides the engine decruncher $577E96. The original ATN path remains available
+through the interpreter; the older non-ATN path returned without decoding, which left the blob crunched and
 sent the $57CC1A zero-scan into garbage = the old black-card/hang). Geometry
 SSoT extended (pc_extra_worlds_available/pc_num_worlds_ui/pc_num_levels_ui,
 PROFILE_MAX_LEVEL 90); picker cycles extras (LEFT from UNDERWORLD); LOAD
@@ -803,9 +805,10 @@ ESC in LEVEL SELECT now CANCELS back to the menu (the picker loop previously
 only exited on fire — the panel closed but the menu stayed frozen).
 **$39D0 dispatch return contract (burned twice 2026-06-11):** $39D0 is NOT a
 jsr'd function — it is a branch target inside the menu loop; "do nothing"
-must `rt_jump($39BE)` (the loop continuation). A plain C return UNWINDS the
+must make an image-qualified tail transfer to `$39BE` (the loop continuation).
+A plain C return UNWINDS the
 loop and ends the game thread (screen freezes with stale overlays baked in);
-`rt_jump($3872)` RESTARTS the loop, resetting the engine cursor to 0 under
+Tail-transferring to `$3872` RESTARTS the loop, resetting the engine cursor to 0 under
 the unchanged on-screen highlight (fire then ran CONTINUE while OPTIONS
 looked selected — user-reported). OPTIONS-row return + picker ESC-cancel both
 use $39BE now; cursor + highlight stay in sync. CONTINUE shows a small-font
@@ -813,8 +816,9 @@ subtext "<WORLD> - <LEVEL NAME> (W#L#)" (pc_menu_subtext_overlay,
 g_pc_menu_visible gate; replaced the on-page L<n>).
 **PLATFORMER jump physics (opt-in, OPTIONS "JUMP PHYSICS: CLASSIC|PLATFORMER",
 knob platformer_physics; src/port/overrides/platformer.c):** the three AIR
-action handlers ($579D84 hop / $579DDC long-jump / $579F3A fall) super-call
-the recompiled bodies and re-shape d1/d2 from a native velocity model — air
+action handlers ($579D84 hop / $579DDC long-jump / $579F3A fall) call the
+original gameplay-image routines through the scoped interpreter path and
+reshape d1/d2 from a native velocity model — air
 control, gravity ascent w/ jump-cut, momentum preserved into the fall, own
 tile probes (vanilla arcs are collision-free, pre-validated at the trigger;
 formula: word at $5A8C7E + (x>>4)*2 + rowtab($5A211A)[y>>4], nonzero=solid).
@@ -840,7 +844,7 @@ byte-identical.
 **BENMOTION (2026-06-12) — Stages 0-3 SHIPPED** (platformer.c rewritten; see
 `instructions/benmotion-plan.md` status header + the new terrain-pass /
 landing-impact / fall-handler sections in gameplay-engine-map.md): native
-flight owns the air with NO super-call (rise = $579D84 with anim from $309c,
+flight owns the air without calling the original routine (rise = $579D84 with anim from $309c,
 descent = $579F3A replicating the vanilla body with vy integration + $f6e
 fall-damage meter + carry/trail side effects); ONE JUMP on a dedicated
 binding (modern defaults: pad A / Space; FIRE moved to pad B / "Z, LCtrl,
@@ -855,7 +859,7 @@ native_gameplay_input is platformer-gated off (jump near a ladder must not
 climb). Harness: NEW `hop 0|1` REPL cmd; disks are POSITIONAL-ONLY args
 (passing `harness harness/Benefactor.slave` first registers THEM as disks →
 every read truncates → goto reloads the overlay as zeros = card hang in
-$57DC5A; run_harness_interactive.sh fixed). Verified: knob OFF byte-identical
+$57DC5A; the historical invocation was corrected). Verified: knob OFF byte-identical
 (90f hop+LJ A/B); knob ON jump-on-JUMP-only, variable height, air control,
 landing via vanilla $579F86→$579FE0 chain, takeoff grunt ($57fe50 =
 $5B0C50/$0280). NOT yet verified: ladders/carry-jump/head-bonk/bounce pads in
@@ -866,17 +870,18 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
 - **BENMOTION Stage 4** — own grounded movement (walk accel/friction, ledge
   momentum); then the UP/fire+dir commit/revert flap disappears too.
 
-- **FIXED (2026-06-16): garbled object on level 22 — recompiler `movem` PC-relative
-  bug.** Root cause: for `movem.w d(pc,Xn),regs` the recompiler computed the PC base
-  2 bytes too low — it used instr+2 (the register-MASK word) as the PC reference for
+- **Interpreter conformance case (2026-06-16): garbled object on level 22 from
+  incorrect PC-relative `movem`.** Root cause: for `movem.w d(pc,Xn),regs`, a
+  historical CPU path computed the PC base 2 bytes too low — it used instr+2
+  (the register-MASK word) as the PC reference for
   the brief-extension displacement, but movem's brief-ext word is at instr+4 (mask
   word sits between opcode and ext word). So the table lookup at `$5988AE`
-  (gfn_gpl_598890) read the wrong entry → wrong anim gfx offset `d5` (64 instead of
+  in the routine at `$598890` read the wrong entry → wrong anim gfx offset `d5` (64 instead of
   200) → wrong gfx src → garbage. Confirmed via a PUAE-side probe in `newcpu.c`
   (m68k_run_2_020, write(2) — fprintf is swallowed in PUAE): PUAE's `movem` index 20
-  → d5=200, recompiled → 64; same table bytes, EA off by 2. Fix: `emitter.py`
-  `_movem_ea_pc()` adds 2 to the PC base for PC-relative movem EAs. Corrected 5
-  sites ($58d746/$59883a/$5988b0/$59890c/$598a5a). Verified: obj@288 d5=200,
+  → d5=200, failing path → 64; same table bytes, EA off by 2. The maintained
+  interpreter must use the architectural extension-word-relative base. Relevant
+  sites are $58d746/$59883a/$5988b0/$59890c/$598a5a. Verified: obj@288 d5=200,
   src=$060A90 (matches PUAE), renders as the correct thin grey branch object;
   levels 1/3/22 boot clean. The investigation notes below are kept for reference.
 
@@ -885,7 +890,7 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
   grey sliver. Narrowed (do NOT re-derive):
   - Level **22**, treetop. Object = wsobj **obj 7**, captured at `$57D8D0` as
     `src=$060A08, SIZE w=16px(1word) h=4`. Reproducible FRESH (walk right ~200f),
-    not savestate-specific. Repro savestate: `logs/savestate.bin` (cam≈181, object
+    not savestate-specific. The historical repro state had cam≈181 and object
     at worldX≈289; in the wide output it's ~screen x182).
   - **Port-only** (user confirms correct on Amiga). gfx bytes at `$060A08` are
     **byte-identical PC vs PUAE** (`m`/`mp 60A08`) → NOT data corruption.
@@ -914,8 +919,9 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
       So "engine blits from $060A08" is inferred, not yet directly observed.
   - **Next step:** get PUAE's `d5` for obj 7 (instruction trace `$59ACxx`→`$57D8D0`,
     or HW-trace the blit pointer on a forced re-entry) → the correct frame offset.
-    Then find the recompiler mistranslation that yields 64. DO NOT band-aid by
-    snapping d5 to a frame boundary — find the real miscomputation.
+    Then compare the interpreter's effective address and `d5` against PUAE. DO
+    NOT band-aid by snapping d5 to a frame boundary — fix the architectural
+    effective-address calculation.
   - New tools: **`shotpu [tag] [x y w h scale]`** (PUAE-framebuffer PNG, `shot`
     twin) + **`wsobjs`** now prints `a1/gfxbase/d5` per object.
 
@@ -923,7 +929,7 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
 - **Rewind** — hold a key to rewind recent gameplay (ring buffer of
   savestates; g_mem+ctx snapshots are cheap and already serializable).
 - **Save states (user-facing)** — polished multi-slot save/load in the pause
-  menu (the S/D logs/savestate.bin flow is a debug tool, not a feature).
+  menu (the S/D harness scratch-state flow is a debug tool, not a feature).
 - **Password restore** — an option to re-enable the original password entry
   system. User is conflicted — passwords are painful to enter with a
   controller; park until decided.
@@ -937,7 +943,8 @@ play, USER FEEL PASS pending. Stage 4 (grounded movement) not started.
 - Current diagnostics in `hw_blitter.c` / `harness_compare.c` dump `[BPL_BLT_ROW]` and `[bpl-trace]` data for the live bitplane ranges. Use those before adding new probes.
 - **`w32` across copper instruction boundary corrupts adjacent reg-word** — always use `w16` for copper val-words.
 - **`native_rebuild_copper_static` hardcodes values** — any value it writes must match PUAE's chip RAM exactly. Mismatches are immediate coplist DIFFs.
-- **`fprintf(stderr,...)` is suppressed inside PUAE vendor code** — use `write(2, buf, n)` for debug prints in PUAE context.
+- PUAE diagnostics must be captured at the oracle adapter and routed through
+  the configured project logger; do not add direct process-stream writes.
 
 ### SFX set cross-comparison (2026-06-02, per user) — selection CLEAN
 Per user: don't state-sync (risks teleporting a corrupt state into PUAE); drive both

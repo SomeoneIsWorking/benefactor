@@ -1,4 +1,4 @@
-/* recomp/native_renderer.h — Copper-walking native renderer */
+/* native_renderer.h — Copper-walking native renderer */
 #pragma once
 
 #include "render/scene.h"
@@ -14,7 +14,7 @@ void native_render_frame(void);
  * after a BenRen frame (native_render_wide_bg). See render/scene.h. */
 const Scene *native_render_scene(void);
 void native_render_scene_yrange(int *lo, int *hi);
-void native_render_scene_dims(int *w, int *h);   /* target object-layer dims (WS_LAYER_W x H) */
+void native_render_scene_dims(int *w, int *h); /* target object-layer dims (WS_LAYER_W x H) */
 
 /* REPL diagnostic: per-scanline BPL pointer snapshot from the last vanilla-path
  * render (single-playfield lines only). Returns nplanes (0 = no data). */
