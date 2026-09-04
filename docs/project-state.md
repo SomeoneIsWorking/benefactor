@@ -49,7 +49,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | missing | S005 | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
-| S025 | Asset-free source-policy CI runs from a full-history checkout | partial | `.github/workflows/source-policy.yml` is authored; first remote run is pending landing; runtime platform jobs wait for S005 and shared/amigaport | G003 |
+| S025 | Asset-free source-policy CI runs from a full-history checkout | partial | Hosted run `33887566417` reached the verifier but exposed an unpinned clang-format major-version mismatch; the locked formatter fix is pending hosted verification; runtime platform jobs wait for S005 and shared/amigaport | G003 |
 
 ## Capability details
 
@@ -233,10 +233,16 @@ methodology are absent. `tools/source_policy.py` rejects their return.
 
 ### S025 — Asset-free CI
 
-The workflow runs the retained-source verifier on Linux with full Git history,
-read-only repository permissions, pinned action revisions, and no game disks.
-Gap: the first remote run is pending landing, and runtime platform jobs wait for
-S005 and the shared `amigaport` adapter.
+Hosted run `33887566417` checked out full Git history with read-only repository
+permissions and pinned action revisions, installed no game disks, and reached the
+retained-source verifier. It failed because the workflow installed
+clang-format 18 from the runner while the maintainer verification used
+clang-format 22; the versions parse several block-scope pointer declarations
+differently despite the same style file.
+
+Gap: the formatter is now pinned in the locked Python tool environment and
+pointer alignment is explicit, but that repair has not yet passed a hosted
+run. Runtime platform jobs wait for S005 and the shared `amigaport` adapter.
 Windows, macOS, and Android product jobs are not claimed yet: the runtime
 adapter is unavailable, so those jobs would be policy-only duplicates rather
 than platform build or package boundaries.
