@@ -215,7 +215,7 @@ action over complete image-aware runtime state.
 
 ### S020 — Complete 68000 framework
 
-Evidence: shared commit `4fb3dd8` owns the CPU state, exception, timing, guest
+Evidence: shared commit `a155d04` owns the CPU state, exception, timing, guest
 RTE interrupt-call, and native-subroutine continuation APIs consumed by the
 Benefactor adapter.
 
