@@ -49,12 +49,12 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | partial | S005; Clang product target links only `amigaport::amigaport`; a real disk boot and symbol/build audit remain open | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
-| S025 | Asset-free source-policy CI runs from a full-history checkout | verified | Hosted run `34199380737` passed the locked source-policy verifier from a full-history checkout without game inputs. | G003 |
-| S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34199380722`, Windows job `101974422800`, built and uploaded the real MinGW product package with pinned shared runtime and SDL3 inputs. | G004 |
-| S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34199380722`, macOS job `101974422515`, built and uploaded the CMake bundle with pinned shared runtime and SDL3 inputs. | G004 |
-| S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34199380722`, Linux job `101974422680`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
-| S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34199380722`, Android job `101974422735`, assembled and inspected an arm64-v8a APK using the explicit CI-only ephemeral test key; maintainer-key signing, device performance, and gameplay evidence remain open. | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Hosted release run `34199380722`, WASM job `101974422807`, built and uploaded the package; Pages job `101974871569` deployed it to https://someoneisworking.github.io/benefactor/. Browser gameplay execution remains open under S023. | G004 |
+| S025 | Asset-free source-policy CI runs from a full-history checkout | verified | Hosted run `34200853713` passed the locked source-policy verifier from a full-history checkout without game inputs. | G003 |
+| S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34200853684`, Windows job `101979051649`, built and uploaded the real MinGW product package with pinned shared runtime and SDL3 inputs. | G004 |
+| S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34200853684`, macOS job `101979051851`, built and uploaded the CMake bundle with pinned shared runtime and SDL3 inputs. | G004 |
+| S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34200853684`, Linux job `101979051817`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
+| S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34200853684`, Android job `101979051863`, assembled and inspected an arm64-v8a APK using the explicit CI-only ephemeral test key; maintainer-key signing, device performance, and gameplay evidence remain open. | G003, G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Hosted release run `34200853684`, WASM job `101979051795`, built and uploaded the package; Pages job `101979507158` deployed it to https://someoneisworking.github.io/benefactor/. Browser gameplay execution remains open under S023. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 
 ## Capability details
@@ -212,7 +212,7 @@ action over complete image-aware runtime state.
 
 ### S020 — Complete 68000 framework
 
-Evidence: shared commit `e5f6259` owns the CPU state, exception, timing, and
+Evidence: shared commit `6dc51b1` owns the CPU state, exception, timing, and
 maintained interpreter API consumed by the Benefactor adapter.
 
 Gap: title conformance, representative gameplay, and Apple Silicon/Android
@@ -251,33 +251,33 @@ methodology are absent. `tools/source_policy.py` rejects their return.
 
 ### S025 — Asset-free CI
 
-Hosted run `34199380737` checked out full Git history with read-only repository
+Evidence: hosted run `34200853713` checked out full Git history with read-only repository
 permissions and pinned action revisions, installed no game disks, and passed the
 locked retained-source verifier.
 
 ### S026 — Windows package
 
-The release workflow checks out pinned `amigaport` and SDL3 inputs, invokes
+Evidence: the release workflow checks out pinned `amigaport` and SDL3 inputs, invokes
 `tools.build_desktop` on a native Windows runner, and uploads only the produced
-package. Hosted run `34199380722` passed job `101974422800` after the shared
+package. Hosted run `34200853684` passed job `101979051649` after the shared
 runtime's MinGW linker boundary was corrected.
 
 Gap: disk boot and real-title package inspection remain open.
 
 ### S027 — macOS app bundle
 
-CMake owns a real macOS bundle target and the release workflow invokes
+Evidence: CMake owns a real macOS bundle target and the release workflow invokes
 `tools.build_desktop` on macOS 14 with pinned shared inputs. Hosted run
-`34199380722` passed job `101974422515`.
+`34200853684` passed job `101979051851`.
 
 Gap: disk boot and real-title bundle inspection remain open.
 
 ### S028 — Linux AppImage
 
-The Clang product build and `tools.build_appimage --stage-only` produce a real
+Evidence: the Clang product build and `tools.build_appimage --stage-only` produce a real
 disk-free AppDir locally. The hosted workflow downloads and verifies the pinned
-appimagetool before requiring an AppImage output; hosted run `34199380722`
-passed job `101974422680`.
+appimagetool before requiring an AppImage output; hosted run `34200853684`
+passed job `101979051817`.
 
 Gap: disk boot and real-title package inspection remain open.
 
@@ -285,19 +285,20 @@ Gap: disk boot and real-title package inspection remain open.
 
 The workflow provisions pinned `amigaport`, `android-port`, and Lucent checkouts,
 builds the shared SDL3 Android prefix from the title's profile, then invokes the
-Android builder for arm64-v8a and inspects the APK. Hosted run `34199380722`
-passed job `101974422735` using an explicit CI-only ephemeral test key.
+Android builder for arm64-v8a and inspects the APK. Hosted run `34200853684`
+passed job `101979051863` using an explicit CI-only ephemeral test key.
 
 Gap: a maintainer key is still required for a published release APK, and Android
 device performance and gameplay evidence are not yet available.
 
 ### S030 — WASM Pages delivery
 
-`CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. Its browser
+Evidence: `CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. Its browser
 entry mounts the three validated disk files into the production disk path before
 calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs,
 and the workflow uploads and deploys them through GitHub Pages. Hosted run
-`34199380722` passed the package job and Pages deployment.
+`34200853684` passed package job `101979051795` and Pages deployment
+`101979507158`.
 
 Gap: browser gameplay execution and real disk boot remain unverified locally and
 under S023.
@@ -305,11 +306,13 @@ under S023.
 ### S031 — Cross-platform disk browse
 
 Android has a Lucent SAF directory browser that validates the three filenames
-before promotion. The browser package now has a file picker that validates all
-three names, byte sizes, and SHA-256 identities before dispatching a committed
-selection to the WASM bridge. The locked source launcher also exposes
-`./run.sh --browse` through a native Tk file picker and validates the same set
-before building or launching the product.
+before promotion. The browser package now has an unrestricted picker so
+extensionless `Disk.1`, `Disk.2`, and `Disk.3` files are selectable; it accepts
+those three files directly or one bounded ZIP containing them at any folder
+depth, then validates names, archive safety, byte sizes, and SHA-256 identities
+before dispatching a committed selection to the WASM bridge. The locked source
+launcher also exposes `./run.sh --browse` through a native Tk file picker and
+validates the same set before building or launching the product.
 
 Gap: packaged desktop native file-picker persistence and end-to-end
 browser/native runtime handoff remain unverified; failed selection must leave
