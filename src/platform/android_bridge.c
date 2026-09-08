@@ -13,8 +13,8 @@
 enum { ANDROID_DISK_COUNT = 3, ANDROID_PATH_CAPACITY = 4096 };
 
 typedef struct AndroidImportState {
-    SDL_mutex *mutex;
-    SDL_cond *condition;
+    SDL_Mutex *mutex;
+    SDL_Condition *condition;
     int waiting;
     int complete;
     char staging[ANDROID_PATH_CAPACITY];
@@ -35,7 +35,7 @@ static int ensure_import_state(void) {
     if (s_import.mutex && s_import.condition)
         return 1;
     s_import.mutex = SDL_CreateMutex();
-    s_import.condition = SDL_CreateCond();
+    s_import.condition = SDL_CreateCondition();
     return s_import.mutex && s_import.condition;
 }
 
@@ -201,7 +201,7 @@ int android_bridge_select_disks(const char **disks, size_t capacity) {
     char import_error[sizeof s_import.error] = "";
     SDL_LockMutex(s_import.mutex);
     while (!s_import.complete)
-        SDL_CondWait(s_import.condition, s_import.mutex);
+        SDL_WaitCondition(s_import.condition, s_import.mutex);
     copy_text(staging_root, sizeof staging_root, s_import.staging);
     copy_text(import_error, sizeof import_error, s_import.error);
     s_import.waiting = 0;
@@ -262,7 +262,7 @@ Java_io_github_someoneisworking_benefactor_BenefactorActivity_nativeDiskDirector
             }
         }
         s_import.complete = 1;
-        SDL_CondBroadcast(s_import.condition);
+        SDL_BroadcastCondition(s_import.condition);
     }
     SDL_UnlockMutex(s_import.mutex);
 }
