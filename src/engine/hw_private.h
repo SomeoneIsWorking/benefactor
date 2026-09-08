@@ -2,7 +2,7 @@
  * hw_private.h  –  Internal shared state for hw subsystem
  *
  * This header is ONLY for use by hw.c, hw_blitter.c, hw_audio.c,
- * hw_copper.c.  Do NOT include from outside the hw subsystem.
+ * hw_copper.c, and hw_watchdog.c. Do NOT include from outside the hw subsystem.
  */
 #pragma once
 #include "engine/hw.h"
@@ -22,6 +22,7 @@ extern uint32_t s_fb[HW_DISPLAY_W * HW_DISPLAY_H];
 extern int s_copper_writing;
 
 extern SDL_AudioStream *s_audio_stream;
+extern volatile uint32_t g_hw_last_read;
 
 /* ── Colour conversion helper ──────────────────────────────────────────────── */
 static inline uint32_t amiga_to_argb(uint16_t c) {
