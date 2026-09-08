@@ -24,15 +24,23 @@
 #include "port/port.h"
 #include "runtime/guest_runtime.h"
 
-#include <arpa/inet.h>
-#include <errno.h>
-#include <netinet/in.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+typedef SOCKET http_socket_t;
+#else
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+typedef int http_socket_t;
+#endif
+#include <SDL3/SDL.h>
 
 #define HTTP_FB_W 352
 #define HTTP_FB_H 282
@@ -63,32 +71,72 @@ static int query_get(const char *q, const char *key, char *out, int outsz) {
     return 0;
 }
 
-static void send_all(int fd, const char *buf, size_t n) {
+static int http_socket_error_code(void) {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+static int http_socket_is_invalid(http_socket_t socket) {
+#ifdef _WIN32
+    return socket == INVALID_SOCKET;
+#else
+    return socket < 0;
+#endif
+}
+
+static void http_socket_close(http_socket_t socket) {
+#ifdef _WIN32
+    closesocket(socket);
+#else
+    close(socket);
+#endif
+}
+
+static int http_socket_send(http_socket_t socket, const char *buf, size_t n) {
+#ifdef _WIN32
+    return send(socket, buf, (int)n, 0);
+#else
+    return (int)write(socket, buf, n);
+#endif
+}
+
+static int http_socket_receive(http_socket_t socket, char *buf, size_t n) {
+#ifdef _WIN32
+    return recv(socket, buf, (int)n, 0);
+#else
+    return (int)read(socket, buf, n);
+#endif
+}
+
+static void send_all(http_socket_t fd, const char *buf, size_t n) {
     size_t off = 0;
     while (off < n) {
-        ssize_t w = write(fd, buf + off, n - off);
+        int w = http_socket_send(fd, buf + off, n - off);
         if (w <= 0)
             break;
         off += (size_t)w;
     }
 }
 
-static void send_response(int fd, const char *status, const char *ctype, const void *body,
+static void send_response(http_socket_t fd, const char *status, const char *ctype, const void *body,
                           size_t blen) {
     char hdr[256];
     int h = snprintf(hdr, sizeof hdr,
                      "HTTP/1.1 %s\r\n"
                      "Content-Type: %s\r\n"
-                     "Content-Length: %zu\r\n"
+                     "Content-Length: %llu\r\n"
                      "Access-Control-Allow-Origin: *\r\n"
                      "Connection: close\r\n\r\n",
-                     status, ctype, blen);
+                     status, ctype, (unsigned long long)blen);
     send_all(fd, hdr, (size_t)h);
     if (body && blen)
         send_all(fd, (const char *)body, blen);
 }
 
-static void handle_state(int fd) {
+static void handle_state(http_socket_t fd) {
     extern uint8_t *g_mem;
     uint16_t level = (uint16_t)((g_mem[0x20] << 8) | g_mem[0x21]);
     uint32_t cop1lc = (((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1]) & 0xFFFFFFu;
@@ -112,7 +160,7 @@ static void handle_state(int fd) {
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
-static void handle_mem(int fd, const char *q) {
+static void handle_mem(http_socket_t fd, const char *q) {
     extern uint8_t *g_mem;
     char a[32] = {0}, l[32] = {0};
     if (!query_get(q, "addr", a, sizeof a)) {
@@ -144,7 +192,7 @@ static void handle_mem(int fd, const char *q) {
     free(body);
 }
 
-static void handle_poke(int fd, const char *q) {
+static void handle_poke(http_socket_t fd, const char *q) {
     extern uint8_t *g_mem;
     char a[32] = {0}, v[32] = {0};
     if (!query_get(q, "addr", a, sizeof a) || !query_get(q, "val", v, sizeof v)) {
@@ -165,7 +213,7 @@ static void handle_poke(int fd, const char *q) {
 
 /* /input?interact=1&fire=0&u=0&d=0&l=0&r=0 — drive the game over HTTP (held until
  * changed). Lets the debugger move the player, fire, and interact without a window. */
-static void handle_input(int fd, const char *q) {
+static void handle_input(http_socket_t fd, const char *q) {
     extern void hw_set_interact(int), hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_drop(int),
         hw_set_hop(int);
     extern void hw_set_joystick(int, int, int, int, int);
@@ -197,7 +245,7 @@ static void handle_input(int fd, const char *q) {
 }
 
 /* /pickup?extend=N — live-tune the extra horizontal pickup/interaction reach (px). */
-static void handle_pickup(int fd, const char *q) {
+static void handle_pickup(http_socket_t fd, const char *q) {
     extern int pc_cfg_int(const char *, int);
     extern void pc_cfg_set(const char *, const char *);
     char b[8];
@@ -209,7 +257,7 @@ static void handle_pickup(int fd, const char *q) {
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
-static void handle_fb(int fd, int as_ppm) {
+static void handle_fb(http_socket_t fd, int as_ppm) {
     const uint32_t *fb = hw_get_framebuffer();
     size_t npx = (size_t)HTTP_FB_W * HTTP_FB_H;
     if (!fb) {
@@ -235,8 +283,8 @@ static void handle_fb(int fd, int as_ppm) {
         int rh = snprintf(
             rhdr, sizeof rhdr,
             "HTTP/1.1 200 OK\r\nContent-Type: image/x-portable-pixmap\r\n"
-            "Content-Length: %zu\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
-            (size_t)h + npx * 3);
+            "Content-Length: %llu\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+            (unsigned long long)((size_t)h + npx * 3));
         send_all(fd, rhdr, (size_t)rh);
         send_all(fd, hdr, (size_t)h);
         send_all(fd, (const char *)rgb, npx * 3);
@@ -246,7 +294,7 @@ static void handle_fb(int fd, int as_ppm) {
     }
 }
 
-static void handle_request(int fd, char *req) {
+static void handle_request(http_socket_t fd, char *req) {
     /* First line: "GET /path?query HTTP/1.1" */
     if (strncmp(req, "GET ", 4) != 0) {
         send_response(fd, "405 Method Not Allowed", "text/plain", "GET only\n", 9);
@@ -306,55 +354,64 @@ static void handle_request(int fd, char *req) {
         send_response(fd, "404 Not Found", "text/plain", "no\n", 3);
 }
 
-static void *http_thread(void *arg) {
+static int http_thread(void *arg) {
     (void)arg;
-    int srv = socket(AF_INET, SOCK_STREAM, 0);
-    if (srv < 0) {
-        benefactor_log_write(BENEFACTOR_LOG_ERROR, "http", "socket creation failed: %s",
-                             strerror(errno));
-        return NULL;
+#ifdef _WIN32
+    WSADATA winsock;
+    int winsock_status = WSAStartup(MAKEWORD(2, 2), &winsock);
+    if (winsock_status != 0) {
+        benefactor_log_write(BENEFACTOR_LOG_ERROR, "http", "Winsock startup failed (%d)",
+                             winsock_status);
+        return 0;
+    }
+#endif
+    http_socket_t srv = socket(AF_INET, SOCK_STREAM, 0);
+    if (http_socket_is_invalid(srv)) {
+        benefactor_log_write(BENEFACTOR_LOG_ERROR, "http", "socket creation failed (%d)",
+                             http_socket_error_code());
+        return 0;
     }
     int one = 1;
-    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); /* localhost only */
     addr.sin_port = htons((uint16_t)s_port);
     if (bind(srv, (struct sockaddr *)&addr, sizeof addr) < 0) {
-        benefactor_log_write(BENEFACTOR_LOG_ERROR, "http", "bind port %d failed: %s", s_port,
-                             strerror(errno));
-        close(srv);
-        return NULL;
+        benefactor_log_write(BENEFACTOR_LOG_ERROR, "http", "bind port %d failed (%d)", s_port,
+                             http_socket_error_code());
+        http_socket_close(srv);
+        return 0;
     }
     if (listen(srv, 4) < 0) {
-        benefactor_log_write(BENEFACTOR_LOG_ERROR, "http", "listen failed on port %d: %s", s_port,
-                             strerror(errno));
-        close(srv);
-        return NULL;
+        benefactor_log_write(BENEFACTOR_LOG_ERROR, "http", "listen failed on port %d (%d)", s_port,
+                             http_socket_error_code());
+        http_socket_close(srv);
+        return 0;
     }
     benefactor_log_write(BENEFACTOR_LOG_INFO, "http",
                          "[http] debug server on http://127.0.0.1:%d/\n", s_port);
     for (;;) {
-        int c = accept(srv, NULL, NULL);
-        if (c < 0)
+        http_socket_t c = accept(srv, NULL, NULL);
+        if (http_socket_is_invalid(c))
             continue;
         char buf[2048];
-        ssize_t n = read(c, buf, sizeof buf - 1);
+        int n = http_socket_receive(c, buf, sizeof buf - 1);
         if (n > 0) {
             buf[n] = 0;
             handle_request(c, buf);
         }
-        close(c);
+        http_socket_close(c);
     }
-    return NULL;
+    return 0;
 }
 
 void pc_http_debug_start(void) {
     s_port = pc_cfg_int("http", 0);
     if (s_port <= 0)
         return;
-    pthread_t t;
-    if (pthread_create(&t, NULL, http_thread, NULL) == 0)
-        pthread_detach(t);
+    SDL_Thread *thread = SDL_CreateThread(http_thread, "benefactor-http", NULL);
+    if (thread)
+        SDL_DetachThread(thread);
 }
