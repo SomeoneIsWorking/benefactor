@@ -89,3 +89,32 @@ Success conditions:
   audio, and lifecycle gates; boot or FMV evidence is insufficient.
 
 Contributing state items: S004, S021-S024.
+
+## G004 — Publish a complete asset-free release matrix
+
+Every claimed host has a reproducible CI artifact, and browser delivery is
+published through GitHub Pages without distributing the player's disks.
+
+Why it matters: the port is only usable when a player can obtain a package for
+their host and supply the original files through an explicit setup path.
+
+Success conditions:
+
+- Hosted CI builds a Windows package, an Android arm64-v8a APK, a macOS `.app`,
+  a Linux AppImage, and a WASM package from the canonical locked build owners.
+- The WASM package is deployed to GitHub Pages from the same shipping runtime
+  boundary as desktop; no placeholder or green no-op job represents a missing
+  backend.
+- Desktop, Android, and browser setup provide a Browse/file-picker path,
+  validate exactly Disk.1, Disk.2, and Disk.3, preserve the prior valid set on
+  failure, and never package the files.
+- Release staging rejects original disks, Kickstart files, and derived guest
+  executable content before an artifact is uploaded.
+
+Constraints and non-goals:
+
+- A package job must fail at the named runtime boundary while the interpreter
+  adapter is absent; it must not publish a shell, emulator, or placeholder.
+- GitHub Pages hosts the browser package only; it is not a disk-file host.
+
+Contributing state items: S026-S031.
