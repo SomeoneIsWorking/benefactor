@@ -11,6 +11,7 @@ from tools.paths import DISK_NAMES, ROOT
 @dataclass(frozen=True)
 class LaunchConfig:
     disks: tuple[Path, Path, Path]
+    browse: bool
 
 
 def _read_dotenv(path: Path) -> dict[str, str]:
@@ -33,6 +34,7 @@ def parse_launch_config(argv: list[str] | None = None) -> LaunchConfig:
     parser.add_argument("--disk1", type=Path)
     parser.add_argument("--disk2", type=Path)
     parser.add_argument("--disk3", type=Path)
+    parser.add_argument("--browse", action="store_true", help="choose the three disk files")
     args = parser.parse_args(argv)
 
     dotenv = _read_dotenv(ROOT / ".env")
@@ -44,4 +46,4 @@ def parse_launch_config(argv: list[str] | None = None) -> LaunchConfig:
         )
         candidate = explicit or (Path(configured) if configured else ROOT / name)
         resolved.append(candidate.resolve())
-    return LaunchConfig(disks=(resolved[0], resolved[1], resolved[2]))
+    return LaunchConfig(disks=(resolved[0], resolved[1], resolved[2]), browse=args.browse)

@@ -63,7 +63,7 @@ void pc_set_harness_mode(int on) {
 static void call_fn(M68KCtx *ctx, uint32_t addr) {
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "irq", "-> $%06X", addr);
     uint32_t sa[8], sd[8];
-    uint8_t n = ctx->N, z = ctx->Z, v = ctx->V, c = ctx->C, x = ctx->X;
+    uint16_t sr = ctx->sr ? *ctx->sr : 0;
     for (int i = 0; i < 8; i++)
         sa[i] = ctx->A[i];
     for (int i = 0; i < 8; i++)
@@ -73,11 +73,8 @@ static void call_fn(M68KCtx *ctx, uint32_t addr) {
         ctx->A[i] = sa[i];
     for (int i = 0; i < 8; i++)
         ctx->D[i] = sd[i];
-    ctx->N = n;
-    ctx->Z = z;
-    ctx->V = v;
-    ctx->C = c;
-    ctx->X = x;
+    if (ctx->sr)
+        *ctx->sr = sr;
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "irq", "<- $%06X", addr);
 }
 
@@ -899,22 +896,13 @@ static void coro_deliver_timer_irq(void) {
                   ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
     uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
                   ((uint32_t)g_chip[0x7a] << 8) | (uint32_t)g_chip[0x7b];
-    extern int rt_intro_has_fn(uint32_t), rt_gp_has_fn(uint32_t);
-    if (v6 && !rt_intro_has_fn(v6) && rt_gp_has_fn(v6)) {
-        /* Title vector: handler lives only in the title-state bank. Route dispatch
-         * to the overlay bank just for this call, then restore the screen. */
-        int _save_screen = g_pc_screen;
-        g_pc_screen = PC_SCR_OVERLAY;
-        if (v3)
-            call_fn(&s_game_ctx, v3);
+    /* The active image is selected by the runtime adapter at each overlay
+     * transition. Deliver the vectors from that image; no static bank-presence
+     * table is consulted. */
+    if (v3)
+        call_fn(&s_game_ctx, v3);
+    if (v6)
         call_fn(&s_game_ctx, v6);
-        g_pc_screen = _save_screen;
-    } else {
-        /* Intro (all screens): the $3160 wrapper isn't original retail-image, so call its
-         * leaf music driver + the audio-shadow copy directly. */
-        call_fn(&s_game_ctx, 0x0055A0u);
-        call_fn(&s_game_ctx, 0x0058C2u);
-    }
 }
 
 /* Common bring-up shared between the full-boot path and the direct-to-gameplay
@@ -953,6 +941,7 @@ static int pc_common_bringup(const char **disks, int n_disks) {
 static void pc_cps_reset(void) {
     game_thread_stop();
     memset(&s_game_ctx, 0, sizeof s_game_ctx);
+    rt_context_reset(&s_game_ctx, BENEFACTOR_IMAGE_MAIN);
     s_game_entry = 0x003000u;
     s_game_resume = 0;
     game_thread_spawn();
@@ -980,6 +969,9 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay, uint32_t 
     s_game_entry = entry;
     s_game_resume = 0;
     g_pc_screen = gameplay ? PC_SCR_GAMEPLAY : PC_SCR_OVERLAY;
+    rt_context_reset(&s_game_ctx, gameplay ? BENEFACTOR_IMAGE_GAMEPLAY
+                                           : (g_credits_active ? BENEFACTOR_IMAGE_CREDITS
+                                                               : BENEFACTOR_IMAGE_TITLE));
     s_game_ctx.A[5] = a5;
     s_game_ctx.A[6] = 0x00DFF000u;
     s_game_ctx.A[7] = 0x00080000u;
@@ -1032,8 +1024,8 @@ int pc_init_from_disk(const char **disks, int n_disks) {
 void pc_request_credits_start(void) {
     pc_state_reset_defaults();
     overlay_load_credits();
-    pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
     g_pc_screen = PC_SCR_CREDITS;
+    pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
     benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
                          "[pc] credits drive: flow restart at $003330 (credits bank)\n");
 }
@@ -1182,7 +1174,7 @@ int pc_step_threaded(void) {
  * between frame steps, while the execution owner is parked at $577114. */
 
 #define PC_SAVESTATE_MAGIC 0x42454E53u /* 'BENS' */
-#define PC_SAVESTATE_VER 7u            /* v7: image-qualified $577114 interpreter resume */
+#define PC_SAVESTATE_VER 8u            /* v8: opaque amigaport CPU snapshot */
 
 /* Whether a savestate can be taken right now. Only the steady-gameplay frame loop
  * is resumable: the game thread must be parked at the resumable main-loop wait
@@ -1204,15 +1196,15 @@ int pc_savestate_allowed(const char **reason) {
     return 1;
 }
 
-/* Savestate format (v7): one g_state blob + g_mem. NO native/host state is saved
+/* Savestate format (v8): one g_state blob, the opaque amigaport CPU snapshot,
+ * and g_mem. NO native/host state is saved
  * (no stack, no RIP/RSP) — the only suspended state is the M68K context (incl.
  * CPU view) and chip RAM, both inside g_state/g_mem. Load re-enters the
  * gameplay cycle at $577114 (see pc_resume_gameplay_thread), so a save round-trips
  * across process restarts.
- *   uint32_t magic, ver
- *   uint32_t sizeof(g_state)
- *   uint32_t RT_MEM_SIZE
+ *   uint32_t magic, ver, sizeof(g_state), RT_MEM_SIZE, runtime_state_size
  *   GameState g_state
+ *   uint8_t   amigaport::CpuState runtime snapshot
  *   uint8_t   g_mem[RT_MEM_SIZE] */
 
 int pc_savestate(const char *path) {
@@ -1224,12 +1216,21 @@ int pc_savestate(const char *path) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game", "[pc] savestate: open %s failed\n", path);
         return -1;
     }
-    uint32_t hdr[4] = {PC_SAVESTATE_MAGIC, PC_SAVESTATE_VER, (uint32_t)sizeof g_state,
-                       (uint32_t)RT_MEM_SIZE};
+    size_t runtime_size = rt_state_blob_size();
+    uint8_t *runtime_blob = malloc(runtime_size);
+    if (!runtime_blob || rt_state_blob_save(runtime_blob, runtime_size) != 0) {
+        free(runtime_blob);
+        fclose(f);
+        return -1;
+    }
+    uint32_t hdr[5] = {PC_SAVESTATE_MAGIC, PC_SAVESTATE_VER, (uint32_t)sizeof g_state,
+                       (uint32_t)RT_MEM_SIZE, (uint32_t)runtime_size};
     int ok = 1;
     ok &= fwrite(hdr, sizeof hdr, 1, f) == 1;
     ok &= fwrite(&g_state, sizeof g_state, 1, f) == 1;
+    ok &= fwrite(runtime_blob, runtime_size, 1, f) == 1;
     ok &= fwrite(g_mem, RT_MEM_SIZE, 1, f) == 1;
+    free(runtime_blob);
     fclose(f);
     if (!ok) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game", "[pc] savestate: short write\n");
@@ -1250,10 +1251,10 @@ int pc_loadstate(const char *path) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game", "[pc] loadstate: open %s failed\n", path);
         return -1;
     }
-    uint32_t hdr[4];
+    uint32_t hdr[5];
     if (fread(hdr, sizeof hdr, 1, f) != 1 || hdr[0] != PC_SAVESTATE_MAGIC ||
         hdr[1] != PC_SAVESTATE_VER || hdr[2] != (uint32_t)sizeof g_state ||
-        hdr[3] != (uint32_t)RT_MEM_SIZE) {
+        hdr[3] != (uint32_t)RT_MEM_SIZE || hdr[4] != (uint32_t)rt_state_blob_size()) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
                              "[pc] loadstate: bad/incompatible header in %s\n", path);
         fclose(f);
@@ -1261,12 +1262,23 @@ int pc_loadstate(const char *path) {
     }
     int ok = 1;
     ok &= fread(&g_state, sizeof g_state, 1, f) == 1;
+    uint8_t *runtime_blob = malloc(hdr[4]);
+    if (!runtime_blob)
+        ok = 0;
+    if (ok)
+        ok &= fread(runtime_blob, hdr[4], 1, f) == 1;
+    if (ok)
+        ok &= rt_state_blob_load(runtime_blob, hdr[4]) == 0;
+    free(runtime_blob);
     ok &= fread(g_mem, RT_MEM_SIZE, 1, f) == 1;
     fclose(f);
     if (!ok) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game", "[pc] loadstate: short read\n");
         return -1;
     }
+    rt_activate_image(&s_game_ctx, g_gameplay_active ? BENEFACTOR_IMAGE_GAMEPLAY
+                                                     : (g_credits_active ? BENEFACTOR_IMAGE_CREDITS
+                                                                         : BENEFACTOR_IMAGE_TITLE));
     /* Native-side render caches are NOT part of the savestate: drop the wsobj
      * committed-page map so persisted objects re-seed from the RESTORED engine
      * state instead of shadowing it with pre-load entries. */

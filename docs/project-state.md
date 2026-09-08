@@ -29,7 +29,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S002 | Native pause/options apply and persist modern settings in game | partial | S005 | G002 |
 | S003 | Keyboard, hot-pluggable controllers, touch, rebinding, and alternate controls share logical actions | partial | S005 | G002 |
 | S004 | Android provides no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
-| S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | missing | S020 | G001 |
+| S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | partial | S020 | G001 |
 | S006 | PUAE differential scenarios and interactive controls are preserved as an independent oracle for the shipping interpreter | partial | S005 | G001 |
 | S007 | Turbo, hyper, and hold-to-fast-forward change gameplay pace while audio remains at normal speed | partial | S005 | G002 |
 | S008 | Optional platformer physics provides variable jump, air control, momentum, and tunable motion while classic physics remains | partial | S005 | G002 |
@@ -44,17 +44,17 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S017 | Savestates, direct level entry, headless driving, profiling, and runtime probes support development | partial | S020 | G002 |
 | S018 | Player-facing save slots provide names, timestamps, and screenshot previews | missing | S017 | G002 |
 | S019 | Hold-to-rewind restores recent states from a bounded history | missing | S017, S020 | G002 |
-| S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a maintained interpreter owner | missing | — | G001 |
-| S021 | Image-generation-aware execution, overrides, and scoped original calls work across all four address-reusing images | missing | S005 | G001, G003 |
-| S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | missing | S005 | G001, G003 |
+| S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a maintained interpreter owner | partial | Shared commit `e5f6259` builds and its API is consumed; title conformance and ARM64 gameplay evidence remain open | G001 |
+| S021 | Image-generation-aware execution, overrides, and scoped original calls work across all four address-reusing images | partial | S005; adapter binds image tags/generations, native registrations, original calls, and opaque CPU snapshots; four-image runtime evidence remains open | G001, G003 |
+| S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | partial | S005; Clang product target links only `amigaport::amigaport`; a real disk boot and symbol/build audit remain open | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
-| S025 | Asset-free source-policy CI runs from a full-history checkout | partial | Hosted run `33887566417` reached the verifier but exposed an unpinned clang-format major-version mismatch; the locked formatter fix is pending hosted verification; release jobs are present but blocked by S005 | G003 |
-| S026 | Windows CI produces an asset-free package from the native/interpreter product | blocked | S005, S022 | G004 |
-| S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | blocked | S005, S022 | G004 |
-| S028 | Linux CI produces an asset-free x86-64 AppImage | blocked | S005, S022 | G003, G004 |
-| S029 | Android CI produces a signed arm64-v8a release APK | blocked | S005, S022 | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | blocked | S005, S022 | G004 |
+| S025 | Asset-free source-policy CI runs from a full-history checkout | partial | Hosted run `33887566417` reached the verifier but exposed an unpinned clang-format major-version mismatch; the locked formatter fix is pending hosted verification. | G003 |
+| S026 | Windows CI produces an asset-free package from the native/interpreter product | partial | S005, S022; workflow checks out pinned shared runtime/SDL inputs and builds the real product target; no hosted Windows artifact has passed yet | G004 |
+| S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | partial | S005, S022; CMake has a real macOS bundle target and workflow inputs; no hosted Apple Silicon artifact has passed yet | G004 |
+| S028 | Linux CI produces an asset-free x86-64 AppImage | partial | S005, S022; local Clang build and disk-free AppDir staging pass; hosted AppImage evidence remains open | G003, G004 |
+| S029 | Android CI produces a signed arm64-v8a release APK | blocked | S005, S022; Android toolchain assembly and device evidence remain unverified; workflow now provisions pinned shared inputs | G003, G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | partial | S005, S022; real Emscripten entry point, browser disk mount, and Pages workflow are authored; `emcc` and browser execution remain unverified | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 
 ## Capability details
@@ -100,9 +100,15 @@ desktop setup in S031.
 
 ### S005 — Native/interpreter execution
 
-Missing capability: create and consume `shared/amigaport`, adapt the existing
-memory, disk-image, OCS/CIA, interrupt, and override boundaries, and execute
-every remaining guest path from live bytes through its maintained interpreter. Issue #1.
+Evidence: `src/runtime/guest_runtime.cpp` now owns the narrow Benefactor adapter
+to `shared/amigaport`: canonical CPU views, checked big-endian guest memory,
+OCS/CIA forwarding, image-qualified native registrations, scoped original calls,
+and opaque CPU-state savestates. The Clang CMake product builds and links this
+adapter with no generated guest corpus or diagnostic PUAE target.
+
+Gap: no authenticated disk boot has yet been exercised through this adapter, and
+the shared runtime's representative gameplay, Android arm64, and browser gates
+remain open. Issue #1 remains open for those conformance checks.
 
 ### S006 — Independent oracle and control
 
@@ -206,22 +212,29 @@ action over complete image-aware runtime state.
 
 ### S020 — Complete 68000 framework
 
-Missing capability: `shared/amigaport` must own full architectural PC and SR,
-all register/supervisor/interrupt state, exception frames/vectors, timing,
-instruction semantics, executable-image access, bounded execution, and a
-maintained interpreter implementation behind the shared API. Issue #2.
+Evidence: shared commit `e5f6259` owns the CPU state, exception, timing, and
+maintained interpreter API consumed by the Benefactor adapter.
+
+Gap: title conformance, representative gameplay, and Apple Silicon/Android
+arm64 evidence remain open. Issue #2.
 
 ### S021 — Four-image runtime identity
 
-Missing capability: key active execution and override decisions by main/title/
-gameplay/credits image generation plus address, replace identity on load/restore, and
-prove enabled/disabled/scoped-original behavior without recursion. Issue #3.
+Evidence: the adapter keys registrations by shared image identity, replaces the
+identity on overlay changes, and routes scoped original calls through the shared
+override suppression boundary.
+
+Gap: execute and compare all four address-reusing images with authenticated
+disks, including restore behavior and negative recursion checks. Issue #3.
 
 ### S022 — Single interpreter-owner product composition
 
-Missing capability: build/link audits must prove gameplay contains no generated
-guest function, static dispatcher, direct diagnostic-PUAE dependency, or second
-CPU owner. The shipping interpreter must enter only through `shared/amigaport`.
+Evidence: the native product target links `amigaport::amigaport` and the
+Benefactor adapter only; generated sources, static dispatch, and the diagnostic
+PUAE target are absent from the CMake product.
+
+Gap: complete the runtime symbol/build audit and prove a real disk boot does not
+enter another CPU owner.
 
 ### S023 — Representative conformance
 
@@ -252,61 +265,58 @@ but remain blocked by S005 until they can build a real product artifact.
 
 ### S026 — Windows package
 
-The release workflow invokes `tools.build_desktop` on a native Windows runner
-and uploads only the produced package.
+The release workflow checks out pinned `amigaport` and SDL2 inputs, invokes
+`tools.build_desktop` on a native Windows runner, and uploads only the produced
+package.
 
-Blocker: S005 — the shared interpreter adapter is not implemented.
-
-Gap: the builder refuses at S005 until the runtime adapter exists; no Windows
-artifact has been produced.
+Gap: no hosted Windows artifact has passed yet; disk boot and package inspection
+remain open.
 
 ### S027 — macOS app bundle
 
-The release workflow invokes `tools.build_desktop` on macOS 14 and requires a
-real `Benefactor.app` before upload.
+CMake owns a real macOS bundle target and the release workflow invokes
+`tools.build_desktop` on macOS 14 with pinned shared inputs.
 
-Blocker: S005 — the shared interpreter adapter is not implemented.
-
-Gap: the builder refuses at S005 and no `.app` has been produced.
+Gap: no hosted Apple Silicon `.app` has passed yet.
 
 ### S028 — Linux AppImage
 
-The release workflow invokes the existing AppImage builder and requires a real
-AppImage output after disk-free staging.
+The Clang product build and `tools.build_appimage --stage-only` produce a real
+disk-free AppDir locally. The hosted workflow downloads and verifies the pinned
+appimagetool before requiring an AppImage output.
 
-Blocker: S005 — the shared interpreter adapter is not implemented.
-
-Gap: the builder refuses at S005 and hosted appimagetool provisioning is still
-part of the release environment.
+Gap: no hosted AppImage artifact has passed yet.
 
 ### S029 — Android release APK
 
-The release workflow invokes the pinned Android builder for arm64-v8a and
-inspects the APK for required native libraries and forbidden disk files.
+The workflow provisions pinned `amigaport`, `android-port`, SDL2, and Lucent
+checkouts, then invokes the Android builder for arm64-v8a and inspects the APK.
 
-Blocker: S005 — the shared interpreter adapter is not implemented.
+Blocker: the Android toolchain is not installed on this host, and no hosted
+assembly has passed yet.
 
-Gap: the builder refuses at S005; signing and device performance evidence are
-not yet available.
+Gap: Android toolchain assembly, signing, device performance, and gameplay
+evidence are not yet available.
 
 ### S030 — WASM Pages delivery
 
-`tools/build_wasm.py` requires a real `benefactor.js` and `benefactor.wasm`,
-stages the browser setup shell, and the workflow uploads and deploys that
-directory through GitHub Pages.
+`CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. Its browser
+entry mounts the three validated disk files into the production disk path before
+calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs,
+and the workflow uploads and deploys them through GitHub Pages.
 
-Blocker: S005 — the shared interpreter adapter and WASM runtime target are not
-implemented.
-
-Gap: the runtime has no WASM target until S005 and the Benefactor adapter exist.
+Gap: `emcc` is not installed on this host, so compilation and browser execution
+remain unverified.
 
 ### S031 — Cross-platform disk browse
 
 Android has a Lucent SAF directory browser that validates the three filenames
 before promotion. The browser package now has a file picker that validates all
 three names, byte sizes, and SHA-256 identities before dispatching a committed
-selection to the WASM bridge.
+selection to the WASM bridge. The locked source launcher also exposes
+`./run.sh --browse` through a native Tk file picker and validates the same set
+before building or launching the product.
 
-Gap: desktop native file-picker integration and end-to-end browser/native
-runtime handoff remain unverified; failed selection must leave the previous
-valid installation active.
+Gap: packaged desktop native file-picker persistence and end-to-end
+browser/native runtime handoff remain unverified; failed selection must leave
+the previous valid installation active.

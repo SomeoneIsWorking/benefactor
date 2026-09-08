@@ -135,6 +135,7 @@ void native_overlay_load(void) {
 
 void native_overlay_loader(M68KCtx *ctx) {
     native_overlay_load();
+    rt_activate_image(ctx, BENEFACTOR_IMAGE_TITLE);
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
                          "[overlay-loader] gameplay overlay loaded; entering $3330\n");
     /* Enter the gameplay code (sets a5=$511E itself). */
@@ -159,6 +160,7 @@ void native_overlay_load_d0(void) {
      * already reused $6E000+ (retry, level select after play) stays correct. */
     overlay_load_gameplay();
     g_pc_screen = PC_SCR_OVERLAY;
+    rt_activate_image(NULL, BENEFACTOR_IMAGE_GAMEPLAY);
 }
 
 /* Override for $000150 — the loader body the game relocated to low memory and
@@ -331,7 +333,6 @@ void native_menu_glyph_blit(M68KCtx *ctx) {
  * setup (drawing, audio, copper) still runs through original address $003872 each
  * frame, only the final fire-dispatch is ours. */
 void native_main_menu_fire_dispatch(M68KCtx *ctx) {
-    extern uint8_t *g_mem;
     uint16_t cursor = MR16(ctx->A[5] - 6334u);
 
     if (cursor == 1u) {
@@ -684,6 +685,7 @@ void native_overlay_loader_reloc(M68KCtx *ctx) {
          * "after load, jmp via mem[$100]" (which is the dest just pushed:
          * $3330). So effectively: load disk3 → decrunch at $3330 → jmp $3330. */
         overlay_load_credits(); /* shared pure loader (see overlay_load.c) */
+        rt_activate_image(ctx, BENEFACTOR_IMAGE_CREDITS);
         /* Flip dispatch to the credits/end-game bank — different bytes at
          * $3330+ than gameplay, so the gpl table mustn't match here. */
         g_pc_screen = PC_SCR_CREDITS;

@@ -23,7 +23,7 @@ def refuse(message: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--build-dir", type=Path, default=ROOT / "build/clang")
+    parser.add_argument("--build-dir", type=Path, default=ROOT / "build/linux")
     parser.add_argument("--appimagetool", type=Path)
     parser.add_argument(
         "--output", type=Path, default=ROOT / "build/release/Benefactor-x86_64.AppImage"
@@ -32,8 +32,14 @@ def main() -> int:
     args = parser.parse_args()
     require_runtime("appimage")
     build = args.build_dir.resolve()
+    replace_directory(build)
+    run(
+        "appimage",
+        ["cmake", "-S", str(ROOT), "-B", str(build), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"],
+    )
+    run("appimage", ["cmake", "--build", str(build), "--target", "benefactor_product", "--parallel"])
     if not (build / "benefactor-pc").is_file():
-        refuse(f"{build}/benefactor-pc is missing; build the desktop target first")
+        refuse(f"{build}/benefactor-pc is missing after the native build")
     appdir = ROOT / "build/appimage/Benefactor.AppDir"
     replace_directory(appdir)
     environment = dict(os.environ)

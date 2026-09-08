@@ -2,6 +2,7 @@ name: Release artifacts
 
 on:
   push:
+    branches: [main]
     tags: ["v*.*.*"]
   workflow_dispatch:
 
@@ -13,11 +14,31 @@ jobs:
     name: Windows package
     runs-on: windows-2025
     timeout-minutes: 30
+    env:
+      BENEFACTOR_AMIGAPORT_DIR: ${{ github.workspace }}/shared/amigaport
+      BENEFACTOR_SDL2_DIR: ${{ github.workspace }}/dependencies/SDL
     steps:
       - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+      - name: Check out pinned shared runtime
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/amigaport
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: e5f6259af952e465504cb12185dc81727210ff53
+          path: shared/amigaport
+          submodules: recursive
+          persist-credentials: false
+      - name: Check out pinned SDL2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: libsdl-org/SDL
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 5d249570393f7a37e037abf22cd6012a4cc56a71
+          path: dependencies/SDL
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -39,11 +60,31 @@ jobs:
     name: macOS app
     runs-on: macos-14
     timeout-minutes: 30
+    env:
+      BENEFACTOR_AMIGAPORT_DIR: ${{ github.workspace }}/shared/amigaport
+      BENEFACTOR_SDL2_DIR: ${{ github.workspace }}/dependencies/SDL
     steps:
       - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+      - name: Check out pinned shared runtime
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/amigaport
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: e5f6259af952e465504cb12185dc81727210ff53
+          path: shared/amigaport
+          submodules: recursive
+          persist-credentials: false
+      - name: Check out pinned SDL2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: libsdl-org/SDL
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 5d249570393f7a37e037abf22cd6012a4cc56a71
+          path: dependencies/SDL
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -65,11 +106,31 @@ jobs:
     name: Linux AppImage
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      BENEFACTOR_AMIGAPORT_DIR: ${{ github.workspace }}/shared/amigaport
+      BENEFACTOR_SDL2_DIR: ${{ github.workspace }}/dependencies/SDL
     steps:
       - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+      - name: Check out pinned shared runtime
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/amigaport
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: e5f6259af952e465504cb12185dc81727210ff53
+          path: shared/amigaport
+          submodules: recursive
+          persist-credentials: false
+      - name: Check out pinned SDL2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: libsdl-org/SDL
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 5d249570393f7a37e037abf22cd6012a4cc56a71
+          path: dependencies/SDL
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -101,11 +162,49 @@ jobs:
     name: Android arm64-v8a APK
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      BENEFACTOR_AMIGAPORT_DIR: ${{ github.workspace }}/shared/amigaport
+      BENEFACTOR_ANDROID_PORT_DIR: ${{ github.workspace }}/shared/android-port
+      BENEFACTOR_SDL2_DIR: ${{ github.workspace }}/dependencies/SDL
+      BENEFACTOR_LUCENT_DIR: ${{ github.workspace }}/dependencies/lucent
     steps:
       - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+      - name: Check out pinned shared runtime
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/amigaport
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: e5f6259af952e465504cb12185dc81727210ff53
+          path: shared/amigaport
+          submodules: recursive
+          persist-credentials: false
+      - name: Check out pinned Android build owner
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/android-port
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 9126444ee0c2da8108726d6f6d5287f0304a1a27
+          path: shared/android-port
+          persist-credentials: false
+      - name: Check out pinned SDL2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: libsdl-org/SDL
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 5d249570393f7a37e037abf22cd6012a4cc56a71
+          path: dependencies/SDL
+          persist-credentials: false
+      - name: Check out pinned Lucent
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/lucent
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 79e3ee8b7a9d4e989be1610ebe42e9c7fe507a23
+          path: dependencies/lucent
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -127,11 +226,31 @@ jobs:
     name: WASM browser package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      BENEFACTOR_AMIGAPORT_DIR: ${{ github.workspace }}/shared/amigaport
+      BENEFACTOR_SDL2_DIR: ${{ github.workspace }}/dependencies/SDL
     steps:
       - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+      - name: Check out pinned shared runtime
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/amigaport
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: e5f6259af952e465504cb12185dc81727210ff53
+          path: shared/amigaport
+          submodules: recursive
+          persist-credentials: false
+      - name: Check out pinned SDL2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: libsdl-org/SDL
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 5d249570393f7a37e037abf22cd6012a4cc56a71
+          path: dependencies/SDL
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

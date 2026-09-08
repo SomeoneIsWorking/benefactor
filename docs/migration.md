@@ -1,8 +1,9 @@
 # Benefactor native/interpreter migration
 
 The old offline 68000-to-C implementation has been removed. There is no static
-gameplay bridge or compatibility target. Work resumes at the missing
-`shared/amigaport` runtime and Benefactor adapter boundary.
+gameplay bridge or compatibility target. The Benefactor adapter boundary is
+now implemented; work resumes at authenticated-disk runtime conformance and
+the cross-platform release gates.
 
 ## Product boundary
 
@@ -38,8 +39,10 @@ Removed now:
 - the former rule that delayed deletion until representative gameplay.
 
 Retained native owners call an image-qualified runtime/original-call seam in
-`src/runtime/guest_runtime.h`. It is declarations-only until `amigaport` and the
-title adapter exist; CMake and `./run.sh` therefore refuse at that exact boundary.
+`src/runtime/guest_runtime.h`. `src/runtime/guest_runtime.cpp` binds that seam
+to `amigaport::Executor` without a second CPU model; CMake and the launcher
+now build through it and refuse only when the shared checkout or adapter is
+missing.
 
 ## Four runtime images
 
@@ -56,9 +59,8 @@ restore replaces that identity before execution resumes.
 
 ## Implementation order
 
-1. Create `shared/amigaport` with one complete 68000 state, a maintained
-   interpreter execution owner, typed memory/service callbacks, executable-image
-   ownership, and supported host backends.
+1. Exercise the adapter through a bounded authenticated main-image slice and
+   record the first real execution evidence.
 2. Refactor the native disk/ATN/relocation owners to accept the adapter's memory
    mapping explicitly, then execute a bounded authenticated main-image slice.
 3. Add an independent shipping-interpreter-versus-oracle discriminator covering all
