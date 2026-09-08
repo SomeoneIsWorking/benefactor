@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Benefactor</title>
+  </head>
+  <body>
+    <main>
+      <h1>Benefactor</h1>
+      <p id="disk-status">Select your original Disk.1, Disk.2, and Disk.3 files to continue.</p>
+      <label for="disk-files">Browse for disks</label>
+      <input id="disk-files" type="file" multiple accept="application/octet-stream,.adf,.img">
+      <canvas id="benefactor-canvas" aria-label="Benefactor game"></canvas>
+    </main>
+    <script src="disk_setup.js"></script>
+    <script src="benefactor.js"></script>
+  </body>
+</html>

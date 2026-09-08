@@ -28,7 +28,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S001 | The complete game boots, transitions among all runtime images, and plays all 60 levels through the intended product | partial | S005, S023 | G001, G002 |
 | S002 | Native pause/options apply and persist modern settings in game | partial | S005 | G002 |
 | S003 | Keyboard, hot-pluggable controllers, touch, rebinding, and alternate controls share logical actions | partial | S005 | G002 |
-| S004 | AppImage and Android provide no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
+| S004 | Android provides no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
 | S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | missing | S020 | G001 |
 | S006 | PUAE differential scenarios and interactive controls are preserved as an independent oracle for the shipping interpreter | partial | S005 | G001 |
 | S007 | Turbo, hyper, and hold-to-fast-forward change gameplay pace while audio remains at normal speed | partial | S005 | G002 |
@@ -49,7 +49,13 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | missing | S005 | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
-| S025 | Asset-free source-policy CI runs from a full-history checkout | partial | Hosted run `33887566417` reached the verifier but exposed an unpinned clang-format major-version mismatch; the locked formatter fix is pending hosted verification; runtime platform jobs wait for S005 and shared/amigaport | G003 |
+| S025 | Asset-free source-policy CI runs from a full-history checkout | partial | Hosted run `33887566417` reached the verifier but exposed an unpinned clang-format major-version mismatch; the locked formatter fix is pending hosted verification; release jobs are present but blocked by S005 | G003 |
+| S026 | Windows CI produces an asset-free package from the native/interpreter product | blocked | S005, S022 | G004 |
+| S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | blocked | S005, S022 | G004 |
+| S028 | Linux CI produces an asset-free x86-64 AppImage | blocked | S005, S022 | G003, G004 |
+| S029 | Android CI produces a signed arm64-v8a release APK | blocked | S005, S022 | G003, G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | blocked | S005, S022 | G004 |
+| S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 
 ## Capability details
 
@@ -86,12 +92,11 @@ Gap: re-exercise and verify the retained owner through S005's interpreter produc
 ### S004 — Packaged setup
 
 Android imports a validated three-disk set into private storage without
-packaging the disks. The retired AppImage shell setup flow is no longer a
-shipping implementation.
+packaging the disks through the Lucent SAF importer. The retired AppImage shell
+setup flow is no longer a shipping implementation.
 
-Gap: implement desktop first-run disk selection in the native product, then
-rebuild both clean-machine packages around the native/interpreter gameplay
-product and prove generated-content plus direct-emulator absence.
+Gap: prove the Android path through the native/interpreter product and keep
+desktop setup in S031.
 
 ### S005 — Native/interpreter execution
 
@@ -242,7 +247,66 @@ differently despite the same style file.
 
 Gap: the formatter is now pinned in the locked Python tool environment and
 pointer alignment is explicit, but that repair has not yet passed a hosted
-run. Runtime platform jobs wait for S005 and the shared `amigaport` adapter.
-Windows, macOS, and Android product jobs are not claimed yet: the runtime
-adapter is unavailable, so those jobs would be policy-only duplicates rather
-than platform build or package boundaries.
+run. The platform release jobs are now claimed in `.github/workflows/release.yml`
+but remain blocked by S005 until they can build a real product artifact.
+
+### S026 — Windows package
+
+The release workflow invokes `tools.build_desktop` on a native Windows runner
+and uploads only the produced package.
+
+Blocker: S005 — the shared interpreter adapter is not implemented.
+
+Gap: the builder refuses at S005 until the runtime adapter exists; no Windows
+artifact has been produced.
+
+### S027 — macOS app bundle
+
+The release workflow invokes `tools.build_desktop` on macOS 14 and requires a
+real `Benefactor.app` before upload.
+
+Blocker: S005 — the shared interpreter adapter is not implemented.
+
+Gap: the builder refuses at S005 and no `.app` has been produced.
+
+### S028 — Linux AppImage
+
+The release workflow invokes the existing AppImage builder and requires a real
+AppImage output after disk-free staging.
+
+Blocker: S005 — the shared interpreter adapter is not implemented.
+
+Gap: the builder refuses at S005 and hosted appimagetool provisioning is still
+part of the release environment.
+
+### S029 — Android release APK
+
+The release workflow invokes the pinned Android builder for arm64-v8a and
+inspects the APK for required native libraries and forbidden disk files.
+
+Blocker: S005 — the shared interpreter adapter is not implemented.
+
+Gap: the builder refuses at S005; signing and device performance evidence are
+not yet available.
+
+### S030 — WASM Pages delivery
+
+`tools/build_wasm.py` requires a real `benefactor.js` and `benefactor.wasm`,
+stages the browser setup shell, and the workflow uploads and deploys that
+directory through GitHub Pages.
+
+Blocker: S005 — the shared interpreter adapter and WASM runtime target are not
+implemented.
+
+Gap: the runtime has no WASM target until S005 and the Benefactor adapter exist.
+
+### S031 — Cross-platform disk browse
+
+Android has a Lucent SAF directory browser that validates the three filenames
+before promotion. The browser package now has a file picker that validates all
+three names, byte sizes, and SHA-256 identities before dispatching a committed
+selection to the WASM bridge.
+
+Gap: desktop native file-picker integration and end-to-end browser/native
+runtime handoff remain unverified; failed selection must leave the previous
+valid installation active.

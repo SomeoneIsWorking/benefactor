@@ -6,27 +6,19 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
-from tools.launcher import runtime_blocker
-
-ROOT = Path(__file__).resolve().parents[1]
+from tools.release_common import (
+    ROOT,
+    ensure_disk_free,
+    replace_directory,
+    require_runtime,
+    run,
+)
 
 
 def refuse(message: str) -> None:
     raise SystemExit(f"appimage: {message}")
-
-
-def run(command: list[str], *, cwd: Path = ROOT, environment: dict[str, str] | None = None) -> None:
-    print("appimage:", " ".join(command))
-    subprocess.run(command, cwd=cwd, env=environment, check=True)
-
-
-def ensure_disk_free(root: Path) -> None:
-    files = [path.relative_to(root).as_posix() for path in root.rglob("Disk.*") if path.is_file()]
-    if files:
-        refuse("artifact staging contains original disk images: " + ", ".join(files))
 
 
 def main() -> int:
@@ -38,19 +30,19 @@ def main() -> int:
     )
     parser.add_argument("--stage-only", action="store_true")
     args = parser.parse_args()
-    blocker = runtime_blocker()
-    if blocker:
-        refuse(f"Benefactor gameplay product unavailable: {blocker}")
+    require_runtime("appimage")
     build = args.build_dir.resolve()
     if not (build / "benefactor-pc").is_file():
         refuse(f"{build}/benefactor-pc is missing; build the desktop target first")
     appdir = ROOT / "build/appimage/Benefactor.AppDir"
-    if appdir.exists():
-        shutil.rmtree(appdir)
-    appdir.mkdir(parents=True)
+    replace_directory(appdir)
     environment = dict(os.environ)
     environment["DESTDIR"] = str(appdir)
-    run(["cmake", "--install", str(build), "--prefix", "/usr"], environment=environment)
+    run(
+        "appimage",
+        ["cmake", "--install", str(build), "--prefix", "/usr"],
+        environment=environment,
+    )
     (appdir / "AppRun").symlink_to("usr/bin/benefactor-pc")
     shutil.copy2(
         ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.desktop",
@@ -59,17 +51,17 @@ def main() -> int:
     icon = ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.svg"
     shutil.copy2(icon, appdir / ".DirIcon")
     shutil.copy2(icon, appdir / icon.name)
-    ensure_disk_free(appdir)
+    ensure_disk_free(appdir, "appimage")
     if args.stage_only:
         print(f"appimage: staged {appdir}")
         return 0
     if not args.appimagetool or not args.appimagetool.is_file():
         refuse("--appimagetool must name a verified appimagetool executable")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    run([str(args.appimagetool.resolve()), str(appdir), str(args.output.resolve())])
+    run("appimage", [str(args.appimagetool.resolve()), str(appdir), str(args.output.resolve())])
     if not args.output.is_file():
         refuse("appimagetool reported success but did not create an artifact")
-    ensure_disk_free(appdir)
+    ensure_disk_free(appdir, "appimage")
     print(f"appimage: wrote {args.output}")
     return 0
 

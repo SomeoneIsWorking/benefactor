@@ -47,6 +47,8 @@ The canonical inventory is `docs/project-state.md`. In summary:
 | Static translator, generated corpus, and dispatcher removed | verified |
 | Single-owner native/interpreter gameplay composition | missing |
 | Representative cross-host gameplay conformance and performance | missing |
+| Windows, macOS `.app`, Linux AppImage, Android APK, and WASM Pages releases | blocked at missing `shared/amigaport` runtime |
+| Android and browser disk browse/setup | partial; desktop native picker remains missing |
 
 ## Player-supplied files
 

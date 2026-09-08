@@ -12,6 +12,12 @@ authenticated disks through one maintained interpreter owner. Benefactor owns
 disk identity, the four runtime image generations, OCS/CIA services, host
 presentation, and title override policy.
 
+WebAssembly is part of the migration release contract: the project must also
+ship a browser-capable execution path that follows the same runtime boundary and
+discovery flow as desktop (nonzero translated work where applicable for the
+project, bounded fallback only as diagnostic), and include parity evidence in the
+representative gameplay/host gates before release claims.
+
 The interpreter may be the default shipping CPU because Benefactor is an
 Amiga-class title. `amigaport` should reuse a maintained 68000/PUAE execution
 owner behind its typed CPU, memory, and service API rather than copy a core into
