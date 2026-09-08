@@ -11,6 +11,10 @@ from tools.release_common import ensure_disk_free
 
 
 class ReleaseBuilderTests(unittest.TestCase):
+    def test_web_picker_enables_extensionless_disks_and_zip(self) -> None:
+        page = (Path(__file__).parents[1] / "platforms" / "web" / "index.html").read_text()
+        self.assertIn('accept=".1,.2,.3,.zip,application/zip,application/octet-stream"', page)
+
     def test_desktop_builder_stops_at_runtime_boundary(self) -> None:
         with (
             mock.patch.object(
