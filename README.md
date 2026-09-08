@@ -48,8 +48,8 @@ The canonical inventory is `docs/project-state.md`. In summary:
 | Static translator, generated corpus, and dispatcher removed | verified |
 | Single-owner native/interpreter gameplay composition | partial; link boundary is in place, runtime audit remains |
 | Representative cross-host gameplay conformance and performance | missing |
-| Windows, macOS `.app`, Linux AppImage, Android APK, and WASM Pages releases | CI matrix and asset-free builders authored; hosted/runtime gates remain open |
-| Android, browser, and source-launcher disk browse/setup | partial; packaged desktop persistence and hosted browser handoff remain open |
+| Windows, macOS `.app`, Linux AppImage, Android APK, and WASM Pages releases | verified hosted asset-free matrix; Android publication signing and runtime gates remain open |
+| Android, browser, and source-launcher disk browse/setup | partial; extensionless disk files and one bounded disk ZIP are accepted, packaged desktop persistence and runtime handoff remain open |
 
 ## Player-supplied files
 
