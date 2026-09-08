@@ -37,7 +37,9 @@ def main() -> int:
         "appimage",
         ["cmake", "-S", str(ROOT), "-B", str(build), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"],
     )
-    run("appimage", ["cmake", "--build", str(build), "--target", "benefactor_product", "--parallel"])
+    run(
+        "appimage", ["cmake", "--build", str(build), "--target", "benefactor_product", "--parallel"]
+    )
     if not (build / "benefactor-pc").is_file():
         refuse(f"{build}/benefactor-pc is missing after the native build")
     appdir = ROOT / "build/appimage/Benefactor.AppDir"
