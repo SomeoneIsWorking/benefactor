@@ -174,6 +174,7 @@ jobs:
       BENEFACTOR_AMIGAPORT_DIR: ${{ github.workspace }}/shared/amigaport
       BENEFACTOR_ANDROID_PORT_DIR: ${{ github.workspace }}/shared/android-port
       BENEFACTOR_LUCENT_DIR: ${{ github.workspace }}/dependencies/lucent
+      BENEFACTOR_ANDROID_EPHEMERAL_SIGNING: "1"
     steps:
       - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
