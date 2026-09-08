@@ -2,6 +2,20 @@ cmake_minimum_required(VERSION 3.24)
 
 project(benefactor-port LANGUAGES C CXX)
 
+if(MINGW)
+    # GitHub's MinGW environment can inherit MSVC-style linker flags from its
+    # toolchain setup. GNU ld treats those as input paths, so remove them at
+    # the project boundary while retaining the user's other linker options.
+    foreach(linker_flags CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS
+                          CMAKE_MODULE_LINKER_FLAGS)
+        foreach(msvc_flag /OPT:REF /OPT:ICF /INCREMENTAL:NO -OPT:REF -OPT:ICF
+                           -INCREMENTAL:NO)
+            string(REPLACE "${msvc_flag}" "" ${linker_flags}
+                   "${${linker_flags}}")
+        endforeach()
+    endforeach()
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 20)

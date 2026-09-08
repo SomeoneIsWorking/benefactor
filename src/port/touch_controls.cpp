@@ -253,15 +253,15 @@ void control_glyphs(uint32_t *argb, int width, int height) {
 extern "C" int touch_controls_handle_sdl_event(const SDL_Event *event) {
     if (!event || state.controller_connected)
         return 0;
-    if (event->type != SDL_FINGERDOWN && event->type != SDL_FINGERMOTION &&
-        event->type != SDL_FINGERUP)
+    if (event->type != SDL_EVENT_FINGER_DOWN && event->type != SDL_EVENT_FINGER_MOTION &&
+        event->type != SDL_EVENT_FINGER_UP)
         return 0;
 
     initialize();
-    const auto phase = event->type == SDL_FINGERDOWN     ? lucent::touch::Phase::began
-                       : event->type == SDL_FINGERMOTION ? lucent::touch::Phase::moved
-                                                         : lucent::touch::Phase::ended;
-    const lucent::touch::Contact contact{static_cast<std::int64_t>(event->tfinger.fingerId),
+    const auto phase = event->type == SDL_EVENT_FINGER_DOWN     ? lucent::touch::Phase::began
+                       : event->type == SDL_EVENT_FINGER_MOTION ? lucent::touch::Phase::moved
+                                                                : lucent::touch::Phase::ended;
+    const lucent::touch::Contact contact{static_cast<std::int64_t>(event->tfinger.fingerID),
                                          {event->tfinger.x, event->tfinger.y},
                                          phase};
     const std::array contacts{contact};
