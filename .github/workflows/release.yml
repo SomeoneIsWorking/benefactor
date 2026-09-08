@@ -28,7 +28,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 2da4024103fd31252b953df36b12ca417df05bc1
+          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -74,7 +74,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 2da4024103fd31252b953df36b12ca417df05bc1
+          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -120,7 +120,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 2da4024103fd31252b953df36b12ca417df05bc1
+          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -178,7 +178,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 2da4024103fd31252b953df36b12ca417df05bc1
+          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -245,7 +245,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 2da4024103fd31252b953df36b12ca417df05bc1
+          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
