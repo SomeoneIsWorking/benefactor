@@ -8,9 +8,11 @@
   <body>
     <main>
       <h1>Benefactor</h1>
-      <p id="disk-status">Select your original Disk.1, Disk.2, and Disk.3 files to continue.</p>
+      <p id="disk-status">Select your original Disk.1, Disk.2, and Disk.3 files, or one ZIP containing them, to continue.</p>
       <label for="disk-files">Browse for disks</label>
-      <input id="disk-files" type="file" multiple accept="application/octet-stream,.adf,.img">
+      <!-- Amiga disk images are extensionless names (Disk.1, Disk.2, Disk.3).
+           Leave filtering to disk_setup.js, which checks the exact identity. -->
+      <input id="disk-files" type="file" multiple>
       <canvas id="benefactor-canvas" aria-label="Benefactor game"></canvas>
     </main>
     <script src="disk_setup.js"></script>
