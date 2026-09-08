@@ -29,7 +29,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S002 | Native pause/options apply and persist modern settings in game | partial | S005 | G002 |
 | S003 | Keyboard, hot-pluggable controllers, touch, rebinding, and alternate controls share logical actions | partial | S005 | G002 |
 | S004 | Android provides no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
-| S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | partial | S020; the local Clang/headless run loads Disk.1-Disk.3, reaches `$577000`, and completes the first three native `=SB=` level-data loads. The shared native-continuation boundary is tested, but live interaction still reaches a title memory fault at `$57CE72`; title-wide conformance remains open | G001 |
+| S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | partial | S020; the local Clang/headless run loads Disk.1-Disk.3, reaches `$577000`, completes the first three native `=SB=` level-data loads, and now sustains mixed input in gameplay after the shared JSR subroutine-boundary fixes. Four-image, platform, and performance conformance remain open | G001 |
 | S006 | PUAE differential scenarios and interactive controls are preserved as an independent oracle for the shipping interpreter | partial | S005 | G001 |
 | S007 | Turbo, hyper, and hold-to-fast-forward change gameplay pace while audio remains at normal speed | partial | S005 | G002 |
 | S008 | Optional platformer physics provides variable jump, air control, momentum, and tunable motion while classic physics remains | partial | S005 | G002 |

@@ -105,7 +105,7 @@ void native_gameover_menu(M68KCtx *ctx) {
          * tears this thread down and respawns at $577000. */
         return;
     }
-    rt_call_original(ctx, ctx->image, 0x0059C5B0u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0059C5B0u);
 }
 
 /* ── $57DEAC — gameplay input read: re-gate item DROP onto the interact key ────
@@ -560,15 +560,15 @@ static void wsbuild_capture(M68KCtx *ctx, int blind) {
 }
 void native_build_red(M68KCtx *ctx) {
     wsbuild_capture(ctx, 0);
-    rt_call_original(ctx, ctx->image, 0x0057B19Eu);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0057B19Eu);
 }
 void native_build_blind(M68KCtx *ctx) {
     wsbuild_capture(ctx, 1);
-    rt_call_original(ctx, ctx->image, 0x0057B856u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0057B856u);
 }
 void native_build_clear(M68KCtx *ctx) {
     s_wsbuild_n = 0;
-    rt_call_original(ctx, ctx->image, 0x0057B07Cu);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0057B07Cu);
 }
 
 void native_char_capture(M68KCtx *ctx) {
@@ -1275,7 +1275,7 @@ void native_banner_capture(M68KCtx *ctx) /* $578974 — box */
     s_banner_active = 1;
     s_banner_fresh = 1;  /* latch objwalk# at next present  */
     s_banner_ttl = 1200; /* ~20s cap; cleared earlier on resume */
-    rt_call_original(ctx, ctx->image, 0x00578974u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x00578974u);
 }
 
 void native_telanim_capture(M68KCtx *ctx) /* $578B94 — teleport animation */
@@ -1284,7 +1284,7 @@ void native_telanim_capture(M68KCtx *ctx) /* $578B94 — teleport animation */
     s_tel_src = (uint32_t)(uint16_t)MR16(a1) + 0xC2D6u;
     s_tel_rel = (banner_cam_tile(ctx) + 16) * 2 + (int)(uint16_t)MR16(0x5A1DCAu);
     s_tel_active = 1;
-    rt_call_original(ctx, ctx->image, 0x00578B94u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x00578B94u);
 }
 
 /* GET READY ($578860, string a5-$6584) and GAME OVER ($57889C, string a5-$6542):
@@ -1294,7 +1294,7 @@ static void banner_text_capture(M68KCtx *ctx, uint32_t strbase, uint32_t guest_a
     s_txt_str = strbase + 2;
     s_txt_rel = banner_cam_tile(ctx) * 2 + (int)(uint16_t)MR16(0x5A1DEEu) + (int)pos;
     s_txt_active = 1;
-    rt_call_original(ctx, ctx->image, guest_address);
+    rt_call_original_subroutine(ctx, ctx->image, guest_address);
 }
 void native_getready_capture(M68KCtx *ctx) {
     banner_text_capture(ctx, GP_A5 - 0x6584u, 0x00578860u);
@@ -1323,7 +1323,7 @@ void native_lc_text_set(void) {
         g_mem[base + 2u + i] = (uint8_t)txt[i];
 }
 void native_password_build(M68KCtx *ctx) {
-    rt_call_original(ctx, ctx->image, 0x0057901Eu);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0057901Eu);
     native_lc_text_set();
 }
 void native_levelcomplete_text_capture(M68KCtx *ctx) {

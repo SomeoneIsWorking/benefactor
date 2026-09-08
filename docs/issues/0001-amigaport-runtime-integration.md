@@ -24,3 +24,14 @@ guest JSR return address. The run advances past that crash into a later title
 memory fault at `$57CE72`; the current discriminator reports the faulting address,
 registers, and most recent original-call boundary, so representative gameplay
 remains open rather than being claimed from boot evidence.
+
+Further live classification showed that the remaining native capture wrappers were
+calling guest JSR routines as unbounded streams. The build family (`$57B19E`,
+`$57B856`, `$57B07C`), banner family (`$578974`, `$578B94`, `$578860`,
+`$57889C`), password builder (`$57901E`), and game-over renderer (`$59C5B0`)
+now use the shared subroutine boundary, which consumes the guest RTS return from
+the actual stack. With the `$59C5B0` boundary corrected, a Clang headless Disk.1–3
+run remained in gameplay through held-right, fire, interact, and directional-fire
+input; the player block advanced from `[32,166,0,2]` to `[179,166,0,2]` without
+the previous memory fault. Full title, platform, and performance conformance is
+still open.
