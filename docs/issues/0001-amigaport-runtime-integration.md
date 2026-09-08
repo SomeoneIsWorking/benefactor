@@ -15,3 +15,12 @@ ATN loads, and completes the native `=SB=` level-data path. Preserve the
 production disk/image, memory, OCS/CIA, native override, and host subsystem
 boundaries. Remaining work is the complete four-image representative gameplay
 gate on each claimed host; do not compose mixed static/interpreter gameplay.
+
+On 2026-09-08, the first live gameplay interaction exposed a control-flow bug in
+the adapter: `rt_jump` recursively entered the interpreter while a native
+override was active, which corrupted the executor boundary. The shared runtime
+now supports an in-frame native continuation and the audio override consumes its
+guest JSR return address. The run advances past that crash into a later title
+memory fault at `$57CE72`; the current discriminator reports the faulting address,
+registers, and most recent original-call boundary, so representative gameplay
+remains open rather than being claimed from boot evidence.

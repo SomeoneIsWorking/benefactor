@@ -205,17 +205,30 @@ class Runtime final {
                result.reason == amigaport::ExitReason::NativeOverride) {
             result = executor.execute();
         }
+        if (result.reason == amigaport::ExitReason::MemoryFault) {
+            benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
+                                 "guest memory fault pc=$%06X address=$%08X opcode=$%04X "
+                                 "a0=$%08X a1=$%08X a2=$%08X a3=$%08X a4=$%08X call=$%06X",
+                                 result.identity.address, executor.state().exception.fault_address,
+                                 executor.state().exception.instruction_word,
+                                 executor.state().address[0], executor.state().address[1],
+                                 executor.state().address[2], executor.state().address[3],
+                                 executor.state().address[4],
+                                 last_call_address.load(std::memory_order_relaxed));
+        }
         last_pc.store(executor.state().pc, std::memory_order_relaxed);
         return result;
     }
 
     amigaport::ExecutionExit call_original(std::uint32_t address) {
+        last_call_address.store(address, std::memory_order_relaxed);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
         return executor.call_original();
     }
 
     amigaport::ExecutionExit call_original_subroutine(std::uint32_t address) {
+        last_call_address.store(address, std::memory_order_relaxed);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
         return executor.call_original_subroutine();
@@ -245,7 +258,16 @@ class Runtime final {
         return executor.call_interrupt(address);
     }
 
-    void jump(std::uint32_t address) { (void)execute(address); }
+    void continue_from_native(std::uint32_t address) {
+        if ((address & 1u) != 0u || address >= bytes.size()) {
+            throw std::invalid_argument("native continuation target is not a valid guest PC");
+        }
+        if (native_continuations.empty())
+            throw std::logic_error("native continuation requested outside an override");
+        executor.state().pc = address;
+        executor.state().prefetch_valid = false;
+        *native_continuations.back() = true;
+    }
 
     amigaport::MemoryRead<std::uint8_t> read8(std::uint32_t address) {
         return memory.read8(address);
@@ -271,6 +293,7 @@ class Runtime final {
     RuntimeLogger logger;
     amigaport::Executor executor;
     std::vector<Registration> registrations;
+    std::vector<bool *> native_continuations;
     std::atomic<std::uint32_t> last_call_address{};
     std::atomic<std::uint32_t> last_pc{};
 
@@ -290,8 +313,17 @@ class Runtime final {
         executor.register_override(identity, [this, function = registration.function](auto &) {
             M68KCtx context{};
             bind(&context);
-            function(&context);
+            bool continue_execution = false;
+            native_continuations.push_back(&continue_execution);
+            try {
+                function(&context);
+            } catch (...) {
+                native_continuations.pop_back();
+                throw;
+            }
+            native_continuations.pop_back();
             amigaport::ExecutionExit result{};
+            result.continue_execution = continue_execution;
             result.reason = amigaport::ExitReason::NativeOverride;
             result.identity.image = executor.image();
             result.identity.address = executor.state().pc;
@@ -394,7 +426,14 @@ void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t add
 }
 
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
-    rt_call(ctx, image, address);
+    (void)image;
+    if (ctx != nullptr)
+        rt_context_bind(ctx);
+    /* Native overrides return to the executor after this function returns.
+     * Mutate that frame's PC instead of recursively starting a second PUAE
+     * step; the embedded core owns one architectural context and is not
+     * reentrant. */
+    runtime().continue_from_native(address);
 }
 
 void rt_call_original(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {

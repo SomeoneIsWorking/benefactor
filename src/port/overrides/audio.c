@@ -74,4 +74,10 @@ void native_sfx_trigger(M68KCtx *ctx) {
     uint32_t loop_ptr = loop_add ? base + loop_add : 0;
     int loop_b = loop_add ? loop_chunks * chunk_b : 0;
     hw_audio_sfx_play(0, base, total_b, period, vol, loop_ptr, loop_b);
+
+    /* This routine is entered by a guest JSR from the live music/IRQ path.
+     * A native override must consume that guest return address; otherwise the
+     * interpreter resumes at the override PC and invokes this function again
+     * forever on the first sound effect. */
+    (void)rt_return_from_native(ctx);
 }
