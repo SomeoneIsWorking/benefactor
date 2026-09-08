@@ -3,7 +3,7 @@
  * links in the harness too. */
 #include "port/input.h"
 #include "port/config.h"
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -49,7 +49,7 @@ static int key_from_name(const char *buf) {
     if (!buf[1]) { /* single char: letter or digit */
         char c = (char)tolower((unsigned char)buf[0]);
         if (c >= 'a' && c <= 'z')
-            return SDLK_a + (c - 'a');
+            return SDLK_A + (c - 'a');
         if (c >= '0' && c <= '9')
             return SDLK_0 + (c - '0');
     }
@@ -70,36 +70,36 @@ static const char *key_name(int sym, char *buf, int cap) {
 }
 
 /* ── Controller button/axis names ───────────────────────────────────────────
- * Pad code = SDL_GameControllerButton, or PI_PAD_AXIS_CODE(axis, dir) for an
+ * Pad code = SDL_GamepadButton, or PI_PAD_AXIS_CODE(axis, dir) for an
  * analog direction. */
 
 static const struct {
     const char *name;
     int code;
-} p_names[] = {{"A", SDL_CONTROLLER_BUTTON_A},
-               {"B", SDL_CONTROLLER_BUTTON_B},
-               {"X", SDL_CONTROLLER_BUTTON_X},
-               {"Y", SDL_CONTROLLER_BUTTON_Y},
-               {"DPUp", SDL_CONTROLLER_BUTTON_DPAD_UP},
-               {"DPDown", SDL_CONTROLLER_BUTTON_DPAD_DOWN},
-               {"DPLeft", SDL_CONTROLLER_BUTTON_DPAD_LEFT},
-               {"DPRight", SDL_CONTROLLER_BUTTON_DPAD_RIGHT},
-               {"Start", SDL_CONTROLLER_BUTTON_START},
-               {"Back", SDL_CONTROLLER_BUTTON_BACK},
-               {"LB", SDL_CONTROLLER_BUTTON_LEFTSHOULDER},
-               {"RB", SDL_CONTROLLER_BUTTON_RIGHTSHOULDER},
-               {"LStick", SDL_CONTROLLER_BUTTON_LEFTSTICK},
-               {"RStick", SDL_CONTROLLER_BUTTON_RIGHTSTICK},
-               {"LeftTrigger", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_TRIGGERLEFT, 1)},
-               {"RightTrigger", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1)},
-               {"LeftX-", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTX, 0)},
-               {"LeftX+", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTX, 1)},
-               {"LeftY-", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTY, 0)},
-               {"LeftY+", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTY, 1)},
-               {"RightX-", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_RIGHTX, 0)},
-               {"RightX+", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_RIGHTX, 1)},
-               {"RightY-", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_RIGHTY, 0)},
-               {"RightY+", PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_RIGHTY, 1)},
+} p_names[] = {{"A", SDL_GAMEPAD_BUTTON_SOUTH},
+               {"B", SDL_GAMEPAD_BUTTON_EAST},
+               {"X", SDL_GAMEPAD_BUTTON_WEST},
+               {"Y", SDL_GAMEPAD_BUTTON_NORTH},
+               {"DPUp", SDL_GAMEPAD_BUTTON_DPAD_UP},
+               {"DPDown", SDL_GAMEPAD_BUTTON_DPAD_DOWN},
+               {"DPLeft", SDL_GAMEPAD_BUTTON_DPAD_LEFT},
+               {"DPRight", SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+               {"Start", SDL_GAMEPAD_BUTTON_START},
+               {"Back", SDL_GAMEPAD_BUTTON_BACK},
+               {"LB", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER},
+               {"RB", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
+               {"LStick", SDL_GAMEPAD_BUTTON_LEFT_STICK},
+               {"RStick", SDL_GAMEPAD_BUTTON_RIGHT_STICK},
+               {"LeftTrigger", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 1)},
+               {"RightTrigger", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 1)},
+               {"LeftX-", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 0)},
+               {"LeftX+", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 1)},
+               {"LeftY-", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 0)},
+               {"LeftY+", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 1)},
+               {"RightX-", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_RIGHTX, 0)},
+               {"RightX+", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_RIGHTX, 1)},
+               {"RightY-", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_RIGHTY, 0)},
+               {"RightY+", PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_RIGHTY, 1)},
                {NULL, 0}};
 
 static int pad_from_name(const char *buf) {

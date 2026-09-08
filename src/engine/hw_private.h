@@ -7,7 +7,7 @@
 #pragma once
 #include "engine/hw.h"
 #include "runtime/guest_runtime.h"
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <stdint.h>
 /* All hw register shadows (s_regs, s_dmacon/intena/intreq, s_bplcon0, s_bplptr,
  * s_sprpt, s_palette, s_diwstrt/stop, s_blt_bzero, the s_ciab_* timer state,
@@ -21,8 +21,7 @@ extern uint32_t s_fb[HW_DISPLAY_W * HW_DISPLAY_H];
 /* ── Copper write tag (set during copper MOVE execution) ────────────────────── */
 extern int s_copper_writing;
 
-extern SDL_AudioDeviceID s_audio_dev;
-extern SDL_AudioSpec s_audio_spec;
+extern SDL_AudioStream *s_audio_stream;
 
 /* ── Colour conversion helper ──────────────────────────────────────────────── */
 static inline uint32_t amiga_to_argb(uint16_t c) {
@@ -69,6 +68,5 @@ const BlitRec *hw_blit_capture_recs(void);
 void hw_audio_trigger(int ch);  /* AUDxDAT write (one-shot kick)        */
 void hw_audio_dma_kick(int ch); /* AUDxLEN write — start DMA stream     */
 void hw_audio_resync(void);     /* restart all channels from registers  */
-void hw_audio_callback(void *userdata, Uint8 *stream, int len);
 int hw_audio_open(void);
 void hw_audio_close(void);

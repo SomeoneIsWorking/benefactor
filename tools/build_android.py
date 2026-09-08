@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 from tools.launcher import runtime_blocker
@@ -108,7 +107,7 @@ def required_jdk() -> Path:
     return home
 
 
-def configure_native(sdk: Path, ndk: Path, sdl: Path, lucent: Path) -> Path:
+def configure_native(ndk: Path, profile, lucent: Path) -> Path:
     native = BUILD / "native"
     toolchain = ndk / "build/cmake/android.toolchain.cmake"
     run(
@@ -125,7 +124,7 @@ def configure_native(sdk: Path, ndk: Path, sdl: Path, lucent: Path) -> Path:
             f"-DANDROID_PLATFORM=android-{MIN_API}",
             "-DANDROID_STL=c++_shared",
             "-DCMAKE_BUILD_TYPE=Release",
-            f"-DBENEFACTOR_SDL2_DIR={sdl}",
+            f"-DBENEFACTOR_SDL3_PREFIX={profile.prefix}",
             f"-DBENEFACTOR_LUCENT_DIR={lucent}",
             "-DVulkan_FOUND=FALSE",
         ]
@@ -144,50 +143,31 @@ def copy_required(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
-def find_unique(root: Path, name: str) -> Path:
-    candidates = [path for path in root.rglob(name) if path.is_file()]
-    if len(candidates) != 1:
-        refuse(f"expected exactly one {name} under {root}, found {len(candidates)}")
-    return candidates[0]
-
-
-def stage_gradle_project(sdl: Path, lucent: Path, native: Path, ndk: Path) -> Path:
-    android_project = sdl / "android-project"
-    if not android_project.is_dir():
-        refuse(f"SDL2 checkout has no android-project: {android_project}")
+def stage_gradle_project(lucent: Path, profile) -> Path:
     project = BUILD / "project"
     if project.exists():
         shutil.rmtree(project)
-    shutil.copytree(android_project, project)
-    for relative in ("build.gradle", "settings.gradle", "gradle-wrapper.properties"):
-        source = ROOT / "platforms/android" / relative
-        destination = project / (
-            "gradle/wrapper/gradle-wrapper.properties"
-            if relative == "gradle-wrapper.properties"
-            else relative
-        )
-        copy_required(source, destination)
-    shutil.copytree(ROOT / "platforms/android/app", project / "app", dirs_exist_ok=True)
-    java_root = project / "app/src/main/java"
-    shutil.copytree(lucent / "platforms/android/java", java_root, dirs_exist_ok=True)
-    libraries = project / "app/src/main/jniLibs" / ABI
-    copy_required(native, libraries / "libmain.so")
-    copy_required(find_unique(BUILD / "native", "libSDL2.so"), libraries / "libSDL2.so")
+    project.mkdir(parents=True)
+    copy_required(ROOT / "platforms/android/build.gradle", project / "build.gradle")
+    copy_required(ROOT / "platforms/android/settings.gradle", project / "settings.gradle")
     copy_required(
-        shared_android_port_tool().ndk_cxx_shared_library(ndk, ABI), libraries / "libc++_shared.so"
+        ROOT / "platforms/android/gradle-wrapper.properties",
+        project / "gradle/wrapper/gradle-wrapper.properties",
     )
+    shutil.copytree(ROOT / "platforms/android/app", project / "app")
+    android_port = shared_android_port_tool()
+    android_port.stage_gradle_runtime(profile.prefix, project, lucent / "platforms/android/java")
     return project
 
 
 def inspect_apk(apk: Path) -> None:
     if not apk.is_file():
         refuse(f"Gradle did not produce {apk}")
-    with zipfile.ZipFile(apk) as archive:
-        names = archive.namelist()
+    names = shared_android_port_tool().inspect_apk_runtime(apk, ABI)
     forbidden = [name for name in names if Path(name).name.lower().startswith("disk.")]
     required = {
         f"lib/{ABI}/libmain.so",
-        f"lib/{ABI}/libSDL2.so",
+        f"lib/{ABI}/libSDL3.so",
         f"lib/{ABI}/libc++_shared.so",
         "resources.arsc",
     }
@@ -210,10 +190,28 @@ def main() -> int:
     sdk = android_sdk()
     ndk = android_ndk(sdk)
     jdk = required_jdk()
-    sdl = required_directory("BENEFACTOR_SDL2_DIR")
     lucent = required_directory("BENEFACTOR_LUCENT_DIR")
-    native = configure_native(sdk, ndk, sdl, lucent)
-    project = stage_gradle_project(sdl, lucent, native, ndk)
+    android_port = shared_android_port_tool()
+    profile = android_port.load_android_port_profile(
+        ROOT / "platforms/android/android-port-profile.json"
+    )
+    if profile.abi != ABI or profile.api != MIN_API:
+        refuse(
+            "Android profile must target "
+            f"{ABI}/android-{MIN_API}, found {profile.abi}/android-{profile.api}"
+        )
+    android_port.build_native_dependencies(
+        android_port.native_dependency_request_for_profile(profile, ndk),
+        max(1, min(os.cpu_count() or 1, 4)),
+    )
+    native = configure_native(ndk, profile, lucent)
+    if native / "libmain.so" != profile.native_library:
+        refuse(
+            "Android profile package.nativeLibrary must point at the configured native build: "
+            f"{native / 'libmain.so'}"
+        )
+    project = stage_gradle_project(lucent, profile)
+    android_port.stage_package_runtime(profile)
     environment = dict(os.environ)
     environment["ANDROID_SDK_ROOT"] = str(sdk)
     environment["JAVA_HOME"] = str(jdk)

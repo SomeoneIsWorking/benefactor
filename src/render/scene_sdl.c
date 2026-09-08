@@ -3,8 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+static SDL_FRect scene_frect(SDL_Rect r) {
+    return (SDL_FRect){(float)r.x, (float)r.y, (float)r.w, (float)r.h};
+}
+
 /* Bake one quad's index bitmap into an ARGB streaming texture, resolving the
- * per-output-row palette on the CPU (SDL2 has no fragment shader). `dy0` is the
+ * per-output-row palette on the CPU (SDL3 has no fragment shader). `dy0` is the
  * output row quad row 0 lands on (used to pick each row's palette). */
 static SDL_Texture *quad_texture(SDL_Renderer *r, const Scene *s, const SceneQuad *q) {
     SDL_Texture *tex =
@@ -15,7 +19,7 @@ static SDL_Texture *quad_texture(SDL_Renderer *r, const Scene *s, const SceneQua
 
     void *pixels;
     int pitch;
-    if (SDL_LockTexture(tex, NULL, &pixels, &pitch) != 0) {
+    if (!SDL_LockTexture(tex, NULL, &pixels, &pitch)) {
         SDL_DestroyTexture(tex);
         return NULL;
     }
@@ -42,7 +46,7 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi) {
     /* Vertical clip to [y_lo, y_hi): SDL clips the dest, and because each quad's
      * texture bakes the per-output-row palette, clipped-away rows never matter. */
     SDL_Rect clip = {0, y_lo, 1 << 15, y_hi - y_lo};
-    SDL_RenderSetClipRect(r, &clip);
+    SDL_SetRenderClipRect(r, &clip);
 
     int rc = 0;
     for (int i = 0; i < s->nquads && rc == 0; i++) {
@@ -57,13 +61,13 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi) {
             rc = -1;
             break;
         }
-        SDL_Rect d = {q->x, q->y, q->w, q->h};
-        if (SDL_RenderCopy(r, tex, NULL, &d) != 0)
+        SDL_FRect d = {(float)q->x, (float)q->y, (float)q->w, (float)q->h};
+        if (!SDL_RenderTexture(r, tex, NULL, &d))
             rc = -1;
         SDL_DestroyTexture(tex);
     }
 
-    SDL_RenderSetClipRect(r, NULL);
+    SDL_SetRenderClipRect(r, NULL);
     return rc;
 }
 
@@ -148,7 +152,7 @@ static int atlas_pack_bake(SceneSdlCache *c, const Scene *s, SDL_Rect *pos) {
     SDL_Rect lock = {0, 0, SCENE_SDL_ATLAS_W, max_y};
     void *pixels;
     int pitch;
-    if (SDL_LockTexture(c->atlas, &lock, &pixels, &pitch) != 0)
+    if (!SDL_LockTexture(c->atlas, &lock, &pixels, &pitch))
         return -1;
     for (int i = 0; i < s->nquads; i++) {
         const SceneQuad *q = &s->quads[i];
@@ -211,8 +215,8 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
             }
             if (c0 & 0xFFFFFF) {
                 SDL_SetRenderDrawColor(r, (c0 >> 16) & 0xFF, (c0 >> 8) & 0xFF, c0 & 0xFF, 255);
-                SDL_Rect band = {0, y, ow, y1 - y};
-                if (SDL_RenderFillRect(r, &band) != 0)
+                SDL_FRect band = {0.0f, (float)y, (float)ow, (float)(y1 - y)};
+                if (!SDL_RenderFillRect(r, &band))
                     rc = -1;
             }
             y = y1;
@@ -223,14 +227,16 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
      * the composed output surface unchanged — rect-update just those bands. */
     if (y_lo > 0) {
         SDL_Rect rr = {0, 0, ow, y_lo};
-        if (SDL_UpdateTexture(cache->base, &rr, base, ow * 4) != 0 ||
-            SDL_RenderCopy(r, cache->base, &rr, &rr) != 0)
+        SDL_FRect frr = scene_frect(rr);
+        if (!SDL_UpdateTexture(cache->base, &rr, base, ow * 4) ||
+            !SDL_RenderTexture(r, cache->base, &frr, &frr))
             rc = -1;
     }
     if (y_hi < oh) {
         SDL_Rect rr = {0, y_hi, ow, oh - y_hi};
-        if (SDL_UpdateTexture(cache->base, &rr, base + (size_t)y_hi * ow, ow * 4) != 0 ||
-            SDL_RenderCopy(r, cache->base, &rr, &rr) != 0)
+        SDL_FRect frr = scene_frect(rr);
+        if (!SDL_UpdateTexture(cache->base, &rr, base + (size_t)y_hi * ow, ow * 4) ||
+            !SDL_RenderTexture(r, cache->base, &frr, &frr))
             rc = -1;
     }
 
@@ -244,16 +250,17 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
             cx1 = ow;
         if (cx1 > cx0) {
             SDL_Rect clip = {cx0, y_lo, cx1 - cx0, y_hi - y_lo};
-            SDL_RenderSetClipRect(r, &clip);
+            SDL_SetRenderClipRect(r, &clip);
             for (int i = 0; i < s->nquads && rc == 0; i++) {
                 const SceneQuad *q = &s->quads[i];
                 if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0)
                     continue;
-                SDL_Rect d = {q->x - s->view_left, q->y, q->w, q->h};
-                if (SDL_RenderCopy(r, cache->atlas, &pos[i], &d) != 0)
+                SDL_FRect src = scene_frect(pos[i]);
+                SDL_FRect d = {(float)(q->x - s->view_left), (float)q->y, (float)q->w, (float)q->h};
+                if (!SDL_RenderTexture(r, cache->atlas, &src, &d))
                     rc = -1;
             }
-            SDL_RenderSetClipRect(r, NULL);
+            SDL_SetRenderClipRect(r, NULL);
         }
     }
 
@@ -262,8 +269,9 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
         const SceneQuad *q = &s->quads[i];
         if (q->space != SCENE_SPACE_SCREEN || pos[i].w == 0)
             continue;
-        SDL_Rect d = {q->x, q->y, q->w, q->h};
-        if (SDL_RenderCopy(r, cache->atlas, &pos[i], &d) != 0)
+        SDL_FRect src = scene_frect(pos[i]);
+        SDL_FRect d = {(float)q->x, (float)q->y, (float)q->w, (float)q->h};
+        if (!SDL_RenderTexture(r, cache->atlas, &src, &d))
             rc = -1;
     }
     free(pos);
@@ -289,12 +297,11 @@ long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi
 
     /* SDL per-sprite: draw into a software-rendered surface, then read back. No
      * window / GPU — runs with the display off. */
-    SDL_Surface *surf =
-        SDL_CreateRGBSurfaceWithFormat(0, dst_w, dst_h, 32, SDL_PIXELFORMAT_ARGB8888);
+    SDL_Surface *surf = SDL_CreateSurface(dst_w, dst_h, SDL_PIXELFORMAT_ARGB8888);
     SDL_Renderer *r = surf ? SDL_CreateSoftwareRenderer(surf) : NULL;
     if (!r) {
         if (surf)
-            SDL_FreeSurface(surf);
+            SDL_DestroySurface(surf);
         free(cpu);
         return -1;
     }
@@ -330,7 +337,7 @@ long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi
     }
 
     SDL_DestroyRenderer(r);
-    SDL_FreeSurface(surf);
+    SDL_DestroySurface(surf);
     free(cpu);
     return ndiff;
 }
@@ -342,11 +349,11 @@ long scene_sdl_window_selftest(const Scene *s, const uint32_t *base, int ow, int
     if (!s || !base || ow <= 0 || oh <= 0)
         return -1;
 
-    SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, ow, oh, 32, SDL_PIXELFORMAT_ARGB8888);
+    SDL_Surface *surf = SDL_CreateSurface(ow, oh, SDL_PIXELFORMAT_ARGB8888);
     SDL_Renderer *r = surf ? SDL_CreateSoftwareRenderer(surf) : NULL;
     if (!r) {
         if (surf)
-            SDL_FreeSurface(surf);
+            SDL_DestroySurface(surf);
         return -1;
     }
 
@@ -380,6 +387,6 @@ long scene_sdl_window_selftest(const Scene *s, const uint32_t *base, int ow, int
     }
 
     SDL_DestroyRenderer(r);
-    SDL_FreeSurface(surf);
+    SDL_DestroySurface(surf);
     return ndiff;
 }

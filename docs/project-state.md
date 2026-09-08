@@ -265,7 +265,7 @@ but remain blocked by S005 until they can build a real product artifact.
 
 ### S026 — Windows package
 
-The release workflow checks out pinned `amigaport` and SDL2 inputs, invokes
+The release workflow checks out pinned `amigaport` and SDL3 inputs, invokes
 `tools.build_desktop` on a native Windows runner, and uploads only the produced
 package.
 
@@ -289,10 +289,11 @@ Gap: no hosted AppImage artifact has passed yet.
 
 ### S029 — Android release APK
 
-The workflow provisions pinned `amigaport`, `android-port`, SDL2, and Lucent
-checkouts, then invokes the Android builder for arm64-v8a and inspects the APK.
+The workflow provisions pinned `amigaport`, `android-port`, and Lucent checkouts,
+builds the shared SDL3 Android prefix from the title's profile, then invokes the
+Android builder for arm64-v8a and inspects the APK.
 
-Blocker: the Android toolchain is not installed on this host, and no hosted
+Blocker: this host has the NDK but not the required JDK 26, and no hosted
 assembly has passed yet.
 
 Gap: Android toolchain assembly, signing, device performance, and gameplay

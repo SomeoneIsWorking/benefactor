@@ -67,7 +67,7 @@ Consumers (each verified headless via offscreen readback — the dev box display
 
 1. **CPU rasterizer** (`scene_composite_argb`) — reproduces today's frame **byte-identical**.
    This proves the draw list is lossless: the precondition for any GPU backend to be correct.
-2. **SDL per-sprite** (do first) — same list, `SDL_RenderCopy` per quad (so SDL is a real
+2. **SDL per-sprite** (do first) — same list, `SDL_RenderTexture` per quad (so SDL is a real
    per-sprite renderer). This is the user's priority: get SDL fully set before Vulkan.
 3. **Vulkan** — upload each `idx` as an R8 texture + the palette LUT; draw each quad as a
    textured triangle pair; fragment shader: sample index → `discard` if cookie && index==0 →
@@ -92,7 +92,7 @@ Consumers (each verified headless via offscreen readback — the dev box display
         BENEFACTOR_RENDERER=benren ./build/benefactor-harness Disk.1 Disk.2 Disk.3`; `cmp`.
 - [~] **P2 SDL per-sprite consumer** (user: "get SDL fully set in first").
       - DONE + VERIFIED: `render/scene_sdl.c` — `scene_draw_sdl()` draws each quad as its own
-        SDL texture via `SDL_RenderCopy` (real per-sprite, not a blit). SDL2 has no fragment
+        SDL texture via `SDL_RenderTexture` (real per-sprite, not a blit). SDL3 has no fragment
         shader, so the per-row palette is CPU-resolved when baking each quad's texture
         (transparent -> alpha 0; drawn -> opaque 0xFF|RGB). `scene_sdl_selftest()` diffs it vs
         the CPU rasterizer via a software renderer + readback (display off). Harness `scenesdl`:
@@ -113,7 +113,7 @@ Consumers (each verified headless via offscreen readback — the dev box display
         when the per-sprite path presents is a later optimization. Quad textures are also
         re-baked per frame — cache by `idx` pointer when perf matters.
 - [SHELVED 2026-06-10] **P3 Vulkan consumer** of the list (the per-character-lighting path —
-      SDL2 can't shade, Vulkan can). User decision: bigger priorities; the present_scene seam
+      SDL3 can't shade, Vulkan can). User decision: bigger priorities; the present_scene seam
       and the draw list are ready for it whenever it resumes.
 - [x] **P4 windowed present** — done via the SDL per-sprite path above (the Vulkan
       `vkCmdBlitImage` variant is shelved with P3).

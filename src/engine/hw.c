@@ -1,7 +1,7 @@
 /*
  * hw.c  –  PC hardware implementation
  *
- * Maps Amiga OCS/CIA register addresses to SDL2 operations.
+ * Maps Amiga OCS/CIA register addresses to SDL3 operations.
  * This replaces all of: custom.c, cia.c, copper.c, display.c, audio.c, input.c
  */
 
@@ -19,7 +19,7 @@
     benefactor_log_write(BENEFACTOR_LOG_TRACE, s_copper_writing ? "copper" : "guest", __VA_ARGS__)
 
 #include "port/input.h"
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -345,7 +345,7 @@ static void hw_pace_frame(void) {
     if (s_no_pace)
         return;
     static uint64_t s_next_frame_us = 0;
-    uint64_t now_us = SDL_GetTicks64() * 1000ull;
+    uint64_t now_us = SDL_GetTicks() * 1000ull;
     if (s_next_frame_us == 0 || now_us > s_next_frame_us + 100000ull)
         s_next_frame_us = now_us; /* first frame or big stall: resync */
     s_next_frame_us += 2000000ull / (unsigned)hw_speed_eff_pct();
@@ -392,7 +392,7 @@ int hw_audio_frame_due(void) {
     if (hw_speed_eff_pct() == 100)
         return 1;
     static uint64_t s_next_ms = 0;
-    uint64_t now = SDL_GetTicks64();
+    uint64_t now = SDL_GetTicks();
     if (s_next_ms == 0 || now > s_next_ms + 200)
         s_next_ms = now; /* (re)sync */
     if (now < s_next_ms)
@@ -630,7 +630,7 @@ void hw_handle_key(int sym, int down) {
             case SDLK_RIGHT:
                 pc_pause_input_right();
                 return;
-            case SDLK_z:
+            case SDLK_Z:
             case SDLK_LCTRL:
             case SDLK_SPACE:
             case SDLK_RETURN:
@@ -679,19 +679,19 @@ void hw_handle_key(int sym, int down) {
     apply_bound_input();
 
     switch (sym) {
-    case SDLK_l: /* debug: force LEVEL COMPLETE (the teleport win) */
+    case SDLK_L: /* debug: force LEVEL COMPLETE (the teleport win) */
         if (down) {
             extern void pc_debug_complete_level(void);
             pc_debug_complete_level();
         }
         break;
-    case SDLK_o: /* debug: force GAME OVER (death) */
+    case SDLK_O: /* debug: force GAME OVER (death) */
         if (down) {
             extern void pc_debug_game_over(void);
             pc_debug_game_over();
         }
         break;
-    case SDLK_s: /* save: defer to the main-thread frame boundary in pc_step (the
+    case SDLK_S: /* save: defer to the main-thread frame boundary in pc_step (the
                   * game thread must be parked so its M68K ctx + chip RAM are
                   * coherent; pc_savestate_allowed then gates on steady gameplay). */
         if (down) {
@@ -700,7 +700,7 @@ void hw_handle_key(int sym, int down) {
             (void)g_pc_pending_load;
         }
         break;
-    case SDLK_d: /* load: same deferral as save */
+    case SDLK_D: /* load: same deferral as save */
         if (down) {
             extern int g_pc_pending_save, g_pc_pending_load;
             g_pc_pending_load = 1;
@@ -716,26 +716,26 @@ void hw_handle_key(int sym, int down) {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 #define HW_MAX_PADS 8
-static SDL_GameController *s_pads[HW_MAX_PADS];
+static SDL_Gamepad *s_pads[HW_MAX_PADS];
 static SDL_JoystickID s_pad_ids[HW_MAX_PADS];
 static int s_npads = 0;
 /* Per (axis, direction) digital state for analog→action edge detection. */
-static uint8_t s_axis_on[SDL_CONTROLLER_AXIS_MAX][2];
+static uint8_t s_axis_on[SDL_GAMEPAD_AXIS_COUNT][2];
 #define PAD_AXIS_ON_THRESH 16000
 #define PAD_AXIS_OFF_THRESH 8000
 
 int hw_pad_count(void) { return s_npads; }
 
 static void hw_pad_open(int device_index) {
-    if (!SDL_IsGameController(device_index) || s_npads >= HW_MAX_PADS)
+    if (!SDL_IsGamepad(device_index) || s_npads >= HW_MAX_PADS)
         return;
-    SDL_GameController *gc = SDL_GameControllerOpen(device_index);
+    SDL_Gamepad *gc = SDL_OpenGamepad(device_index);
     if (!gc)
         return;
-    SDL_JoystickID id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(gc));
+    SDL_JoystickID id = SDL_GetGamepadID(gc);
     for (int i = 0; i < s_npads; i++)
         if (s_pad_ids[i] == id) {
-            SDL_GameControllerClose(gc);
+            SDL_CloseGamepad(gc);
             return;
         } /* already open */
     s_pads[s_npads] = gc;
@@ -745,7 +745,7 @@ static void hw_pad_open(int device_index) {
     touch_controls_set_controller_connected(1);
 #endif
     benefactor_log_write(BENEFACTOR_LOG_INFO, "input", "controller connected: %s (%d total)",
-                         SDL_GameControllerName(gc), s_npads);
+                         SDL_GetGamepadName(gc), s_npads);
 }
 
 static void hw_pad_close(SDL_JoystickID id) {
@@ -753,8 +753,8 @@ static void hw_pad_close(SDL_JoystickID id) {
         if (s_pad_ids[i] != id)
             continue;
         benefactor_log_write(BENEFACTOR_LOG_INFO, "input", "controller disconnected: %s",
-                             SDL_GameControllerName(s_pads[i]));
-        SDL_GameControllerClose(s_pads[i]);
+                             SDL_GetGamepadName(s_pads[i]));
+        SDL_CloseGamepad(s_pads[i]);
         s_pads[i] = s_pads[--s_npads];
         s_pad_ids[i] = s_pad_ids[s_npads];
         if (s_npads == 0) { /* no pads left: release any held buttons */
@@ -789,7 +789,7 @@ static void hw_handle_pad_code(int code, int down) {
         }
         return;
     }
-    if (code == SDL_CONTROLLER_BUTTON_START) {
+    if (code == SDL_GAMEPAD_BUTTON_START) {
         if (down) {
             if (pc_pause_active())
                 pc_pause_escape();
@@ -811,21 +811,21 @@ static void hw_handle_pad_code(int code, int down) {
             apply_bound_input();
             return;
         }
-        if (code == SDL_CONTROLLER_BUTTON_DPAD_UP ||
-            code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTY, 0))
+        if (code == SDL_GAMEPAD_BUTTON_DPAD_UP ||
+            code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 0))
             pc_pause_input_up();
-        else if (code == SDL_CONTROLLER_BUTTON_DPAD_DOWN ||
-                 code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTY, 1))
+        else if (code == SDL_GAMEPAD_BUTTON_DPAD_DOWN ||
+                 code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 1))
             pc_pause_input_down();
-        else if (code == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
-                 code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTX, 0))
+        else if (code == SDL_GAMEPAD_BUTTON_DPAD_LEFT ||
+                 code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 0))
             pc_pause_input_left();
-        else if (code == SDL_CONTROLLER_BUTTON_DPAD_RIGHT ||
-                 code == PI_PAD_AXIS_CODE(SDL_CONTROLLER_AXIS_LEFTX, 1))
+        else if (code == SDL_GAMEPAD_BUTTON_DPAD_RIGHT ||
+                 code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 1))
             pc_pause_input_right();
-        else if (code == SDL_CONTROLLER_BUTTON_A)
+        else if (code == SDL_GAMEPAD_BUTTON_SOUTH)
             pc_pause_input_select();
-        else if (code == SDL_CONTROLLER_BUTTON_B)
+        else if (code == SDL_GAMEPAD_BUTTON_EAST)
             pc_pause_escape();
         return;
     }
@@ -919,7 +919,7 @@ void hw_widescreen_refresh(void) {
      * the window instead; fullscreen scales within the display). */
     if (mode != 3 && !s_headless && s_backend) {
         SDL_Window *win = s_backend->window();
-        if (win && !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP))
+        if (win && !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN))
             SDL_SetWindowSize(win, w * 2, HW_DISPLAY_H * 2);
     }
 }
@@ -934,9 +934,9 @@ void hw_fullscreen_refresh(void) {
     if (!win)
         return;
     int want = pc_cfg_bool("fullscreen", 0);
-    int have = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+    int have = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0;
     if (want != have)
-        SDL_SetWindowFullscreen(win, want ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        SDL_SetWindowFullscreen(win, want != 0);
 }
 
 /* Resolve the present (window-owning) backend. The window is created ONCE at init
@@ -978,21 +978,21 @@ int hw_handle_sdl_event(const SDL_Event *ev) {
         return 1;
 #endif
     switch (ev->type) {
-    case SDL_CONTROLLERDEVICEADDED:
-        hw_pad_open(ev->cdevice.which); /* hot-plug */
+    case SDL_EVENT_GAMEPAD_ADDED:
+        hw_pad_open(ev->gdevice.which); /* hot-plug */
         return 1;
-    case SDL_CONTROLLERDEVICEREMOVED:
-        hw_pad_close(ev->cdevice.which);
+    case SDL_EVENT_GAMEPAD_REMOVED:
+        hw_pad_close(ev->gdevice.which);
         return 1;
-    case SDL_CONTROLLERBUTTONDOWN:
-    case SDL_CONTROLLERBUTTONUP:
-        hw_handle_pad_code(ev->cbutton.button, ev->type == SDL_CONTROLLERBUTTONDOWN);
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+    case SDL_EVENT_GAMEPAD_BUTTON_UP:
+        hw_handle_pad_code(ev->gbutton.button, ev->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
         return 1;
-    case SDL_CONTROLLERAXISMOTION: {
-        int axis = ev->caxis.axis;
-        if (axis < 0 || axis >= SDL_CONTROLLER_AXIS_MAX)
+    case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+        int axis = ev->gaxis.axis;
+        if (axis < 0 || axis >= SDL_GAMEPAD_AXIS_COUNT)
             return 1;
-        int v = ev->caxis.value;
+        int v = ev->gaxis.value;
         for (int dir = 0; dir < 2; dir++) { /* 0 = negative, 1 = positive */
             int mag = dir ? v : -v;
             int on =
@@ -1004,22 +1004,19 @@ int hw_handle_sdl_event(const SDL_Event *ev) {
         }
         return 1;
     }
-    case SDL_WINDOWEVENT:
-        if (ev->window.event == SDL_WINDOWEVENT_SIZE_CHANGED && hw_widescreen_mode() == 3)
+    case SDL_EVENT_WINDOW_RESIZED:
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        if (hw_widescreen_mode() == 3)
             hw_widescreen_refresh(); /* auto: follow the window aspect */
         return 0;                    /* not exclusive — others may care */
     default:
         return 0;
     }
 }
-
 static uint8_t s_key_byte = 0xFF;
 /* s_blt_bzero, s_vposr_counter, s_audio[] live on g_state via game_state.h. */
 int s_copper_writing = 0; /* set during copper MOVE execution */
-
-SDL_AudioDeviceID s_audio_dev = 0;
-SDL_AudioSpec s_audio_spec;
-
+SDL_AudioStream *s_audio_stream = NULL;
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Init / fini                                                                  */
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -1058,21 +1055,24 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
         HW_LOG("HEADLESS mode – no SDL video/audio\n");
         GLOBAL_LOG_FLUSH();
         /* Minimal SDL init for timer/events if needed */
-        if (SDL_Init(0) < 0) {
+        if (!SDL_Init(0)) {
             HW_LOG("SDL_Init: %s\n", SDL_GetError());
             GLOBAL_LOG_FLUSH();
             return -1;
         }
     } else {
-        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK |
-                     SDL_INIT_GAMECONTROLLER) < 0) {
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD) ==
+            false) {
             HW_LOG("SDL_Init: %s\n", SDL_GetError());
             return -1;
         }
         /* Controllers already connected at launch (hot-plug arrivals come in as
-         * SDL_CONTROLLERDEVICEADDED events through hw_handle_sdl_event). */
-        for (int i = 0; i < SDL_NumJoysticks(); i++)
-            hw_pad_open(i);
+         * SDL_EVENT_GAMEPAD_ADDED events through hw_handle_sdl_event). */
+        int gamepad_count = 0;
+        SDL_JoystickID *gamepads = SDL_GetGamepads(&gamepad_count);
+        for (int i = 0; gamepads && i < gamepad_count; i++)
+            hw_pad_open(gamepads[i]);
+        SDL_free(gamepads);
 
         /* Pick the present (window-owning) backend — Vulkan when available, else SDL;
          * the same window serves every renderer (see hw_resolve_backend). */
@@ -1102,7 +1102,7 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
     for (int i = 0; i < 32; i++)
         s_palette[i] = amiga_to_argb((uint16_t)(i * 0x111));
 
-    s_frame_start_ns = (uint64_t)SDL_GetTicks64() * 1000000ULL;
+    s_frame_start_ns = (uint64_t)SDL_GetTicks() * 1000000ULL;
     return 0;
 }
 
@@ -1129,22 +1129,22 @@ int hw_present_frame(void) {
     if (!g_harness_frame_hook && !s_ext_input) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) {
+            if (ev.type == SDL_EVENT_QUIT) {
                 s_in_present_frame = 0;
                 return 1;
             }
             if (hw_handle_sdl_event(&ev))
                 continue; /* controllers, window resize */
-            if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP) {
+            if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN || ev.type == SDL_EVENT_MOUSE_BUTTON_UP) {
                 if (ev.button.button == SDL_BUTTON_LEFT)
-                    s_mouse_lmb = (ev.type == SDL_MOUSEBUTTONDOWN);
+                    s_mouse_lmb = (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
             }
-            if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
-                int down = (ev.type == SDL_KEYDOWN);
+            if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_KEY_UP) {
+                int down = (ev.type == SDL_EVENT_KEY_DOWN);
                 /* ESC is handled inside hw_handle_key — it toggles the pause
                  * menu in gameplay, falls back to exit(0) elsewhere. Don't
                  * short-circuit return 1 here or pause never engages. */
-                if (ev.key.keysym.sym == SDLK_F11) {
+                if (ev.key.key == SDLK_F11) {
                     /* F11 = the FULLSCREEN option: flip the persisted knob and
                      * apply it, so the menu row and the next launch agree. */
                     if (!s_headless && down && s_backend) {
@@ -1152,11 +1152,11 @@ int hw_present_frame(void) {
                                        pc_cfg_bool("fullscreen", 0) ? "false" : "true");
                         hw_fullscreen_refresh();
                     }
-                } else if (ev.key.keysym.sym == SDLK_F3) {
+                } else if (ev.key.key == SDLK_F3) {
                     if (down)
                         g_hw_perf_overlay = !g_hw_perf_overlay;
                 } else {
-                    hw_handle_key(ev.key.keysym.sym, down);
+                    hw_handle_key(ev.key.key, down);
                 }
             }
         }
@@ -1173,7 +1173,7 @@ int hw_present_frame(void) {
      * captures are untouched. */
     if (hw_speed_eff_pct() >= 200 && !s_headless && !g_harness_frame_hook && !s_ext_input) {
         static uint64_t s_last_present_ms = 0;
-        uint64_t now = SDL_GetTicks64();
+        uint64_t now = SDL_GetTicks();
         if (now - s_last_present_ms < 16) {
             hw_blit_capture_reset();
             s_frame_num++;

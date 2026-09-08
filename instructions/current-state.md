@@ -11,7 +11,7 @@ owner or the image-qualified `shared/amigaport` interpreter boundary.
 
 ## Android + release path (2026-08-31)
 
-- The project has an arm64-v8a Android target. The native shared library links SDL2 and Lucent;
+- The project has an arm64-v8a Android target. The native shared library links SDL3 and Lucent;
   it compiled successfully with NDK r28c and produced an inspected release-signed APK with Gradle
   9.4.1, AGP 9.2.0, and JDK 26. Android startup requests a folder containing the user's
   `Disk.1`/`Disk.2`/`Disk.3`, imports it through Lucent's bounded SAF transaction into private
@@ -32,7 +32,7 @@ owner or the image-qualified `shared/amigaport` interpreter boundary.
   accepted a user-supplied `Disk.1`/`Disk.2`/`Disk.3` folder, Lucent staged it privately, the game
   rendered in landscape, Fire advanced the title, and Pause opened Options. The test assets and app
   data were cleared afterward. The package now stages the NDK `libc++_shared.so` through the shared
-  `android-port` tool, exports SDL2's required `SDL_main`, excludes Android from Linux's ASLR
+  `android-port` tool, stages SDL3's shared runtime and Java activity sources, excludes Android from Linux's ASLR
   re-exec, and reasserts title-owned landscape after SDL creates its window. Lucent's shared
   immersive setup obtains the decor view before requesting insets on API 35.
 
@@ -100,7 +100,7 @@ guest-address dispatches and no watchdog. The retained game-loop owner uses pthr
   the SDL present backend re-creates its texture/logical size when the content
   width changes (`sdl_ensure_content`). Legacy `BENEFACTOR_WIDESCREEN=<px>`
   still works when the mode knob is unset. 16:9 → 500 px, ultrawide → 658 px.
-- **Game controllers: hot-pluggable** (SDL_GameController). All non-keyboard SDL
+- **Game controllers: hot-pluggable** (SDL_Gamepad). All non-keyboard SDL
   events route through `hw_handle_sdl_event()` (hw.c), called from BOTH event
   pumps (standalone `hw_present_frame` + harness `input_poll`): device
   added/removed, buttons, and analog axes (hysteresis 16000/8000 → digital

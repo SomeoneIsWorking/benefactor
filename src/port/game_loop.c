@@ -556,7 +556,7 @@ int pc_is_title_card_displayed(void) {
 /* Legacy alias — old code says "level card" but means "any banner". */
 int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
 
-/* Deferred save/load: SDLK_s / SDLK_d fire from inside hw_present_frame, on the
+/* Deferred save/load: SDLK_S / SDLK_D fire from inside hw_present_frame, on the
  * MAIN thread. The keys set these flags and the work happens at the next pc_step
  * boundary, where the game thread is parked at its vblank wait (its M68K context
  * quiescent). */

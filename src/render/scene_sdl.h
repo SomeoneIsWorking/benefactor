@@ -1,12 +1,12 @@
 /* scene_sdl.h — the per-sprite SDL consumer of the BenRen draw list.
  *
  * Instead of compositing every sprite into one surface and blitting that, this
- * draws EACH quad as its own SDL texture via SDL_RenderCopy — a real per-sprite
+ * draws EACH quad as its own SDL texture via SDL_RenderTexture — a real per-sprite
  * renderer ("functions like a real PC game"). It's the SDL counterpart of the
  * Vulkan per-quad path, and the routine the windowed SDL present will call once
  * the whole frame is on the draw list.
  *
- * SDL2's 2D renderer has no fragment shader, so the engine's per-output-row
+ * SDL3's 2D renderer has no fragment shader, so the engine's per-output-row
  * palette is resolved on the CPU when baking each quad's texture (transparent
  * texels -> alpha 0). Drawn texels land as opaque 0xFF|RGB, exactly matching the
  * CPU rasterizer (scene_composite_argb), so the two can be diffed byte-for-byte.
@@ -16,7 +16,7 @@
 #define RENDER_SCENE_SDL_H
 
 #include "render/scene.h"
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 /* Draw every quad of `s` into the current render target of `r`, compositing over
  * whatever the target already holds (transparent texels leave it untouched).

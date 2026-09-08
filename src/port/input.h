@@ -47,7 +47,7 @@ int pc_input_active_dev(int dev, int action); /* 1 if held on this device */
 void pc_input_release_all(void);              /* clear all held keys/buttons (focus loss) */
 
 /* ── Controller channel ─────────────────────────────────────────────────────
- * A pad "code" is an SDL_GameControllerButton (0..N), or for analog directions
+ * A pad "code" is an SDL_GamepadButton (0..N), or for analog directions
  * 100 + axis*2 + (1 if positive direction). hw.c translates SDL controller
  * events (incl. axis threshold crossings) into these codes. */
 #define PI_PAD_AXIS_CODE(axis, positive) (100 + (axis) * 2 + ((positive) ? 1 : 0))

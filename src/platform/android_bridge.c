@@ -1,8 +1,8 @@
 #include "platform/android_bridge.h"
 #include "common/log.h"
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_system.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_system.h>
 #include <jni.h>
 #include <lucent/platform_c.h>
 
@@ -40,8 +40,8 @@ static int ensure_import_state(void) {
 }
 
 static int call_activity_picker(const char *message, char *error, size_t error_capacity) {
-    JNIEnv *environment = (JNIEnv *)SDL_AndroidGetJNIEnv();
-    jobject activity = (jobject)SDL_AndroidGetActivity();
+    JNIEnv *environment = (JNIEnv *)SDL_GetAndroidJNIEnv();
+    jobject activity = (jobject)SDL_GetAndroidActivity();
     if (!environment || !activity) {
         snprintf(error, error_capacity, "Android Activity is unavailable: %s", SDL_GetError());
         return 0;
@@ -71,8 +71,8 @@ static int call_activity_picker(const char *message, char *error, size_t error_c
 }
 
 static int call_activity_void(const char *method_name, char *error, size_t error_capacity) {
-    JNIEnv *environment = (JNIEnv *)SDL_AndroidGetJNIEnv();
-    jobject activity = (jobject)SDL_AndroidGetActivity();
+    JNIEnv *environment = (JNIEnv *)SDL_GetAndroidJNIEnv();
+    jobject activity = (jobject)SDL_GetAndroidActivity();
     if (!environment || !activity) {
         snprintf(error, error_capacity, "Android Activity is unavailable: %s", SDL_GetError());
         return 0;
@@ -100,8 +100,8 @@ static int call_activity_void(const char *method_name, char *error, size_t error
 
 static int call_activity_commit(const char *staging_root, char *installed_root,
                                 size_t installed_capacity, char *error, size_t error_capacity) {
-    JNIEnv *environment = (JNIEnv *)SDL_AndroidGetJNIEnv();
-    jobject activity = (jobject)SDL_AndroidGetActivity();
+    JNIEnv *environment = (JNIEnv *)SDL_GetAndroidJNIEnv();
+    jobject activity = (jobject)SDL_GetAndroidActivity();
     if (!environment || !activity) {
         snprintf(error, error_capacity, "Android Activity is unavailable: %s", SDL_GetError());
         return 0;
@@ -158,7 +158,7 @@ static int validate_disks(const char *root, const char **disks, size_t capacity)
 }
 
 int android_bridge_select_disks(const char **disks, size_t capacity) {
-    const char *private_root = SDL_AndroidGetInternalStoragePath();
+    const char *private_root = SDL_GetAndroidInternalStoragePath();
     if (!private_root || !*private_root || !lucent_platform_set_user_data_directory(private_root)) {
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "android",
                              "cannot establish Lucent app-private storage");
