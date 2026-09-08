@@ -78,9 +78,9 @@ def shared_android_port_tool():
 
 
 def required_jdk() -> Path:
-    value = os.environ.get("BENEFACTOR_JAVA_HOME")
+    value = os.environ.get("BENEFACTOR_JAVA_HOME") or os.environ.get("JAVA_HOME")
     if not value:
-        refuse("BENEFACTOR_JAVA_HOME must name a JDK 26 installation")
+        refuse("BENEFACTOR_JAVA_HOME or JAVA_HOME must name a JDK 26 installation")
     home = Path(value).expanduser().resolve()
     java = home / "bin" / "java"
     javac = home / "bin" / "javac"
