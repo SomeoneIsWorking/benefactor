@@ -44,17 +44,17 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S017 | Savestates, direct level entry, headless driving, profiling, and runtime probes support development | partial | S020 | G002 |
 | S018 | Player-facing save slots provide names, timestamps, and screenshot previews | missing | S017 | G002 |
 | S019 | Hold-to-rewind restores recent states from a bounded history | missing | S017, S020 | G002 |
-| S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a maintained interpreter owner | partial | Shared commit `e5f6259` builds and its API is consumed; title conformance and ARM64 gameplay evidence remain open | G001 |
+| S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a maintained interpreter owner | partial | Shared commit `6dc51b1` builds and its API is consumed; title conformance and ARM64 gameplay evidence remain open | G001 |
 | S021 | Image-generation-aware execution, overrides, and scoped original calls work across all four address-reusing images | partial | S005; adapter binds image tags/generations, native registrations, original calls, and opaque CPU snapshots; four-image runtime evidence remains open | G001, G003 |
 | S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | partial | S005; Clang product target links only `amigaport::amigaport`; a real disk boot and symbol/build audit remain open | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
-| S025 | Asset-free source-policy CI runs from a full-history checkout | partial | Hosted run `33887566417` reached the verifier but exposed an unpinned clang-format major-version mismatch; the locked formatter fix is pending hosted verification. | G003 |
-| S026 | Windows CI produces an asset-free package from the native/interpreter product | partial | S005, S022; workflow checks out pinned shared runtime/SDL inputs and builds the real product target; no hosted Windows artifact has passed yet | G004 |
-| S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | partial | S005, S022; CMake has a real macOS bundle target and workflow inputs; no hosted Apple Silicon artifact has passed yet | G004 |
-| S028 | Linux CI produces an asset-free x86-64 AppImage | partial | S005, S022; local Clang build and disk-free AppDir staging pass; hosted AppImage evidence remains open | G003, G004 |
-| S029 | Android CI produces a signed arm64-v8a release APK | blocked | S005, S022; Android toolchain assembly and device evidence remain unverified; workflow now provisions pinned shared inputs | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | partial | S005, S022; real Emscripten entry point, browser disk mount, and Pages workflow are authored; `emcc` and browser execution remain unverified | G004 |
+| S025 | Asset-free source-policy CI runs from a full-history checkout | verified | Hosted run `34199380737` passed the locked source-policy verifier from a full-history checkout without game inputs. | G003 |
+| S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34199380722`, Windows job `101974422800`, built and uploaded the real MinGW product package with pinned shared runtime and SDL3 inputs. | G004 |
+| S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34199380722`, macOS job `101974422515`, built and uploaded the CMake bundle with pinned shared runtime and SDL3 inputs. | G004 |
+| S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34199380722`, Linux job `101974422680`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
+| S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34199380722`, Android job `101974422735`, assembled and inspected an arm64-v8a APK using the explicit CI-only ephemeral test key; maintainer-key signing, device performance, and gameplay evidence remain open. | G003, G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Hosted release run `34199380722`, WASM job `101974422807`, built and uploaded the package; Pages job `101974871569` deployed it to https://someoneisworking.github.io/benefactor/. Browser gameplay execution remains open under S023. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 
 ## Capability details
@@ -251,63 +251,56 @@ methodology are absent. `tools/source_policy.py` rejects their return.
 
 ### S025 — Asset-free CI
 
-Hosted run `33887566417` checked out full Git history with read-only repository
-permissions and pinned action revisions, installed no game disks, and reached the
-retained-source verifier. It failed because the workflow installed
-clang-format 18 from the runner while the maintainer verification used
-clang-format 22; the versions parse several block-scope pointer declarations
-differently despite the same style file.
-
-Gap: the formatter is now pinned in the locked Python tool environment and
-pointer alignment is explicit, but that repair has not yet passed a hosted
-run. The platform release jobs are now claimed in `.github/workflows/release.yml`
-but remain blocked by S005 until they can build a real product artifact.
+Hosted run `34199380737` checked out full Git history with read-only repository
+permissions and pinned action revisions, installed no game disks, and passed the
+locked retained-source verifier.
 
 ### S026 — Windows package
 
 The release workflow checks out pinned `amigaport` and SDL3 inputs, invokes
 `tools.build_desktop` on a native Windows runner, and uploads only the produced
-package.
+package. Hosted run `34199380722` passed job `101974422800` after the shared
+runtime's MinGW linker boundary was corrected.
 
-Gap: no hosted Windows artifact has passed yet; disk boot and package inspection
-remain open.
+Gap: disk boot and real-title package inspection remain open.
 
 ### S027 — macOS app bundle
 
 CMake owns a real macOS bundle target and the release workflow invokes
-`tools.build_desktop` on macOS 14 with pinned shared inputs.
+`tools.build_desktop` on macOS 14 with pinned shared inputs. Hosted run
+`34199380722` passed job `101974422515`.
 
-Gap: no hosted Apple Silicon `.app` has passed yet.
+Gap: disk boot and real-title bundle inspection remain open.
 
 ### S028 — Linux AppImage
 
 The Clang product build and `tools.build_appimage --stage-only` produce a real
 disk-free AppDir locally. The hosted workflow downloads and verifies the pinned
-appimagetool before requiring an AppImage output.
+appimagetool before requiring an AppImage output; hosted run `34199380722`
+passed job `101974422680`.
 
-Gap: no hosted AppImage artifact has passed yet.
+Gap: disk boot and real-title package inspection remain open.
 
 ### S029 — Android release APK
 
 The workflow provisions pinned `amigaport`, `android-port`, and Lucent checkouts,
 builds the shared SDL3 Android prefix from the title's profile, then invokes the
-Android builder for arm64-v8a and inspects the APK.
+Android builder for arm64-v8a and inspects the APK. Hosted run `34199380722`
+passed job `101974422735` using an explicit CI-only ephemeral test key.
 
-Blocker: this host has the NDK but not the required JDK 26, and no hosted
-assembly has passed yet.
-
-Gap: Android toolchain assembly, signing, device performance, and gameplay
-evidence are not yet available.
+Gap: a maintainer key is still required for a published release APK, and Android
+device performance and gameplay evidence are not yet available.
 
 ### S030 — WASM Pages delivery
 
 `CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. Its browser
 entry mounts the three validated disk files into the production disk path before
 calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs,
-and the workflow uploads and deploys them through GitHub Pages.
+and the workflow uploads and deploys them through GitHub Pages. Hosted run
+`34199380722` passed the package job and Pages deployment.
 
-Gap: `emcc` is not installed on this host, so compilation and browser execution
-remain unverified.
+Gap: browser gameplay execution and real disk boot remain unverified locally and
+under S023.
 
 ### S031 — Cross-platform disk browse
 
