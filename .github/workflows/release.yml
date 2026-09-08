@@ -28,7 +28,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
+          ref: 1f173029de775af59ab0a68d3574083a99d79b83
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -74,7 +74,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
+          ref: 1f173029de775af59ab0a68d3574083a99d79b83
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -120,7 +120,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
+          ref: 1f173029de775af59ab0a68d3574083a99d79b83
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -139,6 +139,14 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.12
         with:
           version: "0.10.12"
+      - name: Install SDL3 Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasound2-dev libpulse-dev libx11-dev libxext-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxrandr-dev libxss-dev libwayland-dev \
+            libwayland-egl1-mesa libxkbcommon-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libdrm-dev libudev-dev libvulkan-dev
       - name: Download pinned appimagetool
         shell: bash
         run: |
@@ -177,7 +185,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
+          ref: 1f173029de775af59ab0a68d3574083a99d79b83
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -236,7 +244,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 87b40d50c9ec2654abc5986dcd43a96bd1268c6f
+          ref: 1f173029de775af59ab0a68d3574083a99d79b83
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
