@@ -205,10 +205,10 @@ def main() -> int:
         max(1, min(os.cpu_count() or 1, 4)),
     )
     native = configure_native(ndk, profile, lucent)
-    if native / "libmain.so" != profile.native_library:
+    if native != profile.native_library:
         refuse(
             "Android profile package.nativeLibrary must point at the configured native build: "
-            f"{native / 'libmain.so'}"
+            f"{native}"
         )
     project = stage_gradle_project(lucent, profile)
     android_port.stage_package_runtime(profile)
