@@ -7,8 +7,9 @@ executing every remaining 68000 instruction on demand through
 `shared/amigaport`.
 
 The retired offline 68000-to-C product and its generated corpus have been
-deleted. Runtime interpreter integration and representative-gameplay conformance
-are still missing; see `docs/project-state.md` and `docs/migration.md`.
+deleted. The adapter now builds against `shared/amigaport`; representative
+gameplay conformance and hosted release evidence remain open. See
+`docs/project-state.md` and `docs/migration.md`.
 
 No original game disk, Kickstart ROM, WHDLoad file, generated guest code, or
 reconstructable game asset belongs in the repository or release packages.
@@ -43,12 +44,12 @@ The canonical inventory is `docs/project-state.md`. In summary:
 | Native disk loading, instant boot, and no floppy waits | partial |
 | Free camera, cheats, accessibility, savestate diagnostics | partial |
 | Player save-slot UI and rewind | missing |
-| `amigaport` maintained 68000 interpreter integration | missing |
+| `amigaport` maintained 68000 interpreter integration | partial; adapter builds, gameplay evidence remains |
 | Static translator, generated corpus, and dispatcher removed | verified |
-| Single-owner native/interpreter gameplay composition | missing |
+| Single-owner native/interpreter gameplay composition | partial; link boundary is in place, runtime audit remains |
 | Representative cross-host gameplay conformance and performance | missing |
-| Windows, macOS `.app`, Linux AppImage, Android APK, and WASM Pages releases | blocked at missing `shared/amigaport` runtime |
-| Android and browser disk browse/setup | partial; desktop native picker remains missing |
+| Windows, macOS `.app`, Linux AppImage, Android APK, and WASM Pages releases | CI matrix and asset-free builders authored; hosted/runtime gates remain open |
+| Android, browser, and source-launcher disk browse/setup | partial; packaged desktop persistence and hosted browser handoff remain open |
 
 ## Player-supplied files
 
@@ -75,10 +76,9 @@ Ghidra.
 ## Build and run status
 
 `./run.sh` is the fresh-clone interface and delegates to a locked Python
-initializer. It currently refuses with the exact missing `shared/amigaport` /
-Benefactor adapter boundary; it does not launch an emulator or the deleted
-product. CMake exposes the same deliberate refusal as `benefactor_product`.
-Tests and future oracle runs remain separate commands.
+initializer. It validates the player's three disks, builds the native product,
+and launches it; `./run.sh --browse` opens a desktop file picker for selecting
+the disk set. Tests and oracle runs remain separate commands.
 
 ## Intended runtime
 

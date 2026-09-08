@@ -1,9 +1,8 @@
 /* Benefactor's title-side view of shared/amigaport.
  *
  * This file declares a borrowed adapter view. It does not own or duplicate
- * 68000 architectural state: D and A point into the canonical amigaport CPU
- * context and memory points at the active image mapping. The implementation
- * belongs to the missing Benefactor/amigaport adapter.
+ * 68000 architectural state: D, A, and SR point into the canonical amigaport
+ * CPU context and memory points at the active image mapping.
  */
 #pragma once
 
@@ -26,12 +25,17 @@ typedef struct M68KCtx {
     void *amigaport_runtime;
     uint32_t *D;
     uint32_t *A;
+    uint16_t *sr;
     uint8_t *memory;
     size_t memory_size;
     BenefactorImageIdentity image;
 } M68KCtx;
 
 typedef void (*NativeFn)(M68KCtx *ctx);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 enum {
     BENEFACTOR_IMAGE_MASK_MAIN = 1u << 0,
@@ -65,6 +69,9 @@ void rt_register_native(uint32_t image_mask, uint32_t address, NativeFn function
  * explicit mask; they are not static-dispatch tables. */
 void rt_register_override(uint32_t address, NativeFn function);
 void rt_register_override_gp(uint32_t address, NativeFn function);
+void rt_context_bind(M68KCtx *ctx);
+void rt_context_reset(M68KCtx *ctx, BenefactorImageKind image_kind);
+void rt_activate_image(M68KCtx *ctx, BenefactorImageKind image_kind);
 void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 void rt_call_original(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
@@ -78,6 +85,12 @@ void rt_fini(void);
 void rt_resume(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 int rt_has_guest_code(BenefactorImageIdentity image, uint32_t address);
 int rt_is_resume_point(const M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
+
+/* The snapshot is an opaque serialization of amigaport::CpuState. It keeps
+ * save files from introducing a second CPU model in this title. */
+size_t rt_state_blob_size(void);
+int rt_state_blob_save(void *destination, size_t capacity);
+int rt_state_blob_load(const void *source, size_t size);
 
 #define BENEFACTOR_GUEST_MEMORY_SIZE (8u * 1024u * 1024u)
 #define RT_MEM_SIZE BENEFACTOR_GUEST_MEMORY_SIZE
@@ -93,3 +106,7 @@ uint32_t rt_get_last_insn(void);
 uint32_t rt_get_active_call_address(void);
 int rt_insn_ring_snapshot(uint32_t *dest, int capacity);
 int rt_recent_snapshot(uint32_t *dest, int capacity);
+
+#ifdef __cplusplus
+}
+#endif

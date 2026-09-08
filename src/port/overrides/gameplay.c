@@ -171,10 +171,8 @@ void native_gameplay_input(M68KCtx *ctx) {
      * interact = pick up AND put down, symmetric. Stationary-only in BOTH
      * states: with a direction held the presented fire would decode as a
      * long jump, not a lift/let-go ($f80 != $20). */
-    extern int native_hands_full(M68KCtx * ctx); /* $10AC bit14: merry man held */
     static int s_mm_intent_consumed = 0;
     int interact = hw_get_interact();
-    int mm_carried = native_hands_full(ctx);
     if (!interact)
         s_mm_intent_consumed = 0; /* release → rearm */
     int mm_pickup_intent = interact && !s_mm_intent_consumed && !carrying && !down &&

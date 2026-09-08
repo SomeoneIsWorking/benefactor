@@ -59,6 +59,12 @@
     lastValid = validated;
     status.textContent = "Disk set verified. Starting Benefactor…";
     window.dispatchEvent(new CustomEvent("benefactor-disks-validated", { detail: validated }));
+    for (const [name, result] of Object.entries(validated)) {
+      Module.FS.writeFile(`/${name}`, result.bytes);
+    }
+    if (Module.ccall("benefactor_web_start", "number", [], []) !== 0) {
+      fail("Benefactor could not start from the verified disk set.");
+    }
   }
 
   input.addEventListener("change", () => {
