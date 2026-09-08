@@ -215,6 +215,36 @@ class Runtime final {
         return executor.call_original();
     }
 
+    amigaport::ExecutionExit call_original_subroutine(std::uint32_t address) {
+        executor.state().pc = address;
+        executor.state().prefetch_valid = false;
+        return executor.call_original_subroutine();
+    }
+
+    int return_from_native() {
+        const auto return_pc = memory.read32(executor.state().address[7]);
+        if (!return_pc) {
+            benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
+                                 "native replacement return address read failed at $%06X",
+                                 executor.state().address[7]);
+            return -1;
+        }
+        if ((return_pc.value & 1u) != 0u || return_pc.value >= bytes.size()) {
+            benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
+                                 "native replacement returned to invalid PC $%06X from $%06X",
+                                 return_pc.value, executor.state().address[7]);
+            return -1;
+        }
+        executor.state().address[7] += 4u;
+        executor.state().pc = return_pc.value;
+        executor.state().prefetch_valid = false;
+        return 0;
+    }
+
+    amigaport::ExecutionExit call_interrupt(std::uint32_t address) {
+        return executor.call_interrupt(address);
+    }
+
     void jump(std::uint32_t address) { (void)execute(address); }
 
     amigaport::MemoryRead<std::uint8_t> read8(std::uint32_t address) {
@@ -356,6 +386,13 @@ void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     log_exit(runtime().execute(address));
 }
 
+void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
+    (void)image_kind(image);
+    if (ctx != nullptr)
+        rt_context_bind(ctx);
+    log_exit(runtime().call_interrupt(address));
+}
+
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     rt_call(ctx, image, address);
 }
@@ -366,6 +403,19 @@ void rt_call_original(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t addr
     if (ctx != nullptr)
         rt_context_bind(ctx);
     log_exit(runtime().call_original(address));
+}
+
+void rt_call_original_subroutine(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
+    (void)image;
+    if (ctx != nullptr)
+        rt_context_bind(ctx);
+    log_exit(runtime().call_original_subroutine(address));
+}
+
+int rt_return_from_native(M68KCtx *ctx) {
+    if (ctx != nullptr)
+        rt_context_bind(ctx);
+    return runtime().return_from_native();
 }
 
 void rt_reset_callstack(void) {}

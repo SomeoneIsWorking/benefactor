@@ -316,26 +316,7 @@ void native_level_setup(M68KCtx *ctx) {
     for (int i = 0; i < in && used > 0 && used < (int)sizeof lead_up; i++)
         used += snprintf(lead_up + used, sizeof lead_up - (size_t)used, " %06X", ins[i]);
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-setup", "%s", lead_up);
-    rt_call_original(ctx, ctx->image, 0x005782B4u);
-}
-
-/* ── $59DC02 — level loader ───────────────────────────────────────────────────
- * Called from the end-of-level banner (twice) to build/load a level. The
- * next-level load on a WIN currently freezes; log its inputs so we can see how
- * the win-path load differs from the (working) game-over load. Pure passthrough
- * otherwise. */
-void native_wsobj_commit_reset(void); /* defined with the wsobj capture below */
-
-void native_level_load(M68KCtx *ctx) {
-    native_wsobj_commit_reset(); /* object nodes are per-level */
-    {
-        extern void native_lc_text_set(void);
-        native_lc_text_set();
-    } /* re-pin "LEVEL COMPLETE" over the password text */
-    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-load",
-                         "$59DC02: d0=%08X d1=%08X a0=%08X a1=%08X a2=%08X a3=%08X", ctx->D[0],
-                         ctx->D[1], ctx->A[0], ctx->A[1], ctx->A[2], ctx->A[3]);
-    rt_call_original(ctx, ctx->image, 0x0059DC02u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x005782B4u);
 }
 
 /* ── Native object capture for widescreen ($57D79A walk + $57D8D0 draw) ───────

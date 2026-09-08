@@ -277,6 +277,21 @@ static void hw_compose_output(void) {
 static int s_scanline = 0;
 static int s_frame_num = 0;
 
+/* A register read advances the synthetic beam when guest code is polling the
+ * custom-chip position registers. The disk-boot coroutine owns presentation at
+ * a wrapped beam for every screen state, not only gameplay. */
+static void hw_step_register_beam(void) {
+    s_scanline++;
+    if (s_scanline < 312)
+        return;
+
+    s_scanline = 0;
+    if (g_hw_vblank_yield && g_hw_vblank_yield() != 0)
+        return;
+    else
+        s_frame_num++;
+}
+
 int hw_get_frame_num(void) { return s_frame_num; }
 
 /* Frame timing */
@@ -1949,34 +1964,11 @@ uint16_t hw_read16(uint32_t addr) {
             return val;
         }
         case VPOSR: {
-            /* Simulated beam: each VPOSR read advances the beam counter.
-             * After ~5000 reads, a frame boundary occurs.  This keeps
-             * the VPOSR wait loops spinning at a reasonable rate while
-             * still generating frame boundaries for sync. The original guest
-             * image's vblank-sync loops are recognized at the interpreter boundary
-             * and call hw_vblank_wait(), so this path is only a fallback for
-             * incidental VPOSR reads — it must NOT yield. */
-            s_vposr_counter++;
-            int do_frame = (s_vposr_counter >= 5000);
-            if (do_frame) {
-                s_vposr_counter = 0;
-                s_scanline = 0;
-                s_frame_num++;
-                /* Presentation must have exactly ONE driver. When the game-loop module owns the
-                 * frame loop (every current path), it presents explicitly once
-                 * per frame; auto-presenting here too would inject a second
-                 * present at a different beam phase → temporal double-buffer
-                 * zigzag. Keep advancing the beam/frame counter (so the game's
-                 * VPOSR wait-loops still terminate) but do NOT present. */
-                if (!g_hw_pc_owns_present && hw_running && hw_present_frame() != 0) {
-                    hw_running = 0;
-                    s_scanline = 999;
-                    return 0;
-                }
-            }
-            uint16_t lof = 1;
-            uint16_t val = (uint16_t)((lof << 15) | (s_frame_num & 1));
-            return val;
+            /* VPOSR is LOF:V8:V7..V0. In particular, a byte read from
+             * $DFF005 observes the scanline's low byte; it is not frame
+             * parity. Boot code uses that bit to wait for a beam transition. */
+            hw_step_register_beam();
+            return (uint16_t)(0x8000u | (uint16_t)(s_scanline & 0x1FF));
         }
         case VHPOSR: {
             /* The gameplay code frame-syncs by busy-waiting for a specific
@@ -1994,33 +1986,9 @@ uint16_t hw_read16(uint32_t addr) {
              * return means a repeated wait for the same line must traverse a
              * full frame (exactly one yield) rather than matching instantly. */
 
-            if (g_gameplay_active && g_hw_vblank_yield) {
-                /* Model an advancing beam: each read steps one scanline. A
-                 * beam-wait loop (cmpi.b #line,$6(a6); bne) exits when the
-                 * beam reaches ITS target line — naturally, once per frame,
-                 * whatever line it waits for ($3B main loop / $3A level-setup).
-                 * Yield (present + deliver the level-3/6 IRQs) ONLY when the
-                 * beam wraps to the top = exactly one displayed frame.
-                 *
-                 * The previous version yielded on EVERY read and returned the
-                 * target line immediately: a single game-frame issues several
-                 * beam reads, so the game advanced several presents per frame
-                 * -> it ran ~4x too slow, stuttered (repeated frames), and the
-                 * GET-READY banner phase never elapsed. One-yield-per-wrap puts
-                 * one game-frame per displayed frame. */
-                static unsigned beam = 0;
-                beam++;
-                if (beam >= 312u) { /* PAL frame = 312 scanlines */
-                    beam = 0;
-                    g_hw_vblank_yield();
-                }
-                return (uint16_t)((beam & 0xFFu) << 8);
-            }
-            /* Fast toggling bit 0 — no real-time delay so VPOSR wait
-             * loops complete instantly instead of spinning for 20ms. */
-            static uint8_t vh_toggle = 0;
-            vh_toggle ^= 1;
-            return (uint16_t)(((s_scanline & 0xFF) << 8) | vh_toggle);
+            /* Advance the shared PAL beam for every screen state. */
+            hw_step_register_beam();
+            return (uint16_t)((s_scanline & 0xFF) << 8);
         }
         case JOY0DAT: {
             uint16_t v = hw_joystick();
@@ -2493,7 +2461,7 @@ void hw_blitter_sync(void) {
     s_blt_bzero = 1;
 }
 
-void (*g_hw_vblank_yield)(void) = NULL;
+int (*g_hw_vblank_yield)(void) = NULL;
 int g_hw_pc_owns_present = 0;
 
 /* Called when the game commits the display copper pointer (writes COP1LC) — the
@@ -2510,7 +2478,7 @@ void hw_vblank_wait(void) {
      * back to the frame driver (render + input + IRQs), then resume the game.
      * Otherwise a no-op (the snapshot path drives frames from src/port/game_loop.c). */
     if (g_hw_vblank_yield)
-        g_hw_vblank_yield();
+        (void)g_hw_vblank_yield();
 }
 
 void hw_wait_fire(int want_pressed) {
