@@ -1804,7 +1804,8 @@ int hw_load_disk(int disk, uint32_t offset, uint32_t len, uint32_t dst_amiga) {
     uint8_t *dst = g_mem + (dst_amiga & 0xFFFFFF);
     size_t n = fread(dst, 1, len, fp);
     fclose(fp);
-    HW_LOG("Disk %d: loaded %zu/%u bytes at $%06X (off $%X)\n", disk, n, len, dst_amiga, offset);
+    HW_LOG("Disk %d: loaded %llu/%u bytes at $%06X (off $%X)\n", disk, (unsigned long long)n, len,
+           dst_amiga, offset);
     return (n == len) ? 0 : -1;
 }
 

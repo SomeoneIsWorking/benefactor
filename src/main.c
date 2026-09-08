@@ -8,7 +8,7 @@
 #include <unistd.h>
 #ifdef BENEFACTOR_ANDROID
 #include "platform/android_bridge.h"
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #endif
 
 /* Headless Vulkan self-test (no window/disks): render a gradient through the
