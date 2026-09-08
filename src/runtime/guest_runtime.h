@@ -73,8 +73,14 @@ void rt_context_bind(M68KCtx *ctx);
 void rt_context_reset(M68KCtx *ctx, BenefactorImageKind image_kind);
 void rt_activate_image(M68KCtx *ctx, BenefactorImageKind image_kind);
 void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
+void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 void rt_call_original(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
+void rt_call_original_subroutine(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
+/* Complete a native replacement entered through a guest JSR.  Native code
+ * owns the replacement body, but the guest stack and continuation remain
+ * architectural state owned by the interpreter. */
+int rt_return_from_native(M68KCtx *ctx);
 
 /* Transitional host seams awaiting the adapter implementation. They are
  * declarations only; no gameplay target is built until shared/amigaport owns

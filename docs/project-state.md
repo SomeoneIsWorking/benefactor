@@ -29,7 +29,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S002 | Native pause/options apply and persist modern settings in game | partial | S005 | G002 |
 | S003 | Keyboard, hot-pluggable controllers, touch, rebinding, and alternate controls share logical actions | partial | S005 | G002 |
 | S004 | Android provides no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
-| S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | partial | S020 | G001 |
+| S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | partial | S020; the local Clang/headless run loads Disk.1-Disk.3, reaches `$577000`, and completes the first three native `=SB=` level-data loads; title-wide conformance remains open | G001 |
 | S006 | PUAE differential scenarios and interactive controls are preserved as an independent oracle for the shipping interpreter | partial | S005 | G001 |
 | S007 | Turbo, hyper, and hold-to-fast-forward change gameplay pace while audio remains at normal speed | partial | S005 | G002 |
 | S008 | Optional platformer physics provides variable jump, air control, momentum, and tunable motion while classic physics remains | partial | S005 | G002 |
@@ -44,9 +44,9 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S017 | Savestates, direct level entry, headless driving, profiling, and runtime probes support development | partial | S020 | G002 |
 | S018 | Player-facing save slots provide names, timestamps, and screenshot previews | missing | S017 | G002 |
 | S019 | Hold-to-rewind restores recent states from a bounded history | missing | S017, S020 | G002 |
-| S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a maintained interpreter owner | partial | Shared commit `6dc51b1` builds and its API is consumed; title conformance and ARM64 gameplay evidence remain open | G001 |
-| S021 | Image-generation-aware execution, overrides, and scoped original calls work across all four address-reusing images | partial | S005; adapter binds image tags/generations, native registrations, original calls, and opaque CPU snapshots; four-image runtime evidence remains open | G001, G003 |
-| S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | partial | S005; Clang product target links only `amigaport::amigaport`; a real disk boot and symbol/build audit remain open | G001, G003 |
+| S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a maintained interpreter owner | partial | Shared runtime tests cover interrupt/RTE and original-subroutine boundaries; the Benefactor disk run reaches gameplay, while title conformance and ARM64 gameplay evidence remain open | G001 |
+| S021 | Image-generation-aware execution, overrides, and scoped original calls work across all four address-reusing images | partial | S005; adapter binds image tags/generations, native registrations, interrupt calls, original subroutines, and opaque CPU snapshots; four-image runtime evidence remains open | G001, G003 |
+| S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | partial | S005; the Clang product target links only `amigaport::amigaport`, and an authenticated Disk.1-Disk.3 run reaches `$577000`; title-wide conformance and symbol/build audit remain open | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
 | S025 | Asset-free source-policy CI runs from a full-history checkout | verified | Hosted run `34200853713` passed the locked source-policy verifier from a full-history checkout without game inputs. | G003 |
@@ -100,15 +100,18 @@ desktop setup in S031.
 
 ### S005 — Native/interpreter execution
 
-Evidence: `src/runtime/guest_runtime.cpp` now owns the narrow Benefactor adapter
-to `shared/amigaport`: canonical CPU views, checked big-endian guest memory,
-OCS/CIA forwarding, image-qualified native registrations, scoped original calls,
-and opaque CPU-state savestates. The Clang CMake product builds and links this
+Evidence: `src/runtime/guest_runtime.cpp` owns the narrow Benefactor adapter to
+`shared/amigaport`: canonical CPU views, checked big-endian guest memory,
+OCS/CIA forwarding, image-qualified native registrations, interrupt/original
+subroutine boundaries, and opaque CPU-state savestates. A local Clang/headless
+run with the user-provided Disk.1-Disk.3 boots through the interpreter, reaches
+`$577000`, performs native ATN segment loads, and completes three native `=SB=`
+level-data decodes before entering gameplay. The Clang CMake product links this
 adapter with no generated guest corpus or diagnostic PUAE target.
 
-Gap: no authenticated disk boot has yet been exercised through this adapter, and
-the shared runtime's representative gameplay, Android arm64, and browser gates
-remain open. Issue #1 remains open for those conformance checks.
+Gap: representative gameplay correctness/performance, Android arm64, browser
+execution, and the four-image conformance gate remain open. Issue #1 remains
+open for those checks.
 
 ### S006 — Independent oracle and control
 
@@ -212,8 +215,9 @@ action over complete image-aware runtime state.
 
 ### S020 — Complete 68000 framework
 
-Evidence: shared commit `6dc51b1` owns the CPU state, exception, timing, and
-maintained interpreter API consumed by the Benefactor adapter.
+Evidence: shared commit `4fb3dd8` owns the CPU state, exception, timing, guest
+RTE interrupt-call, and native-subroutine continuation APIs consumed by the
+Benefactor adapter.
 
 Gap: title conformance, representative gameplay, and Apple Silicon/Android
 arm64 evidence remain open. Issue #2.

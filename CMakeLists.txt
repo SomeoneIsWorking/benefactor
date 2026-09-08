@@ -89,6 +89,7 @@ set(BENEFACTOR_SOURCES
     src/engine/hw_blitter.c
     src/engine/hw_watchdog.c
     src/engine/overlay_load.c
+    src/engine/sb_decompress.c
     src/port/config.c
     src/port/freecam.c
     src/port/game_loop.c
@@ -100,6 +101,7 @@ set(BENEFACTOR_SOURCES
     src/port/overrides/boot.c
     src/port/overrides/copper.c
     src/port/overrides/gameplay.c
+    src/port/overrides/level_load.c
     src/port/overrides/hw.c
     src/port/overrides/pickup.c
     src/port/overrides/platformer.c

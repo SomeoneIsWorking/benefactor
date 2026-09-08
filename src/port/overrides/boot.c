@@ -183,29 +183,28 @@ void native_gp_disk_read(M68KCtx *ctx) {
                          "[gp-disk-read] disk%d off=$%06X len=$%06X dest=$%06X rc=%d\n", disk, off,
                          len, dest, rc);
     ctx->D[0] = 0; /* success: caller does neg.w d0; bmi error -> d0=0 continues */
+    (void)rt_return_from_native(ctx);
 }
 
 #include <string.h>
 
-/* $577E96 — the in-game level-segment decruncher. The original guest body handles
- * ONLY "ATN!" (non-ATN falls through to a plain rts, leaving the segment
- * crunched — downstream the level-state init $57CC1A zero-scan then runs off
- * into garbage). The fan-made Disk.4 extra levels are crunched with standard
- * Imploder magic "IMP!" — same container and bitstream as ATN! (the token
- * tables travel in the stream), so route those through our C atn_decrunch
- * (which now accepts both magics) and keep ATN! on the original guest body.
- * Exit contract is trivial: the original is movem-balanced and no caller
- * consumes d0/flags after the bsr. */
+/* $577E96 — the in-game level-segment decruncher. Both retail "ATN!" and
+ * fan-made "IMP!" segments use the same maintained native decrunch owner as
+ * the overlay loader. Keeping this data transform out of the 68000 interpreter
+ * avoids spending nearly a million interpreted instructions per segment while
+ * preserving the guest JSR continuation. */
 void native_level_decrunch(M68KCtx *ctx) {
     extern uint32_t atn_decrunch(uint32_t);
     uint32_t magic = MR32(ctx->A[0]);
-    if (magic == 0x494D5021u) { /* "IMP!" -> native Imploder */
+    if (magic == 0x41544E21u || magic == 0x494D5021u) { /* "ATN!" or "IMP!" */
         uint32_t n = atn_decrunch(ctx->A[0]);
         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
-                             "[lvl-decrunch] IMP! at $%06X -> %u bytes\n", ctx->A[0], n);
+                             "[lvl-decrunch] magic=$%08X at $%06X -> %u bytes\n", magic, ctx->A[0],
+                             n);
+        (void)rt_return_from_native(ctx);
         return;
     }
-    rt_call_original(ctx, ctx->image, 0x00577E96u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x00577E96u);
 }
 
 /* Native port of the title-bank glyph blitter at $0049B6 — the routine

@@ -210,8 +210,10 @@ extern void (*g_harness_prerender_hook)(void);
  * invokes this (it exits the interpreter cold-start coroutine to the frame loop). */
 extern void (*g_hw_boot_handoff)(void);
 
-/* Disk-boot coroutine: when set, hw_vblank_wait() yields to the frame driver. */
-extern void (*g_hw_vblank_yield)(void);
+/* Disk-boot coroutine: when set, hw_vblank_wait() yields to the frame driver.
+ * The callback returns nonzero only when it actually parks the game thread;
+ * main-thread interrupt handlers may reach the same wait without handing off. */
+extern int (*g_hw_vblank_yield)(void);
 
 /* Set by src/port/game_loop.c when it owns the frame loop (presents explicitly once per frame).
  * Suppresses the VPOSR-read auto-present so presentation has a single driver. */

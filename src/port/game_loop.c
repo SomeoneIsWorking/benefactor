@@ -68,7 +68,7 @@ static void call_fn(M68KCtx *ctx, uint32_t addr) {
         sa[i] = ctx->A[i];
     for (int i = 0; i < 8; i++)
         sd[i] = ctx->D[i];
-    rt_call(ctx, ctx->image, addr);
+    rt_call_interrupt(ctx, ctx->image, addr);
     for (int i = 0; i < 8; i++)
         ctx->A[i] = sa[i];
     for (int i = 0; i < 8; i++)
@@ -602,9 +602,9 @@ int pc_step_threaded(void);
  * the host releases it. An IRQ handler that hits a wait runs on the MAIN thread
  * (call_fn) — it must NOT block here (would deadlock), so non-game threads return
  * immediately. On a restart request the parked thread exits cleanly. */
-static void game_thread_yield(void) {
+static int game_thread_yield(void) {
     if (!s_is_game_thread)
-        return;
+        return 0;
     pthread_mutex_lock(&s_hand_mtx);
     s_turn = 0; /* hand the turn back to main */
     pthread_cond_broadcast(&s_hand_cv);
@@ -614,6 +614,7 @@ static void game_thread_yield(void) {
     pthread_mutex_unlock(&s_hand_mtx);
     if (exit_req)
         pthread_exit(NULL);
+    return 1;
 }
 
 static void *game_thread_main(void *arg) {
