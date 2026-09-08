@@ -160,6 +160,64 @@ def stage_gradle_project(lucent: Path, profile) -> Path:
     return project
 
 
+def prepare_signing_environment(environment: dict[str, str], jdk: Path) -> None:
+    signing_names = (
+        "BENEFACTOR_ANDROID_KEYSTORE",
+        "BENEFACTOR_ANDROID_KEY_ALIAS",
+        "BENEFACTOR_ANDROID_STORE_PASSWORD",
+        "BENEFACTOR_ANDROID_KEY_PASSWORD",
+    )
+    configured = [environment.get(name) for name in signing_names]
+    if all(configured):
+        return
+    if any(configured):
+        refuse("all BENEFACTOR_ANDROID_KEY_* and password variables are required together")
+    if environment.get("BENEFACTOR_ANDROID_EPHEMERAL_SIGNING") != "1":
+        refuse(
+            "release APK assembly needs maintainer signing variables or explicit "
+            "BENEFACTOR_ANDROID_EPHEMERAL_SIGNING=1"
+        )
+
+    keytool = jdk / "bin" / "keytool"
+    if not keytool.is_file():
+        refuse(f"JDK keytool is missing: {keytool}")
+    keystore = BUILD / "ci-test.keystore"
+    password = "benefactor-ci-only"
+    if not keystore.is_file():
+        run(
+            [
+                str(keytool),
+                "-genkeypair",
+                "-noprompt",
+                "-keystore",
+                str(keystore),
+                "-storepass",
+                password,
+                "-keypass",
+                password,
+                "-alias",
+                "benefactor-ci",
+                "-keyalg",
+                "RSA",
+                "-keysize",
+                "2048",
+                "-validity",
+                "1",
+                "-dname",
+                "CN=Benefactor CI",
+            ],
+            environment=environment,
+        )
+    environment.update(
+        {
+            "BENEFACTOR_ANDROID_KEYSTORE": str(keystore),
+            "BENEFACTOR_ANDROID_KEY_ALIAS": "benefactor-ci",
+            "BENEFACTOR_ANDROID_STORE_PASSWORD": password,
+            "BENEFACTOR_ANDROID_KEY_PASSWORD": password,
+        }
+    )
+
+
 def inspect_apk(apk: Path) -> None:
     if not apk.is_file():
         refuse(f"Gradle did not produce {apk}")
@@ -215,6 +273,7 @@ def main() -> int:
     environment = dict(os.environ)
     environment["ANDROID_SDK_ROOT"] = str(sdk)
     environment["JAVA_HOME"] = str(jdk)
+    prepare_signing_environment(environment, jdk)
     task = ":app:assembleRelease" if args.release else ":app:assembleDebug"
     run(["./gradlew", "--no-daemon", task], cwd=project, environment=environment)
     variant = "release" if args.release else "debug"
