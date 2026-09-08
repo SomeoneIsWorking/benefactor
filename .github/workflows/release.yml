@@ -146,7 +146,7 @@ jobs:
             libasound2-dev libpulse-dev libx11-dev libxext-dev libxcursor-dev \
             libxi-dev libxinerama-dev libxrandr-dev libxss-dev libwayland-dev \
             libwayland-egl1-mesa libxkbcommon-dev libegl1-mesa-dev libgl1-mesa-dev \
-            libdrm-dev libudev-dev libvulkan-dev
+            libdrm-dev libudev-dev libvulkan-dev libxtst-dev
       - name: Download pinned appimagetool
         shell: bash
         run: |
@@ -194,7 +194,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/android-port
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 9126444ee0c2da8108726d6f6d5287f0304a1a27
+          ref: fa8b8f67bb446783b4aeea1def40c5d67040b7f1
           path: shared/android-port
           persist-credentials: false
       - name: Check out pinned Lucent

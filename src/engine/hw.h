@@ -28,8 +28,8 @@ void hw_request_headless(void); /* call before hw_init: render fb but open no wi
 void hw_fini(void);
 
 /* Frame watchdog: arm before a single-frame step; if the frame hangs longer than
- * `seconds`, SIGALRM reports the likely cause (last hw register read + cop1lc)
- * and kills the app. Disarm after the frame returns. */
+ * `seconds`, the platform timer reports the likely cause (last hw register read
+ * + cop1lc) and kills the app. Disarm after the frame returns. */
 void hw_watchdog_arm(const char *what, int seconds);
 void hw_watchdog_disarm(void);
 

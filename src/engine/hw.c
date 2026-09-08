@@ -10,9 +10,10 @@
 #include "port/port.h" /* level/world layout accessors (single source of truth) */
 #include "render/native_renderer.h"
 #include <fcntl.h>
-#include <signal.h>
 #include <sys/stat.h> /* mkdir for the scratch/ frame-dump dir */
-#include <unistd.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 
 #define HW_LOG(...) benefactor_log_write(BENEFACTOR_LOG_DEBUG, "hardware", __VA_ARGS__)
 #define HWTRACE(...)                                                                               \
@@ -28,6 +29,14 @@
 #include "port/touch_controls.h"
 #endif
 #include "port/config.h" /* pc_render_mode() — frame-renderer mode select */
+
+static void hw_ensure_scratch_directory(void) {
+#ifdef _WIN32
+    (void)_mkdir("scratch");
+#else
+    (void)mkdir("scratch", 0755);
+#endif
+}
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Amiga OCS register offsets (relative to $DFF000)                           */
@@ -1300,7 +1309,7 @@ int hw_present_frame(void) {
              * 352px content fb. hw_compose_output() already ran this frame.
              * Artifacts go under gitignored scratch/, never the repo root. */
             const char *path = "scratch/frame_dump.bmp";
-            mkdir("scratch", 0755); /* ok if it already exists */
+            hw_ensure_scratch_directory(); /* ok if it already exists */
             FILE *fp = fopen(path, "wb");
             if (fp) {
                 int W = s_hw_out_w, H = HW_DISPLAY_H;
@@ -1849,32 +1858,6 @@ uint8_t hw_read8(uint32_t addr) {
     uint16_t w = hw_read16(addr & ~1u);
     return (addr & 1) ? (uint8_t)(w & 0xFF) : (uint8_t)(w >> 8);
 }
-
-volatile uint32_t g_hw_last_read = 0; /* last hw register address read (watchdog diagnostic) */
-
-/* ── Frame watchdog ──────────────────────────────────────────────────────────
- * Arm before stepping a single frame; if that frame doesn't finish within a few
- * seconds it's an infinite loop (typically an interrupt/beam busy-wait that never
- * gets satisfied). SIGALRM then reports the likely cause and kills the app. */
-static volatile const char *s_wd_what = NULL;
-static void hw_watchdog_handler(int sig) {
-    (void)sig;
-    uint32_t cop = ((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1];
-    const uint32_t values[] = {rt_get_active_call_address(), g_hw_last_read, cop};
-    benefactor_log_signal_hex(s_wd_what ? (const char *)s_wd_what : "frame watchdog", values,
-                              sizeof values / sizeof values[0]);
-    _exit(2);
-}
-void hw_watchdog_arm(const char *what, int seconds) {
-    static int inited = 0;
-    if (!inited) {
-        signal(SIGALRM, hw_watchdog_handler);
-        inited = 1;
-    }
-    s_wd_what = what;
-    alarm((unsigned)(seconds > 0 ? seconds : 2));
-}
-void hw_watchdog_disarm(void) { alarm(0); }
 
 uint16_t hw_read16(uint32_t addr) {
     addr &= 0xFFFFFF;

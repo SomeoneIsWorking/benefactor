@@ -73,6 +73,7 @@ set(BENEFACTOR_SOURCES
     src/engine/hw.c
     src/engine/hw_audio.c
     src/engine/hw_blitter.c
+    src/engine/hw_watchdog.c
     src/engine/overlay_load.c
     src/port/config.c
     src/port/freecam.c
