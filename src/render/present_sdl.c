@@ -26,23 +26,22 @@ static int sdl_ensure_content(int w, int h) {
         SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
     if (!s_texture)
         return -1;
-    SDL_RenderSetLogicalSize(s_renderer, w, h);
+    SDL_SetRenderLogicalPresentation(s_renderer, w, h, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     s_content_w = w;
     s_content_h = h;
     return 0;
 }
 
 static int sdl_init(const char *title, int content_w, int content_h) {
-    s_window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                content_w * 2, content_h * 2, SDL_WINDOW_RESIZABLE);
+    s_window = SDL_CreateWindow(title, content_w * 2, content_h * 2, SDL_WINDOW_RESIZABLE);
     if (!s_window)
         return -1;
 
     /* No PRESENTVSYNC: vsync would lock the game to the monitor's refresh
      * (e.g. 60 Hz -> 20% too fast). hw_present_frame paces to PAL 50 Hz. */
-    s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_ACCELERATED);
+    s_renderer = SDL_CreateRenderer(s_window, NULL);
     if (!s_renderer)
-        s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_SOFTWARE);
+        s_renderer = SDL_CreateRenderer(s_window, "software");
     if (!s_renderer)
         return -1;
 
@@ -54,7 +53,7 @@ static void sdl_present(const uint32_t *argb, int w, int h) {
         return;
     SDL_UpdateTexture(s_texture, NULL, argb, w * 4);
     SDL_RenderClear(s_renderer);
-    SDL_RenderCopy(s_renderer, s_texture, NULL, NULL);
+    SDL_RenderTexture(s_renderer, s_texture, NULL, NULL);
     SDL_RenderPresent(s_renderer);
 }
 
@@ -78,7 +77,8 @@ static void sdl_present_scene(const Scene *s, int y_lo, int y_hi, const uint32_t
     for (int i = 0; i < nrects && s_scene_cache.base; i++) {
         SDL_Rect rc = {rects[i].x, rects[i].y, rects[i].w, rects[i].h};
         SDL_UpdateTexture(s_scene_cache.base, &rc, base + (size_t)rc.y * w + rc.x, w * 4);
-        SDL_RenderCopy(s_renderer, s_scene_cache.base, &rc, &rc);
+        SDL_FRect frc = {(float)rc.x, (float)rc.y, (float)rc.w, (float)rc.h};
+        SDL_RenderTexture(s_renderer, s_scene_cache.base, &frc, &frc);
     }
     SDL_RenderPresent(s_renderer);
 }

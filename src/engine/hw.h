@@ -1,15 +1,15 @@
 /*
  * hw.h  –  PC hardware abstraction for the guest game
  *
- * Replaces Amiga OCS/CIA register accesses with SDL2 equivalents:
+ * Replaces Amiga OCS/CIA register accesses with SDL3 equivalents:
  *
- *   Custom chip writes → SDL2 display / audio commands
+ *   Custom chip writes → SDL3 display / audio commands
  *   Custom chip reads  → synthetic beam counter, etc.
- *   CIA registers      → SDL2 timer, keyboard input
+ *   CIA registers      → SDL3 timer, keyboard input
  *   Disk Load calls    → direct fread from WHDLoad disk images
  */
 #pragma once
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <stdint.h>
 
 /* ── Memory-mapped I/O (called from the runtime adapter) ──────────────────── */

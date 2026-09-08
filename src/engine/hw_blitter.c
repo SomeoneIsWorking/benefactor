@@ -16,6 +16,7 @@
 #include "common/log.h"
 #include "engine/hw_private.h"
 #include "port/config.h"
+#include <stdio.h>
 #ifdef HARNESS_BUILD
 #include "harness/trace.h"
 #endif

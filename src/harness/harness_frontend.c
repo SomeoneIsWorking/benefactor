@@ -25,7 +25,7 @@
 #include "libretro.h"
 
 #ifdef SDL_DISPLAY
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 static SDL_Window *s_sdl_win = NULL;
 static SDL_Renderer *s_sdl_ren = NULL;
 static SDL_Texture *s_sdl_tex = NULL;
@@ -320,7 +320,7 @@ static bool harness_environ_cb(unsigned cmd, void *data) {
 void harness_combined_init(void) {
     if (s_sdl_win)
         return; /* already initialized */
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[sdl] SDL_Init error: %s\n",
                              SDL_GetError());
         return;
@@ -328,8 +328,7 @@ void harness_combined_init(void) {
     int win_w = FB_W * 2;
     int win_h = FB_H;
     s_sdl_win =
-        SDL_CreateWindow("PUAE vs PC – Benefactor", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                         win_w * 2, win_h * 2, SDL_WINDOW_RESIZABLE);
+        SDL_CreateWindow("PUAE vs PC – Benefactor", win_w * 2, win_h * 2, SDL_WINDOW_RESIZABLE);
     if (!s_sdl_win) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[sdl] CreateWindow: %s\n",
                              SDL_GetError());
@@ -337,18 +336,16 @@ void harness_combined_init(void) {
     }
     /* BENEFACTOR_NO_VSYNC=1 → don't sync present to the display refresh, so a headed run
      * goes as fast as the host CPU allows ("turbo") instead of ~60Hz. */
-    Uint32 _rflags = SDL_RENDERER_ACCELERATED |
-                     (pc_cfg_bool("no_vsync", 0) ? 0u : (Uint32)SDL_RENDERER_PRESENTVSYNC);
-    s_sdl_ren = SDL_CreateRenderer(s_sdl_win, -1, _rflags);
+    s_sdl_ren = SDL_CreateRenderer(s_sdl_win, NULL);
     if (!s_sdl_ren) {
-        s_sdl_ren = SDL_CreateRenderer(s_sdl_win, -1, SDL_RENDERER_SOFTWARE);
+        s_sdl_ren = SDL_CreateRenderer(s_sdl_win, "software");
         if (!s_sdl_ren) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[sdl] CreateRenderer: %s\n",
                                  SDL_GetError());
             return;
         }
     }
-    SDL_RenderSetLogicalSize(s_sdl_ren, win_w, win_h);
+    SDL_SetRenderLogicalPresentation(s_sdl_ren, win_w, win_h, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     s_sdl_tex = SDL_CreateTexture(s_sdl_ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
                                   win_w, win_h);
     if (!s_sdl_tex) {
@@ -368,7 +365,7 @@ void harness_combined_present(void) {
      * responding"). Quit the whole harness if the window is closed. */
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT)
+        if (ev.type == SDL_EVENT_QUIT)
             exit(0);
     }
     static uint32_t composite[FB_W * 2 * FB_H];
@@ -392,7 +389,7 @@ void harness_combined_present(void) {
 
     SDL_UpdateTexture(s_sdl_tex, NULL, composite, FB_W * 2 * 4);
     SDL_RenderClear(s_sdl_ren);
-    SDL_RenderCopy(s_sdl_ren, s_sdl_tex, NULL, NULL);
+    SDL_RenderTexture(s_sdl_ren, s_sdl_tex, NULL, NULL);
     SDL_RenderPresent(s_sdl_ren);
 }
 
@@ -408,7 +405,7 @@ void harness_puae_present(void) {
         }
     SDL_UpdateTexture(s_sdl_tex, NULL, composite, FB_W * 2 * 4);
     SDL_RenderClear(s_sdl_ren);
-    SDL_RenderCopy(s_sdl_ren, s_sdl_tex, NULL, NULL);
+    SDL_RenderTexture(s_sdl_ren, s_sdl_tex, NULL, NULL);
     SDL_RenderPresent(s_sdl_ren);
 }
 

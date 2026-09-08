@@ -6,21 +6,21 @@
  * separate harness key mapping. */
 #include "harness/input.h"
 #include "engine/hw.h"
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <stdlib.h>
 
 void input_poll(void) {
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT)
+        if (ev.type == SDL_EVENT_QUIT)
             exit(0);
         if (hw_handle_sdl_event(&ev))
             continue; /* controllers, window resize */
-        if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
-            int d = (ev.type == SDL_KEYDOWN);
+        if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_KEY_UP) {
+            int d = (ev.type == SDL_EVENT_KEY_DOWN);
             /* ESC is handled inside hw_handle_key — it toggles the pause
              * menu in gameplay and falls back to exit(0) elsewhere. */
-            hw_handle_key(ev.key.keysym.sym, d);
+            hw_handle_key(ev.key.key, d);
         }
     }
 }

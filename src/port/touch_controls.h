@@ -2,7 +2,7 @@
  * C interface keeps SDL event routing and presentation owned by hw.c. */
 #pragma once
 
-#include <SDL2/SDL_events.h>
+#include <SDL3/SDL_events.h>
 #include <stdint.h>
 
 #ifdef __cplusplus

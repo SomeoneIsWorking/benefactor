@@ -1,7 +1,7 @@
 /*
  * hw_audio.c  –  Amiga OCS audio channel simulation
  *
- * Implements SDL2-backed audio mixing for the 4 Amiga audio DMA channels.
+ * Implements SDL3-backed audio mixing for the 4 Amiga audio DMA channels.
  * Audio is triggered by writes to AUDxDAT in hw.c's hw_write16().
  */
 
@@ -285,20 +285,22 @@ int hw_audio_open(void) {
     SDL_AudioSpec want;
     SDL_memset(&want, 0, sizeof(want));
     want.freq = 22050;
-    want.format = AUDIO_S16SYS;
+    want.format = SDL_AUDIO_S16;
     want.channels = 2;
-    want.samples = 512;
     /* Queue (push) mode: the game loop renders each frame's audio itself and
      * pushes it via hw_audio_queue(), delivering the gp music ISR in sub-frame
      * chunks so the CIA-timer-driven song plays at full tempo (a pull callback
      * renders from the once-per-frame register state and plays it ~7x too slow).
      * The loop is paced to PAL 50Hz, so 441 samples/frame matches 22050Hz. */
-    want.callback = NULL;
-    s_audio_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_audio_spec, 0);
-    if (s_audio_dev) {
-        SDL_PauseAudioDevice(s_audio_dev, 0);
-        benefactor_log_write(BENEFACTOR_LOG_INFO, "audio", "opened: %d Hz %d channels",
-                             s_audio_spec.freq, s_audio_spec.channels);
+    s_audio_stream =
+        SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &want, NULL, NULL);
+    if (s_audio_stream) {
+        SDL_AudioSpec actual;
+        SDL_memset(&actual, 0, sizeof(actual));
+        SDL_ResumeAudioStreamDevice(s_audio_stream);
+        SDL_GetAudioStreamFormat(s_audio_stream, NULL, &actual);
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "audio", "opened: %d Hz %d channels", actual.freq,
+                             actual.channels);
         return 0;
     }
     benefactor_log_write(BENEFACTOR_LOG_WARNING, "audio", "not available: %s", SDL_GetError());
@@ -308,16 +310,16 @@ int hw_audio_open(void) {
 /* Push `nframes` stereo samples to the audio device (queue mode). Drops the
  * frame if the queue is backing up badly (>4 frames) so we never lag the video. */
 void hw_audio_queue(const short *buf, int nframes) {
-    if (!s_audio_dev)
+    if (!s_audio_stream)
         return;
-    if (SDL_GetQueuedAudioSize(s_audio_dev) > (Uint32)(441 * 4 * 2 * (int)sizeof(short)))
-        SDL_ClearQueuedAudio(s_audio_dev);
-    SDL_QueueAudio(s_audio_dev, buf, (Uint32)(nframes * 2 * (int)sizeof(short)));
+    if (SDL_GetAudioStreamQueued(s_audio_stream) > (441 * 4 * 2 * (int)sizeof(short)))
+        SDL_ClearAudioStream(s_audio_stream);
+    SDL_PutAudioStreamData(s_audio_stream, buf, nframes * 2 * (int)sizeof(short));
 }
 
 void hw_audio_close(void) {
-    if (s_audio_dev) {
-        SDL_CloseAudioDevice(s_audio_dev);
-        s_audio_dev = 0;
+    if (s_audio_stream) {
+        SDL_DestroyAudioStream(s_audio_stream);
+        s_audio_stream = NULL;
     }
 }

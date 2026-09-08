@@ -21,7 +21,7 @@
 #include "render/present_backend.h"
 
 #ifdef BENEFACTOR_HAVE_VULKAN
-#include <SDL2/SDL_vulkan.h>
+#include <SDL3/SDL_vulkan.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1103,8 +1103,7 @@ static int vulkan_init(const char *title, int cw, int ch) {
     Swap *s = &g_sw;
     memset(s, 0, sizeof *s);
 
-    s->win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, cw * 2, ch * 2,
-                              SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    s->win = SDL_CreateWindow(title, cw * 2, ch * 2, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
     if (!s->win) {
         VKLOG("SDL_CreateWindow(VULKAN): %s\n", SDL_GetError());
         return -1;

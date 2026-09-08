@@ -38,7 +38,7 @@
                            * g_enter_gameplay / g_gameplay_entry macros */
 #include "port/config.h"
 #include "port/input.h"
-#include <SDL2/SDL.h> /* SDLK_/SDL_CONTROLLER_ constants only */
+#include <SDL3/SDL.h> /* SDLK_/SDL_GAMEPAD_ constants only */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -690,7 +690,7 @@ void pc_pause_capture_code(int dev, int code) {
     }
     if (dev != s_capture_dev)
         return; /* press must come from the device being bound */
-    if (dev == PI_DEV_PAD && code == SDL_CONTROLLER_BUTTON_START)
+    if (dev == PI_DEV_PAD && code == SDL_GAMEPAD_BUTTON_START)
         return; /* reserved: pause */
     pc_input_rebind(dev, s_capture_action, code);
     s_capture = 0;
