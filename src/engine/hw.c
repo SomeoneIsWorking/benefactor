@@ -1959,7 +1959,10 @@ uint16_t hw_read16(uint32_t addr) {
         case DMACONR: {
             /* BBUSY (bit 15) is 0 when blitter idle; BZERO (bit 14) latches
              * when blit completes.  Reading DMACONR clears BZERO. */
-            uint16_t val = s_dmacon | (s_blt_bzero ? 0x4000 : 0);
+            /* DMACON's SET/CLR bit is a write-only control bit.  It must not
+             * be reflected as BBUSY: the native blitter completes before the
+             * read, so an idle guest must observe bit 15 clear. */
+            uint16_t val = (uint16_t)(s_dmacon & 0x7FFFu) | (s_blt_bzero ? 0x4000 : 0);
             s_blt_bzero = 0;
             return val;
         }
