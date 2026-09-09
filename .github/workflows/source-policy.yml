@@ -30,10 +30,10 @@ jobs:
           version: '0.10.12'
       - name: Install native verification tools
         run: |
-          # The hosted runner ships a google-chrome apt source that intermittently
-          # serves a corrupt Packages index and fails the whole run; it is unrelated
-          # to the packages we need.
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          # The hosted runner ships a google-chrome apt source whose Packages
+          # index intermittently fails its hash check and aborts apt-get; it is
+          # unrelated to the packages we need.
+          grep -rlZ 'dl.google.com/linux/chrome' /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0r rm -f
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y clang clang-tidy
       - name: Run retained-source verifier
