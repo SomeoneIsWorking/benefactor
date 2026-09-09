@@ -151,6 +151,11 @@ struct Registration final {
     std::uint32_t image_mask{};
     std::uint32_t address{};
     NativeFn function{};
+    /* True when the native body wholly replaces a guest subroutine, so the
+     * adapter owes its RTS: pop the guest return address once the body has
+     * run. False when the body drives the boundary itself (an original call,
+     * a continuation, or its own return). */
+    bool replaces_subroutine{};
 };
 
 class Runtime final {
@@ -183,23 +188,59 @@ class Runtime final {
                       .generation = image.generation};
     }
 
+    /* Guest time never runs backwards for the host, even though the CPU state
+     * itself can be reset or rolled back (an interrupt that does not reach its
+     * RTE restores the state it saved). Fold what has elapsed into the base
+     * before discarding it, and latch the peak on the way out. */
+    std::uint64_t guest_cycles() noexcept {
+        const std::uint64_t now = cycle_base + executor.state().elapsed_cycles;
+        const std::uint64_t seen = cycles_seen.load(std::memory_order_relaxed);
+        if (now <= seen)
+            return seen;
+        cycles_seen.store(now, std::memory_order_relaxed);
+        return now;
+    }
+
     void reset(M68KCtx *ctx, BenefactorImageKind kind) {
+        cycle_base += executor.state().elapsed_cycles;
         executor.state() = {};
         activate(kind);
         bind(ctx);
     }
 
-    void register_native(std::uint32_t image_mask, std::uint32_t address, NativeFn function) {
+    void register_native(std::uint32_t image_mask, std::uint32_t address, NativeFn function,
+                         bool replaces_subroutine = false) {
         if (function == nullptr)
             throw std::invalid_argument("native override function is null");
-        registrations.push_back({image_mask, address, function});
+        registrations.push_back({image_mask, address, function, replaces_subroutine});
         const auto image = executor.image();
         if ((image_mask & image_mask_for_tag(image.tag.value)) != 0u)
             install(image, registrations.back());
     }
 
+    void record_call(std::uint32_t address) noexcept {
+        const std::uint64_t index = calls_written.load(std::memory_order_relaxed);
+        calls[index % kCallRingCapacity].store(address, std::memory_order_relaxed);
+        calls_written.store(index + 1U, std::memory_order_relaxed);
+    }
+
+    int recent_calls(std::uint32_t *destination, int capacity) const noexcept {
+        if (destination == nullptr || capacity <= 0)
+            return 0;
+        const std::uint64_t written = calls_written.load(std::memory_order_relaxed);
+        const std::uint64_t available = std::min<std::uint64_t>(written, kCallRingCapacity);
+        const std::uint64_t wanted =
+            std::min<std::uint64_t>(available, static_cast<std::uint64_t>(capacity));
+        int count = 0;
+        for (std::uint64_t offset = wanted; offset > 0U; --offset)
+            destination[count++] =
+                calls[(written - offset) % kCallRingCapacity].load(std::memory_order_relaxed);
+        return count;
+    }
+
     amigaport::ExecutionExit execute(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
+        record_call(address);
         amigaport::ExecutionExit result = executor.call(address);
         while (result.reason == amigaport::ExitReason::InstructionBudget ||
                result.reason == amigaport::ExitReason::NativeOverride) {
@@ -222,6 +263,7 @@ class Runtime final {
 
     amigaport::ExecutionExit call_original(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
+        record_call(address);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
         return executor.call_original();
@@ -229,6 +271,7 @@ class Runtime final {
 
     amigaport::ExecutionExit call_original_subroutine(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
+        record_call(address);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
         return executor.call_original_subroutine();
@@ -256,6 +299,12 @@ class Runtime final {
 
     amigaport::ExecutionExit call_interrupt(std::uint32_t address) {
         return executor.call_interrupt(address);
+    }
+
+    void exit_to_host() {
+        if (native_host_exits.empty())
+            throw std::logic_error("host exit requested outside an override");
+        *native_host_exits.back() = true;
     }
 
     void continue_from_native(std::uint32_t address) {
@@ -294,8 +343,14 @@ class Runtime final {
     amigaport::Executor executor;
     std::vector<Registration> registrations;
     std::vector<bool *> native_continuations;
+    std::vector<bool *> native_host_exits;
     std::atomic<std::uint32_t> last_call_address{};
     std::atomic<std::uint32_t> last_pc{};
+    std::uint64_t cycle_base{};
+    std::atomic<std::uint64_t> cycles_seen{};
+    static constexpr std::size_t kCallRingCapacity = 64U;
+    std::array<std::atomic<std::uint32_t>, kCallRingCapacity> calls{};
+    std::atomic<std::uint64_t> calls_written{0};
 
   private:
     static std::uint32_t image_mask(BenefactorImageKind kind) {
@@ -310,25 +365,39 @@ class Runtime final {
     void install(amigaport::ImageIdentity image, const Registration &registration) {
         const amigaport::ExecutionIdentity identity{.image = image,
                                                     .address = registration.address};
-        executor.register_override(identity, [this, function = registration.function](auto &) {
-            M68KCtx context{};
-            bind(&context);
-            bool continue_execution = false;
-            native_continuations.push_back(&continue_execution);
-            try {
-                function(&context);
-            } catch (...) {
+        executor.register_override(
+            identity, [this, function = registration.function, address = registration.address,
+                       replaces_subroutine = registration.replaces_subroutine](auto &) {
+                M68KCtx context{};
+                bind(&context);
+                bool continue_execution = false;
+                bool exit_to_host = false;
+                native_continuations.push_back(&continue_execution);
+                native_host_exits.push_back(&exit_to_host);
+                try {
+                    function(&context);
+                } catch (...) {
+                    native_continuations.pop_back();
+                    native_host_exits.pop_back();
+                    throw;
+                }
                 native_continuations.pop_back();
-                throw;
-            }
-            native_continuations.pop_back();
-            amigaport::ExecutionExit result{};
-            result.continue_execution = continue_execution;
-            result.reason = amigaport::ExitReason::NativeOverride;
-            result.identity.image = executor.image();
-            result.identity.address = executor.state().pc;
-            return result;
-        });
+                native_host_exits.pop_back();
+                /* Complete the replaced subroutine's RTS only when the body left the
+                 * boundary untouched. A path that called the original, jumped, or
+                 * exited to the host has already moved the PC and consumed whatever
+                 * the guest stack owed. */
+                if (replaces_subroutine && !continue_execution && !exit_to_host &&
+                    executor.state().pc == address)
+                    (void)return_from_native();
+                amigaport::ExecutionExit result{};
+                result.continue_execution = continue_execution;
+                result.hand_off_to_host = exit_to_host;
+                result.reason = amigaport::ExitReason::NativeOverride;
+                result.identity.image = executor.image();
+                result.identity.address = executor.state().pc;
+                return result;
+            });
     }
 };
 
@@ -341,7 +410,63 @@ Runtime &runtime() {
 
 BenefactorImageKind image_kind(BenefactorImageIdentity image) { return image.kind; }
 
+/* Name the instruction that transferred control into an override, so a missing
+ * boundary says whether the guest arrived by JSR/BSR (the replacement owes an
+ * rt_return_from_native) or by JMP/BRA (it owes an explicit next PC). */
+void log_unterminated_override(const amigaport::ExecutionExit &exit) {
+    std::array<amigaport::ExecutionTraceEntry, 2> entries{};
+    const std::size_t count = runtime().executor.recent_execution(entries.data(), entries.size());
+    const amigaport::ExecutionTraceEntry entered =
+        count > 0 ? entries[count - 1] : amigaport::ExecutionTraceEntry{};
+    benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
+                         "native override $%06X returned without completing its guest boundary; "
+                         "entered from $%06X opcode=$%04X image=%u a7=$%08X return=$%08X "
+                         "continue=%d handoff=%d",
+                         exit.identity.address, entered.pc, entered.opcode,
+                         static_cast<unsigned>(exit.identity.image.tag.value),
+                         runtime().executor.state().address[7],
+                         runtime().read32(runtime().executor.state().address[7]).value,
+                         exit.continue_execution ? 1 : 0, exit.hand_off_to_host ? 1 : 0);
+}
+
+const char *exit_reason_name(amigaport::ExitReason reason) {
+    switch (reason) {
+    case amigaport::ExitReason::NoImage:
+        return "no-image";
+    case amigaport::ExitReason::InstructionBudget:
+        return "instruction-budget";
+    case amigaport::ExitReason::NativeOverride:
+        return "native-override";
+    case amigaport::ExitReason::ReturnToHost:
+        return "return-to-host";
+    case amigaport::ExitReason::MemoryFault:
+        return "memory-fault";
+    case amigaport::ExitReason::UnsupportedInstruction:
+        return "unsupported-instruction";
+    case amigaport::ExitReason::Exception:
+        return "exception";
+    case amigaport::ExitReason::Halted:
+        return "halted";
+    case amigaport::ExitReason::ImageReplaced:
+        return "image-replaced";
+    case amigaport::ExitReason::UnterminatedNativeOverride:
+        return "unterminated-native-override";
+    }
+    return "unknown";
+}
+
 void log_exit(const amigaport::ExecutionExit &exit) {
+    /* Every guest call ends for exactly one reason. Naming it — even the benign
+     * ones, at debug level — is what turns "the flow just returned" into an
+     * answer, so no exit leaves the interpreter silently. */
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "runtime",
+                         "guest call exit: reason=%s pc=$%06X instructions=%u image=%u",
+                         exit_reason_name(exit.reason), exit.identity.address, exit.instructions,
+                         static_cast<unsigned>(exit.identity.image.tag.value));
+    if (exit.reason == amigaport::ExitReason::UnterminatedNativeOverride) {
+        log_unterminated_override(exit);
+        return;
+    }
     if (exit.reason == amigaport::ExitReason::MemoryFault ||
         exit.reason == amigaport::ExitReason::Exception ||
         exit.reason == amigaport::ExitReason::UnsupportedInstruction) {
@@ -408,6 +533,16 @@ void rt_register_override_gp(uint32_t address, NativeFn function) {
     rt_register_native(BENEFACTOR_IMAGE_MASK_GAMEPLAY, address, function);
 }
 
+void rt_register_replacement(uint32_t address, NativeFn function) {
+    runtime().register_native(BENEFACTOR_IMAGE_MASK_MAIN | BENEFACTOR_IMAGE_MASK_TITLE |
+                                  BENEFACTOR_IMAGE_MASK_CREDITS,
+                              address, function, true);
+}
+
+void rt_register_replacement_gp(uint32_t address, NativeFn function) {
+    runtime().register_native(BENEFACTOR_IMAGE_MASK_GAMEPLAY, address, function, true);
+}
+
 void rt_context_bind(M68KCtx *ctx) { runtime().bind(ctx); }
 
 void rt_context_reset(M68KCtx *ctx, BenefactorImageKind kind) { runtime().reset(ctx, kind); }
@@ -441,6 +576,12 @@ void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
      * step; the embedded core owns one architectural context and is not
      * reentrant. */
     runtime().continue_from_native(address);
+}
+
+void rt_exit_to_host(M68KCtx *ctx) {
+    if (ctx != nullptr)
+        rt_context_bind(ctx);
+    runtime().exit_to_host();
 }
 
 void rt_call_original(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
@@ -524,7 +665,43 @@ uint32_t rt_get_last_insn(void) { return runtime().last_pc.load(std::memory_orde
 uint32_t rt_get_active_call_address(void) {
     return runtime().last_call_address.load(std::memory_order_relaxed);
 }
-int rt_insn_ring_snapshot(uint32_t *, int) { return 0; }
-int rt_recent_snapshot(uint32_t *, int) { return 0; }
+uint32_t rt_get_pc(void) { return g_runtime ? g_runtime->executor.state().pc : 0u; }
+
+uint64_t rt_get_guest_cycles(void) { return g_runtime ? g_runtime->guest_cycles() : 0u; }
+
+uint64_t rt_get_executed_instructions(void) {
+    return g_runtime ? g_runtime->executor.state().executed_instructions : 0u;
+}
+
+int rt_insn_ring_snapshot(uint32_t *destination, int capacity) {
+    if (g_runtime == nullptr || destination == nullptr || capacity <= 0)
+        return 0;
+    std::array<amigaport::ExecutionTraceEntry, 256> entries{};
+    const std::size_t wanted =
+        std::min<std::size_t>(static_cast<std::size_t>(capacity), entries.size());
+    const std::size_t count = g_runtime->executor.recent_execution(entries.data(), wanted);
+    for (std::size_t index = 0; index < count; ++index)
+        destination[index] = entries[index].pc;
+    return static_cast<int>(count);
+}
+
+int rt_insn_ring_entries(uint32_t *program_counters, uint16_t *opcodes, int capacity) {
+    if (g_runtime == nullptr || program_counters == nullptr || capacity <= 0)
+        return 0;
+    std::array<amigaport::ExecutionTraceEntry, 256> entries{};
+    const std::size_t wanted =
+        std::min<std::size_t>(static_cast<std::size_t>(capacity), entries.size());
+    const std::size_t count = g_runtime->executor.recent_execution(entries.data(), wanted);
+    for (std::size_t index = 0; index < count; ++index) {
+        program_counters[index] = entries[index].pc;
+        if (opcodes != nullptr)
+            opcodes[index] = entries[index].opcode;
+    }
+    return static_cast<int>(count);
+}
+
+int rt_recent_snapshot(uint32_t *destination, int capacity) {
+    return g_runtime ? g_runtime->recent_calls(destination, capacity) : 0;
+}
 
 } // extern "C"

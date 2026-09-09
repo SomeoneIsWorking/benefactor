@@ -100,9 +100,11 @@ void native_gameover_menu(M68KCtx *ctx) {
         pc_request_level_restart(); /* respawn at $577000 (current level) → level card */
         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow",
                              "menu phase → reload current level (level card)");
-        /* Set-flags-and-return (the proven $150 hand-off pattern): we skip the
-         * menu render; the flow parks at its next vblank wait and pc_step_threaded
-         * tears this thread down and respawns at $577000. */
+        /* Hand off to the host (the same boundary the $150 loader uses): we skip
+         * the menu render, and pc_step_threaded tears this thread down and
+         * respawns it at $577000. Returning without saying so would put the
+         * interpreter straight back into this override. */
+        rt_exit_to_host(ctx);
         return;
     }
     rt_call_original_subroutine(ctx, ctx->image, 0x0059C5B0u);

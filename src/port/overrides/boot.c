@@ -704,8 +704,9 @@ void native_overlay_loader_reloc(M68KCtx *ctx) {
         return;
     }
     if (ctx->D[0] != 0) {
-        benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
-                             "[overlay-loader] $150 d0=%u unhandled\n", (unsigned)ctx->D[0]);
+        benefactor_log_write(BENEFACTOR_LOG_WARNING, "override",
+                             "[overlay-loader] $150 d0=%u unhandled", (unsigned)ctx->D[0]);
+        rt_exit_to_host(ctx);
         return;
     }
     /* This is the real menu→"Start Game" hand-off: load the gameplay overlay
@@ -759,5 +760,9 @@ void native_overlay_loader_reloc(M68KCtx *ctx) {
     g_gameplay_entry = 0x577000u;
     g_enter_gameplay = 1;
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
-                         "[overlay-loader] $150 d0=0: gameplay overlay loaded; entering $577000\n");
+                         "[overlay-loader] $150 d0=0: gameplay overlay loaded; entering $577000");
+    /* The title branched here (no return address) and is finished: the host
+     * restarts the game thread on the gameplay image. Unwind this run
+     * deliberately rather than leaving the boundary unspoken. */
+    rt_exit_to_host(ctx);
 }

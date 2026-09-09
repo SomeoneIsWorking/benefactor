@@ -171,8 +171,10 @@ static size_t signal_append_text(char *output, size_t capacity, size_t used, con
 static size_t signal_append_hex(char *output, size_t capacity, size_t used, uint32_t value) {
     static const char digits[] = "0123456789ABCDEF";
     used = signal_append_text(output, capacity, used, " $");
-    for (int shift = 28; shift >= 0 && used < capacity; shift -= 4)
+    for (unsigned shift = 32u; shift > 0u && used < capacity;) {
+        shift -= 4u;
         output[used++] = digits[(value >> shift) & 0xFu];
+    }
     return used;
 }
 

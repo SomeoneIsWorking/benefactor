@@ -94,6 +94,7 @@ set(BENEFACTOR_SOURCES
     src/port/config.c
     src/port/freecam.c
     src/port/game_loop.c
+    src/port/guest_trace.c
     src/port/http_debug.c
     src/port/hud_icons.c
     src/port/input.c

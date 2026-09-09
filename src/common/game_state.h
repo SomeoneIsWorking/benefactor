@@ -43,7 +43,7 @@ typedef struct GameState {
     uint16_t diwstrt;
     uint16_t diwstop;
     int blt_bzero;
-    int vposr_counter;
+    uint64_t beam_frame; /* PAL frame index derived from consumed guest cycles */
 
     /* ── CIA-B timer (music tick rate) ───────────────────────────────────── */
     uint16_t ciab_ta_latch;
@@ -89,7 +89,7 @@ extern GameState g_state;
 #define s_diwstrt (g_state.diwstrt)
 #define s_diwstop (g_state.diwstop)
 #define s_blt_bzero (g_state.blt_bzero)
-#define s_vposr_counter (g_state.vposr_counter)
+#define s_beam_frame (g_state.beam_frame)
 #define s_ciab_ta_latch (g_state.ciab_ta_latch)
 #define s_ciab_ta_cnt (g_state.ciab_ta_cnt)
 #define s_ciab_cra (g_state.ciab_cra)

@@ -6,6 +6,7 @@
 #include "engine/gameplay_handoff.h"
 #include "engine/overlay_load.h"
 #include "port/config.h"
+#include "port/guest_trace.h"
 #include "port/input.h"
 #include "port/port_internal.h"
 #include <pthread.h>
@@ -635,11 +636,17 @@ static void *game_thread_main(void *arg) {
     else
         rt_call(&s_game_ctx, s_game_ctx.image, s_game_entry);
 
+    /* The cold-start flow is an endless state machine. A screen hand-off unwinds
+     * it deliberately (the host then restarts this thread on the next image);
+     * any other return is a fault, so dump the instructions that led there
+     * rather than making the next run reproduce it. */
     {
-        extern uint32_t rt_get_last_insn(void);
-        benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
-                             "[game] flow RETURNED from $%06X (last insn $%06X)\n", s_game_entry,
-                             rt_get_last_insn());
+        int handed_off = g_enter_gameplay || g_pc_restart_reinit;
+        benefactor_log_write(handed_off ? BENEFACTOR_LOG_DEBUG : BENEFACTOR_LOG_WARNING, "game",
+                             "[game] flow returned from $%06X (last insn $%06X)%s", s_game_entry,
+                             rt_get_last_insn(), handed_off ? " — screen hand-off" : "");
+        if (!handed_off)
+            pc_log_retired_instructions("game");
     }
     pthread_mutex_lock(&s_hand_mtx);
     s_game_done = 1;

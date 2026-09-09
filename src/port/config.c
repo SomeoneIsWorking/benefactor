@@ -14,7 +14,7 @@ static char *s_cfg = NULL; /* whole file text, NUL-terminated */
 static int s_loaded;
 
 enum {
-    CONFIG_FILE_MAX_BYTES = 1 << 20,
+    CONFIG_FILE_MAX_BYTES = 1u << 20u,
 };
 
 static const char *cfg_path(void) {
