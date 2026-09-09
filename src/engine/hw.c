@@ -277,8 +277,12 @@ static void hw_compose_output(void) {
 static int s_scanline = 0;
 static int s_frame_num = 0;
 
-/* A register read advances the synthetic beam when guest code is polling the
- * custom-chip position registers. The disk-boot coroutine owns presentation at
+/* The synthetic beam is sampled on EVERY custom-chip access, read or write.
+ * Sampling only on VPOSR/VHPOSR reads meant a guest loop that syncs on
+ * something else never crossed a frame boundary: the intro crawl waits on the
+ * blitter (WaitBlit on DMACONR) and drives its blits register by register
+ * without ever reading the beam, so it ran a whole crawl inside one host frame
+ * and tripped the frame watchdog. The disk-boot coroutine owns presentation at
  * a wrapped beam for every screen state, not only gameplay. */
 /* PAL beam geometry in 68000 cycles: a scanline is 227 color clocks and the CPU
  * runs at two cycles per color clock, so 454 CPU cycles per line and 312 lines
@@ -297,6 +301,13 @@ static void hw_step_register_beam(void) {
     s_scanline = (int)(line % BEAM_LINES_PER_FRAME);
     if (frame == s_beam_frame)
         return;
+    /* Accounting the watchdog reports: how many beam frames the guest crossed
+     * (crossed), how many were actually presented (taken), and how many were
+     * refused because the caller was not the parkable game flow (declined).
+     * A stalled screen is one of two very different faults and these separate
+     * them: crossed==taken means the guest itself is stuck, while crossed
+     * racing ahead of taken means the boundary has nowhere to land. */
+    g_hw_beam_crossed++;
 
     /* The frame boundary belongs to the game flow, because only that flow can
      * be parked and resumed. Interrupt handlers run on the host thread and
@@ -307,10 +318,34 @@ static void hw_step_register_beam(void) {
     if (!g_hw_vblank_yield) {
         s_beam_frame = frame;
         s_frame_num++;
+        g_hw_beam_taken++;
         return;
     }
-    if (g_hw_vblank_yield() == 0)
+    if (g_hw_vblank_yield() == 0) {
+        extern int pc_on_game_thread(void);
+        g_hw_beam_declined++;
+        if (!pc_on_game_thread())
+            g_hw_beam_declined_off_flow++;
+        /* Guest code inside an interrupt runs on the host thread and cannot be
+         * parked, but it still crosses real frame boundaries: the intro
+         * crawl's animation loop lives inside the level-6 handler and paces
+         * itself on the beam. Unpresented, one delivery ran the whole crawl in
+         * a single host frame and was then cut off (and rolled back) by the
+         * instruction budget — it jumped instead of scrolling. Present and
+         * pace here so a frame waited for inside an interrupt is a frame the
+         * viewer sees. The renderer touches custom registers too, so guard
+         * against re-entering this from inside the present. */
+        static int presenting = 0;
+        if (presenting)
+            return;
+        s_beam_frame = frame;
+        presenting = 1;
+        (void)hw_present_frame();
+        presenting = 0;
+        hw_watchdog_arm("PC", 2); /* this frame finished; the next gets its own */
         return;
+    }
+    g_hw_beam_taken++;
     s_beam_frame = frame;
 }
 
@@ -1165,9 +1200,31 @@ void hw_fini(void) {
 /* Frame presentation + vsync                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
+/* Presentation accounting (on /state): presenter entries, and how many were
+ * refused as re-entrant. A screen at the wrong speed is often presents — and
+ * the pacing that lives inside them — being dropped, not a guest problem. */
+volatile uint32_t g_hw_present_calls = 0;
+volatile uint32_t g_hw_present_reentrant = 0;
+
+/* The beam frame the display last showed. Both the game flow parking at a
+ * boundary and an interrupt crossing one ask to present, and on the crawl both
+ * fall in the same guest frame — pacing each halved the guest's speed to 21 fps.
+ * One presented frame per beam frame, whoever notices the boundary first. */
+static uint64_t s_presented_beam_frame = UINT64_MAX;
+
 int hw_present_frame(void) {
-    if (s_in_present_frame)
+    g_hw_present_calls++;
+    if (g_hw_vblank_yield) {
+        const uint64_t beam_frame =
+            rt_get_guest_cycles() / (BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME);
+        if (beam_frame == s_presented_beam_frame)
+            return 0;
+        s_presented_beam_frame = beam_frame;
+    }
+    if (s_in_present_frame) {
+        g_hw_present_reentrant++;
         return 0;
+    }
     s_in_present_frame = 1;
 
     /* Poll events — skip if the harness owns the SDL event queue (its
@@ -1977,14 +2034,20 @@ uint16_t hw_read16(uint32_t addr) {
     /* ── Custom chips ($DFF000) ── */
     if (addr >= 0xDFF000 && addr <= 0xDFFFFF) {
         uint32_t reg = addr & 0x1FE;
+        hw_step_register_beam();
         switch (reg) {
         case DMACONR: {
-            /* BBUSY (bit 15) is 0 when blitter idle; BZERO (bit 14) latches
-             * when blit completes.  Reading DMACONR clears BZERO. */
-            /* DMACON's SET/CLR bit is a write-only control bit.  It must not
-             * be reflected as BBUSY: the native blitter completes before the
-             * read, so an idle guest must observe bit 15 clear. */
-            uint16_t val = (uint16_t)(s_dmacon & 0x7FFFu) | (s_blt_bzero ? 0x4000 : 0);
+            /* DMACONR status bits are BBUSY (14) and BZERO (13) — NOT 15/14.
+             * The classic WaitBlit reads $DFF002 as a byte and tests bit 6 of
+             * it, which is word bit 14 = BBUSY; collision code tests bit 13 =
+             * BZERO. Reporting BZERO at bit 14 made every WaitBlit spin one
+             * extra round and made BZERO unobservable.
+             *
+             * Bits 15..13 are read-only status, so the DMACON shadow (which
+             * only ever holds control bits) is masked down to 12..0. The
+             * native blitter completes synchronously, so BBUSY always reads
+             * back idle. Reading DMACONR clears the latched BZERO. */
+            uint16_t val = (uint16_t)(s_dmacon & 0x1FFFu) | (s_blt_bzero ? 0x2000 : 0);
             s_blt_bzero = 0;
             return val;
         }
@@ -1992,7 +2055,6 @@ uint16_t hw_read16(uint32_t addr) {
             /* VPOSR is LOF:V8:V7..V0. In particular, a byte read from
              * $DFF005 observes the scanline's low byte; it is not frame
              * parity. Boot code uses that bit to wait for a beam transition. */
-            hw_step_register_beam();
             return (uint16_t)(0x8000u | (uint16_t)(s_scanline & 0x1FF));
         }
         case VHPOSR: {
@@ -2004,15 +2066,9 @@ uint16_t hw_read16(uint32_t addr) {
              * value satisfies one and hangs the other (this was the bug that
              * stuck the level-intro card forever).
              *
-             * Emulate a real advancing beam: each read steps the counter, so
-             * EVERY target line is hit eventually. When it wraps past the
-             * frame bottom that's one frame boundary → yield (present + let
-             * pc_step_coro deliver the gameplay IRQs). Incrementing BEFORE the
-             * return means a repeated wait for the same line must traverse a
-             * full frame (exactly one yield) rather than matching instantly. */
-
-            /* Advance the shared PAL beam for every screen state. */
-            hw_step_register_beam();
+             * The beam is derived from consumed guest cycles (sampled on
+             * entry to this whole custom-chip block), so every target line is
+             * reached in the same order and at the same cost as on hardware. */
             return (uint16_t)((s_scanline & 0xFF) << 8);
         }
         case JOY0DAT: {
@@ -2122,6 +2178,7 @@ void hw_write16(uint32_t addr, uint16_t v) {
     /* ── Custom chips ── */
     if (addr >= 0xDFF000 && addr <= 0xDFFFFF) {
         uint32_t reg = addr & 0x1FE;
+        hw_step_register_beam();
         s_regs[reg >> 1] = v; /* shadow copy */
 
         /* COP1LCL completes the 32-bit COP1LC write (the game uses move.l to

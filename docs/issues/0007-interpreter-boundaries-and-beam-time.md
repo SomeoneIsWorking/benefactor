@@ -72,3 +72,50 @@ OPEN: the guard is the safety net for any override not yet classified —
 path reached for the first time reports its address instead of hanging. A
 windowed run also ended cleanly (`SDL_EVENT_QUIT`, no fault) after about a
 minute unattended; not reproduced headless and not diagnosed.
+
+## Follow-up (2026-09-09): the intro crawl
+
+The crawl still jumped instead of scrolling. Four separate faults, each found by
+a measurement rather than a guess:
+
+1. **DMACONR reported the wrong bits.** BBUSY is bit 14 and BZERO is bit 13; the
+   read put BZERO at 14. The classic `btst #6,$DFF002` WaitBlit therefore saw
+   the blitter busy once after every blit, and nothing could ever observe BZERO.
+
+2. **The beam was sampled only on VPOSR/VHPOSR reads.** The crawl syncs on the
+   blitter and drives its blits register by register without reading the beam,
+   so it never crossed a frame boundary and the watchdog killed the frame. The
+   beam is now sampled on every custom-chip access, read or write.
+
+3. **Interrupts rewound guest time.** `Executor::call_interrupt` restores the
+   saved CPU state when the handler does not reach its RTE — including
+   `elapsed_cycles`. The host derives the beam from that counter, so the clock
+   froze during an interrupt and then jumped. `elapsed_cycles` is now carried
+   across the restore (amigaport `9379082`+).
+
+4. **The crawl's animation loop lives inside the level-6 handler**, which runs
+   on the host thread where the per-frame wait cannot park anything. One
+   delivery ran up to 14M cycles — 99 PAL frames — of crawl in a single host
+   frame, and was then cut off and rolled back by the interpreter's 1M
+   instruction budget: the whole thing discarded, then jumped. A frame boundary
+   crossed on the host thread now presents and paces in place, so a frame
+   waited for inside an interrupt is a frame the viewer sees. To keep the two
+   present paths from pacing twice per guest frame (which halved the speed to
+   21 fps), `hw_present_frame` refuses a beam frame it has already shown.
+
+Also fixed: `$0052A4` (`native_post_blit_handler`) reimplements its routine
+outright and was registered as a wrapper, so it never completed its guest
+boundary — the executor's fail-closed guard reported it by address.
+
+DIAGNOSTICS ADDED: `src/port/frame_accounting.{c,h}` — per-owner guest cycles
+for the last host iteration (game flow / level-3 / level-6 / present / whole
+iteration) each with a PEAK, beam boundaries crossed/taken/declined, per-frame
+waits reached/refused/parked, and presents/re-entrant. All on `/state`; the beam
+counters and the guest owner are in the watchdog report too. The peaks are the
+point: a runaway iteration is invisible to a sampler, which only ever reads what
+the previous short iteration left behind.
+
+VERIFIED: windowed, the guest advances 7,120,665 cycles/s against a PAL ideal of
+7,082,400 (0.5%); a steady ~50 fps through the full intro crawl, high scores and
+into level 1 with zero runtime errors; the crawl scrolls its text legibly frame
+by frame instead of jumping.

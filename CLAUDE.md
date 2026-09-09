@@ -37,9 +37,21 @@ assumption is what broke on the switch, so treat an override written before
 
 Guest time is 68000 cycles, from `rt_get_guest_cycles()`. The PAL beam is
 derived from it (454 cycles per line, 312 lines per frame) — never from how many
-times the guest read a register. Only the game flow may consume a frame
-boundary; a boundary crossed inside an interrupt on the host thread stays
-pending. See `docs/issues/0007-interpreter-boundaries-and-beam-time.md`.
+times the guest read a register, and the beam is sampled on EVERY custom-chip
+access, not only the position registers: the intro crawl syncs on the blitter
+and would otherwise never cross a boundary.
+
+Guest time never runs backwards. An interrupt whose handler does not reach its
+RTE rolls the CPU state back, and `elapsed_cycles` is deliberately carried
+across that restore — those cycles were really spent.
+
+**Present exactly one frame per beam frame, whoever notices the boundary.** The
+game flow parks at its boundary and the host presents; guest code inside an
+interrupt runs on the host thread and cannot be parked, so it presents (and
+paces) in place. Both asking to present in the same beam frame halved the
+guest's speed, so `hw_present_frame` refuses a beam frame it has already shown.
+
+See `docs/issues/0007-interpreter-boundaries-and-beam-time.md`.
 
 ## Debugging the interpreter
 
@@ -53,10 +65,19 @@ Reach for these before adding a print:
   turns "it hung" into an address.
 - **Watchdog output** carries the guest PC, the active call, the last hardware
   register read, cop1lc and the retired tail.
+- **Frame accounting** (`src/port/frame_accounting.h`, in `/state` and the
+  watchdog): guest cycles for the last host iteration split by owner — the game
+  flow, the level-3 vector, the level-6 vector — each with its PEAK, plus the
+  beam boundaries crossed/taken/declined, the per-frame waits reached/refused/
+  parked, and presents/re-entrant. One PAL frame is 141,648 cycles; an owner
+  far above that is the fault. The peaks matter: a runaway iteration is
+  invisible to a sampler, which only ever sees what the previous short
+  iteration left behind. This is what found the crawl bug — `irq6_max` of 14M
+  cycles (99 frames inside one interrupt delivery).
 - **Debug HTTP server** (`BENEFACTOR_HTTP=<port>`): `/state` (frame, level,
   cop1lc, player block, retired instructions, guest cycles, fps, per-section
-  frame times), `/mem`, `/poke`, `/input` (drive the game headless), `/fb.ppm`,
-  `/trace`, `/recent`, `/save`, `/load`.
+  frame times, the frame accounting above), `/mem`, `/poke`, `/input` (drive the
+  game headless), `/fb.ppm`, `/trace`, `/recent`, `/save`, `/load`.
 - **Drive it headless**: `./build/run/…/Benefactor --headless --disk Disk.1 Disk.2 Disk.3`
   with `BENEFACTOR_HTTP` set, then `curl "localhost:PORT/input?fire=1"`.
 
