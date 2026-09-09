@@ -185,6 +185,16 @@ void hw_blitter_sync(void);
  * On PC this is a no-op — frame timing is driven by SDL in hw_present_frame(). */
 void hw_vblank_wait(void);
 
+/* Beam-boundary accounting: frames the guest's cycle-derived beam crossed, how
+ * many were presented, and how many were declined because the caller was not
+ * the parkable game flow. Surfaced by /state and the frame watchdog. */
+extern volatile uint32_t g_hw_beam_crossed;
+extern volatile uint32_t g_hw_beam_taken;
+extern volatile uint32_t g_hw_beam_declined;
+extern volatile uint32_t g_hw_beam_declined_off_flow;
+extern volatile uint32_t g_hw_present_calls;
+extern volatile uint32_t g_hw_present_reentrant;
+
 /* Yield-per-frame fire-wait — replaces the folded `tst.b $bfe001; b(mi|pl) self`
  * busy-loop. want_pressed=1: block until fire is pressed; =0: until released. */
 void hw_wait_fire(int want_pressed);

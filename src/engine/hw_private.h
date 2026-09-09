@@ -23,6 +23,9 @@ extern int s_copper_writing;
 
 extern SDL_AudioStream *s_audio_stream;
 extern volatile uint32_t g_hw_last_read;
+extern volatile uint32_t g_hw_beam_crossed;
+extern volatile uint32_t g_hw_beam_taken;
+extern volatile uint32_t g_hw_beam_declined;
 
 /* ── Colour conversion helper ──────────────────────────────────────────────── */
 static inline uint32_t amiga_to_argb(uint16_t c) {

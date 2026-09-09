@@ -201,6 +201,11 @@ class Runtime final {
         return now;
     }
 
+    [[nodiscard]] std::uint64_t cycle_base_value() const noexcept { return cycle_base; }
+    [[nodiscard]] std::uint64_t cycles_elapsed_value() const noexcept {
+        return executor.state().elapsed_cycles;
+    }
+
     void reset(M68KCtx *ctx, BenefactorImageKind kind) {
         cycle_base += executor.state().elapsed_cycles;
         executor.state() = {};
@@ -668,6 +673,12 @@ uint32_t rt_get_active_call_address(void) {
 uint32_t rt_get_pc(void) { return g_runtime ? g_runtime->executor.state().pc : 0u; }
 
 uint64_t rt_get_guest_cycles(void) { return g_runtime ? g_runtime->guest_cycles() : 0u; }
+
+/* Raw halves of the guest clock, for diagnosing a clock that disagrees with the
+ * work actually done: the folded base plus the live executor counter, which an
+ * interrupt that never reaches its RTE rolls backwards. */
+uint64_t rt_get_cycle_base(void) { return g_runtime ? g_runtime->cycle_base_value() : 0u; }
+uint64_t rt_get_cycles_elapsed(void) { return g_runtime ? g_runtime->cycles_elapsed_value() : 0u; }
 
 uint64_t rt_get_executed_instructions(void) {
     return g_runtime ? g_runtime->executor.state().executed_instructions : 0u;

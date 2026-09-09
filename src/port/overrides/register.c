@@ -125,7 +125,9 @@ void pc_register_overrides(void) {
     rt_register_override(0x004102u, native_item_position);
     rt_register_override(0x00412Eu, native_item_blitter);
     rt_register_override(0x004236u, native_blit_row_callback);
-    rt_register_override(0x0052A4u, native_post_blit_handler);
+    /* Replacement: it reimplements $0052A4 outright (it only ever calls the
+     * different routine $0052F0), so the adapter must complete the RTS. */
+    rt_register_replacement(0x0052A4u, native_post_blit_handler);
     rt_register_override(0x0055A0u, native_timer_interrupt);
 
     /* Gameplay flow (overrides/gameplay.c) — native maps of game-flow

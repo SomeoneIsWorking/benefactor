@@ -1,5 +1,6 @@
 #include "common/log.h"
 #include "engine/hw_private.h"
+#include "port/frame_accounting.h"
 #include "runtime/guest_runtime.h"
 #include <signal.h>
 #include <unistd.h>
@@ -8,6 +9,12 @@
 #endif
 
 volatile uint32_t g_hw_last_read = 0; /* last hw register address read */
+
+/* Beam-boundary accounting, reported by the watchdog. See hw_step_register_beam. */
+volatile uint32_t g_hw_beam_crossed = 0;
+volatile uint32_t g_hw_beam_taken = 0;
+volatile uint32_t g_hw_beam_declined = 0;
+volatile uint32_t g_hw_beam_declined_off_flow = 0;
 
 /* Arm before stepping a single frame; if that frame doesn't finish within a few
  * seconds it's an infinite loop (typically an interrupt/beam busy-wait that never
@@ -41,6 +48,11 @@ static void hw_watchdog_handler(int sig) {
     benefactor_log_signal_hex(s_wd_what ? (const char *)s_wd_what : "frame watchdog", NULL, 0);
     benefactor_log_signal_hex("frame never finished: pc / call / last hw read / cop1lc", values,
                               sizeof values / sizeof values[0]);
+
+    const uint32_t beam[] = {g_hw_beam_crossed, g_hw_beam_taken, g_hw_beam_declined,
+                             g_pc_guest_owner};
+    benefactor_log_signal_hex("beam crossed / taken / declined, guest owner (0=flow,3=vbl,6=timer)",
+                              beam, sizeof beam / sizeof beam[0]);
 
     hw_watchdog_report_trace();
 

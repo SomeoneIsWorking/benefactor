@@ -93,6 +93,7 @@ set(BENEFACTOR_SOURCES
     src/engine/sb_decompress.c
     src/port/config.c
     src/port/freecam.c
+    src/port/frame_accounting.c
     src/port/game_loop.c
     src/port/guest_trace.c
     src/port/http_debug.c

@@ -6,6 +6,7 @@
 #include "engine/gameplay_handoff.h"
 #include "engine/overlay_load.h"
 #include "port/config.h"
+#include "port/frame_accounting.h"
 #include "port/guest_trace.h"
 #include "port/input.h"
 #include "port/port_internal.h"
@@ -605,8 +606,12 @@ int pc_step_threaded(void);
  * (call_fn) — it must NOT block here (would deadlock), so non-game threads return
  * immediately. On a restart request the parked thread exits cleanly. */
 static int game_thread_yield(void) {
-    if (!s_is_game_thread)
+    g_pc_yield_calls++;
+    if (!s_is_game_thread) {
+        g_pc_yield_refused++;
         return 0;
+    }
+    g_pc_yield_parks++;
     pthread_mutex_lock(&s_hand_mtx);
     s_turn = 0; /* hand the turn back to main */
     pthread_cond_broadcast(&s_hand_cv);
@@ -618,6 +623,11 @@ static int game_thread_yield(void) {
         pthread_exit(NULL);
     return 1;
 }
+
+/* Which flow is executing guest code right now. The beam accounting needs it:
+ * a frame boundary can only be taken by the parkable game flow, so a screen
+ * that stalls has to say whether the guest work was on that flow at all. */
+int pc_on_game_thread(void) { return s_is_game_thread; }
 
 static void *game_thread_main(void *arg) {
     (void)arg;
@@ -802,6 +812,13 @@ int pc_step(void) {
         return 0;
     }
 
+    {
+        static uint64_t last_exit_cycles = 0;
+        const uint64_t now = rt_get_guest_cycles();
+        pc_account(&g_pc_cycles_outside, &g_pc_cycles_iter_max,
+                   last_exit_cycles ? now - last_exit_cycles : 0);
+        last_exit_cycles = now;
+    }
     hw_watchdog_arm("PC", 2); /* catch an infinite loop in one frame */
     uint64_t perf_t = hw_perf_now_us();
     int r = pc_step_threaded(); /* release the game thread for one frame */
@@ -888,8 +905,13 @@ static void coro_deliver_timer_irq(void) {
         /* Level-3 (vblank) fires once per displayed frame here. Level-6 (the CIA-B
          * timer / music ISR) is delivered by pc_music_tick in pc_step at the
          * per-screen sub-frame rate — delivering it here too over-counted it. */
-        if (v3 && irq_level_enabled(INTENA_LVL3))
+        if (v3 && irq_level_enabled(INTENA_LVL3)) {
+            uint64_t before = rt_get_guest_cycles();
+            g_pc_guest_owner = 3;
             call_fn(&s_game_ctx, v3);
+            g_pc_guest_owner = 0;
+            pc_account(&g_pc_cycles_irq3, &g_pc_cycles_irq3_max, rt_get_guest_cycles() - before);
+        }
         return;
     }
     /* Intro and the cover-art title share this address range but install
@@ -908,10 +930,20 @@ static void coro_deliver_timer_irq(void) {
     /* The active image is selected by the runtime adapter at each overlay
      * transition. Deliver the vectors from that image; no static bank-presence
      * table is consulted. */
-    if (v3)
+    if (v3) {
+        uint64_t before = rt_get_guest_cycles();
+        g_pc_guest_owner = 3;
         call_fn(&s_game_ctx, v3);
-    if (v6)
+        g_pc_guest_owner = 0;
+        pc_account(&g_pc_cycles_irq3, &g_pc_cycles_irq3_max, rt_get_guest_cycles() - before);
+    }
+    if (v6) {
+        uint64_t before = rt_get_guest_cycles();
+        g_pc_guest_owner = 6;
         call_fn(&s_game_ctx, v6);
+        g_pc_guest_owner = 0;
+        pc_account(&g_pc_cycles_irq6, &g_pc_cycles_irq6_max, rt_get_guest_cycles() - before);
+    }
 }
 
 /* Common bring-up shared between the full-boot path and the direct-to-gameplay
@@ -1117,13 +1149,24 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level) {
 int pc_step_threaded(void) {
     if (s_game_done && !g_enter_gameplay)
         return 1;
+    const uint64_t frame_cycles_before = rt_get_guest_cycles();
 
-    game_thread_run_one_frame(); /* run the game to its next vblank wait (parks) */
+    {
+        uint64_t before = rt_get_guest_cycles();
+        game_thread_run_one_frame(); /* run the game to its next vblank wait (parks) */
+        pc_account(&g_pc_cycles_flow, &g_pc_cycles_flow_max, rt_get_guest_cycles() - before);
+    }
 
     if (g_harness_prerender_hook)
         g_harness_prerender_hook();
-    if (hw_present_frame() != 0)
-        return 1;
+    g_pc_cycles_frame = rt_get_guest_cycles() - frame_cycles_before;
+    {
+        const uint64_t before = rt_get_guest_cycles();
+        const int stop = hw_present_frame();
+        g_pc_cycles_present = rt_get_guest_cycles() - before;
+        if (stop != 0)
+            return 1;
+    }
     if (g_harness_frame_hook)
         g_harness_frame_hook();
 

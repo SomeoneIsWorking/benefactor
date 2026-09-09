@@ -126,6 +126,8 @@ uint64_t rt_get_executed_instructions(void);
 /* Monotonic 68000 cycles the guest has consumed. This is the port's clock for
  * anything that was timed by the beam on hardware. */
 uint64_t rt_get_guest_cycles(void);
+uint64_t rt_get_cycle_base(void);
+uint64_t rt_get_cycles_elapsed(void);
 /* Recently retired guest instructions, oldest first: PCs alone through
  * rt_insn_ring_snapshot, or PCs with their instruction words through
  * rt_insn_ring_entries (pass a null `opcodes` to skip them). */
