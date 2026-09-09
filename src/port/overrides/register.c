@@ -17,6 +17,12 @@ void pc_register_overrides(void) {
         pc_config_load();
     } /* benefactor.json */
 
+    /* Diagnostic: executing the exception vector table is always a wild jump. */
+    {
+        extern void pc_trap_vector_execution(M68KCtx * ctx);
+        rt_register_native(BENEFACTOR_IMAGE_MASK_ALL, 0x000000u, pc_trap_vector_execution);
+    }
+
     /* Hardware waits (overrides/hw.c) */
     /* NOTE: $0030C2 is NOT a hardware-wait loop — it is the state-machine
      * dispatch RE-ENTRY (movem.l (a7)+,a4-a6; bra $3092). Overriding it with a

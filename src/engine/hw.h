@@ -219,6 +219,14 @@ extern void (*g_hw_boot_handoff)(void);
  * main-thread interrupt handlers may reach the same wait without handing off. */
 extern int (*g_hw_vblank_yield)(void);
 
+/* The host's remaining per-frame work (audio tick + queue). Called when a frame
+ * boundary is reached inside guest code on the host thread, where the main loop
+ * is not going to come round for it. */
+extern void (*g_hw_frame_audio)(void);
+
+/* Guest cycles charged for blitter bus time (see hw_charge_blit). */
+extern uint64_t g_hw_blit_cycles;
+
 /* Set by src/port/game_loop.c when it owns the frame loop (presents explicitly once per frame).
  * Suppresses the VPOSR-read auto-present so presentation has a single driver. */
 extern int g_hw_pc_owns_present;

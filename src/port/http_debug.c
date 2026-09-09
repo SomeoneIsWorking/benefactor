@@ -158,28 +158,31 @@ static void handle_state(http_socket_t fd) {
         "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
         "\"saveable\":%d,\"save_reason\":\"%s\","
         "\"player_block\":[%u,%u,%u,%u],\"instructions\":%llu,"
-        "\"guest_cycles\":%llu,\"fps\":%d,"
+        "\"guest_cycles\":%llu,\"blit_cycles\":%llu,\"fps\":%d,"
+        "\"audio\":{\"dmacon\":\"%04X\",\"vol\":[%u,%u,%u,%u],\"per\":[%u,%u,%u,%u]},"
         "\"beam\":{\"crossed\":%u,\"taken\":%u,\"declined\":%u,\"off_flow\":%u},"
         "\"cycles\":{\"flow\":%llu,\"irq3\":%llu,\"irq6\":%llu,\"frame\":%llu,\"base\":%llu,"
         "\"elapsed\":%llu,\"present\":%llu,\"iter\":%llu,\"iter_max\":%llu,"
         "\"flow_max\":%llu,\"irq3_max\":%llu,\"irq6_max\":%llu},"
         "\"present\":{\"calls\":%u,\"reentrant\":%u},"
-        "\"yield\":{\"calls\":%u,\"refused\":%u,\"parks\":%u},"
+        "\"yield\":{\"calls\":%u,\"refused\":%u,\"parks\":%u},\"title_draws\":%u,"
         "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u}}\n",
         hw_get_frame_num(), level, cop1lc, g_gameplay_active, g_overlay_active, g_credits_active,
         saveable, why ? why : "", p0, p1, p2, p3,
         (unsigned long long)rt_get_executed_instructions(),
-        (unsigned long long)rt_get_guest_cycles(), g_hw_perf.fps, g_hw_beam_crossed,
-        g_hw_beam_taken, g_hw_beam_declined, g_hw_beam_declined_off_flow,
-        (unsigned long long)g_pc_cycles_flow, (unsigned long long)g_pc_cycles_irq3,
-        (unsigned long long)g_pc_cycles_irq6, (unsigned long long)g_pc_cycles_frame,
-        (unsigned long long)rt_get_cycle_base(), (unsigned long long)rt_get_cycles_elapsed(),
-        (unsigned long long)g_pc_cycles_present, (unsigned long long)g_pc_cycles_outside,
-        (unsigned long long)g_pc_cycles_iter_max, (unsigned long long)g_pc_cycles_flow_max,
-        (unsigned long long)g_pc_cycles_irq3_max, (unsigned long long)g_pc_cycles_irq6_max,
-        g_hw_present_calls, g_hw_present_reentrant, g_pc_yield_calls, g_pc_yield_refused,
-        g_pc_yield_parks, g_hw_perf.game_us, g_hw_perf.render_us, g_hw_perf.compose_us,
-        g_hw_perf.present_us);
+        (unsigned long long)rt_get_guest_cycles(), (unsigned long long)g_hw_blit_cycles,
+        g_hw_perf.fps, s_regs[0x096 >> 1], s_regs[0x0A8 >> 1], s_regs[0x0B8 >> 1],
+        s_regs[0x0C8 >> 1], s_regs[0x0D8 >> 1], s_regs[0x0A6 >> 1], s_regs[0x0B6 >> 1],
+        s_regs[0x0C6 >> 1], s_regs[0x0D6 >> 1], g_hw_beam_crossed, g_hw_beam_taken,
+        g_hw_beam_declined, g_hw_beam_declined_off_flow, (unsigned long long)g_pc_cycles_flow,
+        (unsigned long long)g_pc_cycles_irq3, (unsigned long long)g_pc_cycles_irq6,
+        (unsigned long long)g_pc_cycles_frame, (unsigned long long)rt_get_cycle_base(),
+        (unsigned long long)rt_get_cycles_elapsed(), (unsigned long long)g_pc_cycles_present,
+        (unsigned long long)g_pc_cycles_outside, (unsigned long long)g_pc_cycles_iter_max,
+        (unsigned long long)g_pc_cycles_flow_max, (unsigned long long)g_pc_cycles_irq3_max,
+        (unsigned long long)g_pc_cycles_irq6_max, g_hw_present_calls, g_hw_present_reentrant,
+        g_pc_yield_calls, g_pc_yield_refused, g_pc_yield_parks, g_pc_title_draws, g_hw_perf.game_us,
+        g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us);
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 

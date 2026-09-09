@@ -16,6 +16,7 @@
 #include "common/log.h"
 #include "engine/hw_private.h"
 #include "port/config.h"
+#include "runtime/guest_runtime.h"
 #include <stdio.h>
 #ifdef HARNESS_BUILD
 #include "harness/trace.h"
@@ -194,6 +195,26 @@ static void _build_filltable(void) {
  * chandelier chains and similar. C is the read/write channel (D has no effect
  * on line draw), BLTAPT is the error accumulator (not a pointer), BLTADAT is
  * the single pen bit ($8000). */
+/* Charge the guest for the bus time a blit occupies on real hardware. The
+ * blitter here completes instantly, but the game does not know that: the intro
+ * crawl paces itself entirely on WaitBlit (btst #6,$DFF002), with no beam
+ * sync at all, so a free blit made the whole sequence run as fast as the host
+ * could interpret it — text scrolling past far too quickly and torn mid-draw.
+ *
+ * OCS cost: one bus cycle per enabled DMA channel per word, and one bus cycle
+ * is two 68000 cycles. Line mode costs two per pixel (the C read and the D
+ * write). This is the coarse model, not cycle-exact allocation — it restores
+ * the ORDER of magnitude that the guest's own waits depend on. */
+uint64_t g_hw_blit_cycles = 0; /* total charged, for /state */
+
+static void hw_charge_blit(int words, int height, int channels) {
+    if (words <= 0 || height <= 0 || channels <= 0)
+        return;
+    const uint64_t cycles = (uint64_t)words * (uint64_t)height * (uint64_t)channels * 2u;
+    g_hw_blit_cycles += cycles;
+    rt_add_guest_cycles(cycles);
+}
+
 static void hw_do_line(uint16_t bltcon0, uint16_t bltcon1, uint16_t bltsize) {
     int length = (bltsize >> 6) ? (bltsize >> 6) : 1024;
     uint32_t cpt = _bplptr_from(_BLTCPTH, _BLTCPTL) & ~1u;
@@ -290,6 +311,7 @@ void hw_do_blit(void) {
     /* LINE mode (BLTCON1 bit0) is a completely different engine (Bresenham). */
     if (bltcon1 & BLT1_LINE) {
         hw_do_line(bltcon0, bltcon1, bltsize);
+        hw_charge_blit((bltsize >> 6) ? (bltsize >> 6) : 1024, 1, 2);
         return;
     }
 
@@ -601,5 +623,6 @@ void hw_do_blit(void) {
         s_regs[_BLTDPTL >> 1] = (uint16_t)(dpt & 0xFFFF);
     }
 
+    hw_charge_blit(width_words, height, use_a + use_b + use_c + use_d);
     s_blt_bzero = 1;
 }

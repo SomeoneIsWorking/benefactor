@@ -273,74 +273,64 @@ static void hw_compose_output(void) {
     hw_blit_capture_reset(); /* start a fresh object-blit capture for the next frame */
 }
 
+/* A blit's register sequence is half-written: any BLTxxx write since BLTSIZE. */
+static int s_blt_setup = 0;
+
 /* Beam counter (simulated at 50 Hz) */
 static int s_scanline = 0;
 static int s_frame_num = 0;
 
-/* The synthetic beam is sampled on EVERY custom-chip access, read or write.
- * Sampling only on VPOSR/VHPOSR reads meant a guest loop that syncs on
- * something else never crossed a frame boundary: the intro crawl waits on the
- * blitter (WaitBlit on DMACONR) and drives its blits register by register
- * without ever reading the beam, so it ran a whole crawl inside one host frame
- * and tripped the frame watchdog. The disk-boot coroutine owns presentation at
- * a wrapped beam for every screen state, not only gameplay. */
-/* PAL beam geometry in 68000 cycles: a scanline is 227 color clocks and the CPU
- * runs at two cycles per color clock, so 454 CPU cycles per line and 312 lines
- * per 20 ms frame. */
+/* Sampled on EVERY custom-chip access: a guest loop that syncs on something
+ * other than the beam (the intro crawl waits on the blitter) would otherwise
+ * never cross a frame boundary. PAL geometry in 68000 cycles: 227 color clocks
+ * a line at two cycles each, 312 lines a frame. */
 #define BEAM_CYCLES_PER_LINE 454u
 #define BEAM_LINES_PER_FRAME 312u
 
 /* Derive the beam from the guest's own consumed CPU time rather than from the
  * number of times it read the register. The interpreter executes the game's
- * real busy-waits, so a wait must cost the beam what it cost on hardware; a
- * line-per-read beam retired every wait almost instantly and ran the game
- * (visibly, the intro crawl) tens of times too fast. */
-static void hw_step_register_beam(void) {
+ * real busy-waits, so a wait must cost the beam what it cost on hardware. */
+static void hw_step_register_beam(int at_beam_read) {
     uint64_t line = rt_get_guest_cycles() / BEAM_CYCLES_PER_LINE;
     uint64_t frame = line / BEAM_LINES_PER_FRAME;
     s_scanline = (int)(line % BEAM_LINES_PER_FRAME);
     if (frame == s_beam_frame)
         return;
-    /* Accounting the watchdog reports: how many beam frames the guest crossed
-     * (crossed), how many were actually presented (taken), and how many were
-     * refused because the caller was not the parkable game flow (declined).
-     * A stalled screen is one of two very different faults and these separate
-     * them: crossed==taken means the guest itself is stuck, while crossed
-     * racing ahead of taken means the boundary has nowhere to land. */
+    /* crossed==taken means the guest itself is stuck; crossed racing ahead of
+     * taken means the boundary has nowhere to land. The watchdog reports both. */
     g_hw_beam_crossed++;
 
-    /* The frame boundary belongs to the game flow, because only that flow can
-     * be parked and resumed. Interrupt handlers run on the host thread and
-     * spend the same guest cycles, so when one of them crosses the boundary,
-     * leave it PENDING for the game flow's next register read instead of
-     * consuming it here — consuming it there starved the presenter, which saw
-     * one frame for every thirty the guest actually ran. */
+    /* The boundary belongs to the game flow: only that flow can park. */
     if (!g_hw_vblank_yield) {
         s_beam_frame = frame;
         s_frame_num++;
         g_hw_beam_taken++;
         return;
     }
+    /* Never park mid-blit: the blitter registers are one shared set, so an
+     * interrupt delivered here writes the same registers and the two blits merge
+     * into one runaway blit. See docs/issues/0007. */
+    if (s_blt_setup)
+        return;
     if (g_hw_vblank_yield() == 0) {
         extern int pc_on_game_thread(void);
         g_hw_beam_declined++;
         if (!pc_on_game_thread())
             g_hw_beam_declined_off_flow++;
-        /* Guest code inside an interrupt runs on the host thread and cannot be
-         * parked, but it still crosses real frame boundaries: the intro
-         * crawl's animation loop lives inside the level-6 handler and paces
-         * itself on the beam. Unpresented, one delivery ran the whole crawl in
-         * a single host frame and was then cut off (and rolled back) by the
-         * instruction budget — it jumped instead of scrolling. Present and
-         * pace here so a frame waited for inside an interrupt is a frame the
-         * viewer sees. The renderer touches custom registers too, so guard
-         * against re-entering this from inside the present. */
+        /* An interrupt cannot park, but the crawl's animation loop lives inside
+         * the level-6 handler and still crosses real frames. Present (and queue
+         * the frame's audio, which otherwise waits for the host iteration to
+         * end) only at a beam READ: the guest saying it is done with the frame.
+         * Any other access can land mid-blit, and presenting there showed a
+         * half-drawn buffer. The renderer reads registers too — guard re-entry. */
         static int presenting = 0;
-        if (presenting)
+        if (!at_beam_read || presenting)
             return;
         s_beam_frame = frame;
         presenting = 1;
         (void)hw_present_frame();
+        if (g_hw_frame_audio)
+            g_hw_frame_audio();
         presenting = 0;
         hw_watchdog_arm("PC", 2); /* this frame finished; the next gets its own */
         return;
@@ -1233,6 +1223,9 @@ int hw_present_frame(void) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_EVENT_QUIT) {
+                benefactor_log_write(BENEFACTOR_LOG_INFO, "app",
+                                     "SDL asked the app to quit (event $%X) at frame %d", ev.type,
+                                     s_frame_num);
                 s_in_present_frame = 0;
                 return 1;
             }
@@ -1387,9 +1380,10 @@ int hw_present_frame(void) {
         }
         hw_perf_acc(&g_hw_perf.present_us, perf_t);
         hw_perf_fps_tick();
-
-        hw_pace_frame(); /* PAL 50 Hz scaled by the effective speed */
     }
+    /* Headless means no window, not no time: a headless timing measurement has
+     * to be the timing the player gets. The harness opts out via hw_set_no_pace. */
+    hw_pace_frame(); /* PAL 50 Hz scaled by the effective speed */
     s_in_present_frame = 0;
 
     /* ── Frame BMP dump (works in headless mode too) ───────────────────── */
@@ -2034,7 +2028,7 @@ uint16_t hw_read16(uint32_t addr) {
     /* ── Custom chips ($DFF000) ── */
     if (addr >= 0xDFF000 && addr <= 0xDFFFFF) {
         uint32_t reg = addr & 0x1FE;
-        hw_step_register_beam();
+        hw_step_register_beam(reg == VPOSR || reg == VHPOSR);
         switch (reg) {
         case DMACONR: {
             /* DMACONR status bits are BBUSY (14) and BZERO (13) — NOT 15/14.
@@ -2178,7 +2172,9 @@ void hw_write16(uint32_t addr, uint16_t v) {
     /* ── Custom chips ── */
     if (addr >= 0xDFF000 && addr <= 0xDFFFFF) {
         uint32_t reg = addr & 0x1FE;
-        hw_step_register_beam();
+        hw_step_register_beam(0);
+        if (reg >= 0x040 && reg <= 0x074)
+            s_blt_setup = (reg != BLTSIZE);
         s_regs[reg >> 1] = v; /* shadow copy */
 
         /* COP1LCL completes the 32-bit COP1LC write (the game uses move.l to
@@ -2527,6 +2523,7 @@ void hw_blitter_sync(void) {
 }
 
 int (*g_hw_vblank_yield)(void) = NULL;
+void (*g_hw_frame_audio)(void) = NULL;
 int g_hw_pc_owns_present = 0;
 
 /* Called when the game commits the display copper pointer (writes COP1LC) — the

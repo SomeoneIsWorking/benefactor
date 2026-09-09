@@ -30,6 +30,12 @@ extern volatile uint32_t g_pc_guest_owner;
 /* Per-frame wait accounting: reached, refused (not the game flow), parked. */
 extern volatile uint32_t g_pc_yield_calls, g_pc_yield_refused, g_pc_yield_parks;
 
+/* How many times the title/intro screen redrew itself ($0041A4). Compare it to
+ * the presented frame count: more than one draw per frame means the screen is
+ * being stepped faster than it is shown, which is what "the crawl is too fast"
+ * looks like from here. */
+extern volatile uint32_t g_pc_title_draws;
+
 /* Record one measured span into its slot, keeping the running peak. */
 void pc_account(uint64_t *slot, uint64_t *peak, uint64_t cycles);
 

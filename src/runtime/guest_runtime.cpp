@@ -201,6 +201,8 @@ class Runtime final {
         return now;
     }
 
+    void add_guest_cycles(std::uint64_t cycles) noexcept { cycle_base += cycles; }
+
     [[nodiscard]] std::uint64_t cycle_base_value() const noexcept { return cycle_base; }
     [[nodiscard]] std::uint64_t cycles_elapsed_value() const noexcept {
         return executor.state().elapsed_cycles;
@@ -673,6 +675,16 @@ uint32_t rt_get_active_call_address(void) {
 uint32_t rt_get_pc(void) { return g_runtime ? g_runtime->executor.state().pc : 0u; }
 
 uint64_t rt_get_guest_cycles(void) { return g_runtime ? g_runtime->guest_cycles() : 0u; }
+
+/* Charge guest time for work the host performs instantly on the guest's behalf.
+ * The blitter is the case that matters: on hardware a blit occupies the bus for
+ * a computed number of cycles and the game's WaitBlit spins for exactly that
+ * long. Completing it for free made every blitter-paced screen run as fast as
+ * the host could interpret. */
+void rt_add_guest_cycles(uint64_t cycles) {
+    if (g_runtime)
+        g_runtime->add_guest_cycles(cycles);
+}
 
 /* Raw halves of the guest clock, for diagnosing a clock that disagrees with the
  * work actually done: the folded base plus the live executor counter, which an
