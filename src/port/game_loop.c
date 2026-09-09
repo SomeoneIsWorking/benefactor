@@ -965,6 +965,7 @@ static int pc_common_bringup(const char **disks, int n_disks) {
     overlay_load_main();
     pc_register_overrides();
     g_hw_vblank_yield = game_thread_yield; /* hw_vblank_wait parks the game thread */
+    g_hw_frame_audio = pc_audio_frame;     /* a frame reached inside an IRQ still owes audio */
     g_hw_pc_owns_present = 1;
     {
         extern int g_native_render_delay;

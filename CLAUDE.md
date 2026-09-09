@@ -50,6 +50,19 @@ game flow parks at its boundary and the host presents; guest code inside an
 interrupt runs on the host thread and cannot be parked, so it presents (and
 paces) in place. Both asking to present in the same beam frame halved the
 guest's speed, so `hw_present_frame` refuses a beam frame it has already shown.
+Present only at a beam READ — any other access can land mid-draw, which cropped
+crawl text mid-line.
+
+**Never take a frame boundary in the middle of a blit's register sequence.** The
+blitter registers are one shared set, so parking the game flow between the first
+`BLTxxx` write and `BLTSIZE` lets the interrupt the host then delivers write the
+same registers, and the two blits merge into one runaway blit. Leave the boundary
+pending instead.
+
+**A blit costs the guest time.** One bus cycle per enabled DMA channel per word,
+two 68000 cycles a bus cycle (two per pixel in line mode), charged through
+`rt_add_guest_cycles`. Code that paces itself on `WaitBlit` — the intro crawl —
+has no other clock.
 
 See `docs/issues/0007-interpreter-boundaries-and-beam-time.md`.
 
@@ -59,6 +72,10 @@ Reach for these before adding a print:
 
 - **Every guest-call exit is named** at debug level (`BENEFACTOR_LOG_LEVEL=debug`):
   `guest call exit: reason=… pc=… instructions=… image=…`.
+- **A wild jump names itself.** Reaching the exception vector table traps on the
+  FIRST instruction (`pc_trap_vector_execution`, registered on `$000000`), logs
+  the guest stack around A7, and dumps the ring — before the ring is overwritten
+  by the vector table's own zeros.
 - **Retired-instruction ring** — the last 256 guest PCs with their opcodes.
   `rt_insn_ring_snapshot` / `rt_insn_ring_entries`, `pc_log_retired_instructions`
   for a log dump, `/trace` on the debug server for a live one. This is what

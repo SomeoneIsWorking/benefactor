@@ -8,6 +8,7 @@ uint64_t g_pc_cycles_present = 0;
 uint64_t g_pc_cycles_outside = 0, g_pc_cycles_iter_max = 0;
 
 volatile uint32_t g_pc_guest_owner = 0;
+volatile uint32_t g_pc_title_draws = 0;
 volatile uint32_t g_pc_yield_calls = 0, g_pc_yield_refused = 0, g_pc_yield_parks = 0;
 
 void pc_account(uint64_t *slot, uint64_t *peak, uint64_t cycles) {

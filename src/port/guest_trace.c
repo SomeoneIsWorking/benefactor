@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 enum {
-    TRACE_DEPTH = 64,
+    TRACE_DEPTH = 256,
     TRACE_PER_LINE = 8,
 };
 
@@ -39,4 +39,22 @@ size_t pc_format_retired_instructions(char *buffer, size_t capacity) {
         used += (size_t)snprintf(buffer + used, capacity - used, "%06X %04X\n",
                                  program_counters[index], opcodes[index]);
     return used;
+}
+
+void pc_trap_vector_execution(M68KCtx *ctx) {
+    benefactor_log_write(BENEFACTOR_LOG_ERROR, "game",
+                         "guest jumped into the exception vector table (pc=$%06X) — "
+                         "a wild RTS or jump; the ring below ends at the culprit",
+                         rt_get_pc());
+    {
+        const uint32_t sp = ctx->A[7];
+        char line[256];
+        int used = snprintf(line, sizeof line, "stack a7=$%06X:", sp);
+        for (int i = -4; i <= 4; i++)
+            used += snprintf(line + used, sizeof line - (size_t)used, " %s%08X", i == 0 ? ">" : "",
+                             rt_read32(ctx, sp + (uint32_t)(i * 4)));
+        benefactor_log_write(BENEFACTOR_LOG_ERROR, "game", "%s", line);
+    }
+    pc_log_retired_instructions("game");
+    rt_exit_to_host(ctx);
 }

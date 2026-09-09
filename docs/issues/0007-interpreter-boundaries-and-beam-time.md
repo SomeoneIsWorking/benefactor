@@ -119,3 +119,43 @@ VERIFIED: windowed, the guest advances 7,120,665 cycles/s against a PAL ideal of
 7,082,400 (0.5%); a steady ~50 fps through the full intro crawl, high scores and
 into level 1 with zero runtime errors; the crawl scrolls its text legibly frame
 by frame instead of jumping.
+
+## Follow-up (2026-09-10): blit time, and never parking mid-blit
+
+Two more faults, from the same four-item report ("music should start with the
+crawl / crawl too fast / text cropped abruptly on some frames / the speed bursts
+when the crawl ends").
+
+5. **A blit cost the guest nothing.** The crawl paces itself entirely on
+   `WaitBlit` (`btst #6,$DFF002`) with no beam sync at all, so with an instant
+   free blitter the whole sequence ran as fast as the host could interpret it.
+   `hw_charge_blit` now charges the OCS cost — one bus cycle per enabled DMA
+   channel per word, two 68000 cycles a bus cycle, two per pixel in line mode —
+   to the guest clock. Measured on the crawl: ~26k cycles a frame, 18% of a PAL
+   frame; over a whole intro run it is ~25-30% of guest time. The crawl now runs
+   at 7.06-7.17M guest cycles/s against the 7,082,400 PAL ideal, ~50 fps, with no
+   burst at the transition out of it.
+
+6. **Parking the game flow mid-blit merged two blits into one.** Charging blit
+   time moved where frame boundaries fall, and boundaries were being taken at any
+   custom-chip access — including halfway through a blit's register sequence. The
+   blitter registers are one shared set, so the interrupt the host then delivered
+   wrote the SAME registers: the crawl's level-6 handler re-enters the flow's own
+   draw routine, and a 47x2-word text blit became 47x1024 (BLTSIZE height field
+   0). It swept the top of chip RAM, zeroed the return address on the guest stack
+   at `$07FFEC`, and the routine's RTS walked into the exception vector table —
+   surfacing as `[overlay-loader] $150 d0=490238 unhandled`. `hw_step_register_beam`
+   now leaves the boundary PENDING while a blit's registers are half-written
+   (any `BLTxxx` write since the last `BLTSIZE`).
+
+Presenting is also restricted to a beam READ (`VPOSR`/`VHPOSR`): any other access
+can land mid-draw, which is what cropped crawl text mid-line. The same place
+queues the frame's audio through `g_hw_frame_audio`, because audio was queued once
+per host-loop iteration and one iteration spans the whole crawl — that is why the
+music never started with it.
+
+DIAGNOSTICS ADDED: a native registered on address `$000000` (`pc_trap_vector_execution`)
+names the fault at the FIRST instruction of a wild jump, while the retired ring
+still holds the code that ran before it, and dumps the guest stack around A7.
+Without it the ring had already been overwritten by 84 entries of `ori.b #0,d0`
+walking the vector table. The ring dump is 256 entries deep, not 64.
