@@ -3,6 +3,7 @@
  * Override implementations live in src/port/overrides/.
  */
 #include "engine/disk_boot.h"
+#include "engine/gameplay_handoff.h"
 #include "engine/overlay_load.h"
 #include "port/config.h"
 #include "port/input.h"
@@ -1073,18 +1074,10 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level) {
      */
     native_overlay_load_d0();
 
-    /* $3e and $184 — both point at a sentinel ($A68) the card-renderer chases.
-     * The real $150 body sets these as immediates; missing this causes the
-     * card glyph blit to overwrite chunk pointers at $100 and the gameplay
-     * dispatch later walks a null chain (see project_card_freeze_chain). */
-    for (uint32_t a = 0x3eu;; a = 0x184u) {
-        g_mem[a] = 0x00;
-        g_mem[a + 1] = 0x00;
-        g_mem[a + 2] = 0x0A;
-        g_mem[a + 3] = 0x68;
-        if (a == 0x184u)
-            break;
-    }
+    /* Reproduce the retail $150 loader body's low-memory init: the $3e/$184
+     * card-renderer sentinels and a valid $1e.w gameplay mode word (this dev
+     * entry skips the menu, so $1e.w would otherwise be stale). */
+    gameplay_handoff_prepare_low_memory();
 
     extern void pc_preload_all_level_names(void);
     pc_preload_all_level_names();
@@ -1148,14 +1141,7 @@ int pc_step_threaded(void) {
             uint8_t lv = g_mem[0x21];
             uint8_t extra = g_mem[0x38]; /* extra-levels (Disk.4) mode flag */
             native_overlay_load_d0();
-            for (uint32_t a = 0x3eu;; a = 0x184u) {
-                g_mem[a] = 0x00;
-                g_mem[a + 1] = 0x00;
-                g_mem[a + 2] = 0x0A;
-                g_mem[a + 3] = 0x68;
-                if (a == 0x184u)
-                    break;
-            }
+            gameplay_handoff_prepare_low_memory();
             pc_preload_all_level_names();
             g_mem[0x20] = 0x00;
             g_mem[0x21] = lv;

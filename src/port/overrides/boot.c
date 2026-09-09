@@ -1,5 +1,6 @@
 /* src/port/overrides/boot.c — Boot-time animation overrides (native PC C, no M68K emulation) */
-#include "engine/overlay_load.h" /* shared pure overlay loaders */
+#include "engine/gameplay_handoff.h" /* $150 loader-body low-memory init */
+#include "engine/overlay_load.h"     /* shared pure overlay loaders */
 #include "port/port_internal.h"
 
 /* Step a single 12-bit Amiga color one nibble-step toward its target.
@@ -554,7 +555,11 @@ void native_menu_setup(M68KCtx *ctx) {
 void native_menu_art_unpack(M68KCtx *ctx) {
     int is_menu_art = (ctx->A[0] == MENU_ART_SRC);
     uint32_t dst = ctx->A[1];
-    rt_call_original(ctx, ctx->image, 0x00003700u);
+    /* $3700 is entered with JSR from the title menu.  Stop the original body
+     * at its caller's return PC; letting it run through the caller leaves the
+     * guest frame on the wrong continuation and eventually trips the frame
+     * watchdog during menu input. */
+    rt_call_original_subroutine(ctx, ctx->image, 0x00003700u);
     if (is_menu_art)
         s_menu_page_base = dst; /* anchor base for the glyph-blit capture */
 }
@@ -658,6 +663,10 @@ void native_menu_pwfield_draw(M68KCtx *ctx) {
     uint32_t src = MR32(MR32(ctx->A[5] - 5044u));   /* *(-$13B4): char ptr  */
     MW8(ctx->A[5] - 4992u + (uint32_t)(int32_t)off, /* -$1380 text shadow   */
         MR8(src));
+    /* The guest reaches $3DAA with JSR from the menu loop.  This replacement
+     * owns the draw body, so finish through the guest return address instead
+     * of leaving the executor at the override identity forever. */
+    (void)rt_return_from_native(ctx);
 }
 
 void native_menu_diff_right(M68KCtx *ctx) {
@@ -706,22 +715,12 @@ void native_overlay_loader_reloc(M68KCtx *ctx) {
     native_overlay_load_d0();
 
     /* The real $150 routine (replaced by this override) also initialises the
-     * low-memory display pointers it uses — notably $3e and $184 = $A68 (a fixed
-     * immediate in that code). Without this, $3e stays 0, so the card glyph
-     * renderer ($578162, dest = *($3e)+$1c) writes over low memory $100 (the
-     * disk-chunk pointer table); gameplay then walks a null chain at $57D11A and
-     * hangs. Replicate that pointer init here. */
-    {
-        uint32_t a;
-        for (a = 0x3eu;; a = 0x184u) {
-            g_mem[a] = 0x00;
-            g_mem[a + 1] = 0x00;
-            g_mem[a + 2] = 0x0A;
-            g_mem[a + 3] = 0x68;
-            if (a == 0x184u)
-                break;
-        }
-    }
+     * low-memory display sentinels and gameplay mode word it depends on. Without
+     * the $3e/$184 sentinels the card glyph renderer scribbles the disk-chunk
+     * pointer table at $100; without a valid $1e.w the $577000 prologue and
+     * $57DEAC read the attract/game-over marker and pull garbage joystick input.
+     * The attract hand-off reaches this same path, so normalise here. */
+    gameplay_handoff_prepare_low_memory();
 
     /* Preload all 60 level names natively, BEFORE the game ever runs.
      *

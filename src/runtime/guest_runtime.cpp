@@ -345,10 +345,17 @@ void log_exit(const amigaport::ExecutionExit &exit) {
     if (exit.reason == amigaport::ExitReason::MemoryFault ||
         exit.reason == amigaport::ExitReason::Exception ||
         exit.reason == amigaport::ExitReason::UnsupportedInstruction) {
-        benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
-                             "guest execution stopped: reason=%u pc=$%06X instructions=%u",
-                             static_cast<unsigned>(exit.reason), exit.identity.address,
-                             exit.instructions);
+        const auto &state = runtime().executor.state();
+        benefactor_log_write(
+            BENEFACTOR_LOG_ERROR, "runtime",
+            "guest execution stopped: reason=%u pc=$%06X instructions=%u "
+            "vector=%u opcode=$%04X d0=$%08X a5=$%08X a7=$%08X sr=$%04X "
+            "image=%u generation=%llu",
+            static_cast<unsigned>(exit.reason), exit.identity.address, exit.instructions,
+            static_cast<unsigned>(state.exception.active_vector), exit.instruction_word,
+            state.data[0], state.address[5], state.address[7], state.sr,
+            static_cast<unsigned>(runtime().executor.image().tag.value),
+            static_cast<unsigned long long>(runtime().executor.image().generation));
     }
 }
 

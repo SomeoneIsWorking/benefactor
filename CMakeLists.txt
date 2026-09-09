@@ -84,6 +84,7 @@ set(BENEFACTOR_SOURCES
     src/main.c
     src/common/log.c
     src/engine/disk_boot.c
+    src/engine/gameplay_handoff.c
     src/engine/hw.c
     src/engine/hw_audio.c
     src/engine/hw_blitter.c
