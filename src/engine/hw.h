@@ -175,17 +175,11 @@ void hw_set_mouse_lmb(int pressed);
 
 /* ── Guest-runtime helpers ───────────────────────────────────────────────────── */
 
-/* Read VPOSR byte (returns bit 0 = frame parity) */
-uint8_t hw_vposr_read(void);
-
 /* Return BZERO state: 1 = blit complete, 0 = blitter busy */
 int hw_blitter_bzero(void);
 
 /* Block until blitter BZERO becomes 1 (blit complete) */
 void hw_blitter_sync(void);
-
-/* Block until next VPOSR frame boundary toggle */
-void hw_vsync(void);
 
 /* Wait for vblank (Amiga VPOSR sync pair: bit0=0 then bit0=1).
  * On PC this is a no-op — frame timing is driven by SDL in hw_present_frame(). */

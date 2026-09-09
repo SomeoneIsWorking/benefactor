@@ -280,16 +280,38 @@ static int s_frame_num = 0;
 /* A register read advances the synthetic beam when guest code is polling the
  * custom-chip position registers. The disk-boot coroutine owns presentation at
  * a wrapped beam for every screen state, not only gameplay. */
+/* PAL beam geometry in 68000 cycles: a scanline is 227 color clocks and the CPU
+ * runs at two cycles per color clock, so 454 CPU cycles per line and 312 lines
+ * per 20 ms frame. */
+#define BEAM_CYCLES_PER_LINE 454u
+#define BEAM_LINES_PER_FRAME 312u
+
+/* Derive the beam from the guest's own consumed CPU time rather than from the
+ * number of times it read the register. The interpreter executes the game's
+ * real busy-waits, so a wait must cost the beam what it cost on hardware; a
+ * line-per-read beam retired every wait almost instantly and ran the game
+ * (visibly, the intro crawl) tens of times too fast. */
 static void hw_step_register_beam(void) {
-    s_scanline++;
-    if (s_scanline < 312)
+    uint64_t line = rt_get_guest_cycles() / BEAM_CYCLES_PER_LINE;
+    uint64_t frame = line / BEAM_LINES_PER_FRAME;
+    s_scanline = (int)(line % BEAM_LINES_PER_FRAME);
+    if (frame == s_beam_frame)
         return;
 
-    s_scanline = 0;
-    if (g_hw_vblank_yield && g_hw_vblank_yield() != 0)
-        return;
-    else
+    /* The frame boundary belongs to the game flow, because only that flow can
+     * be parked and resumed. Interrupt handlers run on the host thread and
+     * spend the same guest cycles, so when one of them crosses the boundary,
+     * leave it PENDING for the game flow's next register read instead of
+     * consuming it here — consuming it there starved the presenter, which saw
+     * one frame for every thirty the guest actually ran. */
+    if (!g_hw_vblank_yield) {
+        s_beam_frame = frame;
         s_frame_num++;
+        return;
+    }
+    if (g_hw_vblank_yield() == 0)
+        return;
+    s_beam_frame = frame;
 }
 
 int hw_get_frame_num(void) { return s_frame_num; }
@@ -1038,7 +1060,7 @@ int hw_handle_sdl_event(const SDL_Event *ev) {
     }
 }
 static uint8_t s_key_byte = 0xFF;
-/* s_blt_bzero, s_vposr_counter, s_audio[] live on g_state via game_state.h. */
+/* s_blt_bzero, s_beam_frame, s_audio[] live on g_state via game_state.h. */
 int s_copper_writing = 0; /* set during copper MOVE execution */
 SDL_AudioStream *s_audio_stream = NULL;
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -2435,23 +2457,6 @@ void hw_advance_scanline(void) {
 /* Runtime-adapter helpers – expose internal state to guest execution           */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-uint8_t hw_vposr_read(void) {
-    /* Advance beam and possibly trigger frame boundary */
-    s_vposr_counter++;
-    if (s_vposr_counter >= 5000) {
-        s_vposr_counter = 0;
-        s_scanline = 0;
-        s_frame_num++;
-        if (hw_running && hw_present_frame() != 0) {
-            hw_running = 0;
-            s_scanline = 999;
-        }
-    }
-    uint16_t lof = 1;
-    uint16_t val = (uint16_t)((lof << 15) | (s_frame_num & 1));
-    return (uint8_t)val;
-}
-
 int hw_blitter_bzero(void) {
     int r = s_blt_bzero;
     s_blt_bzero = 0; /* reading clears BZERO, like DMACONR */
@@ -2496,22 +2501,5 @@ void hw_wait_fire(int want_pressed) {
     } else {
         while ((s_fire_pressed || s_mouse_lmb) && hw_running)
             hw_vblank_wait();
-    }
-}
-
-void hw_vsync(void) {
-    /* Wait for next frame boundary */
-    int start_frame = s_frame_num;
-    while (s_frame_num == start_frame && hw_running) {
-        s_vposr_counter++;
-        if (s_vposr_counter >= 5000) {
-            s_vposr_counter = 0;
-            s_scanline = 0;
-            s_frame_num++;
-            if (hw_present_frame() != 0) {
-                hw_running = 0;
-                s_scanline = 999;
-            }
-        }
     }
 }

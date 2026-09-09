@@ -21,6 +21,7 @@
 #include "common/log.h"
 #include "engine/hw.h"
 #include "port/config.h"
+#include "port/guest_trace.h"
 #include "port/port.h"
 #include "runtime/guest_runtime.h"
 
@@ -149,14 +150,19 @@ static void handle_state(http_socket_t fd) {
     const char *why = NULL;
     int saveable = pc_savestate_allowed(&why);
     extern int hw_get_frame_num(void);
-    char body[640];
+    char body[768];
     int n = snprintf(body, sizeof body,
                      "{\"frame\":%d,\"level\":%u,\"cop1lc\":\"%06X\","
                      "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
                      "\"saveable\":%d,\"save_reason\":\"%s\","
-                     "\"player_block\":[%u,%u,%u,%u]}\n",
+                     "\"player_block\":[%u,%u,%u,%u],\"instructions\":%llu,"
+                     "\"guest_cycles\":%llu,\"fps\":%d,"
+                     "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u}}\n",
                      hw_get_frame_num(), level, cop1lc, g_gameplay_active, g_overlay_active,
-                     g_credits_active, saveable, why ? why : "", p0, p1, p2, p3);
+                     g_credits_active, saveable, why ? why : "", p0, p1, p2, p3,
+                     (unsigned long long)rt_get_executed_instructions(),
+                     (unsigned long long)rt_get_guest_cycles(), g_hw_perf.fps, g_hw_perf.game_us,
+                     g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us);
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
@@ -336,6 +342,10 @@ static void handle_request(http_socket_t fd, char *req) {
         extern void pc_debug_game_over(void);
         pc_debug_game_over();
         send_response(fd, "200 OK", "text/plain", "death triggered\n", 16);
+    } else if (!strcmp(path, "/trace")) { /* recently retired guest instructions */
+        char body[2048];
+        size_t n = pc_format_retired_instructions(body, sizeof body);
+        send_response(fd, "200 OK", "text/plain", body, n);
     } else if (!strcmp(path, "/recent")) { /* debug: recent rt_call targets (oldest..newest) */
         extern int rt_recent_snapshot(uint32_t *out, int max);
         uint32_t r[48];
@@ -348,7 +358,7 @@ static void handle_request(http_socket_t fd, char *req) {
     } else if (!strcmp(path, "/")) {
         const char *help = "Benefactor debug HTTP. Endpoints:\n"
                            "  /state\n  /mem?addr=HEX&len=N\n  /poke?addr=HEX&val=HEX\n"
-                           "  /fb.ppm\n  /fb.bin\n";
+                           "  /fb.ppm\n  /fb.bin\n  /trace\n  /recent\n";
         send_response(fd, "200 OK", "text/plain", help, strlen(help));
     } else
         send_response(fd, "404 Not Found", "text/plain", "no\n", 3);

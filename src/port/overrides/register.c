@@ -23,10 +23,10 @@ void pc_register_overrides(void) {
      * no-op swallowed every screen transition, so the disk-boot flow unwound
      * after the intro instead of advancing. Let the original retail-image
      * original dispatch re-entry run. */
-    rt_register_override(0x0031A0u, native_blitter_wait_clear);
+    rt_register_replacement(0x0031A0u, native_blitter_wait_clear);
 
     /* Boot animation (overrides/boot.c) */
-    rt_register_override(0x0074AAu, native_boot_anim_iterator);
+    rt_register_replacement(0x0074AAu, native_boot_anim_iterator);
 
     /* Runtime disk-overlay loader → loads the gameplay bank and enters it.
      * $6D714 is the original entry; the game relocates the body to $150 and the
@@ -39,7 +39,7 @@ void pc_register_overrides(void) {
      * native_menu_glyph_blit() for the full disassembly translation. */
     {
         extern void native_menu_glyph_blit(M68KCtx * ctx);
-        rt_register_override(0x000049B6u, native_menu_glyph_blit);
+        rt_register_replacement(0x000049B6u, native_menu_glyph_blit);
     }
 
     /* We OWN the title menu's option setup: native_menu_setup ($003872) rewrites
@@ -81,10 +81,10 @@ void pc_register_overrides(void) {
         extern void native_menu_cursor_up(M68KCtx * ctx);
         extern void native_menu_diff_left(M68KCtx * ctx);
         extern void native_menu_diff_right(M68KCtx * ctx);
-        rt_register_override(0x00003C5Au, native_menu_cursor_down);
-        rt_register_override(0x00003C88u, native_menu_cursor_up);
-        rt_register_override(0x00003C6Eu, native_menu_diff_left);
-        rt_register_override(0x00003C9Au, native_menu_diff_right);
+        rt_register_replacement(0x00003C5Au, native_menu_cursor_down);
+        rt_register_replacement(0x00003C88u, native_menu_cursor_up);
+        rt_register_replacement(0x00003C6Eu, native_menu_diff_left);
+        rt_register_replacement(0x00003C9Au, native_menu_diff_right);
     }
     /* $003700 — menu-art unpacker post-hook: re-draws on-page extras (the
      * DISK.4 indicator) after each page-1 unpack. */
@@ -241,28 +241,28 @@ void pc_register_overrides(void) {
         extern void native_pf_hop(M68KCtx * ctx), native_pf_longjump(M68KCtx * ctx),
             native_pf_fall(M68KCtx * ctx), native_pf_collision(M68KCtx * ctx);
         extern void native_pf_arc(M68KCtx * ctx);
-        rt_register_override_gp(0x00579D84u, native_pf_hop);
-        rt_register_override_gp(0x00579D52u, native_pf_arc); /* abort-arc variants */
+        rt_register_replacement_gp(0x00579D84u, native_pf_hop);
+        rt_register_replacement_gp(0x00579D52u, native_pf_arc); /* abort-arc variants */
         {
             extern void native_pf_lj(M68KCtx * ctx);
-            rt_register_override_gp(0x00579A62u, native_pf_lj);
+            rt_register_replacement_gp(0x00579A62u, native_pf_lj);
         } /* the LONG JUMP */
-        rt_register_override_gp(0x00579DDCu, native_pf_longjump);
-        rt_register_override_gp(0x00579F3Au, native_pf_fall);
+        rt_register_replacement_gp(0x00579DDCu, native_pf_longjump);
+        rt_register_replacement_gp(0x00579F3Au, native_pf_fall);
         {
             extern void native_pf_diag(M68KCtx * ctx);
-            rt_register_override_gp(0x00579E02u, native_pf_diag);
+            rt_register_replacement_gp(0x00579E02u, native_pf_diag);
         } /* UP+dir diagonal hop */
         {
             extern void native_pf_landing_impact(M68KCtx * ctx);
             /* fall-damage scaling knob ("fall_damage"), independent of platformer */
-            rt_register_override_gp(0x00579F86u, native_pf_landing_impact);
+            rt_register_replacement_gp(0x00579F86u, native_pf_landing_impact);
         }
-        rt_register_override_gp(0x0057A934u, native_pf_collision);
+        rt_register_replacement_gp(0x0057A934u, native_pf_collision);
     }
 
     /* Native gameplay SFX trigger. There is no alternate static implementation. */
-    rt_register_override_gp(0x0058656Eu, native_sfx_trigger);
+    rt_register_replacement_gp(0x0058656Eu, native_sfx_trigger);
 
     /* ── Modern controls (OPT-IN: "modern_controls", default false) ──────────────
      * The modern scheme separates INTERACT from FIRE: X (interact) collects items,

@@ -69,6 +69,13 @@ void rt_register_native(uint32_t image_mask, uint32_t address, NativeFn function
  * explicit mask; they are not static-dispatch tables. */
 void rt_register_override(uint32_t address, NativeFn function);
 void rt_register_override_gp(uint32_t address, NativeFn function);
+/* Register a native body that WHOLLY REPLACES a guest subroutine: the adapter
+ * completes the guest boundary (the RTS the replaced body would have run) once
+ * the native body returns. Use rt_register_override instead whenever the body
+ * drives the boundary itself — an original call, a continuation, or its own
+ * rt_return_from_native. */
+void rt_register_replacement(uint32_t address, NativeFn function);
+void rt_register_replacement_gp(uint32_t address, NativeFn function);
 void rt_context_bind(M68KCtx *ctx);
 void rt_context_reset(M68KCtx *ctx, BenefactorImageKind image_kind);
 void rt_activate_image(M68KCtx *ctx, BenefactorImageKind image_kind);
@@ -81,6 +88,11 @@ void rt_call_original_subroutine(M68KCtx *ctx, BenefactorImageIdentity image, ui
  * owns the replacement body, but the guest stack and continuation remain
  * architectural state owned by the interpreter. */
 int rt_return_from_native(M68KCtx *ctx);
+/* End the current guest run from inside a native override and hand control back
+ * to the host, which owns what executes next (a screen hand-off restarting the
+ * game thread on another image, for example). The guest flow that reached the
+ * override is deliberately unwound, so the override owes no return or PC. */
+void rt_exit_to_host(M68KCtx *ctx);
 
 /* Transitional host seams awaiting the adapter implementation. They are
  * declarations only; no gameplay target is built until shared/amigaport owns
@@ -107,6 +119,17 @@ void rt_chip_rwatch_clear(void);
 void rt_chip_watch_add(uint32_t address, uint32_t length);
 void rt_chip_watch_clear(void);
 uint32_t rt_get_last_insn(void);
+/* Live architectural PC of the interpreter, valid while the guest is running.
+ * Signal-handler safe: a relaxed read of the canonical CPU state. */
+uint32_t rt_get_pc(void);
+uint64_t rt_get_executed_instructions(void);
+/* Monotonic 68000 cycles the guest has consumed. This is the port's clock for
+ * anything that was timed by the beam on hardware. */
+uint64_t rt_get_guest_cycles(void);
+/* Recently retired guest instructions, oldest first: PCs alone through
+ * rt_insn_ring_snapshot, or PCs with their instruction words through
+ * rt_insn_ring_entries (pass a null `opcodes` to skip them). */
+int rt_insn_ring_entries(uint32_t *program_counters, uint16_t *opcodes, int capacity);
 /* The watchdog reads this from a fatal signal handler; the adapter must expose
  * the active address without allocation, locks, or other non-signal-safe work. */
 uint32_t rt_get_active_call_address(void);
