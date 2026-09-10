@@ -72,8 +72,52 @@ REFERENCE_EDITS = (
     s_in_present_frame = 0;""",
     ),
     (
+        """    /* ── Test mode hooks (env vars) ──────────────────────────────────────── */
+    {
+        static int test_frames = -1;""",
+        """    hw_reference_fire_timeline(s_frame_num);
+    /* ── Test mode hooks (env vars) ──────────────────────────────────────── */
+    {
+        static int test_frames = -1;""",
+    ),
+    (
         """int hw_present_frame(void)""",
-        """/* The frame signature instrument — see src/port/frame_signature.c in the
+        """/* The same frame-indexed fire timeline the interpreter product parses from
+ * BENEFACTOR_PRESSES (src/engine/hw_testrun.c). Reaching gameplay takes three
+ * presses, and the comparison only means anything if both products press on
+ * the same FRAME. The reference build only understood a single press. */
+static void hw_reference_fire_timeline(int frame) {
+    static struct { int at; int frames; } presses[16];
+    static int count = -1;
+    if (count < 0) {
+        count = 0;
+        const char *spec = getenv("BENEFACTOR_PRESSES");
+        if (spec && spec[0]) {
+            char buf[256];
+            strncpy(buf, spec, sizeof buf - 1);
+            buf[sizeof buf - 1] = 0;
+            for (char *entry = strtok(buf, ","); entry && count < 16; entry = strtok(NULL, ",")) {
+                int at = 0, frames = 4;
+                if (sscanf(entry, "%d:%d", &at, &frames) >= 1 && at >= 0) {
+                    presses[count].at = at;
+                    presses[count].frames = frames > 0 ? frames : 1;
+                    count++;
+                }
+            }
+        }
+    }
+    for (int i = 0; i < count; i++) {
+        if (frame == presses[i].at) {
+            hw_set_fire(1);
+            hw_set_mouse_lmb(1);
+        } else if (frame == presses[i].at + presses[i].frames) {
+            hw_set_fire(0);
+            hw_set_mouse_lmb(0);
+        }
+    }
+}
+
+/* The frame signature instrument — see src/port/frame_signature.c in the
  * interpreter product. Both products must emit byte-identical lines. */
 static void hw_reference_signature(void) {
     static const unsigned kAudioBase[4] = {0x0A0u, 0x0B0u, 0x0C0u, 0x0D0u};
@@ -245,22 +289,31 @@ def interpreter_executable() -> Path:
     return build_product()
 
 
-def collect_run(executable: Path, seconds: float, log: Path) -> Run:
+def collect_run(executable: Path, seconds: float, log: Path, presses: str = "") -> Run:
     """Run one product headless for `seconds` and return the screens it showed.
 
     The binary is run from a snapshot taken now, not from the build tree: a
     rebuild part-way through a measurement otherwise silently replaces the
     program being measured, and the table that comes out looks like a real
     result (measured once: a 6290-frame screen reported as 1391).
+
+    `presses` is a fire timeline ("7300:8,7420:8,7560:8" — frame:held_frames).
+    Without it neither product ever leaves the attract loop, so gameplay is
+    never compared at all; with it both press on the same FRAME, which is the
+    only way the two runs stay comparable (wall-clock input cannot promise it).
     """
     log.parent.mkdir(parents=True, exist_ok=True)
     executable = _snapshot(executable)
+    environment = dict(os.environ)
+    if presses:
+        environment["BENEFACTOR_PRESSES"] = presses
     with log.open("w", encoding="utf-8") as sink:
         process = subprocess.Popen(
             [str(executable), "--headless", "--disk", *_disk_arguments()],
             cwd=executable.parent,
             stdout=sink,
             stderr=subprocess.STDOUT,
+            env=environment,
         )
         try:
             process.wait(timeout=seconds)
@@ -467,6 +520,14 @@ def main(argv: list[str] | None = None) -> int:
         "reference is a fixed commit, so its timeline only changes when the instrument "
         "does — this halves the turnaround while iterating on the interpreter.",
     )
+    parser.add_argument(
+        "--play",
+        metavar="FRAME:HELD,...",
+        default="",
+        help="drive BOTH products with the same fire timeline so the comparison reaches "
+        "gameplay instead of stopping at the attract loop. "
+        "'7300:8,7420:8,7560:8' walks credits -> menu -> level intro -> playing.",
+    )
     options = parser.parse_args(argv)
 
     try:
@@ -486,9 +547,11 @@ def main(argv: list[str] | None = None) -> int:
         reference = Run(_phases(text), _signatures(text))
     else:
         LOGGER.info("running the reference product for %.0fs", options.seconds)
-        reference = collect_run(reference_executable, options.seconds, reference_log)
+        reference = collect_run(reference_executable, options.seconds, reference_log, options.play)
     LOGGER.info("running the interpreter product for %.0fs", options.seconds)
-    candidate = collect_run(candidate_executable, options.seconds, options.out / "interpreter.log")
+    candidate = collect_run(
+        candidate_executable, options.seconds, options.out / "interpreter.log", options.play
+    )
 
     if not reference.phases:
         LOGGER.error(

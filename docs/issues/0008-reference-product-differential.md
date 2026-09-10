@@ -443,3 +443,31 @@ left on its stack (observed: a return to `$000000`). Delivering a handler that
 may end either way needs a return marker the executor can recognise —
 hardware's own condition is "the stack pointer is back above the frame we
 pushed".
+
+## The comparison now reaches gameplay
+
+Every table above stops at the attract loop, because neither product was ever
+told to press anything: the reference build understood a single
+`BENEFACTOR_PRESS=<frame>`, and one press only gets as far as the main menu.
+So "gameplay is broken" had no measurement behind it at all — the screen the
+tables called `$0081D2` is the credits scroller, not the game.
+
+Reaching gameplay takes three presses (credits → menu → level intro → playing),
+and the comparison only means anything if both products press on the *same
+frame* — driving them over the control channel cannot promise that, because two
+HTTP round trips are wall-clock and the products do not run at the same speed.
+
+So both now parse a frame-indexed fire timeline,
+`BENEFACTOR_PRESSES=7300:8,7420:8,7560:8` (frame:frames-held):
+
+- the interpreter product in `src/engine/hw_testrun.c`;
+- the reference through one more `REFERENCE_EDITS` entry in
+  `tools/oracle_diff.py`, the same way the frame signature is injected.
+
+`tools/oracle_diff.py --play 7300:8,7420:8,7560:8` sets it on both. Measured in
+the interpreter product, those frames are deterministic: credits at 7161, main
+menu at 7334, the level running at 7612.
+
+That the frames can be fixed at all is a consequence of the vblank charge — the
+four screens before the credits now match the reference exactly, so a frame
+number means the same thing in both products up to that point.
