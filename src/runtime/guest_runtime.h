@@ -69,6 +69,13 @@ void rt_register_native(uint32_t image_mask, uint32_t address, NativeFn function
  * explicit mask; they are not static-dispatch tables. */
 void rt_register_override(uint32_t address, NativeFn function);
 void rt_register_override_gp(uint32_t address, NativeFn function);
+/* TITLE only. The title overlay loads its own code over addresses the intro
+ * already uses, so a menu routine registered for the intro image too is
+ * entered by whatever the intro happens to keep there. Measured: the menu's
+ * option setup ($003872) fired during the boot animation with the intro's own
+ * a5 ($531C instead of $511E) and wrote "CONTINUE"/"LEVEL SELECT"/"OPTIONS"
+ * over the crawl text at $004C78 (tools/lockstep.py, frame 3). */
+void rt_register_override_title(uint32_t address, NativeFn function);
 /* Register a native body that WHOLLY REPLACES a guest subroutine: the adapter
  * completes the guest boundary (the RTS the replaced body would have run) once
  * the native body returns. Use rt_register_override instead whenever the body
@@ -76,6 +83,7 @@ void rt_register_override_gp(uint32_t address, NativeFn function);
  * rt_return_from_native. */
 void rt_register_replacement(uint32_t address, NativeFn function);
 void rt_register_replacement_gp(uint32_t address, NativeFn function);
+void rt_register_replacement_title(uint32_t address, NativeFn function);
 void rt_context_bind(M68KCtx *ctx);
 void rt_context_reset(M68KCtx *ctx, BenefactorImageKind image_kind);
 void rt_activate_image(M68KCtx *ctx, BenefactorImageKind image_kind);

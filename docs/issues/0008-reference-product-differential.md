@@ -600,3 +600,71 @@ decision is untested — that is the open question above, and this is a lead, no
 a verdict. But the accounting error is not a lead, it is a fault in the
 instrument, and it has to be fixed before any further reading of `irq6` against
 `flow` means anything.
+
+### Stop guessing where: run the two products in step
+
+The tables above compare two runs that have already finished, so every reading
+is a symptom hundreds of frames downstream of its cause. `tools/lockstep.py`
+(documented in `docs/oracle.md`) removes the guess: both products stop at the
+end of every presented frame, report a digest of guest memory plus what they
+are playing and showing, and neither starts the next frame until the two
+reports have been compared. The run stops on the FIRST disagreement, with both
+products still parked on that frame, and dumps and byte-diffs both memories.
+
+Walking the divergence forward with it found two faults in this product, both
+fixed:
+
+- **Title-menu overrides fired in the intro.** `$003872`, `$0039D0`, `$0049B6`,
+  `$003C5A`/`$003C6E`/`$003C88`/`$003C9A`, `$003700` and `$003DAA` were
+  registered for every image. The intro reuses those guest addresses, so the
+  menu's native bodies ran against the crawl and corrupted its text. They are
+  now registered for the TITLE image only (`rt_register_override_title` /
+  `rt_register_replacement_title`).
+- **Per-frame interrupts were delivered for frames nobody saw.** `hw_present_frame`
+  declines a beam frame it has already shown and says so only by leaving the
+  frame counter alone, so an iteration that presented nothing still delivered a
+  level-3 tick. One extra delivery on frame 34 put the intro's volume ramp a
+  frame ahead (60 -> 64 against 60 -> 63) and its tick counter ahead for the
+  whole run. `pc_step_threaded` now delivers only when the frame counter moved.
+
+A fifth was established the same way, and it is a whole FRAME rather than a
+field, so it gets its own list (`REALIGNMENTS` in `tools/lockstep.py`):
+
+- **Frame 7160, the intro → poster handover.** `$0033A6` points `COP1LC` at
+  `$008182`; the poster then runs two blits and patches the six bitplane
+  pointers into that same list at `$0082BC` before `$00345A` points `COP1LC` at
+  the finished `$0081D2`. A blit costs this product guest time (issue 0007), so
+  the beam boundary falls between the `BLTSIZE` write at `$003424` and the
+  `BBUSY` poll at `$00342A`, and the half-built list — no bitplane pointers in
+  it — is shown for one frame. The reference charges nothing for a blit, so its
+  whole pass lands inside one frame and it never shows `$008182`.
+
+  Measured with a breakpoint on `$00345A`: at that instant the frame counter
+  says 3 and `COP1LC` is already `$008182`, and the retired-instruction ring
+  shows the level-3 and level-6 handlers running between `$003424` and
+  `$00342A` — which is the host presenting. Real hardware takes that time, so
+  this product is the faithful one; the extra frame is real and stays. What the
+  tool does is stop comparing it against the wrong partner: every frame after
+  it was a frame out of step, so the same single difference was reported again
+  and again and gameplay could never be reached. `--no-realign` turns the drop
+  off.
+
+### Where the comparison stands
+
+With those in place the two products agree for **7160 frames** — every byte of
+guest memory outside the recorded exceptions, every screen boundary to the
+frame, every palette, period, volume and DMACON, from the boot logo through the
+whole intro crawl to the poster.
+
+The frontier is now **one byte**: `$0065D5` reads 6 in the reference and 5 here
+on the first frame after the handover, everything else in the 8 MB matching.
+Its cause is NOT established — it is one step of some counter, and the obvious
+story (this product presents one frame more across the handover, so it should
+be one tick AHEAD, not behind) is the wrong way round. It is left here as the
+next thing to measure rather than added to any exclusion list: nothing goes on
+those without evidence.
+
+Four differences were established as the *oracle's* limits instead, and are
+recorded with their evidence at the top of `tools/lockstep.py` rather than
+"fixed" toward the reference: the level-6 autovector `$78`, the guest stack,
+the audio DMA enables, and the `AUDxLC` sample pointers.

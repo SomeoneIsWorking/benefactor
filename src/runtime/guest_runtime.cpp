@@ -579,6 +579,10 @@ void rt_register_override_gp(uint32_t address, NativeFn function) {
     rt_register_native(BENEFACTOR_IMAGE_MASK_GAMEPLAY, address, function);
 }
 
+void rt_register_override_title(uint32_t address, NativeFn function) {
+    rt_register_native(BENEFACTOR_IMAGE_MASK_TITLE, address, function);
+}
+
 void rt_register_replacement(uint32_t address, NativeFn function) {
     runtime().register_native(BENEFACTOR_IMAGE_MASK_MAIN | BENEFACTOR_IMAGE_MASK_TITLE |
                                   BENEFACTOR_IMAGE_MASK_CREDITS,
@@ -587,6 +591,10 @@ void rt_register_replacement(uint32_t address, NativeFn function) {
 
 void rt_register_replacement_gp(uint32_t address, NativeFn function) {
     runtime().register_native(BENEFACTOR_IMAGE_MASK_GAMEPLAY, address, function, true);
+}
+
+void rt_register_replacement_title(uint32_t address, NativeFn function) {
+    runtime().register_native(BENEFACTOR_IMAGE_MASK_TITLE, address, function, true);
 }
 
 void rt_context_bind(M68KCtx *ctx) { runtime().bind(ctx); }

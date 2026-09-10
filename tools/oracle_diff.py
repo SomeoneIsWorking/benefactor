@@ -88,7 +88,57 @@ REFERENCE_EDITS = (
     s_in_present_frame = 0;""",
         """    hw_reference_signature();
     hw_reference_state_dump();
+    hw_reference_lockstep();
     s_in_present_frame = 0;""",
+    ),
+    (
+        """int hw_present_frame(void)""",
+        """/* Hold this product at every frame boundary so tools/lockstep.py can run it
+ * beside the interpreter, frame for frame, and stop both on the first frame
+ * they disagree about. The protocol and the hash come from the interpreter's
+ * own header, copied into this worktree by setup_reference() — one
+ * implementation, so a difference in the digests is a difference in the
+ * guest's memory and never a difference in how it was hashed. */
+#include "port/lockstep_digest.h"
+static void hw_reference_lockstep(void) {
+    static int loaded = 0;
+    static LockstepChannel channel;
+    static LockstepRanges excluded;
+    static uint64_t digests[LOCKSTEP_REGIONS];
+    static char line[256u + LOCKSTEP_REGIONS * 17u];
+    static const unsigned kLockstepAudio[4] = {0x0A0u, 0x0B0u, 0x0C0u, 0x0D0u};
+    if (!loaded) {
+        loaded = 1;
+        lockstep_open(&channel, getenv("BENEFACTOR_LOCKSTEP"), LOCKSTEP_REGIONS,
+                      (size_t)RT_MEM_SIZE);
+        lockstep_parse_ranges(&excluded, getenv("BENEFACTOR_LOCKSTEP_IGNORE"));
+    }
+    if (!channel.enabled || !g_mem)
+        return;
+    lockstep_digest_regions_excluding(g_mem, (size_t)RT_MEM_SIZE, digests, LOCKSTEP_REGIONS,
+                                     &excluded);
+    LockstepFrame state;
+    memset(&state, 0, sizeof state);
+    state.frame = s_frame_num;
+    state.cop1lc = (((uint32_t)s_regs[COP1LCH >> 1] << 16) | s_regs[COP1LCL >> 1]) & 0xFFFFFFu;
+    state.palette = lockstep_palette_hash(g_mem, state.cop1lc);
+    for (unsigned c = 0; c < 4u; c++) {
+        const unsigned base = kLockstepAudio[c];
+        state.audio_pointer[c] =
+            (((uint32_t)s_regs[base >> 1] << 16) | s_regs[(base + 2u) >> 1]) & 0xFFFFFFu;
+        state.audio_period[c] = s_regs[(base + 6u) >> 1];
+        state.audio_volume[c] = s_regs[(base + 8u) >> 1];
+    }
+    state.dmacon = (uint32_t)(s_dmacon & 0x0200u);
+    state.audio_dma = (uint32_t)(s_dmacon & 0x000Fu);
+    if (lockstep_format_frame(line, sizeof line, &state, digests, LOCKSTEP_REGIONS) < 0) {
+        lockstep_close(&channel);
+        return;
+    }
+    lockstep_exchange(&channel, line, g_mem, (size_t)RT_MEM_SIZE);
+}
+
+int hw_present_frame(void)""",
     ),
     (
         """int hw_present_frame(void)""",
@@ -326,6 +376,13 @@ def setup_reference(worktree: Path = REFERENCE_WORKTREE) -> Path:
         if vendored.is_dir() and not vendored.is_symlink():
             vendored.rmdir()
         vendored.symlink_to(ROOT / "vendor/libretro-uae")
+
+    # The lockstep protocol has exactly one implementation, and it lives in
+    # this repository. Copy it in rather than restating it in the patch: two
+    # copies of a hash drift, and a drifted hash reports a divergence on every
+    # frame. It is a diagnostic header with no product code in it, so nothing
+    # about the retired product comes back with it.
+    shutil.copyfile(ROOT / "src/port/lockstep_digest.h", worktree / "src/port/lockstep_digest.h")
 
     # Re-patch from pristine every time: an edit whose text changed here would
     # otherwise find neither its original (already rewritten) nor its new

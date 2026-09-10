@@ -84,6 +84,54 @@ Two traps the tool now handles, both of which produced convincing wrong tables:
   last copper write reported the boot logo as 3 frames against 3 and called a
   sevenfold burst a perfect match.
 
+## Frame-by-frame lockstep
+
+The diff above answers "which screen went wrong". `tools/lockstep.py` answers
+"which frame", by driving the two products **in step**: each stops at the end of
+every presented frame and reports what its guest memory hashes to, and neither
+is allowed to start the next frame until both have reported and the two reports
+have been compared. The first frame they disagree on is the frame the
+divergence was BORN on, and the run stops there with both products still parked
+— so the whole 8 MB can be dumped from each and diffed to the byte.
+
+```bash
+uv run --frozen python -m tools.lockstep --play 7300:8,7420:8,7560:8
+```
+
+The protocol is four lines of text over a pipe pair, so a product speaks it in
+about a hundred lines of C — `src/port/lockstep.c` here, and the same header
+(`src/port/lockstep_digest.h`) injected into the reference by
+`tools/oracle_diff.py`, so both hash the same bytes with the same function.
+Useful options:
+
+- `--start N` compares from frame N on (both still run in step before it), to
+  step past a divergence already understood.
+- `--ignore ADDR-ADDR,...` leaves addresses out of the hash. The exclusion
+  happens where the bytes are hashed, in each product, driven by one spec given
+  to both — which is what lets a four-byte vector be left out without losing
+  the 32K region around it.
+- `--dump-at FRAME,...` snapshots both memories and carries on, for when a
+  divergence is already complete by the time it is noticed.
+- `--compare-everything` turns the recorded structural differences back on.
+- `--no-realign` stops it dropping the frames in `REALIGNMENTS` — frames this
+  product shows that the reference never does. Leaving one in step means every
+  frame after it is compared against the wrong partner and reports the same
+  single difference for the rest of the run.
+
+**What is deliberately not compared**, each with the measurement behind it, is
+in `STRUCTURAL_DIFFERENCES`, `STRUCTURAL_FIELDS` and `REALIGNMENTS` at the top
+of the tool:
+the level-6 autovector `$78` (the interpreter's handlers rewrite it, the
+reference's `$78` never moves), the guest stack (the reference pushes a return
+address only during gameplay), the port's scratch at `$700000`, the audio DMA
+enables and the `AUDxLC` sample pointers (both written by handlers the
+reference reaches by hand, in one breath, where this product reaches them on
+the game's own sub-frame timer). `REALIGNMENTS` holds whole FRAMES rather than
+state — one so far, the intro → poster handover, where a blit costs this
+product guest time and the reference nothing, so this product shows the
+poster's copper list for a frame before its bitplane pointers are patched in.
+Nothing goes on any of those lists on a hunch.
+
 ## What the oracle is not
 
 It is an approximation of the real machine, not the machine. It cannot take

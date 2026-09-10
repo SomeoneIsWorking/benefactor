@@ -13,6 +13,7 @@
 #include "port/frame_signature.h"
 #include "port/guest_profile.h"
 #include "port/input.h"
+#include "port/lockstep.h"
 #include "port/overlay_ui.h"
 #include "port/port.h" /* level/world layout accessors (single source of truth) */
 #include "port/port_internal.h"
@@ -1409,6 +1410,9 @@ int hw_present_frame(void) {
     pc_note_frame_phase();
     pc_note_state_dump();
     pc_note_frame_signature();
+    /* Last: everything this frame did has landed, so this is the state the
+     * reference product is held against, frame for frame (port/lockstep.h). */
+    pc_lockstep_frame();
     s_frame_num++;
     hw_testrun_script(s_frame_num);
 
