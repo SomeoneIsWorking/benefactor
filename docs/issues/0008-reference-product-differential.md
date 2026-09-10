@@ -308,12 +308,45 @@ leaf such as `$0055A0` with it makes that RTS pop whatever happened to be on
 the stack (observed: a return to `$000000`). The intro's timer leaves must be
 reached the way hardware reaches them, through the `$3160` wrapper's RTE.
 
-## Still open: the screen after the crawl
+## Still open: the screen after the crawl waits for fire
 
 At the end of the crawl the game reaches `cop1lc = $0077C0` and stays there.
-The reference gives that screen 191 frames and moves on to `$007770/$0091D0`.
-This predates the wait-idiom work — a baseline build of the parent commit
-stalls in the same place, with the same trace: the level-6 handler spinning on
-`$0031F6 btst` / `$0031FC bne`, a VPOSR wait-clear, inside an interrupt that
-cannot park. That spin is the next thing to explain.
+The reference gives that screen 191 frames — alternating `$0077C0`/`$0078F0`,
+so it is animating — and then moves on to `$007770`/`$0091D0` by itself.
 
+This predates the wait-idiom work: a build of the parent commit stalls in the
+same place. What it is has now been pinned down.
+
+**It is a wait for the fire button, and only the timeout is missing.** Driven
+headless and left for 150 seconds it does not move; one `/input?fire=1` and it
+runs straight on through `$0091D0` → `$007770` → `$008182` → `$0081D2`, which
+is the reference's own later sequence. So the screen itself, and everything
+after it, works — the game is simply never told the wait is over, where the
+reference ends it after 191 frames without any input.
+
+Three measurements to start from:
+
+- **The game flow retires almost nothing per frame on this screen.**
+  `cycles.flow` is 140,992, which is the frame `hw_vblank_wait` charges and
+  essentially nothing else, and the retired-instruction ring holds only
+  `$0031F6 btst` / `$0031FC bne` — the wait-until-V8-clears half of the frame
+  wait at `$0031EE`. So the loop this screen sits in is the frame wait itself,
+  polling for a fire press that the reference stops needing after 191 frames.
+- **The level-6 delivery is small here**: `/state` reports `cycles.irq6 = 356`,
+  about forty instructions, against an `irq6_max` of 20,185,094 earlier in the
+  run. Whether that is correct for this screen or a handler being cut short is
+  not yet established — it is the first thing to settle, because the timeout
+  that ends this screen is the kind of per-frame counter such a handler owns.
+- **The vector has settled on `$0055A0` itself.** `/recent` shows nothing but
+  `0055A0` calls, and that routine is RTS-terminated (it runs to the `rts` at
+  `$005890`; only `$0058C2` runs to an `rte`, at `$005918`), while we deliver
+  every installed vector with `rt_call_interrupt`, which pushes an exception
+  frame and stops at the FIRST rte. Worth checking against the reference,
+  which reaches the same code as a plain call that runs to its `rts`.
+
+Note that `rt_call` is not the answer on its own: `Executor::call` sets the PC
+and runs, pushing no return address, so the `rts` pops whatever the game flow
+left on its stack (observed: a return to `$000000`). Delivering a handler that
+may end either way needs a return marker the executor can recognise —
+hardware's own condition is "the stack pointer is back above the frame we
+pushed".
