@@ -411,7 +411,19 @@ Response dispatch(const Request &request) {
         return Response::text(200, "OK", "death triggered\n");
     }
     if (path == "/trace") {
-        char text[2048];
+        /* While the game is held at a breakpoint, serve the trace FROZEN at
+         * that stop. The live ring keeps filling from the interrupts that are
+         * still being delivered during the hold, so by the time anyone asks it
+         * describes the music driver rather than how the guest got to the
+         * breakpoint. Measured: stopping at $00345A returned a ring with no
+         * trace of $00345A left in it. */
+        char text[4096];
+        const auto &debugger = debug::Debugger::instance();
+        if (debugger.last_stop().valid) {
+            const std::size_t frozen = debugger.format_stop_trace(text, sizeof text);
+            if (frozen > 0)
+                return Response::text(200, "OK", std::string(text, frozen) + "\n");
+        }
         const std::size_t written = pc_format_retired_instructions(text, sizeof text);
         return Response::text(200, "OK", std::string(text, written));
     }

@@ -23,19 +23,38 @@
 
 #ifdef __cplusplus
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace benefactor::debug {
 
-/* Where the guest was when a breakpoint stopped it. */
+/* How many retired instructions to freeze with a stop. The runtime's ring is
+ * 256 deep; keeping the same depth means the frozen copy is the whole history
+ * the ring had, not a window onto it. */
+constexpr int kStopTraceDepth = 256;
+
+/* Where the guest was when a breakpoint stopped it, and how it got there. */
 struct Stop final {
     std::uint32_t address{};         /* the breakpoint that was reached */
     std::uint32_t program_counter{}; /* the PC, which is ON that address */
     int frame{};                     /* the displayed frame it stopped in */
     std::uint64_t guest_cycles{};
     bool valid{};
+
+    /* The retired-instruction ring AS IT WAS at the stop.
+     *
+     * The live ring cannot answer "how did it get here" once the game is held:
+     * the hold runs on the frame loop, interrupts keep being delivered, and
+     * their handlers retire instructions into the same 256-entry ring.
+     * Measured: stopping at $00345A to see what preceded it returned a ring
+     * containing only the music driver — the history the stop existed to
+     * capture had been overwritten by the act of stopping. So it is copied
+     * here, once, at the instant of the stop. */
+    std::uint32_t trace[kStopTraceDepth]{};
+    std::uint16_t trace_opcodes[kStopTraceDepth]{};
+    int trace_length{};
 };
 
 class Debugger final {
@@ -60,6 +79,10 @@ class Debugger final {
 
     [[nodiscard]] Stop last_stop() const;
     void forget_last_stop();
+
+    /* Format the frozen trace of the last stop, newest last, as
+     * "$pc opcode" pairs. Returns 0 when there is no stop to report. */
+    [[nodiscard]] std::size_t format_stop_trace(char *buffer, std::size_t capacity) const;
 
   private:
     Debugger() = default;

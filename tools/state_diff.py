@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.oracle_diff import (
+    PHASE_LINE,
     _disk_arguments,
     _snapshot,
     interpreter_executable,
@@ -123,7 +124,7 @@ def collect(
             env=environment,
         )
         try:
-            _await_dumps(process, out, wanted, timeout)
+            _await_dumps(process, out, wanted, timeout, screen)
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -134,28 +135,80 @@ def collect(
 
 
 def _await_dumps(
-    process: subprocess.Popen[bytes], out: Path, wanted: set[int], timeout: float
+    process: subprocess.Popen[bytes],
+    out: Path,
+    wanted: set[int],
+    timeout: float,
+    screen: str,
 ) -> None:
-    """Wait until every snapshot file exists, or the product stops, or time runs out."""
+    """Wait until every snapshot exists, and fail the MOMENT it is clear one never will.
+
+    The naive version waits for the timeout and then reports. That is a
+    fifteen-minute silence for a fault the log already showed in the first
+    second, and it was measured: a reference binary that had been rebuilt
+    without the snapshot patch ran 44,960 frames and only then said "never
+    taken".
+
+    So the log is read as it is written. Once the anchor screen has been shown
+    and the run has gone `GRACE_FRAMES` past the last offset without the files
+    appearing, the product cannot be going to write them — say so, with which
+    frame the anchor was on, rather than waiting out the clock.
+    """
     import time
 
+    grace_frames = 120
     deadline = time.monotonic() + timeout
+    log = out / "run.log"
+    anchor: int | None = None
+    newest = 0
+    offset = 0
     while True:
         have = {_offset_of(path) for path in out.glob("*.bin")}
         if wanted <= have:
             LOGGER.info("%s: all %d snapshots taken", out.name, len(wanted))
             return
-        if process.poll() is not None:
-            missing = sorted(wanted - have)
+
+        if log.is_file():
+            with log.open("r", encoding="utf-8", errors="replace") as source:
+                source.seek(offset)
+                fresh = source.read()
+                offset = source.tell()
+            for line in fresh.splitlines():
+                found = PHASE_LINE.search(line)
+                if not found:
+                    continue
+                newest = max(newest, int(found.group(1)))
+                if anchor is None and found.group(2).upper() == screen.upper():
+                    anchor = int(found.group(1))
+                    LOGGER.info("%s: $%s first shown at frame %d", out.name, screen, anchor)
+
+        missing = sorted(wanted - have)
+        if anchor is not None and newest > anchor + max(wanted) + grace_frames:
             raise RuntimeError(
-                f"{out.name}: the product exited (code {process.returncode}) with "
-                f"snapshots {missing} never taken — see {out / 'run.log'}"
+                f"{out.name}: ${screen} was shown at frame {anchor} and the run has "
+                f"reached frame {newest}, but snapshots {missing} were never written. "
+                f"The product is not taking them — check that this build has the "
+                f"snapshot code (the reference gets it patched in by "
+                f"tools/oracle_diff.py REFERENCE_EDITS, and a rebuild without the "
+                f"patch silently drops it). See {log}"
+            )
+        if process.poll() is not None:
+            raise RuntimeError(
+                f"{out.name}: the product exited (code {process.returncode}) at frame "
+                f"{newest} with snapshots {missing} never taken"
+                + (
+                    f" (${screen} never appeared at all)"
+                    if anchor is None
+                    else f" (${screen} was at frame {anchor})"
+                )
+                + f" — see {log}"
             )
         if time.monotonic() > deadline:
-            missing = sorted(wanted - have)
             raise RuntimeError(
-                f"{out.name}: timed out with snapshots {missing} never taken — "
-                f"see {out / 'run.log'}"
+                f"{out.name}: timed out at frame {newest} with snapshots {missing} "
+                f"never taken"
+                + (f"; ${screen} never appeared" if anchor is None else "")
+                + f" — see {log}"
             )
         time.sleep(0.25)
 
@@ -272,6 +325,12 @@ def main(argv: list[str] | None = None) -> int:
         "--reuse", action="store_true", help="diff the snapshots already in --out, running nothing"
     )
     options = parser.parse_args(argv)
+    # Absolute, always: the products are run from their own build directories,
+    # so a relative --out reaches them as a path that does not exist there and
+    # the snapshots are written nowhere. (Measured: --out scratch/state-crawl
+    # produced "CANNOT WRITE scratch/state-crawl/reference/+0.bin" while the
+    # absolute default worked, which read as the reference build being broken.)
+    options.out = options.out.resolve()
 
     reference_out = options.out / "reference"
     candidate_out = options.out / "interpreter"

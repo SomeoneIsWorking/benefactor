@@ -2100,11 +2100,17 @@ void hw_write16(uint32_t addr, uint16_t v) {
          * $7e(a6)): the display copper pointer is now committed — present here. */
         if (reg == COP1LCL && g_hw_cop1lc_present)
             g_hw_cop1lc_present();
-        if ((reg == COP1LCL || reg == COP1LCH) && g_gameplay_active && previous != v &&
-            pc_cfg_bool("copper_trace", 0)) {
+        /* Name the guest PC that set the display list, and do it on every
+         * screen, not only during gameplay. "Which screen is being shown, and
+         * who chose it" is the question this trace exists to answer, and it
+         * could answer neither: it printed no PC, and the g_gameplay_active
+         * gate hid exactly the screen TRANSITIONS where two different lists
+         * get written in quick succession. */
+        if ((reg == COP1LCL || reg == COP1LCH) && previous != v && pc_cfg_bool("copper_trace", 0)) {
             const uint32_t list = ((uint32_t)s_regs[COP1LCH >> 1] << 16) | s_regs[COP1LCL >> 1];
-            benefactor_log_write(BENEFACTOR_LOG_DEBUG, "copper", "COP1LC=$%06X (frame %d)",
-                                 list & 0xFFFFFFu, hw_get_frame_num());
+            benefactor_log_write(BENEFACTOR_LOG_DEBUG, "copper",
+                                 "COP1LC=$%06X frame %d from pc $%06X owner %u", list & 0xFFFFFFu,
+                                 hw_get_frame_num(), rt_get_pc(), (uint32_t)pc_running_owner());
         }
 
         switch (reg) {

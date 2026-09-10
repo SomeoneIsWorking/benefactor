@@ -122,13 +122,27 @@ static void hw_reference_state_dump(void) {
             }
         }
     }
-    if (!enabled || !g_mem)
+    if (!enabled) {
+        static int said = 0;
+        if (!said) {
+            said = 1;
+            fprintf(stderr, "state: snapshots OFF (spec=%s dir=%s)\\n",
+                    getenv("BENEFACTOR_STATE_DUMP") ? getenv("BENEFACTOR_STATE_DUMP") : "(unset)",
+                    getenv("BENEFACTOR_STATE_DUMP_DIR") ? getenv("BENEFACTOR_STATE_DUMP_DIR")
+                                                        : "(unset)");
+            fflush(stderr);
+        }
+        return;
+    }
+    if (!g_mem)
         return;
     unsigned clc = (((unsigned)s_regs[COP1LCH >> 1] << 16) | s_regs[COP1LCL >> 1]) & 0xFFFFFFu;
     if (anchor < 0) {
         if (clc != screen)
             return;
         anchor = s_frame_num;
+        fprintf(stderr, "state: screen $%06X reached at frame %d\\n", screen, s_frame_num);
+        fflush(stderr);
     }
     for (int i = 0; i < count; i++) {
         if (s_frame_num != anchor + offsets[i])
@@ -136,10 +150,16 @@ static void hw_reference_state_dump(void) {
         char path[600];
         snprintf(path, sizeof path, "%s/%+d.bin", directory, offsets[i]);
         FILE *sink = fopen(path, "wb");
-        if (sink) {
-            fwrite(g_mem, 1u, (size_t)RT_MEM_SIZE, sink);
-            fclose(sink);
+        if (sink == NULL) {
+            fprintf(stderr, "state: CANNOT WRITE %s\\n", path);
+            fflush(stderr);
+            continue;
         }
+        size_t wrote = fwrite(g_mem, 1u, (size_t)RT_MEM_SIZE, sink);
+        fclose(sink);
+        fprintf(stderr, "state: dump: offset=%+d frame=%d bytes=%zu -> %s\\n", offsets[i],
+                s_frame_num, wrote, path);
+        fflush(stderr);
     }
 }
 
