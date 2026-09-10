@@ -115,9 +115,11 @@ set(BENEFACTOR_SOURCES
     src/port/freecam.c
     src/port/frame_accounting.cpp
     src/port/frame_signature.c
+    src/port/lockstep.c
     src/port/state_dump.c
     src/port/guest_profile.cpp
     src/port/game_loop.c
+    src/port/savestate.c
     src/port/guest_vectors.c
     src/port/level_layout.c
     src/port/guest_trace.c

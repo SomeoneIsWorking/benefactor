@@ -30,6 +30,10 @@ void pc_register_overrides(void) {
      * original dispatch re-entry run. */
     rt_register_replacement(0x0031A0u, native_blitter_wait_clear);
 
+    /* The poster's vertical-blank poll ($003390, overrides/hw.c): the host owns
+     * the frame wait, so the guest's two beam polls do not have to be spun. */
+    rt_register_override_title(0x00003390u, native_poster_vblank_poll);
+
     /* Boot animation (overrides/boot.c) */
     rt_register_replacement(0x0074AAu, native_boot_anim_iterator);
 
@@ -43,7 +47,7 @@ void pc_register_overrides(void) {
      * "ENTER PASSWORD" without touching the chip-RAM strings. See
      * native_menu_glyph_blit() for the full disassembly translation. */
     {
-        rt_register_replacement(0x000049B6u, native_menu_glyph_blit);
+        rt_register_replacement_title(0x000049B6u, native_menu_glyph_blit);
     }
 
     /* We OWN the title menu's option setup: native_menu_setup ($003872) rewrites
@@ -53,8 +57,8 @@ void pc_register_overrides(void) {
      * frame drawing/animation still run through original address $003872. The
      * leaf helpers (glyph blit $0049B6, cursor $3C5A/$3C88) stay overridden above. */
     {
-        rt_register_override(0x00003872u, native_menu_setup);
-        rt_register_override(0x000039D0u, native_main_menu_fire_dispatch);
+        rt_register_override_title(0x00003872u, native_menu_setup);
+        rt_register_override_title(0x000039D0u, native_main_menu_fire_dispatch);
     }
 
     /* $003C5A / $003C6E / $003C88 / $003C9A — four arrow-direction handlers
@@ -79,22 +83,22 @@ void pc_register_overrides(void) {
      *
      * These focused native owners preserve the measured menu behavior. */
     {
-        rt_register_replacement(0x00003C5Au, native_menu_cursor_down);
-        rt_register_replacement(0x00003C88u, native_menu_cursor_up);
-        rt_register_replacement(0x00003C6Eu, native_menu_diff_left);
-        rt_register_replacement(0x00003C9Au, native_menu_diff_right);
+        rt_register_replacement_title(0x00003C5Au, native_menu_cursor_down);
+        rt_register_replacement_title(0x00003C88u, native_menu_cursor_up);
+        rt_register_replacement_title(0x00003C6Eu, native_menu_diff_left);
+        rt_register_replacement_title(0x00003C9Au, native_menu_diff_right);
     }
     /* $003700 — menu-art unpacker post-hook: re-draws on-page extras (the
      * DISK.4 indicator) after each page-1 unpack. */
     {
-        rt_register_override(0x00003700u, native_menu_art_unpack);
+        rt_register_override_title(0x00003700u, native_menu_art_unpack);
     }
     /* $003DAA — the password-field text renderer (cell-wise, from the live
      * password buffer). We OWN it and draw nothing: the field is replaced by
      * LEVEL SELECT in this port. See the RE block in boot.c. (The art itself
      * ships a clean field area — verified.) */
     {
-        rt_register_override(0x00003DAAu, native_menu_pwfield_draw);
+        rt_register_override_title(0x00003DAAu, native_menu_pwfield_draw);
     }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
      * level load natively (gp-only: doesn't affect the title/intro). */

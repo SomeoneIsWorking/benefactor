@@ -35,6 +35,12 @@ extern "C" {
 /* ── Chip RAM pointer ─────────────────────────────────────────────────────────── */
 extern uint8_t *g_chip;
 
+/* ── Game loop (game_loop.c) ───────────────────────────────────────────────────── */
+/* Discard the game thread and spawn a fresh one that re-enters the steady
+ * gameplay cycle at $577114. Used by the savestate load (savestate.c), which
+ * restores g_state + g_mem under a thread parked on the pre-load memory. */
+void pc_resume_gameplay_thread(void);
+
 /* ── Override registration ─────────────────────────────────────────────────────── */
 void pc_register_overrides(void);
 
@@ -42,6 +48,7 @@ void pc_register_overrides(void);
 /* overrides/hw.c */
 void native_hw_wait(M68KCtx *ctx);
 void native_blitter_wait_clear(M68KCtx *ctx);
+void native_poster_vblank_poll(M68KCtx *ctx);
 /* overrides/boot.c */
 void native_boot_anim_iterator(M68KCtx *ctx);
 void native_overlay_loader(M68KCtx *ctx);

@@ -34,3 +34,28 @@ void native_blitter_wait_clear(M68KCtx *ctx) {
     hw_write16(0xdff066u, 0x0000u);     /* BLTDMOD = 0                       */
     hw_write16(0xdff058u, 0x803cu);     /* BLTSIZE = 512×60 words → go       */
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * $003390 — the poster's own vertical-blank poll, replaced by the host's wait
+ *
+ * Original M68K, entered by falling through the `jsr $0(a5)` at $00338C:
+ *
+ *   003390: btst #0,$3(a6)   ; VPOSR bit 8 — the beam past line 256
+ *   003396: beq.s $003390
+ *   003398: btst #0,$3(a6)
+ *   00339E: bne.s $003398    ; …and back below it: the top of the next frame
+ *   0033A0: (poster setup continues)
+ *
+ * Two beam polls back to back and nothing else: the guest saying it is done
+ * with this frame, which is exactly what hw_vblank_wait() means. Interpreting
+ * the spin says the same thing and costs 3128 chip accesses to say it —
+ * measured on the poster's first frame, 3175 accesses became 47. Nothing else
+ * about the run moves: the screen sequence and the frame-by-frame comparison
+ * against the reference are the same either way. So this is the standing
+ * direction — a guest wait idiom becomes a native owner — and not a fix for
+ * anything. Continue at $0033A0, past the loop.
+ * ───────────────────────────────────────────────────────────────────────────── */
+void native_poster_vblank_poll(M68KCtx *ctx) {
+    hw_vblank_wait();
+    rt_jump(ctx, ctx->image, 0x000033A0u);
+}
