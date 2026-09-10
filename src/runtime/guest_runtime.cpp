@@ -1,5 +1,9 @@
 #include "runtime/guest_runtime.h"
 #include "engine/hw.h"
+#include "port/control/input_script.h"
+#include "port/debug/debugger.h"
+#include <chrono>
+#include <thread>
 
 #ifdef __cplusplus
 extern "C" {
@@ -245,13 +249,34 @@ class Runtime final {
         return count;
     }
 
+    /* A breakpoint must NOT unwind the run. The guest's stack and PC are
+     * exactly at the address, and returning the exit to the caller lets the
+     * game flow carry on as though the slice had finished — measured: the app
+     * shut itself down cleanly a moment after the first hit. So hold HERE, on
+     * the game thread, inside the run, and then continue the same run.
+     *
+     * The frame watchdog has to stand down while held, for the same reason it
+     * does around the control channel's pause: a frame that never finishes is
+     * the point of a breakpoint, not an infinite loop. */
+    amigaport::ExecutionExit hold_through_breakpoints(amigaport::ExecutionExit result) {
+        while (result.reason == amigaport::ExitReason::Breakpoint) {
+            pc_debug_breakpoint_reached(executor.state().pc, executor.state().pc);
+            hw_watchdog_disarm();
+            while (pc_control_paused() != 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            hw_watchdog_rearm();
+            result = executor.execute();
+        }
+        return result;
+    }
+
     amigaport::ExecutionExit execute(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
         record_call(address);
-        amigaport::ExecutionExit result = executor.call(address);
+        amigaport::ExecutionExit result = hold_through_breakpoints(executor.call(address));
         while (result.reason == amigaport::ExitReason::InstructionBudget ||
                result.reason == amigaport::ExitReason::NativeOverride) {
-            result = executor.execute();
+            result = hold_through_breakpoints(executor.execute());
         }
         if (result.reason == amigaport::ExitReason::MemoryFault) {
             benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
@@ -273,7 +298,7 @@ class Runtime final {
         record_call(address);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
-        return executor.call_original();
+        return hold_through_breakpoints(executor.call_original());
     }
 
     amigaport::ExecutionExit call_original_subroutine(std::uint32_t address) {
@@ -281,7 +306,7 @@ class Runtime final {
         record_call(address);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
-        return executor.call_original_subroutine();
+        return hold_through_breakpoints(executor.call_original_subroutine());
     }
 
     int return_from_native() {
@@ -305,7 +330,7 @@ class Runtime final {
     }
 
     amigaport::ExecutionExit call_interrupt(std::uint32_t address) {
-        return executor.call_interrupt(address);
+        return hold_through_breakpoints(executor.call_interrupt(address));
     }
 
     void exit_to_host() {
@@ -458,6 +483,8 @@ const char *exit_reason_name(amigaport::ExitReason reason) {
         return "image-replaced";
     case amigaport::ExitReason::UnterminatedNativeOverride:
         return "unterminated-native-override";
+    case amigaport::ExitReason::Breakpoint:
+        return "breakpoint";
     }
     return "unknown";
 }
@@ -679,6 +706,37 @@ uint32_t rt_get_active_call_address(void) {
     return runtime().last_call_address.load(std::memory_order_relaxed);
 }
 uint32_t rt_get_pc(void) { return g_runtime ? g_runtime->executor.state().pc : 0u; }
+
+/* Breakpoints. The executor owns the set and checks it once per instruction;
+ * these only forward, so there is one place a breakpoint can be recorded. See
+ * src/port/debug/debugger.h for what stops the game when one is reached. */
+int rt_set_breakpoint(uint32_t address) {
+    if (g_runtime == nullptr)
+        return 0;
+    return g_runtime->executor.set_breakpoint(address) ? 1 : 0;
+}
+
+int rt_clear_breakpoint(uint32_t address) {
+    if (g_runtime == nullptr)
+        return 0;
+    return g_runtime->executor.clear_breakpoint(address) ? 1 : 0;
+}
+
+void rt_clear_breakpoints(void) {
+    if (g_runtime != nullptr)
+        g_runtime->executor.clear_breakpoints();
+}
+
+int rt_breakpoints(uint32_t *addresses, int capacity) {
+    if (g_runtime == nullptr || addresses == nullptr || capacity <= 0)
+        return 0;
+    return static_cast<int>(
+        g_runtime->executor.breakpoints(addresses, static_cast<std::size_t>(capacity)));
+}
+
+int rt_breakpoint_capacity(void) {
+    return static_cast<int>(amigaport::Executor::breakpoint_capacity());
+}
 
 void rt_cpu_registers(uint32_t *data, uint32_t *address, uint32_t *program_counter,
                       uint16_t *status) {

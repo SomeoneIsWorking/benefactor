@@ -133,6 +133,16 @@ Reach for these before adding a print:
   invisible to a sampler, which only ever sees what the previous short
   iteration left behind. This is what found the crawl bug — `irq6_max` of 14M
   cycles (99 frames inside one interrupt delivery).
+- **Breakpoints** (`src/port/debug/debugger.h`) — `/break?at=3732` stops the
+  guest when the PC reaches an address, BEFORE the instruction runs, and holds
+  the game there; `/breaks` lists what is set and where it last stopped;
+  `/cpu` then reports D0-D7/A0-A7/PC/SR at that instant, `/mem` the memory,
+  `/fb.ppm` the screen. `/resume` continues, `/step?frames=N` lets N frames
+  pass and holds again. The hold happens INSIDE the run, on the game thread:
+  returning a breakpoint exit to the caller lets the game flow carry on as
+  though the slice had finished, which shut the app down cleanly a moment after
+  the first hit. Reach for a breakpoint when you need the state AT an address,
+  and for the retired-instruction ring when you need to know how it got there.
 - **Interactive control channel** (`BENEFACTOR_HTTP=<port>`,
   `src/port/control/`): a page at `/` with the controls as buttons and arrow
   keys, plus `/state` (frame, level, cop1lc, retired instructions, guest cycles,

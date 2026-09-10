@@ -11,6 +11,7 @@
 #include <lucent/http.h>
 
 #include "port/control/input_script.h"
+#include "port/debug/debugger.h"
 
 #include "common/log.h"
 
@@ -26,6 +27,9 @@ extern "C" {
 }
 
 namespace benefactor::control {
+
+using benefactor::debug::Debugger;
+using benefactor::debug::Stop;
 namespace {
 
 constexpr int kFramebufferWidth = 352;
@@ -94,11 +98,13 @@ Response route_state() {
     const std::uint16_t level = static_cast<std::uint16_t>((g_mem[0x20] << 8) | g_mem[0x21]);
     const std::uint32_t cop1lc =
         (((std::uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1]) & 0xFFFFFFu;
-    /* player position+state block at $57FEB8 ($10A6(a5)) — 4 words */
-    std::uint16_t player[4];
-    for (int index = 0; index < 4; index++)
-        player[index] = static_cast<std::uint16_t>((g_mem[0x57FEB8 + index * 2] << 8) |
-                                                   g_mem[0x57FEB9 + index * 2]);
+    /* There was a "player_block" here, four words read from a hardcoded
+     * $57FEB8 and labelled as the player's position. It is not: it reported a
+     * fixed [1056, 54, 0, 1] while the character walked across the screen,
+     * which is worse than reporting nothing, because it reads as evidence that
+     * movement is dead. The gameplay code reads that offset from the LIVE a5
+     * (platformer.c uses ctx->A[5] + $10A6), and a5 is now in /cpu — so ask
+     * /cpu for a5 and /mem for the block, rather than guessing here. */
     const char *why = nullptr;
     const int saveable = pc_savestate_allowed(&why);
 
@@ -108,7 +114,7 @@ Response route_state() {
             "{\"frame\":%d,\"level\":%u,\"cop1lc\":\"%06X\","
             "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
             "\"saveable\":%d,\"save_reason\":\"%s\",\"paused\":%d,\"press_left\":%d,"
-            "\"player_block\":[%u,%u,%u,%u],\"instructions\":%llu,"
+            "\"instructions\":%llu,"
             "\"guest_cycles\":%llu,\"blit_cycles\":%llu,\"fps\":%d,"
             "\"audio\":{\"dmacon\":\"%04X\",\"vol\":[%u,%u,%u,%u],\"per\":[%u,%u,%u,%u]},"
             "\"beam\":{\"crossed\":%u,\"taken\":%u,\"declined\":%u,\"off_flow\":%u,"
@@ -124,7 +130,7 @@ Response route_state() {
             "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u}}\n",
             hw_get_frame_num(), level, cop1lc, g_gameplay_active, g_overlay_active,
             g_credits_active, saveable, why ? why : "", InputScript::instance().paused() ? 1 : 0,
-            InputScript::instance().press_frames_left(), player[0], player[1], player[2], player[3],
+            InputScript::instance().press_frames_left(),
             (unsigned long long)rt_get_executed_instructions(),
             (unsigned long long)rt_get_guest_cycles(), (unsigned long long)g_hw_blit_cycles,
             g_hw_perf.fps, s_regs[0x096 >> 1], s_regs[0x0A8 >> 1], s_regs[0x0B8 >> 1],
@@ -211,6 +217,54 @@ Response route_press(const Request &request) {
         return Response::text(400, "Bad Request", "need at least one button\n");
     InputScript::instance().press(buttons, frames);
     return Response::json(200, "OK", formatted("{\"ok\":true,\"frames\":%d}\n", frames));
+}
+
+Response route_break(const Request &request) {
+    Debugger &debugger = Debugger::instance();
+    if (has(request, "clear")) {
+        if (parameter(request, "clear") == "all") {
+            debugger.clear_all();
+            return Response::json(200, "OK", "{\"ok\":true,\"cleared\":\"all\"}\n");
+        }
+        const unsigned address = hex(request, "clear");
+        const bool cleared = debugger.clear(address);
+        return Response::json(
+            cleared ? 200 : 404, cleared ? "OK" : "Not Found",
+            formatted("{\"ok\":%s,\"cleared\":\"%06X\"}\n", cleared ? "true" : "false", address));
+    }
+    if (!has(request, "at"))
+        return Response::text(400, "Bad Request",
+                              "need at=<hex address>, or clear=<hex address>, or clear=all\n");
+    const unsigned address = hex(request, "at");
+    const bool added = debugger.set(address);
+    /* Refused means already set or the set is full — say which, so a script
+     * does not have to guess from a bare false. */
+    return Response::json(added ? 200 : 409, added ? "OK" : "Conflict",
+                          formatted("{\"ok\":%s,\"at\":\"%06X\",\"set\":%d,\"capacity\":%d}\n",
+                                    added ? "true" : "false", address,
+                                    (int)debugger.addresses().size(), debugger.capacity()));
+}
+
+Response route_breaks() {
+    Debugger &debugger = Debugger::instance();
+    std::string list;
+    for (const std::uint32_t address : debugger.addresses()) {
+        if (!list.empty())
+            list += ',';
+        list += formatted("\"%06X\"", address);
+    }
+    const Stop stop = debugger.last_stop();
+    std::string stopped = "null";
+    if (stop.valid)
+        stopped = formatted("{\"at\":\"%06X\",\"pc\":\"%06X\",\"frame\":%d,"
+                            "\"guest_cycles\":%llu}",
+                            stop.address, stop.program_counter, stop.frame,
+                            (unsigned long long)stop.guest_cycles);
+    return Response::json(200, "OK",
+                          formatted("{\"breakpoints\":[%s],\"capacity\":%d,\"paused\":%d,"
+                                    "\"stopped\":%s}\n",
+                                    list.c_str(), debugger.capacity(),
+                                    InputScript::instance().paused() ? 1 : 0, stopped.c_str()));
 }
 
 Response route_step(const Request &request) {
@@ -318,6 +372,10 @@ Response dispatch(const Request &request) {
         return route_press(request);
     if (path == "/step")
         return route_step(request);
+    if (path == "/break")
+        return route_break(request);
+    if (path == "/breaks")
+        return route_breaks();
     if (path == "/pause") {
         InputScript::instance().pause();
         return Response::json(200, "OK", "{\"paused\":true}\n");
