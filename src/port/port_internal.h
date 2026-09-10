@@ -69,7 +69,6 @@ void native_item_position(M68KCtx *ctx);
 void native_item_blitter(M68KCtx *ctx);
 void native_blit_row_callback(M68KCtx *ctx);
 void native_post_blit_handler(M68KCtx *ctx);
-void native_timer_interrupt(M68KCtx *ctx);
 /* overrides/gameplay.c */
 void native_end_of_level(M68KCtx *ctx);
 void native_level_load(M68KCtx *ctx);

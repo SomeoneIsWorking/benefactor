@@ -88,12 +88,15 @@ set(BENEFACTOR_SOURCES
     src/engine/hw.c
     src/engine/hw_audio.c
     src/engine/hw_blitter.c
+    src/engine/hw_testrun.c
     src/engine/hw_watchdog.c
     src/engine/overlay_load.c
     src/engine/sb_decompress.c
     src/port/config.c
     src/port/freecam.c
     src/port/frame_accounting.c
+    src/port/frame_signature.c
+    src/port/guest_profile.cpp
     src/port/game_loop.c
     src/port/guest_trace.c
     src/port/http_debug.c

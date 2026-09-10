@@ -462,14 +462,20 @@ const char *exit_reason_name(amigaport::ExitReason reason) {
     return "unknown";
 }
 
-void log_exit(const amigaport::ExecutionExit &exit) {
+/* Which host entry started a run, and where it asked the guest to begin. An
+ * exit reason alone cannot say whose run it was: "1,000,000 instructions ending
+ * at $3732" reads identically whether it was the game flow's own slice or an
+ * interrupt delivery that never came back, and those want opposite fixes. */
+void log_exit(const char *entry, std::uint32_t entry_address,
+              const amigaport::ExecutionExit &exit) {
     /* Every guest call ends for exactly one reason. Naming it — even the benign
      * ones, at debug level — is what turns "the flow just returned" into an
      * answer, so no exit leaves the interpreter silently. */
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "runtime",
-                         "guest call exit: reason=%s pc=$%06X instructions=%u image=%u",
-                         exit_reason_name(exit.reason), exit.identity.address, exit.instructions,
-                         static_cast<unsigned>(exit.identity.image.tag.value));
+                         "guest call exit: entry=%s($%06X) reason=%s pc=$%06X "
+                         "instructions=%u image=%u",
+                         entry, entry_address, exit_reason_name(exit.reason), exit.identity.address,
+                         exit.instructions, static_cast<unsigned>(exit.identity.image.tag.value));
     if (exit.reason == amigaport::ExitReason::UnterminatedNativeOverride) {
         log_unterminated_override(exit);
         return;
@@ -564,14 +570,14 @@ void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     (void)image_kind(image);
     if (ctx != nullptr)
         rt_context_bind(ctx);
-    log_exit(runtime().execute(address));
+    log_exit("execute", address, runtime().execute(address));
 }
 
 void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     (void)image_kind(image);
     if (ctx != nullptr)
         rt_context_bind(ctx);
-    log_exit(runtime().call_interrupt(address));
+    log_exit("interrupt", address, runtime().call_interrupt(address));
 }
 
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
@@ -596,14 +602,14 @@ void rt_call_original(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t addr
     (void)address;
     if (ctx != nullptr)
         rt_context_bind(ctx);
-    log_exit(runtime().call_original(address));
+    log_exit("call-original", address, runtime().call_original(address));
 }
 
 void rt_call_original_subroutine(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     (void)image;
     if (ctx != nullptr)
         rt_context_bind(ctx);
-    log_exit(runtime().call_original_subroutine(address));
+    log_exit("call-original-sub", address, runtime().call_original_subroutine(address));
 }
 
 int rt_return_from_native(M68KCtx *ctx) {

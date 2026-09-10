@@ -42,6 +42,31 @@ sequence, not about how fast a host runs it. Both builds are paced to PAL 50 Hz
 headless — the reference paces only when it has a window, which the tool patches
 at setup — so the two runs are directly comparable.
 
+### The frame signature: what the screen played and showed
+
+Frame counts alone let a regression through. A change was landed that matched
+the reference screen for screen and still broke the crawl music, the logo fades
+and gameplay (reverted in `02fd7f3`) — because a frame count cannot see a
+melody or a fade.
+
+Both builds therefore also emit, once per CHANGE:
+
+```
+sig: frame=<n> pal=<hash> alc=<AUD0..3 sample pointer> aper=… avol=… adma=…
+```
+
+`src/port/frame_signature.c` in this product; the same code injected into the
+reference's `hw_present_frame` by `REFERENCE_EDITS`. The tool counts, per
+screen, the frames on which
+
+- a channel's **sample pointer moved** — the tune advancing,
+- the **palette changed** — a fade ramping,
+- a channel's **volume changed** — the mixer moving,
+
+and reports reference vs interpreter for each. A stalled tune, a frozen fade
+and a runaway one all show up here and nowhere else. Any timing change must be
+green on BOTH tables before it is landed.
+
 ## First result (2026-09-10)
 
 Reference vs interpreter, both from a cold boot:
@@ -222,6 +247,67 @@ own renderer reading custom registers as if it were interrupt work. `/state`
 now splits the crossings three ways — `beam.by_flow` / `by_irq` / `by_host` —
 and reports `beam.pending_blit` with the `BLTxxx` register that set the flag,
 plus `exec.on_game_thread` / `exec.owner` for who is running right now.
+
+## Found and fixed: the crawl had no music because a wrapper ran past an RTE
+
+**The cause was a legacy native override, not timing.** `$0055A0` is the
+level-6 timer leaf — the music player. It was wrapped by
+`native_timer_interrupt`, which existed back when the host called it directly
+and needed to control how often it ran. The guest's own vector wrapper
+(`$003160`) already does `bsr $55A0` once per delivery, exactly as the
+reference product does, so the override was a second caller — and a harmful
+one. `rt_call_original` runs the guest **without stopping at an RTE**, and
+`$55A0`'s chain ends at one (`$005892`). Past that RTE the run carried on into
+the code the interrupt had interrupted — the crawl's own outer loop at
+`$003732` — until the million-instruction budget ended it, at which point the
+whole run rolled back.
+
+Measured before and after, over 1498 frames:
+
+| | before | after |
+| --- | --- | --- |
+| level-6 deliveries | 81 | 1529 (once per frame) |
+| worst single delivery | 17,635,874 cycles (124 frames) | 4,284 cycles |
+| Paula volumes | `45,0,0,0` | `32,30,64,26` |
+| Paula periods | `320,0,0,0` | `428,157,428,339` |
+| crawl loop attributed to | the level-6 vector | the game flow |
+
+The fix is to delete the wrapper. A native owner for the timer has to be
+entered AS the vector, so the delivery's own RTE boundary applies to it; a
+wrapper around a routine the guest is already calling does not get that
+boundary. `src/port/overrides/render.c` carries the warning in place of the
+code.
+
+### How it was found, after two instruments failed
+
+The per-screen frame counts said the crawl was correct (6290 frames, matching).
+A one-shot register snapshot said audio channel 0 was playing. Both were true
+and both were useless. What found it:
+
+1. **The frame signature** (above) turned "the music doesn't progress" into
+   259 tune advances in the reference against 2 in ours.
+2. **The hot-PC profiler** (`src/port/guest_profile.h`) attributed guest time
+   per owner and named `$003732 82%` under the level-6 vector — the game
+   flow's own frame wait, running inside a timer interrupt. The
+   retired-instruction ring could not show this: it is one global list, so it
+   showed the loop without saying whose cycles it was spending.
+3. **The guest-call exit log, extended to name the ENTRY** — `entry=…` in
+   `guest call exit:` — which separated "the flow's own slice ran a million
+   instructions" from "a wrapper's `call_original` ran a million
+   instructions". They print identically otherwise, and they want opposite
+   fixes. That line named `call-original($0055A0)` and the search was over.
+
+Each of the three was built because the previous one could not see the fault.
+Build the instrument before the fix.
+
+### Measured and rejected: folding the blitter wait idiom
+
+The first diagnosis was that the crawl's `btst #6,(a6) ; bne self` blitter
+poll was burning the interrupt's time, and a fold of it was landed and reverted
+(`92282f7`, `02fd7f3`). Re-measured narrowly afterwards: folding it in the
+main image (14 sites) changed **nothing at all** — music 2/259 and volume
+54/3027, identical to not folding it. The idiom was never the fault. Do not
+re-land it without a measurement that moves.
 
 ## Attempted and reverted: no music during the intro crawl
 

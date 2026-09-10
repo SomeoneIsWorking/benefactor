@@ -13,6 +13,30 @@ There is no offline 68000-to-C translator, no generated corpus, no static
 dispatcher — they were deleted, and `tools/source_policy.py` fails the build if
 they come back in any form.
 
+## Direction: more native code, better organised code
+
+Standing direction from the user, not a one-off preference:
+
+- **Move behaviour into native owned bodies.** Where the guest spins, polls or
+  re-implements something the host already owns — wait idioms, blitter and beam
+  polls, timing loops — replace it with native code registered through the
+  override boundary below. Interpreting the guest is the fallback, not the goal.
+- **Keep the code organised as it grows.** One concern per file with a header
+  that says why the file exists; no new inline `static` state or `extern`
+  declarations scattered across call sites (state belongs in
+  `src/common/game_state.h`); factor repetition out rather than copying it.
+  `tools/source_policy.py` enforces the per-file line ceilings — a file at its
+  ceiling gets split, not compressed.
+- **Never rebuild while a measurement is running.** `tools/oracle_diff.py`
+  runs the executable it was handed; replacing that file mid-run gives a
+  meaningless table (measured: a crawl of 1391 frames against 6290). Wait, or
+  measure from a copy.
+- **A behaviour change must be validated by behaviour.** Per-screen frame counts
+  are not enough: `tools/oracle_diff.py` also diffs the frame signature (what
+  each screen played and showed — `src/port/frame_signature.h`). A change that
+  matches frame counts while the melody stalls or a fade freezes is a
+  regression, and one shipped that way once (docs/issues/0008).
+
 ## Working on native overrides
 
 An override is native code standing in the middle of interpreted guest
@@ -82,6 +106,23 @@ Reach for these before adding a print:
   turns "it hung" into an address.
 - **Watchdog output** carries the guest PC, the active call, the last hardware
   register read, cop1lc and the retired tail.
+- **Hot PCs per owner** (`src/port/guest_profile.h`) — which PCs burned WHOSE
+  cycles, sampled at every custom-chip access (a busy-wait must touch a
+  register to make progress, so none can hide). Logged as `hot:` when a screen
+  ends. The ring says which code ran; this says whose time it was. That
+  distinction is what found the crawl's missing music: `$003732 82%` under the
+  level-6 vector was the game flow's own frame wait, running inside a timer
+  interrupt.
+- **The frame signature** (`src/port/frame_signature.h`) — one `sig:` line per
+  change in what the frame PLAYS and SHOWS (the palette from the copper list,
+  each channel's sample pointer, period and volume). `tools/oracle_diff.py`
+  diffs it against the reference per screen. A frame count cannot see a stalled
+  melody or a frozen fade; this can.
+- **Every guest-call exit names its ENTRY too** — `entry=execute($x)`,
+  `entry=interrupt($x)`, `entry=call-original($x)`. "A million instructions
+  ending at $3732" reads identically for the flow's own slice and for a
+  wrapper's `call_original` that ran past an RTE, and those want opposite
+  fixes.
 - **Frame accounting** (`src/port/frame_accounting.h`, in `/state` and the
   watchdog): guest cycles for the last host iteration split by owner — the game
   flow, the level-3 vector, the level-6 vector — each with its PEAK, plus the
