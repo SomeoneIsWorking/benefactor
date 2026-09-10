@@ -122,6 +122,14 @@ uint32_t rt_get_last_insn(void);
 /* Live architectural PC of the interpreter, valid while the guest is running.
  * Signal-handler safe: a relaxed read of the canonical CPU state. */
 uint32_t rt_get_pc(void);
+
+/* The guest's architectural registers, for a debugger to show. An address
+ * register holding something unexpected is a whole class of fault — a wait
+ * loop reading the wrong hardware address, a base pointer clobbered by an
+ * interrupt — and it is invisible in a PC-and-cycles view. Fills `data` with
+ * D0-D7 and `address` with A0-A7; either may be null. */
+void rt_cpu_registers(uint32_t *data, uint32_t *address, uint32_t *program_counter,
+                      uint16_t *status);
 uint64_t rt_get_executed_instructions(void);
 /* Monotonic 68000 cycles the guest has consumed. This is the port's clock for
  * anything that was timed by the beam on hardware. */

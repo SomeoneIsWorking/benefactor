@@ -680,6 +680,23 @@ uint32_t rt_get_active_call_address(void) {
 }
 uint32_t rt_get_pc(void) { return g_runtime ? g_runtime->executor.state().pc : 0u; }
 
+void rt_cpu_registers(uint32_t *data, uint32_t *address, uint32_t *program_counter,
+                      uint16_t *status) {
+    if (g_runtime == nullptr)
+        return;
+    const auto &cpu = g_runtime->executor.state();
+    for (std::size_t index = 0; index < 8; ++index) {
+        if (data != nullptr)
+            data[index] = cpu.data[index];
+        if (address != nullptr)
+            address[index] = cpu.address[index];
+    }
+    if (program_counter != nullptr)
+        *program_counter = cpu.pc;
+    if (status != nullptr)
+        *status = cpu.sr;
+}
+
 uint64_t rt_get_guest_cycles(void) { return g_runtime ? g_runtime->guest_cycles() : 0u; }
 
 /* Charge guest time for work the host performs instantly on the guest's behalf.

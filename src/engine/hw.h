@@ -35,6 +35,7 @@ void hw_fini(void);
  * + cop1lc) and kills the app. Disarm after the frame returns. */
 void hw_watchdog_arm(const char *what, int seconds);
 void hw_watchdog_disarm(void);
+void hw_watchdog_rearm(void);
 
 /* Current INTENA interrupt-enable shadow ($DFF09A). */
 uint16_t hw_get_intena(void);

@@ -1,6 +1,7 @@
 /* main.c – Native PC game entry point (single path: native disk boot) */
 #include "common/log.h"
 #include "engine/hw.h"
+#include "port/control/control_server.h"
 #include "port/port.h"
 #include "render/present_backend.h"
 #include <signal.h>
@@ -128,7 +129,7 @@ int main(int argc, char **argv) {
         }
         benefactor_log_write(BENEFACTOR_LOG_INFO, "savestate", "resuming from %s", load_path);
     }
-    pc_http_debug_start(); /* no-op unless BENEFACTOR_HTTP=<port> is set */
+    pc_control_server_start(); /* no-op unless BENEFACTOR_HTTP=<port> is set */
     pc_run();
     benefactor_log_write(BENEFACTOR_LOG_INFO, "app", "stopped");
     pc_fini();

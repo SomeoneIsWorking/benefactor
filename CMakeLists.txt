@@ -39,6 +39,25 @@ endif()
 set(AMIGAPORT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${BENEFACTOR_AMIGAPORT_DIR}" "${CMAKE_BINARY_DIR}/amigaport")
 
+# lucent — the logging, configuration and loopback HTTP control channel this
+# product had hand-rolled three times over. Same checkout convention as
+# amigaport: a sibling directory, overridable for CI.
+set(BENEFACTOR_LUCENT_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/../lucent")
+if(DEFINED ENV{BENEFACTOR_LUCENT_DIR} AND NOT "$ENV{BENEFACTOR_LUCENT_DIR}" STREQUAL "")
+    set(BENEFACTOR_LUCENT_DEFAULT "$ENV{BENEFACTOR_LUCENT_DIR}")
+endif()
+set(BENEFACTOR_LUCENT_DIR "${BENEFACTOR_LUCENT_DEFAULT}"
+    CACHE PATH "Path to the lucent library")
+get_filename_component(BENEFACTOR_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}"
+    ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+if(NOT IS_DIRECTORY "${BENEFACTOR_LUCENT_DIR}")
+    message(FATAL_ERROR
+        "Benefactor requires lucent at ${BENEFACTOR_LUCENT_DIR}; "
+        "provide -DBENEFACTOR_LUCENT_DIR=<checkout>")
+endif()
+set(LUCENT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${BENEFACTOR_LUCENT_DIR}" "${CMAKE_BINARY_DIR}/lucent")
+
 if(ANDROID)
     set(BENEFACTOR_SDL3_PREFIX "" CACHE PATH "Shared Android-port SDL3 prefix")
     set(BENEFACTOR_LUCENT_DIR "" CACHE PATH "Lucent source checkout for Android")
@@ -99,7 +118,8 @@ set(BENEFACTOR_SOURCES
     src/port/guest_profile.cpp
     src/port/game_loop.c
     src/port/guest_trace.c
-    src/port/http_debug.c
+    src/port/control/control_server.cpp
+    src/port/control/input_script.cpp
     src/port/hud_icons.c
     src/port/input.c
     src/port/level_select_ui.c
@@ -156,6 +176,7 @@ endif()
 target_include_directories(${BENEFACTOR_PRODUCT_TARGET} PRIVATE src)
 target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE
     amigaport::amigaport
+    lucent::lucent
     ${BENEFACTOR_SDL_TARGET}
     Threads::Threads)
 if(NOT WIN32 AND NOT BENEFACTOR_WEB)
