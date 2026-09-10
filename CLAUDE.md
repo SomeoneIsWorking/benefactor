@@ -1,8 +1,9 @@
 # Benefactor Amiga → PC port
 
 `AGENTS.md` is the working agreement and takes precedence over this file. Read it,
-then `docs/project-goals.md`, `docs/project-state.md`, `docs/codemap.md` and the
-open items in `docs/issues/`.
+then `docs/project-goals.md`, `docs/project-state.md`, `docs/codemap.md`,
+`docs/oracle.md` (how the retired static-recompiler product is used as the
+reference this one is measured against) and the open items in `docs/issues/`.
 
 ## What this product is
 
@@ -132,10 +133,17 @@ Reach for these before adding a print:
   invisible to a sampler, which only ever sees what the previous short
   iteration left behind. This is what found the crawl bug — `irq6_max` of 14M
   cycles (99 frames inside one interrupt delivery).
-- **Debug HTTP server** (`BENEFACTOR_HTTP=<port>`): `/state` (frame, level,
-  cop1lc, player block, retired instructions, guest cycles, fps, per-section
-  frame times, the frame accounting above), `/mem`, `/poke`, `/input` (drive the
-  game headless), `/fb.ppm`, `/trace`, `/recent`, `/save`, `/load`.
+- **Interactive control channel** (`BENEFACTOR_HTTP=<port>`,
+  `src/port/control/`): a page at `/` with the controls as buttons and arrow
+  keys, plus `/state` (frame, level, cop1lc, retired instructions, guest cycles,
+  fps, per-section frame times, the frame accounting above), `/cpu`, `/mem`,
+  `/poke`, `/hold`, `/press?fire=1&frames=4`, `/pause`, `/resume`,
+  `/step?frames=N`, `/fb.ppm`, `/trace`, `/recent`, `/save`, `/load`. Built on
+  `lucent::http`, so it answers on its own thread and `/resume` still gets in
+  while the game is held.
+- **A frame-indexed fire timeline** (`BENEFACTOR_PRESSES=7300:8,7420:8,7560:8`)
+  drives the menus from fixed frames instead of wall-clock input, which is what
+  lets `oracle_diff --play` compare gameplay in both products.
 - **Drive it headless**: `./build/run/…/Benefactor --headless --disk Disk.1 Disk.2 Disk.3`
   with `BENEFACTOR_HTTP` set, then `curl "localhost:PORT/input?fire=1"`.
 
