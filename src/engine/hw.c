@@ -8,6 +8,7 @@
 #include "common/log.h"
 #include "engine/hw_private.h"
 #include "engine/hw_testrun.h"
+#include "port/control/input_script.h"
 #include "port/frame_accounting.h"
 #include "port/frame_signature.h"
 #include "port/guest_profile.h"
@@ -37,14 +38,6 @@
 #include "port/touch_controls.h"
 #endif
 #include "port/config.h" /* pc_render_mode() — frame-renderer mode select */
-
-static void hw_ensure_scratch_directory(void) {
-#ifdef _WIN32
-    (void)_mkdir("scratch");
-#else
-    (void)mkdir("scratch", 0755);
-#endif
-}
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Amiga OCS register offsets (relative to $DFF000)                           */
@@ -1393,6 +1386,7 @@ int hw_present_frame(void) {
     /* The scripted, unattended run: frame dumps, timed input, memory dumps and
      * the frame limit. Diagnostics, not display — engine/hw_testrun.c. */
     hw_testrun_capture(s_frame_num, s_out, s_hw_out_w, HW_DISPLAY_H);
+    pc_control_frame(); /* releases a timed press, counts down a step */
     pc_note_frame_phase();
     pc_note_frame_signature();
     s_frame_num++;
@@ -2416,7 +2410,27 @@ void (*g_hw_cop1lc_present)(void) = NULL;
 /* Current copper-list-1 location (last value written to COP1LC $DFF080/82). */
 uint32_t hw_get_cop1lc(void) { return ((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1]; }
 
+/* A native body waiting for the vertical blank stands in for guest code that
+ * would have spun for a frame — so it must COST the guest a frame, the same way
+ * a blit costs the guest the bus cycles it would have occupied. The beam is
+ * derived from consumed guest cycles, and native code consumes none: without
+ * this charge, a native body that waits 32 times in a row advances the beam not
+ * at all and every wait returns immediately.
+ *
+ * That is what flattened the boot logo fade. Its palette animation is 16 passes
+ * of two frames each; it asked for 32 frames, got 1, and all sixteen colour
+ * steps landed in a single displayed frame.
+ *
+ * This charge applies only to NATIVE callers. Guest code that spins on VPOSR
+ * itself (the intro crawl at $003732) is interpreted instruction by
+ * instruction and already pays for its own spin — charging that too, or
+ * replacing it with this call, gives the crawl a second clock and it runs
+ * ~165x too fast. See docs/issues/0008. */
 void hw_vblank_wait(void) {
+    if (pc_on_game_thread()) {
+        const uint64_t per_frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
+        rt_add_guest_cycles(per_frame - rt_get_guest_cycles() % per_frame);
+    }
     /* Disk-boot coroutine mode: this is the per-frame yield point — hand control
      * back to the frame driver (render + input + IRQs), then resume the game.
      * Otherwise a no-op (the snapshot path drives frames from src/port/game_loop.c). */

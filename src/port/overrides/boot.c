@@ -80,6 +80,12 @@ void native_boot_anim_iterator(M68KCtx *ctx) {
     w16(ctx->A[5] + 0x2216u, outer);
     uint16_t delay = r16(a4); /* per-pass vblank delay (constant) */
 
+    /* This animation IS the boot logo fade, and its length is the screen's:
+     * outer passes of (delay + 1) frames each. If the frames do not actually
+     * pass, every colour step lands in one displayed frame and the fade is
+     * gone — so the tail of this function reports asked-for against paid. */
+    const int frame_before = hw_get_frame_num();
+
     for (uint16_t pass = 0; pass < outer; pass++) {
         /* $74B2-$74C2: wait (delay+1) vblank frames before stepping the palette. */
         for (uint16_t wv = 0; wv <= delay; wv++)
@@ -100,6 +106,11 @@ void native_boot_anim_iterator(M68KCtx *ctx) {
                 break; /* longword 0 = end of entry list */
         }
     }
+
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "boot-anim",
+                         "palette animation done: %d frames for %u passes of %u (wanted %u)",
+                         hw_get_frame_num() - frame_before, outer, delay + 1u,
+                         outer * (delay + 1u));
 
     ctx->A[4] = a4; /* matches $74AA: a4 past outer_count */
 }

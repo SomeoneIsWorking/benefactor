@@ -145,7 +145,15 @@ class Run:
 
 @dataclass(frozen=True)
 class Phase:
-    """One screen: the frames it spanned and the copper lists it alternated."""
+    """One screen: the frames it spanned and the copper lists it alternated.
+
+    `last_frame` is where the NEXT screen began, not where this screen last
+    wrote a copper pointer. A screen that holds still writes nothing while it
+    is on display, so measuring to its last write reported the boot logo — held
+    for 34 frames in the reference — as 3 frames, and called an eleven-fold
+    burst a perfect match. Only a screen that flips buffers every frame (the
+    crawl) reads the same either way.
+    """
 
     first_frame: int
     last_frame: int
@@ -153,7 +161,7 @@ class Phase:
 
     @property
     def frames(self) -> int:
-        return self.last_frame - self.first_frame + 1
+        return max(1, self.last_frame - self.first_frame)
 
     @property
     def name(self) -> str:
@@ -329,9 +337,12 @@ def _phases(text: str) -> list[Phase]:
             current.add(address)
             last = frame
             continue
-        phases.append(Phase(first, last, tuple(sorted(current))))
+        # This screen ran until the frame the next one started on.
+        phases.append(Phase(first, frame, tuple(sorted(current))))
         first, last, current = frame, frame, {address}
     if first is not None and last is not None:
+        # The run ended here, so the last write is all this screen can be
+        # credited with; a run cut off mid-screen cannot be measured further.
         phases.append(Phase(first, last, tuple(sorted(current))))
     return phases
 
