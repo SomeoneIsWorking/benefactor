@@ -39,6 +39,13 @@ extern uint8_t *g_chip;
 void pc_register_overrides(void);
 
 /* ── Native override function declarations (`src/port/overrides/`) ── */
+/* overrides/wait_idioms.c — fold the guest's already-satisfied hardware
+ * busy-waits (blitter BBUSY poll, fire-button wait) into native bodies, the
+ * way the retired translator did offline. Scans [lo,hi) of a loaded image;
+ * pc_fold_wait_idioms covers the code regions of one whole image. */
+int pc_register_wait_idioms(uint32_t image_mask, uint32_t lo, uint32_t hi);
+void pc_fold_wait_idioms(uint32_t image_mask);
+
 /* overrides/hw.c */
 void native_hw_wait(M68KCtx *ctx);
 void native_blitter_wait_clear(M68KCtx *ctx);

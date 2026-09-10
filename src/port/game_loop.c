@@ -853,10 +853,8 @@ int pc_step(void) {
  * hardware the timer IRQ alternates two handlers on the $78 vector:
  *   $3160 → $0055A0  — music player + animation/auto-advance frame counters.
  *   $0058C2          — copies the audio shadow ($69F6+) into the Paula regs.
- * The host runtime delivers these service routines once per frame, matching
- * the rate programmed by the game. $55A0 is the RTS-terminated leaf of the
- * $3160 wrapper; both are
- * the game's own code (no fudged values). */
+ * The host delivers these once per frame, the rate the game programmed the
+ * timer for; they are the game's own code, entered through the vector. */
 /* True when the game has the given interrupt level enabled (master INTEN bit +
  * that level's source bit), i.e. the real CPU would actually take the interrupt.
  * A vector still holding the PREVIOUS screen's handler (e.g. the title's $3532 /
@@ -868,9 +866,6 @@ static int irq_level_enabled(uint16_t levelbits) {
     return (ie & INTENA_MASTER) && (ie & levelbits);
 }
 
-/* Deliver the level-6 (CIA-B timer) music ISR once. Called pc_step's per-screen
- * number of times per frame. Gated on the interrupt being enabled so a stale
- * vector from a previous screen doesn't run during a masked load. */
 /* Music kill-switch for the wrong-SFX investigation. When set, the LVL6 music
  * ISR is NOT delivered, so whatever music player is installed at $78 stops
  * advancing. SFX that is triggered independently of the music ISR keeps
@@ -878,6 +873,9 @@ static int irq_level_enabled(uint16_t levelbits) {
  * Set from BENEFACTOR_MUTE_MUSIC at bring-up; toggleable at the REPL ("mute"). */
 int g_mute_music = 0;
 
+/* Deliver the level-6 (CIA-B timer) music ISR once, pc_step's per-screen number
+ * of times per frame. Gated on the level being enabled so a stale vector from a
+ * previous screen doesn't run during a masked load. */
 void pc_music_tick(void) {
     if (g_mute_music)
         return;
@@ -936,17 +934,16 @@ static void coro_deliver_timer_irq(void) {
     }
     /* Intro and title: deliver exactly what the game installed at the vectors.
      *
-     * The level-6 handlers CHAIN BY REWRITING THEIR OWN VECTOR: $5892 ends with
-     * `addi.l #$30,$78(a0)` (a0=0), moving $78 on to $58C2, the routine that
+     * The level-6 handlers chain by rewriting their own vector: $5892 ends with
+     * `addi.l #$30,$78(a0)` (a0 = 0), moving $78 on to $58C2, the routine that
      * copies the audio shadow ($69F6+) into Paula. So the second handler is
      * reached through $78 like the first, and nothing needs to name it here.
      *
-     * Do NOT call $0055A0 / $0058C2 directly in place of the vectors. $55A0 is
-     * a tail-branch dispatcher whose chain reaches $5892's RTE, so entering it
-     * as a subroutine returns into the game flow's own stack and hangs the boot
-     * in the one-frame wait at $3732; and once a screen has been loaded over
-     * those bytes they are somebody else's data ($58C2 read as $FFFF at frame
-     * 900 and trapped). See docs/issues/0008. */
+     * Do NOT call $0055A0 / $0058C2 directly in place of the vectors: rt_call
+     * pushes no return address, so the RTS ending $55A0's chain pops whatever
+     * the flow left on its stack (observed: a return to $000000), and a later
+     * screen loads over those bytes ($58C2 read as $FFFF at frame 900 and
+     * trapped). See docs/issues/0008. */
     const uint32_t v3 = ((uint32_t)g_chip[0x6c] << 24) | ((uint32_t)g_chip[0x6d] << 16) |
                         ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
     const uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
@@ -975,12 +972,14 @@ static int pc_common_bringup(const char **disks, int n_disks) {
      * Shared with the bank dumper via overlay_load_main(). */
     overlay_load_main();
     pc_register_overrides();
+    /* Fold the guest's already-satisfied busy-waits in the code just
+     * decrunched into native bodies — the substitution the retired translator
+     * made offline, done per image because an overlay replaces these bytes. */
+    pc_fold_wait_idioms(BENEFACTOR_IMAGE_MASK_MAIN);
     g_hw_vblank_yield = game_thread_yield; /* hw_vblank_wait parks the game thread */
     g_hw_frame_audio = pc_audio_frame;     /* a frame reached inside an IRQ still owes audio */
     g_hw_pc_owns_present = 1;
-    {
-        g_native_render_delay = pc_cfg_int("render_delay", 1);
-    } /* blitter-latency model (frames) */
+    g_native_render_delay = pc_cfg_int("render_delay", 1); /* blitter latency, frames */
     {
         g_mute_music = pc_cfg_bool("mute_music", 0);
     } /* SFX-isolation kill-switch */

@@ -110,6 +110,7 @@ set(BENEFACTOR_SOURCES
     src/port/overrides/platformer.c
     src/port/overrides/register.c
     src/port/overrides/render.c
+    src/port/overrides/wait_idioms.c
     src/port/pause_menu.c
     src/port/profile.c
     src/port/project_paths.c

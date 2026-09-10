@@ -2532,7 +2532,16 @@ uint32_t hw_get_cop1lc(void) { return ((uint32_t)s_regs[0x080 >> 1] << 16) | s_r
 void hw_vblank_wait(void) {
     /* Disk-boot coroutine mode: this is the per-frame yield point — hand control
      * back to the frame driver (render + input + IRQs), then resume the game.
-     * Otherwise a no-op (the snapshot path drives frames from src/port/game_loop.c). */
+     * Otherwise a no-op (the snapshot path drives frames from src/port/game_loop.c).
+     *
+     * A wait costs the guest a frame, and the beam is derived from exactly
+     * those cycles, so charge the rest of the beam frame — and only on the
+     * flow: an interrupt cannot park, so it must not consume the frame the
+     * flow is waiting for. */
+    if (pc_on_game_thread()) {
+        const uint64_t frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
+        rt_add_guest_cycles((uint32_t)(frame - rt_get_guest_cycles() % frame));
+    }
     if (g_hw_vblank_yield)
         (void)g_hw_vblank_yield();
 }
