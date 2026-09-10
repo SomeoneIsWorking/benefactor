@@ -59,10 +59,13 @@ for each pixel (x, y):
 - EHB (Extra Half-Brite): 32 extra colours = `s_palette[0..31] >> 1`
 - BPL1MOD / BPL2MOD applied each scanline (odd/even bitplane groups)
 
-## Synthetic Beam Counter
+## Beam Counter
 
-The game polls `VPOSR` to detect vertical blank.  
-`hw_advance_scanline()` increments `s_scanline` (0–311). Call this from the game's vblank loop or tick it from `hw_present_frame()`.  
+The game polls `VPOSR` to detect vertical blank. The beam is **derived from
+consumed guest cycles** (454 per line, 312 lines per frame) and sampled on every
+custom-chip access — see the Timing section of `CLAUDE.md`. There is no
+synthetic scanline counter to advance by hand; `hw_advance_scanline()` was
+removed once nothing called it.  
 `hw_present_frame()` is the hard vsync point — it calls `SDL_RenderPresent` which blocks on vsync.
 
 ## Disk Loading
