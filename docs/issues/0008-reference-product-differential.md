@@ -184,3 +184,65 @@ real per-frame semantics off the game flow, or to deliver level 6 on the game
 thread where it can park. An earlier attempt — charging the remainder of the
 beam frame in an off-flow `hw_vblank_wait()` — over-corrected badly (`0077C0`
 and `0091D0` ballooned past 700 frames) and was reverted.
+
+## The frame boundary was being dropped 84% of the time (fixed 2026-09-10)
+
+`0007` says never to take a frame boundary in the middle of a blit's register
+sequence, and the first implementation of that did it at the boundary: a sticky
+flag set by any `BLTxxx` write and cleared only by `BLTSIZE`, with the boundary
+refused while it was set. Measured over 1247 frames of the intro:
+
+    beam crossings          2,419,895
+    left pending (blit)     2,036,806      -> 84% of them
+    taken by the game flow         34
+    host iterations                67
+
+A deferred boundary does not update `s_beam_frame`, so every later custom-chip
+access re-detects the same crossing — which is why the crossing count is in the
+millions. The guest blits continuously, so the flag was effectively always set,
+the game flow almost never parked, and the interrupt deliveries it gates
+starved.
+
+The hazard is the interrupt writing the SHARED blitter registers, not the
+boundary itself. So the boundary is never refused any more; instead the vector
+delivery lends the interrupt its own copy of `$040..$074` and hands the flow's
+back afterwards (`hw_blit_regs_save` / `_restore`, used by `coro_call_vector`).
+The interrupt's own blits still run — they complete at their `BLTSIZE`, inside
+the saved window.
+
+After: `pending_blit` is 0, and on the title screen the flow parks 1519 times
+for 1521 boundaries — one host iteration per displayed frame, against 34 in
+1248 before. The intro crawl is unchanged at 6279 frames against the
+reference's 6290.
+
+### Diagnostics added
+
+`off the game flow` was doing double duty and hid this: it counted the host's
+own renderer reading custom registers as if it were interrupt work. `/state`
+now splits the crossings three ways — `beam.by_flow` / `by_irq` / `by_host` —
+and reports `beam.pending_blit` with the `BLTxxx` register that set the flag,
+plus `exec.on_game_thread` / `exec.owner` for who is running right now.
+
+## Still open: no music during the intro crawl
+
+The intro's music player is `$3160 -> $0055A0`, delivered as the level-6 vector.
+It is called once per host iteration, but a single delivery is short in
+INSTRUCTIONS (never above 20,000, measured) while charging enough BLIT time for
+the beam to cross ~18-25 frames inside it. So the player advances roughly once
+per 20 frames and channels 1-3 never receive a period or a volume
+(`vol=[39,0,0,0] per=[320,0,0,0]` throughout the crawl).
+
+Two things were tried and rejected, both measured:
+
+- **Answering VPOSR with a V8 that flips per read off the game flow**, so the
+  guest's one-frame wait costs nothing inside an interrupt (the reference
+  translator's transformation, `emitter.py: is_vposr_btst`). The wait pair does
+  then fall through in one read each, but the delivery count did not move
+  (45 per 447 frames, against 42 per 397 before) — the deliveries are not long
+  because of VPOSR spinning, they are long because of charged blit time.
+- **Delivering the vector once per DISPLAYED frame** rather than once per host
+  iteration, catching up on whatever the last iteration showed. The catch-up
+  computed `due=1` on 37 of 38 iterations, so the frame counter read at the
+  delivery site does not advance the way the presented-frame count does. That
+  discrepancy is the next thing to understand.
+

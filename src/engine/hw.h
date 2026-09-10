@@ -195,6 +195,20 @@ extern volatile uint32_t g_hw_beam_crossed;
 extern volatile uint32_t g_hw_beam_taken;
 extern volatile uint32_t g_hw_beam_declined;
 extern volatile uint32_t g_hw_beam_declined_off_flow;
+/* Boundaries left pending because a blit's register sequence was half-written,
+ * and the BLTxxx register that set that flag (to identify a sequence that
+ * never reached BLTSIZE). */
+extern volatile uint32_t g_hw_beam_by_flow;
+extern volatile uint32_t g_hw_beam_by_irq;
+extern volatile uint32_t g_hw_beam_by_host;
+/* HW_BLT_REGS words cover the shared blitter set $040..$074; an interrupt
+ * delivered mid-sequence saves and restores them (docs/issues/0007). */
+#define HW_BLT_REGS 27
+int hw_blit_setup_open(void);
+void hw_blit_regs_save(uint16_t *dst);
+void hw_blit_regs_restore(const uint16_t *src);
+extern volatile uint32_t g_hw_beam_pending_blit;
+extern volatile uint32_t g_hw_blt_last_reg;
 extern volatile uint32_t g_hw_present_calls;
 extern volatile uint32_t g_hw_present_reentrant;
 
