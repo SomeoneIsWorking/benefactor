@@ -274,9 +274,6 @@ static void hw_compose_output(void) {
     hw_blit_capture_reset(); /* start a fresh object-blit capture for the next frame */
 }
 
-/* A blit's register sequence is half-written: any BLTxxx write since BLTSIZE. */
-static int s_blt_setup = 0;
-
 /* Beam counter (simulated at 50 Hz) */
 static int s_scanline = 0;
 static int s_frame_num = 0;
@@ -287,6 +284,40 @@ static int s_frame_num = 0;
  * a line at two cycles each, 312 lines a frame. */
 #define BEAM_CYCLES_PER_LINE 454u
 #define BEAM_LINES_PER_FRAME 312u
+
+/* A blit's register sequence is half-written: a BLTxxx write with no BLTSIZE
+ * after it. The blitter registers are ONE shared set, so an interrupt delivered
+ * while the game flow sits mid-sequence writes the same registers and the two
+ * blits merge into one runaway blit (docs/issues/0007).
+ *
+ * Do NOT fix that by refusing the frame boundary. The interrupt blits
+ * continuously, so a sequence is nearly always open: as a boundary-level guard
+ * this deferred 2.0M of 2.4M crossings, the game flow parked 67 times in 1247
+ * frames, and the interrupts it was protecting starved. Let the boundary land
+ * and give the interrupt its own copy of the registers instead — see
+ * hw_blit_regs_save / _restore, used by the vector delivery. */
+static int s_blt_setup_open = 0;
+volatile uint32_t g_hw_beam_pending_blit = 0; /* boundaries left pending here  */
+volatile uint32_t g_hw_blt_last_reg = 0;      /* BLTxxx write that set the flag */
+
+int hw_blit_setup_open(void) { return s_blt_setup_open; }
+
+/* Save/restore the whole shared blitter register set ($040..$074) around an
+ * interrupt, so a vector delivered mid-sequence cannot corrupt the flow's
+ * half-written blit. The interrupt's own blits still run: they complete at
+ * their BLTSIZE, inside the saved window. */
+void hw_blit_regs_save(uint16_t *dst) {
+    for (uint32_t reg = 0x040; reg <= 0x074; reg += 2)
+        dst[(reg - 0x040) >> 1] = s_regs[reg >> 1];
+}
+void hw_blit_regs_restore(const uint16_t *src) {
+    for (uint32_t reg = 0x040; reg <= 0x074; reg += 2)
+        s_regs[reg >> 1] = src[(reg - 0x040) >> 1];
+}
+
+volatile uint32_t g_hw_beam_by_flow = 0; /* the parkable game flow      */
+volatile uint32_t g_hw_beam_by_irq = 0;  /* guest code inside a vector  */
+volatile uint32_t g_hw_beam_by_host = 0; /* the host (render/present)   */
 
 /* Derive the beam from the guest's own consumed CPU time rather than from the
  * number of times it read the register. The interpreter executes the game's
@@ -300,6 +331,12 @@ static void hw_step_register_beam(int at_beam_read) {
     /* crossed==taken means the guest itself is stuck; crossed racing ahead of
      * taken means the boundary has nowhere to land. The watchdog reports both. */
     g_hw_beam_crossed++;
+    if (pc_on_game_thread())
+        g_hw_beam_by_flow++;
+    else if (g_pc_guest_owner != 0)
+        g_hw_beam_by_irq++;
+    else
+        g_hw_beam_by_host++;
 
     /* The boundary belongs to the game flow: only that flow can park. */
     if (!g_hw_vblank_yield) {
@@ -311,8 +348,6 @@ static void hw_step_register_beam(int at_beam_read) {
     /* Never park mid-blit: the blitter registers are one shared set, so an
      * interrupt delivered here writes the same registers and the two blits merge
      * into one runaway blit. See docs/issues/0007. */
-    if (s_blt_setup)
-        return;
     if (g_hw_vblank_yield() == 0) {
         g_hw_beam_declined++;
         if (!pc_on_game_thread())
@@ -2129,8 +2164,11 @@ void hw_write16(uint32_t addr, uint16_t v) {
     if (addr >= 0xDFF000 && addr <= 0xDFFFFF) {
         uint32_t reg = addr & 0x1FE;
         hw_step_register_beam(0);
-        if (reg >= 0x040 && reg <= 0x074)
-            s_blt_setup = (reg != BLTSIZE);
+        if (reg >= 0x040 && reg <= 0x074) {
+            s_blt_setup_open = (reg != BLTSIZE);
+            if (s_blt_setup_open)
+                g_hw_blt_last_reg = reg;
+        }
         s_regs[reg >> 1] = v; /* shadow copy */
 
         /* COP1LCL completes the 32-bit COP1LC write (the game uses move.l to

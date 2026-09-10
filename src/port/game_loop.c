@@ -897,10 +897,20 @@ static void coro_call_vector_as(unsigned owner, uint32_t addr, GuestEntry entry)
     uint64_t *const peak = owner == 3 ? &g_pc_cycles_irq3_max : &g_pc_cycles_irq6_max;
     volatile uint32_t *const calls = owner == 3 ? &g_pc_irq3_calls : &g_pc_irq6_calls;
     const uint64_t before = rt_get_guest_cycles();
+    /* The blitter registers are one shared set. If the game flow parked
+     * mid-sequence, this vector's own blits would overwrite its half-written
+     * setup and the two would merge into one runaway blit — so lend the
+     * interrupt a copy and hand the flow's back. See docs/issues/0007. */
+    uint16_t blt[HW_BLT_REGS];
+    const int mid_blit = hw_blit_setup_open();
+    if (mid_blit)
+        hw_blit_regs_save(blt);
     g_pc_guest_owner = owner;
     (*calls)++;
     call_fn_as(&s_game_ctx, addr, entry);
     g_pc_guest_owner = 0;
+    if (mid_blit)
+        hw_blit_regs_restore(blt);
     pc_account(total, peak, rt_get_guest_cycles() - before);
 }
 
@@ -912,17 +922,14 @@ static void coro_call_vector(unsigned owner, uint32_t addr) {
 static void coro_deliver_timer_irq(void) {
     if (g_gameplay_active || g_overlay_active || g_credits_active) {
         /* Gameplay / overlay / credits each install their own level-3 ($6c,
-         * vblank — sets the frame's copper/COP1LC) and level-6 ($78, music/
-         * timer) handlers. Fire each only when the game has that interrupt
-         * level enabled, so stale vectors from the previous screen don't run
-         * during the masked load. Credits sets $6c=$350A, $78=$351C; gameplay
-         * sets $6c=$57825A, $78=$59BF3E etc. Either way, just deliver whatever
-         * the game installed at the vector. */
+         * vblank) and level-6 ($78, music/timer) handlers; deliver whatever is
+         * installed, but only while the game has that level enabled, so a stale
+         * vector from the previous screen doesn't run during a masked load.
+         * Level-3 fires once per displayed frame here; level-6 is delivered by
+         * pc_music_tick at the per-screen sub-frame rate, so firing it here too
+         * would over-count it. */
         uint32_t v3 = ((uint32_t)g_chip[0x6c] << 24) | ((uint32_t)g_chip[0x6d] << 16) |
                       ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
-        /* Level-3 (vblank) fires once per displayed frame here. Level-6 (the CIA-B
-         * timer / music ISR) is delivered by pc_music_tick in pc_step at the
-         * per-screen sub-frame rate — delivering it here too over-counted it. */
         if (v3 && irq_level_enabled(INTENA_LVL3))
             coro_call_vector(3, v3);
         return;
