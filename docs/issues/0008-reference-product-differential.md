@@ -223,7 +223,7 @@ now splits the crossings three ways — `beam.by_flow` / `by_irq` / `by_host` �
 and reports `beam.pending_blit` with the `BLTxxx` register that set the flag,
 plus `exec.on_game_thread` / `exec.owner` for who is running right now.
 
-## Still open: no music during the intro crawl
+## Fixed: no music during the intro crawl
 
 The intro's music player is `$3160 -> $0055A0`, delivered as the level-6 vector.
 It is called once per host iteration, but a single delivery is short in
@@ -245,4 +245,75 @@ Two things were tried and rejected, both measured:
   computed `due=1` on 37 of 38 iterations, so the frame counter read at the
   delivery site does not advance the way the presented-frame count does. That
   discrepancy is the next thing to understand.
+
+### What it actually was, and the fix
+
+The blit time was real, but it was being spent inside a loop the host had
+already satisfied. The intro's blitter wait is `btst #6,(a6) ; bne.s self` —
+BBUSY. Our blitter completes inside the `BLTSIZE` write, so BBUSY is never
+observed set: the loop exits on its first pass on merit, but every pass costs
+guest cycles, and during the intro those cycles are charged to the level-6
+timer interrupt. One delivery therefore held the beam for ~20 frames.
+
+The retired translator never had this problem because it recognised the idiom
+offline and emitted `hw_blitter_sync()` in its place (`tools/recomp/emitter.py`:
+`is_bltbusy_btst`, `is_fire_wait_tst`, `is_vposr_btst`). `src/port/overrides/
+wait_idioms.c` does the same at image-load time: it scans the freshly loaded
+code for the exact encodings and registers a native override on the first
+instruction of each match, which performs the host wait and resumes the guest
+past the idiom. It is hooked into all three image loads (main, title,
+gameplay).
+
+Result: `beam.by_irq` fell from 11,004,903 crossings to 3,829, all four Paula
+channels get a period and a volume during the crawl (`vol=[64,3,3,64]
+per=[320,285,214,314]`), and the crawl itself measures 6290 frames against the
+reference's 6290 — an exact match, where it had been 6279.
+
+### What NOT to fold: the VPOSR frame wait
+
+The translator also folded `btst #0,$3(a6)` + `beq self` + the same + `bne self`
+into `hw_vblank_wait()`. Do not copy that one. The translator had no beam
+model: its host call WAS the frame clock. Ours derives the beam from consumed
+guest cycles, so the guest's own spin is what carries the crawl from one frame
+to the next. Folding it away was measured: the crawl ended after 38 displayed
+frames instead of 6290, and `beam.by_irq` went to 11 million because the
+interrupt could no longer be paced by anything.
+
+### A rule for every override that waits
+
+**Read `rt_get_pc()` before the wait, never after.** A wait parks the game
+thread; the host then delivers an interrupt on the same register file, and
+`rt_get_pc()` afterwards points wherever that interrupt finished. Resuming from
+it sent the guest into low memory and tripped the `$150` loader hand-off, which
+restarted the game straight into gameplay at boot.
+
+Two more things were found and left alone deliberately:
+
+- **An access outside the decoded address space stops guest execution here,
+  where a 68000 would float the bus and carry on** (the reference sends
+  anything outside RAM to `hw_read16`, which answers 0). It only showed up
+  while the VPOSR wait was folded and a5 was consequently wrong, so with the
+  fold gone there is no evidence it is needed; leaving the fault in place keeps
+  a real out-of-bounds access loud.
+- **A misaligned word/long read was reported as `Unmapped`.** That one is
+  fixed: the 68000 takes an address error there, and the executor already maps
+  `MemoryFault::Misaligned` to `ExceptionVector::AddressError`.
+
+### Note on `rt_call`
+
+`Executor::call` sets the PC and runs — it pushes no return address. So
+`rt_call` is only valid for an entry point whose return address the guest's own
+stack already holds, or for code that never returns. Entering an RTS-terminated
+leaf such as `$0055A0` with it makes that RTS pop whatever happened to be on
+the stack (observed: a return to `$000000`). The intro's timer leaves must be
+reached the way hardware reaches them, through the `$3160` wrapper's RTE.
+
+## Still open: the screen after the crawl
+
+At the end of the crawl the game reaches `cop1lc = $0077C0` and stays there.
+The reference gives that screen 191 frames and moves on to `$007770/$0091D0`.
+This predates the wait-idiom work — a baseline build of the parent commit
+stalls in the same place, with the same trace: the level-6 handler spinning on
+`$0031F6 btst` / `$0031FC bne`, a VPOSR wait-clear, inside an interrupt that
+cannot park. That spin is the next thing to explain.
 
