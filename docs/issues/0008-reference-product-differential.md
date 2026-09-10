@@ -656,13 +656,33 @@ guest memory outside the recorded exceptions, every screen boundary to the
 frame, every palette, period, volume and DMACON, from the boot logo through the
 whole intro crawl to the poster.
 
-The frontier is now **one byte**: `$0065D5` reads 6 in the reference and 5 here
-on the first frame after the handover, everything else in the 8 MB matching.
-Its cause is NOT established — it is one step of some counter, and the obvious
-story (this product presents one frame more across the handover, so it should
-be one tick AHEAD, not behind) is the wrong way round. It is left here as the
-next thing to measure rather than added to any exclusion list: nothing goes on
-those without evidence.
+**Past the poster the comparison cannot be made exact, and that is settled, not
+open.** The two products really do run a different NUMBER of frames through the
+handover: the poster's two blits at `$003424`/`$003430` are a `$C00D` BLTSIZE —
+768 rows of 13 words — which costs this product about four tenths of a frame in
+guest time each and costs the reference nothing. So a frame boundary falls
+inside them here and does not there, and this product shows one frame the
+reference never shows.
+
+Dropping that frame (`REALIGNMENTS`) realigns what is DISPLAYED. It cannot
+realign what is COUNTED, because the extra frame is real and every per-frame
+counter gets a tick from it. Measured, in order:
+
+- `$0065D4` is a countdown, decremented once per displayed frame (sampled live
+  at the poster: 6, 5, 4). At the first aligned frame it reads 6 in the
+  reference and 5 here — one tick, from the extra frame.
+- Set that counter aside and the run reaches frame 7165, where the countdown
+  has reached zero one frame early here and started the title music: this
+  product is playing `aper 285,0,160,0` at `avol 64,0,64,0` while the reference
+  is still silent, and the title driver's channel structures at `$0067E0` differ
+  with it.
+
+Excluding each consequence in turn would be excluding the same single fact over
+and over. The fact is that a blit costs time and the reference does not model
+that — this product is the faithful one (`docs/issues/0007`), so the frame stays
+and the frame-exact comparison ends at the poster. Gameplay has to be compared
+with `tools/oracle_diff.py`, which measures per screen and does not require the
+two timelines to be the same length.
 
 Four differences were established as the *oracle's* limits instead, and are
 recorded with their evidence at the top of `tools/lockstep.py` rather than

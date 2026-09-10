@@ -135,7 +135,12 @@ REALIGNMENTS = (
         "in one frame and it never shows $008182. Measured with a breakpoint on $00345A: "
         "the level-3 and level-6 handlers run between $003424 and $00342A, which is the "
         "host presenting. Real hardware takes that time, so this product is the faithful "
-        "one and the frame is real — it is dropped here, not removed from the product.",
+        "one and the frame is real — it is dropped here, not removed from the product. "
+        "Dropping it realigns what is DISPLAYED and cannot realign what is COUNTED: the "
+        "frame is real, so every per-frame counter takes a tick from it. $0065D4 is one "
+        "frame further on at the first aligned frame, and by frame 7165 its countdown has "
+        "started the title music a frame early. The frame-exact comparison ends here; "
+        "docs/issues/0008 has the measurements.",
     ),
 )
 
