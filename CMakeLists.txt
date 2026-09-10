@@ -121,6 +121,7 @@ set(BENEFACTOR_SOURCES
     src/port/guest_trace.c
     src/port/control/control_server.cpp
     src/port/control/input_script.cpp
+    src/port/debug/debugger.cpp
     src/port/hud_icons.c
     src/port/input.c
     src/port/level_select_ui.c

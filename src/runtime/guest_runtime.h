@@ -128,6 +128,16 @@ uint32_t rt_get_pc(void);
  * loop reading the wrong hardware address, a base pointer clobbered by an
  * interrupt — and it is invisible in a PC-and-cycles view. Fills `data` with
  * D0-D7 and `address` with A0-A7; either may be null. */
+/* Stop the guest when execution reaches `address`, before the instruction
+ * there runs. The exit is reported as reason=breakpoint. rt_set_breakpoint
+ * returns 0 if the address is already set or the set is full; rt_breakpoints
+ * copies out the current addresses and returns how many it wrote. */
+int rt_set_breakpoint(uint32_t address);
+int rt_clear_breakpoint(uint32_t address);
+void rt_clear_breakpoints(void);
+int rt_breakpoints(uint32_t *addresses, int capacity);
+int rt_breakpoint_capacity(void);
+
 void rt_cpu_registers(uint32_t *data, uint32_t *address, uint32_t *program_counter,
                       uint16_t *status);
 uint64_t rt_get_executed_instructions(void);
