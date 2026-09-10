@@ -16,6 +16,7 @@
 #include "port/overlay_ui.h"
 #include "port/port.h" /* level/world layout accessors (single source of truth) */
 #include "port/port_internal.h"
+#include "port/state_dump.h"
 #include "render/native_renderer.h"
 #include "render/present_backend.h"
 #include "runtime/guest_runtime.h"
@@ -1406,6 +1407,7 @@ int hw_present_frame(void) {
     hw_testrun_capture(s_frame_num, s_out, s_hw_out_w, HW_DISPLAY_H);
     pc_control_frame(); /* releases a timed press, counts down a step */
     pc_note_frame_phase();
+    pc_note_state_dump();
     pc_note_frame_signature();
     s_frame_num++;
     hw_testrun_script(s_frame_num);

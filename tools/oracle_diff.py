@@ -84,6 +84,68 @@ REFERENCE_EDITS = (
         static int test_frames = -1;""",
     ),
     (
+        """    hw_reference_signature();
+    s_in_present_frame = 0;""",
+        """    hw_reference_signature();
+    hw_reference_state_dump();
+    s_in_present_frame = 0;""",
+    ),
+    (
+        """int hw_present_frame(void)""",
+        """/* The same guest-memory snapshot the interpreter product takes
+ * (src/port/state_dump.h), so tools/state_diff.py can say WHERE the two
+ * diverge instead of only that they do. Anchored to the frame a screen first
+ * appears on, because the two products do not agree on frame numbers.
+ * BENEFACTOR_STATE_DUMP=<cop1lc>:<offset>,... plus
+ * BENEFACTOR_STATE_DUMP_DIR=<directory>. */
+static void hw_reference_state_dump(void) {
+    static int loaded = 0, enabled = 0, anchor = -1, count = 0;
+    static unsigned screen = 0;
+    static int offsets[8];
+    static char directory[512];
+    if (!loaded) {
+        loaded = 1;
+        const char *spec = getenv("BENEFACTOR_STATE_DUMP");
+        const char *dir = getenv("BENEFACTOR_STATE_DUMP_DIR");
+        if (spec && spec[0] && dir && dir[0]) {
+            char buf[256];
+            strncpy(buf, spec, sizeof buf - 1);
+            buf[sizeof buf - 1] = 0;
+            char *colon = strchr(buf, ':');
+            if (colon) {
+                *colon = 0;
+                screen = (unsigned)strtoul(buf, NULL, 16) & 0xFFFFFFu;
+                for (char *e = strtok(colon + 1, ","); e && count < 8; e = strtok(NULL, ","))
+                    offsets[count++] = atoi(e);
+                strncpy(directory, dir, sizeof directory - 1);
+                enabled = count > 0;
+            }
+        }
+    }
+    if (!enabled || !g_mem)
+        return;
+    unsigned clc = (((unsigned)s_regs[COP1LCH >> 1] << 16) | s_regs[COP1LCL >> 1]) & 0xFFFFFFu;
+    if (anchor < 0) {
+        if (clc != screen)
+            return;
+        anchor = s_frame_num;
+    }
+    for (int i = 0; i < count; i++) {
+        if (s_frame_num != anchor + offsets[i])
+            continue;
+        char path[600];
+        snprintf(path, sizeof path, "%s/%+d.bin", directory, offsets[i]);
+        FILE *sink = fopen(path, "wb");
+        if (sink) {
+            fwrite(g_mem, 1u, (size_t)RT_MEM_SIZE, sink);
+            fclose(sink);
+        }
+    }
+}
+
+int hw_present_frame(void)""",
+    ),
+    (
         """int hw_present_frame(void)""",
         """/* The same frame-indexed fire timeline the interpreter product parses from
  * BENEFACTOR_PRESSES (src/engine/hw_testrun.c). Reaching gameplay takes three
