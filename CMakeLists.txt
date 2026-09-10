@@ -117,6 +117,7 @@ set(BENEFACTOR_SOURCES
     src/port/frame_signature.c
     src/port/guest_profile.cpp
     src/port/game_loop.c
+    src/port/level_layout.c
     src/port/guest_trace.c
     src/port/control/control_server.cpp
     src/port/control/input_script.cpp

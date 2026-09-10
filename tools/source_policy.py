@@ -25,7 +25,7 @@ LEGACY_SOURCE_LINE_LIMITS = {
     # formatting cannot masquerade as structural growth or reduction.
     "src/engine/hw.c": 2562,
     "src/harness/harness_main.c": 2665,
-    "src/port/game_loop.c": 1361,
+    "src/port/game_loop.c": 1000,
     "src/port/overrides/gameplay.c": 1360,
     "src/render/native_renderer.c": 1699,
     "src/render/present_vulkan.c": 1766,
