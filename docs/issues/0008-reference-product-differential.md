@@ -223,7 +223,7 @@ now splits the crossings three ways — `beam.by_flow` / `by_irq` / `by_host` �
 and reports `beam.pending_blit` with the `BLTxxx` register that set the flag,
 plus `exec.on_game_thread` / `exec.owner` for who is running right now.
 
-## Fixed: no music during the intro crawl
+## Attempted and reverted: no music during the intro crawl
 
 The intro's music player is `$3160 -> $0055A0`, delivered as the level-6 vector.
 It is called once per host iteration, but a single delivery is short in
@@ -264,10 +264,17 @@ instruction of each match, which performs the host wait and resumes the guest
 past the idiom. It is hooked into all three image loads (main, title,
 gameplay).
 
-Result: `beam.by_irq` fell from 11,004,903 crossings to 3,829, all four Paula
-channels get a period and a volume during the crawl (`vol=[64,3,3,64]
-per=[320,285,214,314]`), and the crawl itself measures 6290 frames against the
-reference's 6290 — an exact match, where it had been 6279.
+Measured headless, that worked: `beam.by_irq` fell from 11,004,903 crossings
+to 3,829, all four Paula channels got a period and a volume during the crawl
+(`vol=[64,3,3,64] per=[320,285,214,314]`), and the crawl measured 6290 frames
+against the reference's 6290 — exact, where it had been 6279.
+
+**It was reverted anyway.** Played rather than measured, it broke three things
+the frame counts and the register dump could not see: the crawl music does not
+progress normally, the logo fades are wrong, and gameplay is broken. Frame
+counts per screen and a snapshot of the Paula registers are not enough
+evidence to land a change to the guest's own timing — what the screen and the
+speaker actually do has to be checked too.
 
 ### What NOT to fold: the VPOSR frame wait
 
