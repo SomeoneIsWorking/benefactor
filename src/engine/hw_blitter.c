@@ -14,12 +14,13 @@
  */
 
 #include "common/log.h"
+#include "engine/hw.h"
 #include "engine/hw_private.h"
+#include "harness/trace.h"
 #include "port/config.h"
 #include "runtime/guest_runtime.h"
 #include <stdio.h>
 #ifdef HARNESS_BUILD
-#include "harness/trace.h"
 #endif
 #include <stdlib.h>
 
@@ -569,7 +570,6 @@ void hw_do_blit(void) {
         if (s_bta_en && s_bta_f) {
             int _bta_frame = 0;
 #ifdef HARNESS_BUILD
-            extern int g_harness_compared_frame;
             _bta_frame = g_harness_compared_frame;
 #endif
             fprintf(s_bta_f, "f=%d ", _bta_frame);
@@ -585,7 +585,6 @@ void hw_do_blit(void) {
     /* Emit trace record if this blit touched the watch address */
     if (watch_this && s_trace_log) {
         watch_after_val = _mem16(s_watch_addr);
-        extern int hw_get_frame_num(void);
         fprintf(s_trace_log,
                 "%d %d $%06X $%06X $%06X $%04X $%04X $%04X $%04X $%04X "
                 "%d %d %d %d $%04X $%04X->$%04X\n",

@@ -4,18 +4,22 @@
  */
 #include "engine/disk_boot.h"
 #include "engine/gameplay_handoff.h"
+#include "engine/hw.h"
 #include "engine/overlay_load.h"
+#include "harness/trace.h"
 #include "port/config.h"
 #include "port/frame_accounting.h"
 #include "port/guest_trace.h"
 #include "port/input.h"
+#include "port/overlay_ui.h"
+#include "port/port.h"
 #include "port/port_internal.h"
+#include "runtime/guest_runtime.h"
 #include <pthread.h>
 #include <setjmp.h>
 
 #ifdef HARNESS_BUILD
 #include "harness/puae_state.h"
-#include "harness/trace.h"
 #endif
 
 /* ── Globals ──────────────────────────────────────────────────────────────── */
@@ -59,11 +63,17 @@ void pc_set_harness_mode(int on) {
 #define INTENA_LVL6 0x2000u /* EXTER — CIA-B timer (music/timer) */
 #define INTENA_LVL3 0x0070u /* VERTB | COPER | BLIT (vblank/copper) */
 
-/* Call an original guest function, saving/restoring all registers around it (used for
- * per-frame IRQ delivery). The IRQ runs on the MAIN thread while the game thread
- * is parked at its vblank wait, so it shares s_game_ctx/g_mem race-free; the
- * save/restore mirrors the CPU stacking registers across an interrupt. */
-static void call_fn(M68KCtx *ctx, uint32_t addr) {
+/* How a piece of guest code gives control back. Entering it the wrong way is
+ * silently wrong, not a type error: an RTS-terminated leaf entered as an
+ * interrupt pops the exception frame's SR word as the high half of its return
+ * address and jumps to $SR0000 (observed: $20000000, $27000000). */
+typedef enum { GUEST_ENTRY_RTE, GUEST_ENTRY_RTS } GuestEntry;
+
+/* Call guest code, saving/restoring all registers around it (used for per-frame
+ * IRQ delivery). The IRQ runs on the MAIN thread while the game thread is parked
+ * at its vblank wait, so it shares s_game_ctx/g_mem race-free; the save/restore
+ * mirrors the CPU stacking registers across an interrupt. */
+static void call_fn_as(M68KCtx *ctx, uint32_t addr, GuestEntry entry) {
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "irq", "-> $%06X", addr);
     uint32_t sa[8], sd[8];
     uint16_t sr = ctx->sr ? *ctx->sr : 0;
@@ -71,7 +81,10 @@ static void call_fn(M68KCtx *ctx, uint32_t addr) {
         sa[i] = ctx->A[i];
     for (int i = 0; i < 8; i++)
         sd[i] = ctx->D[i];
-    rt_call_interrupt(ctx, ctx->image, addr);
+    if (entry == GUEST_ENTRY_RTS)
+        rt_call(ctx, ctx->image, addr);
+    else
+        rt_call_interrupt(ctx, ctx->image, addr);
     for (int i = 0; i < 8; i++)
         ctx->A[i] = sa[i];
     for (int i = 0; i < 8; i++)
@@ -80,6 +93,9 @@ static void call_fn(M68KCtx *ctx, uint32_t addr) {
         *ctx->sr = sr;
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "irq", "<- $%06X", addr);
 }
+
+/* An installed interrupt vector always ends in RTE. */
+static void call_fn(M68KCtx *ctx, uint32_t addr) { call_fn_as(ctx, addr, GUEST_ENTRY_RTE); }
 
 /* ── Game loop (single path: disk-boot coroutine) ───────────────────────────── */
 
@@ -248,9 +264,6 @@ static char g_pc_preloaded_names[PC_MAX_LEVELS][32];
 /* g_pc_preloaded_names_ready forward-declared above (used by pc_world_name). */
 
 void pc_preload_all_level_names(void) {
-    extern uint8_t *g_mem;
-    extern int disk_boot_load(int, uint32_t, uint32_t, uint32_t);
-    extern uint32_t atn_decrunch(uint32_t);
 
     static int in_progress; /* extras accessors call back into us */
     if (g_pc_preloaded_names_ready || in_progress)
@@ -522,7 +535,6 @@ const char *pc_static_level_name(int level) {
  * liw directly therefore mislabels e.g. world-0 L4/L8 and L7/L9. We defer
  * to the preloaded table, which already applies that permutation. */
 const char *pc_current_level_name(void) {
-    extern uint8_t *g_mem;
     if (!g_mem)
         return "?";
     int level = ((int)g_mem[0x20] << 8) | g_mem[0x21];
@@ -543,13 +555,9 @@ const char *pc_current_level_name(void) {
  *
  * pc_is_banner_displayed(): true for any of the three banners (cop1lc).
  * pc_is_title_card_displayed(): true only for the world+level title card. */
-int pc_is_banner_displayed(void) {
-    extern uint32_t hw_get_cop1lc(void);
-    return hw_get_cop1lc() == 0x003914u;
-}
+int pc_is_banner_displayed(void) { return hw_get_cop1lc() == 0x003914u; }
 
 int pc_is_title_card_displayed(void) {
-    extern uint8_t *g_mem;
     if (!g_mem)
         return 0;
     uint16_t timer = ((uint16_t)g_mem[0x57FEF6u] << 8) | g_mem[0x57FEF7u];
@@ -651,7 +659,7 @@ static void *game_thread_main(void *arg) {
      * any other return is a fault, so dump the instructions that led there
      * rather than making the next run reproduce it. */
     {
-        int handed_off = g_enter_gameplay || g_pc_restart_reinit;
+        int handed_off = g_enter_gameplay || g_pc_restart_reinit || g_pc_enter_title;
         benefactor_log_write(handed_off ? BENEFACTOR_LOG_DEBUG : BENEFACTOR_LOG_WARNING, "game",
                              "[game] flow returned from $%06X (last insn $%06X)%s", s_game_entry,
                              rt_get_last_insn(), handed_off ? " — screen hand-off" : "");
@@ -713,7 +721,6 @@ static void game_thread_run_one_frame(void) {
  * is tracked with its own countdown (mirroring the toast's 160 frames) so an
  * unrelated toast can never arm the skip. */
 static void pc_credits_skip_tick(void) {
-    extern void pc_request_cold_restart(void);
     static int prev_fire, confirm_frames;
     int fire = pc_input_active(PI_FIRE);
     int edge = fire && !prev_fire;
@@ -726,7 +733,6 @@ static void pc_credits_skip_tick(void) {
         confirm_frames--;
     if (!edge)
         return;
-    extern void pc_toast_show(const char *, int);
     if (confirm_frames > 0) {
         confirm_frames = 0;
         pc_toast_show("", 0); /* drop the confirm toast */
@@ -777,14 +783,12 @@ int pc_step(void) {
      * before anything else — we're on the MAIN thread here and the game thread
      * is parked, so it's safe to stop/respawn the game thread if needed. */
     {
-        extern void pc_pause_tick(void);
         pc_pause_tick();
     }
     pc_credits_skip_tick();
 
     if (g_pc_pending_load) {
         g_pc_pending_load = 0;
-        extern void pc_toast_show(const char *, int);
         if (pc_loadstate("logs/savestate.bin") == 0)
             pc_toast_show("STATE LOADED", 0);
         else
@@ -796,8 +800,6 @@ int pc_step(void) {
     /* While paused, freeze the game thread entirely — don't release it.
      * Still call hw_present_frame so the pause overlay stays visible and
      * SDL events keep flowing (so the user can navigate the menu). */
-    extern int pc_pause_active(void);
-    extern int pc_freecam_paused(void); /* free cam in "pauses game" mode */
     if (pc_pause_active() || pc_freecam_paused()) {
         /* Both pause modes freeze the GAME but not the SOUNDTRACK — the
          * music ISR is vblank/CIA-driven, independent of the game loop (same
@@ -826,8 +828,6 @@ int pc_step(void) {
     hw_watchdog_disarm();
     if (g_pc_pending_save) {
         g_pc_pending_save = 0;
-        extern int pc_savestate_allowed(const char **);
-        extern void pc_toast_show(const char *, int);
         const char *reason = NULL;
         if (!pc_savestate_allowed(&reason))
             pc_toast_show(reason ? reason : "Cannot save here", 1);
@@ -891,6 +891,24 @@ void pc_music_tick(void) {
         call_fn(&s_game_ctx, v6);
 }
 
+/* Deliver one interrupt vector, accounting its guest cycles to its level. */
+static void coro_call_vector_as(unsigned owner, uint32_t addr, GuestEntry entry) {
+    uint64_t *const total = owner == 3 ? &g_pc_cycles_irq3 : &g_pc_cycles_irq6;
+    uint64_t *const peak = owner == 3 ? &g_pc_cycles_irq3_max : &g_pc_cycles_irq6_max;
+    volatile uint32_t *const calls = owner == 3 ? &g_pc_irq3_calls : &g_pc_irq6_calls;
+    const uint64_t before = rt_get_guest_cycles();
+    g_pc_guest_owner = owner;
+    (*calls)++;
+    call_fn_as(&s_game_ctx, addr, entry);
+    g_pc_guest_owner = 0;
+    pc_account(total, peak, rt_get_guest_cycles() - before);
+}
+
+/* An installed vector: entered as an interrupt, returns through RTE. */
+static void coro_call_vector(unsigned owner, uint32_t addr) {
+    coro_call_vector_as(owner, addr, GUEST_ENTRY_RTE);
+}
+
 static void coro_deliver_timer_irq(void) {
     if (g_gameplay_active || g_overlay_active || g_credits_active) {
         /* Gameplay / overlay / credits each install their own level-3 ($6c,
@@ -905,48 +923,31 @@ static void coro_deliver_timer_irq(void) {
         /* Level-3 (vblank) fires once per displayed frame here. Level-6 (the CIA-B
          * timer / music ISR) is delivered by pc_music_tick in pc_step at the
          * per-screen sub-frame rate — delivering it here too over-counted it. */
-        if (v3 && irq_level_enabled(INTENA_LVL3)) {
-            uint64_t before = rt_get_guest_cycles();
-            g_pc_guest_owner = 3;
-            g_pc_irq3_calls++;
-            call_fn(&s_game_ctx, v3);
-            g_pc_guest_owner = 0;
-            pc_account(&g_pc_cycles_irq3, &g_pc_cycles_irq3_max, rt_get_guest_cycles() - before);
-        }
+        if (v3 && irq_level_enabled(INTENA_LVL3))
+            coro_call_vector(3, v3);
         return;
     }
-    /* Intro and the cover-art title share this address range but install
-     * DIFFERENT interrupt handlers. The intro sets $78=$3160 (-> $55A0 music)
-     * and copies the audio shadow via $58C2. The title installs its OWN level-3
-     * ($6c=$3532) and level-6 ($78=$56C4) handlers — a different music driver
-     * that lives in the title-state ("gp") bank, NOT the intro chip dump (whose
-     * bytes at $56xx-$5Dxx are stale). Honor whatever the game installed: for
-     * the intro vector keep the known-good intro leaves; otherwise select the
-     * title-state bank (memory at the title matches the gp dump) and deliver the
-     * installed vectors, exactly as PUAE's CPU does on the real autovectors. */
-    uint32_t v3 = ((uint32_t)g_chip[0x6c] << 24) | ((uint32_t)g_chip[0x6d] << 16) |
-                  ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
-    uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
-                  ((uint32_t)g_chip[0x7a] << 8) | (uint32_t)g_chip[0x7b];
-    /* The active image is selected by the runtime adapter at each overlay
-     * transition. Deliver the vectors from that image; no static bank-presence
-     * table is consulted. */
-    if (v3) {
-        uint64_t before = rt_get_guest_cycles();
-        g_pc_guest_owner = 3;
-        g_pc_irq3_calls++;
-        call_fn(&s_game_ctx, v3);
-        g_pc_guest_owner = 0;
-        pc_account(&g_pc_cycles_irq3, &g_pc_cycles_irq3_max, rt_get_guest_cycles() - before);
-    }
-    if (v6) {
-        uint64_t before = rt_get_guest_cycles();
-        g_pc_guest_owner = 6;
-        g_pc_irq6_calls++;
-        call_fn(&s_game_ctx, v6);
-        g_pc_guest_owner = 0;
-        pc_account(&g_pc_cycles_irq6, &g_pc_cycles_irq6_max, rt_get_guest_cycles() - before);
-    }
+    /* Intro and title: deliver exactly what the game installed at the vectors.
+     *
+     * The level-6 handlers CHAIN BY REWRITING THEIR OWN VECTOR: $5892 ends with
+     * `addi.l #$30,$78(a0)` (a0=0), moving $78 on to $58C2, the routine that
+     * copies the audio shadow ($69F6+) into Paula. So the second handler is
+     * reached through $78 like the first, and nothing needs to name it here.
+     *
+     * Do NOT call $0055A0 / $0058C2 directly in place of the vectors. $55A0 is
+     * a tail-branch dispatcher whose chain reaches $5892's RTE, so entering it
+     * as a subroutine returns into the game flow's own stack and hangs the boot
+     * in the one-frame wait at $3732; and once a screen has been loaded over
+     * those bytes they are somebody else's data ($58C2 read as $FFFF at frame
+     * 900 and trapped). See docs/issues/0008. */
+    const uint32_t v3 = ((uint32_t)g_chip[0x6c] << 24) | ((uint32_t)g_chip[0x6d] << 16) |
+                        ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
+    const uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
+                        ((uint32_t)g_chip[0x7a] << 8) | (uint32_t)g_chip[0x7b];
+    if (v3)
+        coro_call_vector(3, v3);
+    if (v6)
+        coro_call_vector(6, v6);
 }
 
 /* Common bring-up shared between the full-boot path and the direct-to-gameplay
@@ -971,11 +972,9 @@ static int pc_common_bringup(const char **disks, int n_disks) {
     g_hw_frame_audio = pc_audio_frame;     /* a frame reached inside an IRQ still owes audio */
     g_hw_pc_owns_present = 1;
     {
-        extern int g_native_render_delay;
         g_native_render_delay = pc_cfg_int("render_delay", 1);
     } /* blitter-latency model (frames) */
     {
-        extern int g_mute_music;
         g_mute_music = pc_cfg_bool("mute_music", 0);
     } /* SFX-isolation kill-switch */
     return 0;
@@ -1032,7 +1031,6 @@ int pc_init_from_disk(const char **disks, int n_disks) {
      * the exact entry "Exit to main menu" uses ($003330 attract, gp a5=$511E),
      * with the title overlay loaded the same way. */
     if (pc_cfg_bool("skip_intro", 0)) {
-        extern void native_overlay_load(void);
         native_overlay_load();
         pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
@@ -1076,7 +1074,6 @@ void pc_request_credits_start(void) {
 }
 
 void pc_request_cold_restart(void) {
-    extern void native_overlay_load(void);
     pc_state_reset_defaults(); /* zeros g_state, resets non-zero defaults */
     native_overlay_load();     /* reload title/intro overlay + block-copy */
     pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
@@ -1094,8 +1091,6 @@ void pc_request_cold_restart(void) {
  * runs (we don't own $577000+ yet); this just removes the title machinery so
  * we can drive any level immediately and compare to PUAE cleanly. */
 int pc_init_to_gameplay(const char **disks, int n_disks, int level) {
-    extern uint8_t *g_mem;
-    extern void native_overlay_load_d0(void);
 
     if (pc_common_bringup(disks, n_disks) < 0)
         return -1;
@@ -1122,7 +1117,6 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level) {
      * entry skips the menu, so $1e.w would otherwise be stale). */
     gameplay_handoff_prepare_low_memory();
 
-    extern void pc_preload_all_level_names(void);
     pc_preload_all_level_names();
 
     /* Pin the requested level. $20.w is the engine's level number; $5779AA
@@ -1182,6 +1176,13 @@ int pc_step_threaded(void) {
             return 1;
         coro_deliver_timer_irq(); /* level-3 vblank ISR (music via pc_music_tick) */
     }
+    if (g_pc_enter_title) { /* title overlay loaded off-flow: host owns the restart */
+        g_pc_enter_title = 0;
+        pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
+                             "[game] restarting game thread at the poster $003330\n");
+        return 0;
+    }
     if (g_enter_gameplay) {
         g_enter_gameplay = 0;
         /* Full re-init for a level RESTART (pause Retry / native game-over). We're
@@ -1191,7 +1192,6 @@ int pc_step_threaded(void) {
          * (current level) across the reload. */
         if (g_pc_restart_reinit) {
             g_pc_restart_reinit = 0;
-            extern void native_overlay_load_d0(void), pc_preload_all_level_names(void);
             uint8_t lv = g_mem[0x21];
             uint8_t extra = g_mem[0x38]; /* extra-levels (Disk.4) mode flag */
             native_overlay_load_d0();
@@ -1249,7 +1249,6 @@ int pc_savestate_allowed(const char **reason) {
  *   uint8_t   g_mem[RT_MEM_SIZE] */
 
 int pc_savestate(const char *path) {
-    extern uint8_t *g_mem;
     if (!g_mem || !path)
         return -1;
     FILE *f = fopen(path, "wb");
@@ -1284,7 +1283,6 @@ int pc_savestate(const char *path) {
 }
 
 int pc_loadstate(const char *path) {
-    extern uint8_t *g_mem;
     if (!g_mem || !path)
         return -1;
     FILE *f = fopen(path, "rb");
@@ -1324,7 +1322,6 @@ int pc_loadstate(const char *path) {
      * committed-page map so persisted objects re-seed from the RESTORED engine
      * state instead of shadowing it with pre-load entries. */
     {
-        extern void native_wsobj_commit_reset(void);
         native_wsobj_commit_reset();
     }
     /* g_state (including the CPU view) + g_mem are now loaded. The old game

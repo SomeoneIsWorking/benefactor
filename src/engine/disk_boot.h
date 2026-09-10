@@ -2,6 +2,9 @@
 #ifndef BENEFACTOR_DISK_BOOT_H
 #define BENEFACTOR_DISK_BOOT_H
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Open up to 4 disk images (Disk.1/2/3). Returns 0 if at least one opened. */
 int disk_boot_open(const char *const *paths, int n);
@@ -14,4 +17,7 @@ int disk_boot_load(int disk_no, uint32_t src_off, uint32_t dst_addr, uint32_t le
  * decompressed length, or 0 if the magic doesn't match. */
 uint32_t atn_decrunch(uint32_t start);
 
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 #endif

@@ -7,8 +7,14 @@
 
 #include "common/log.h"
 #include "engine/hw_private.h"
+#include "port/frame_accounting.h"
+#include "port/input.h"
+#include "port/overlay_ui.h"
 #include "port/port.h" /* level/world layout accessors (single source of truth) */
+#include "port/port_internal.h"
 #include "render/native_renderer.h"
+#include "render/present_backend.h"
+#include "runtime/guest_runtime.h"
 #include <fcntl.h>
 #include <sys/stat.h> /* mkdir for the scratch/ frame-dump dir */
 #ifdef _WIN32
@@ -19,7 +25,6 @@
 #define HWTRACE(...)                                                                               \
     benefactor_log_write(BENEFACTOR_LOG_TRACE, s_copper_writing ? "copper" : "guest", __VA_ARGS__)
 
-#include "port/input.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,7 +164,6 @@ static void hw_ensure_scratch_directory(void) {
 /* Present is delegated to a render backend (SDL by default, Vulkan opt-in) —
  * see src/render/present_backend.h. hw.c still composes s_out, pumps events, and
  * paces frames; the backend owns the window + how s_out reaches the screen. */
-#include "render/present_backend.h"
 static const PresentBackend *s_backend = NULL;
 
 /* OCS shadow registers (s_regs/s_dmacon/s_intena/s_intreq/s_bplcon0/s_bplptr/
@@ -219,7 +223,6 @@ static void hw_compose_output(void) {
      *              DIW-cropped L/R borders, so no extra fill is needed).
      * L/R bars take the scanline's COLOR00 (black normally; the victory fade is a
      * COLOR00 curtain, so hardcoded black would leave the corners unfaded). */
-    extern uint32_t native_scanline_bgcolor(int y);
     if (margin > 0) {
         for (int y = 0; y < HW_DISPLAY_H; y++) {
             uint32_t *dst = s_out + y * ow;
@@ -255,14 +258,12 @@ static void hw_compose_output(void) {
     PcRenderMode mode = pc_render_mode();
     int benren = (mode == PC_RENDER_BENREN) || (mode == PC_RENDER_AUTO && ow > HW_DISPLAY_W) || cmp;
     {
-        extern void native_render_scene_invalidate(void);
         native_render_scene_invalidate();
     }
     /* Build the wide tilemap draw list at 4:3 too when: (a) Hardware (so present_scene
      * + per-sprite shadows run), or (b) free cam is active (so Software 4:3 can pan —
      * the turbo-jitter reason to keep the engine frame doesn't apply during freecam).
      * Otherwise Software/Vanilla 4:3 keep the engine frame. */
-    extern int pc_freecam_active(void);
     int want_scene = hw_scene_render_enabled() || pc_freecam_active();
     if (benren) {
         if (margin > 0 || cmp || want_scene)
@@ -313,7 +314,6 @@ static void hw_step_register_beam(int at_beam_read) {
     if (s_blt_setup)
         return;
     if (g_hw_vblank_yield() == 0) {
-        extern int pc_on_game_thread(void);
         g_hw_beam_declined++;
         if (!pc_on_game_thread())
             g_hw_beam_declined_off_flow++;
@@ -596,8 +596,6 @@ static void apply_bound_input(void) {
      * pan the camera (pc_freecam_tick) and the player gets NO input at all, so
      * he stands idle wherever you left him. Fast-forward stays available. */
     {
-        extern void pc_freecam_toggle(void);
-        extern int pc_freecam_active(void);
         static int prev_fc = 0;
         int fc = pc_input_active(PI_FREECAM);
         if (fc && !prev_fc)
@@ -629,16 +627,6 @@ void hw_handle_key(int sym, int down) {
      * menu instead of being delivered to the game. ESC toggles the menu in
      * gameplay; outside gameplay it falls through to exit(). */
     {
-        extern int pc_pause_active(void);
-        extern void pc_pause_toggle(void);
-        extern void pc_pause_escape(void);
-        extern void pc_pause_input_up(void);
-        extern void pc_pause_input_down(void);
-        extern void pc_pause_input_left(void);
-        extern void pc_pause_input_right(void);
-        extern void pc_pause_input_select(void);
-        extern int pc_pause_capture_active(void);
-        extern void pc_pause_capture_code(int dev, int code);
         /* Bindings capture ("PRESS A KEY"): the next key press becomes the
          * binding. ESC cancels (handled inside pc_pause_capture_code). */
         if (pc_pause_capture_active()) {
@@ -656,7 +644,6 @@ void hw_handle_key(int sym, int down) {
                 /* Title-menu level-select panel: ESC dismisses it without
                  * starting a level. Takes priority over the pause + quit
                  * paths because we're on the title screen, not in-game. */
-                extern int g_level_select_visible;
                 if (g_level_select_visible) {
                     g_level_select_visible = 0;
                     return;
@@ -672,7 +659,6 @@ void hw_handle_key(int sym, int down) {
                 /* Outside gameplay (title/menu/intro): ESC opens the OPTIONS
                  * page directly — quitting moved to its QUIT TO DESKTOP row. */
                 {
-                    extern void pc_pause_open_options(void);
                     pc_pause_open_options();
                 }
             }
@@ -715,7 +701,6 @@ void hw_handle_key(int sym, int down) {
 
     /* Title-menu LEVEL SELECT panel: arrows navigate the panel, not the game. */
     {
-        extern int g_level_select_visible;
         if (down && g_level_select_visible &&
             (sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT || sym == SDLK_RIGHT)) {
             int cur = pc_get_start_level();
@@ -752,13 +737,11 @@ void hw_handle_key(int sym, int down) {
     switch (sym) {
     case SDLK_L: /* debug: force LEVEL COMPLETE (the teleport win) */
         if (down) {
-            extern void pc_debug_complete_level(void);
             pc_debug_complete_level();
         }
         break;
     case SDLK_O: /* debug: force GAME OVER (death) */
         if (down) {
-            extern void pc_debug_game_over(void);
             pc_debug_game_over();
         }
         break;
@@ -766,14 +749,12 @@ void hw_handle_key(int sym, int down) {
                   * game thread must be parked so its M68K ctx + chip RAM are
                   * coherent; pc_savestate_allowed then gates on steady gameplay). */
         if (down) {
-            extern int g_pc_pending_save, g_pc_pending_load;
             g_pc_pending_save = 1;
             (void)g_pc_pending_load;
         }
         break;
     case SDLK_D: /* load: same deferral as save */
         if (down) {
-            extern int g_pc_pending_save, g_pc_pending_load;
             g_pc_pending_load = 1;
             (void)g_pc_pending_save;
         }
@@ -843,12 +824,6 @@ static void hw_pad_close(SDL_JoystickID id) {
 /* Route one digital pad code (button or axis-direction edge) — the controller
  * twin of hw_handle_key: pause menu navigation, bindings capture, or gameplay. */
 static void hw_handle_pad_code(int code, int down) {
-    extern int pc_pause_active(void), pc_pause_capture_active(void);
-    extern void pc_pause_capture_code(int dev, int code);
-    extern void pc_pause_toggle(void), pc_pause_escape(void);
-    extern void pc_pause_input_up(void), pc_pause_input_down(void);
-    extern void pc_pause_input_left(void), pc_pause_input_right(void);
-    extern void pc_pause_input_select(void);
 
     if (pc_pause_capture_active()) {
         if (down)
@@ -867,7 +842,6 @@ static void hw_handle_pad_code(int code, int down) {
             else if (g_gameplay_active)
                 pc_pause_toggle();
             else {
-                extern void pc_pause_open_options(void);
                 pc_pause_open_options();
             } /* title: straight to OPTIONS */
         }
@@ -947,7 +921,6 @@ static int ws_clamp(int w) {
 static int hw_width_43(void) {
     if (pc_cfg_bool("widescreen_compare", 0))
         return HW_DISPLAY_W;
-    extern void native_std_display_window(int *, int *);
     int x0 = 0, x1 = HW_DISPLAY_W;
     native_std_display_window(&x0, &x1);
     int w = x0 + x1;
@@ -1284,7 +1257,6 @@ int hw_present_frame(void) {
     /* Free-cam pan: ticked here (not in pc_step) so the camera keeps moving
      * while freecam_pause has the game frozen. */
     {
-        extern void pc_freecam_tick(void);
         pc_freecam_tick();
     }
 
@@ -1307,12 +1279,6 @@ int hw_present_frame(void) {
      * pause menu above it, then the save/load toast topmost. */
     s_ovl_nrects = 0; /* per-frame: overlays re-register their present rects */
     {
-        extern void pc_overlay_set_dims(int, int);
-        extern void pc_level_select_overlay(uint32_t *fb);
-        extern void pc_pause_menu_overlay(uint32_t *fb);
-        extern void pc_toast_overlay(uint32_t *fb);
-        extern void pc_hud_icons_overlay(uint32_t *fb);
-        extern void pc_menu_subtext_overlay(uint32_t *fb);
         pc_overlay_set_dims(s_hw_out_w, HW_DISPLAY_H);
         pc_menu_subtext_overlay(s_out);
         pc_level_select_overlay(s_out);
@@ -1329,7 +1295,6 @@ int hw_present_frame(void) {
     /* Free-cam fade return: whole-screen curtain over the composed output
      * (out + in, 1s total — see pc_freecam_toggle). */
     {
-        extern int pc_freecam_fade_alpha(void);
         int fa = pc_freecam_fade_alpha();
         if (fa > 0) {
             int keep = 255 - fa;
@@ -1352,18 +1317,11 @@ int hw_present_frame(void) {
          * register PresentRects and the scene present re-asserts just those
          * regions on top, so fast-forward / free cam keep the Hardware
          * renderer (and its effects) instead of degrading to the composite. */
-        extern int native_render_scene_ready(void);
-        extern const Scene *native_render_scene(void);
-        extern void native_render_scene_yrange(int *, int *);
-        extern int pc_pause_active(void), pc_toast_visible(void);
-        extern int g_level_select_visible;
-        extern int pc_freecam_fade_alpha(void);
         int overlay = pc_pause_active() || pc_toast_visible() || g_level_select_visible ||
                       pc_freecam_fade_alpha() > 0;
         /* Feed the backend this frame's projected light + playfield + effect flags
          * (Hardware applies them in its lighting pass; SDL has no set_effects). */
         if (s_backend->set_effects) {
-            extern const FxFrame *native_render_fx_frame(void);
             s_backend->set_effects(native_render_fx_frame());
         }
         perf_t = hw_perf_now_us();
@@ -1443,7 +1401,6 @@ int hw_present_frame(void) {
     }
 
     {
-        extern void pc_note_frame_phase(void);
         pc_note_frame_phase();
     }
     s_frame_num++;
@@ -2004,7 +1961,6 @@ uint16_t hw_read16(uint32_t addr) {
             if (s_fire_pressed || s_mouse_lmb)
                 val &= ~0x80;
             {
-                extern uint32_t rt_get_last_insn(void);
                 static uint32_t seen[64];
                 static int n = 0;
                 uint32_t pc = rt_get_last_insn();
@@ -2049,23 +2005,20 @@ uint16_t hw_read16(uint32_t addr) {
             return val;
         }
         case VPOSR: {
-            /* VPOSR is LOF:V8:V7..V0. In particular, a byte read from
-             * $DFF005 observes the scanline's low byte; it is not frame
-             * parity. Boot code uses that bit to wait for a beam transition. */
-            return (uint16_t)(0x8000u | (uint16_t)(s_scanline & 0x1FF));
+            /* OCS VPOSR carries two bits: LOF at 15 and V8 at 0 — V7..V0 live
+             * in VHPOSR's high byte. Putting the whole scanline in the low bits
+             * put V0 where V8 belongs, so the intro's one-frame wait (btst
+             * #0,$3(a6), a6=$DFF002 → $DFF005, spin until V8 sets then clears)
+             * was satisfied by any two adjacent lines. See docs/issues/0008. */
+            return (uint16_t)(0x8000u | (uint16_t)((s_scanline >> 8) & 1u));
         }
         case VHPOSR: {
-            /* The gameplay code frame-syncs by busy-waiting for a specific
-             * beam scanline (cmpi.b #imm,$6(a6); bne) — inline loops that
-             * never call hw_vblank_wait. Different code paths wait for
-             * DIFFERENT lines: the main loop waits $3B ($577130/$5772A8/…)
-             * but the level-setup path waits $3A ($578472). A fixed return
-             * value satisfies one and hangs the other (this was the bug that
-             * stuck the level-intro card forever).
-             *
-             * The beam is derived from consumed guest cycles (sampled on
-             * entry to this whole custom-chip block), so every target line is
-             * reached in the same order and at the same cost as on hardware. */
+            /* High byte is V7..V0. The gameplay code frame-syncs by waiting
+             * for a specific scanline (cmpi.b #imm,$6(a6); bne), and different
+             * paths want different lines — the main loop $3B, level setup $3A —
+             * so a fixed value satisfies one and hangs the other. The beam is
+             * derived from consumed guest cycles, so every line is reached in
+             * the same order and at the same cost as on hardware. */
             return (uint16_t)((s_scanline & 0xFF) << 8);
         }
         case JOY0DAT: {

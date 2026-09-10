@@ -1,3 +1,7 @@
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* present_backend.h — the seam between "what to show" and "how to show it".
  *
  * The renderer (native_renderer.c) composes the final ARGB8888 output surface
@@ -63,4 +67,11 @@ const PresentBackend *present_backend_sdl(void);
 const PresentBackend *present_backend_vulkan(void); /* NULL if runtime init unavailable */
 #endif
 
+/* Headless self-check: render one known frame through the Vulkan backend and
+ * report whether it came back intact. Returns 0 on success. */
+int present_vulkan_selftest(const uint32_t *argb, int w, int h);
+
 #endif /* RENDER_PRESENT_BACKEND_H */
+#ifdef __cplusplus
+} /* extern "C" */
+#endif

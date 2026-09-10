@@ -8,6 +8,7 @@
 #include "common/log.h"
 #include "engine/hw_private.h"
 #include "port/config.h"
+#include "runtime/guest_runtime.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -102,7 +103,6 @@ static void hw_audio_mix(short *buf, int nsamples) {
     static int s_sfx_only = -2;
     if (s_sfx_only == -2)
         s_sfx_only = pc_cfg_bool("audio_sfx_only", 0);
-    extern uint8_t *g_mem;
     for (int ch = 0; ch < 4; ch++) {
         if (s_only_ch >= 0 && ch != s_only_ch)
             continue;

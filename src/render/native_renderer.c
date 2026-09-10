@@ -17,8 +17,11 @@
  *                          320px; PF1=BPL1+BPL3 (odd), PF2=BPL2 (even); fetch=40B/plane
  *                          BPL1MOD=40 (constant); BPL2MOD varies per copper WAIT
  */
+#include "render/native_renderer.h"
 #include "engine/hw_private.h" /* pulls in rt.h → g_mem, and amiga_to_argb(), s_regs, etc. */
 #include "port/config.h"
+#include "port/overlay_ui.h"
+#include "port/port_internal.h"
 #include "render/effects_frame.h"  /* FxFrame publish — Vulkan-only post-process effects */
 #include "render/engine_view.h"    /* the wide renderer's only engine-state input (the firewall) */
 #include "render/native_effects.h" /* native_fx_flags() */
@@ -377,7 +380,6 @@ void native_render_frame(void) {
      * the engine keeps re-blitting a static queue) still show their objects, the
      * teleport animation, and the banner text. See native_ws_promote(). */
     {
-        extern void native_ws_promote(void);
         native_ws_promote();
     }
 
@@ -770,7 +772,6 @@ int ws_view_left(int ow) {
     /* FREE CAM (src/port/freecam.c): a detached, user-panned follow-point
      * replaces the engine camera. Same clamps below, so it can't leave the
      * level; the object-cull overrides share this view so margins re-derive. */
-    extern int pc_freecam_active(void), pc_freecam_x(void);
     int follow = pc_freecam_active() ? pc_freecam_x() : ev.camera + 16;
     int vl = follow - (ow - 320) / 2; /* follow player/cam */
     if (vl < level_lo)
@@ -913,8 +914,6 @@ static void native_wswater_compose(int pf_top, int pf_bot) {
     (void)pf_bot;
     if (!M || pc_cfg_bool("widescreen_no_water", 0))
         return;
-    extern int native_wswater_count(void);
-    extern int native_wswater_get(int, int *, int *, int *, uint32_t *);
     int n = native_wswater_count();
     for (int i = 0; i < n; i++) {
         int wx, row, col;
@@ -1287,8 +1286,6 @@ static void native_wsrope_compose(int pf_top, int pf_bot) {
     (void)pf_bot;
     if (pc_cfg_bool("widescreen_no_rope", 0))
         return;
-    extern int native_wsrope_count(void);
-    extern void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1);
     int nseg = native_wsrope_count();
     for (int i = 0; i < nseg; i++) {
         int x0, y0, x1, y1;
@@ -1472,7 +1469,6 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
      * too. `wide` = the view_left mapping (worldX = view_left + x); selected for the
      * widescreen path (margin>0) AND for freecam at 4:3 (margin<0). margin==0 stays
      * the engine-aligned WS_CMP compare path. */
-    extern int pc_freecam_active(void);
     int freecam = pc_freecam_active();
     int wide = (margin > 0) || (margin < 0 && freecam);
     if ((margin < 0 && !freecam) || s_cur_cop1lc != WS_GAMEPLAY_COP1LC)
@@ -1506,7 +1502,6 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
     int view_left = ws_view_left(ow); /* shared with the object-cull overrides */
 
     {
-        extern int g_ws_view_left, g_ws_view_w;
         g_ws_view_left = view_left;
         g_ws_view_w = ow;
     }

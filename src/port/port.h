@@ -1,6 +1,9 @@
 /* pc.h – Native PC game engine public header */
 #pragma once
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Chip RAM pointer (set by pc_init) */
 extern uint8_t *g_chip;
@@ -97,3 +100,20 @@ int pc_profile_try_select(int level);      /* set start level iff unlocked   */
 /* Pending level-select choice, applied at the $150 hand-off. */
 void pc_set_start_level(int n);
 int pc_get_start_level(void);
+
+/* ── Host-side flow queries (src/port/game_loop.c) ───────────────────────────
+ * The game flow runs on its own thread, parked at its per-frame wait; interrupt
+ * vectors are delivered on the MAIN thread, where nothing can park. Native code
+ * that must know which of the two it is on asks here. */
+int pc_on_game_thread(void);
+/* Non-NULL *reason explains why a save is refused. */
+int pc_savestate_allowed(const char **reason);
+void pc_request_cold_restart(void);
+/* Save/load requested from the UI, applied by the host at a safe boundary. */
+extern int g_pc_pending_save, g_pc_pending_load;
+/* Diagnostics: silence the level-6 music ISR; delay the native renderer. */
+extern int g_mute_music;
+extern int g_native_render_delay;
+#ifdef __cplusplus
+} /* extern "C" */
+#endif

@@ -11,6 +11,9 @@
 #pragma once
 #include <SDL3/SDL.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* ── Memory-mapped I/O (called from the runtime adapter) ──────────────────── */
 
@@ -231,6 +234,11 @@ extern uint64_t g_hw_blit_cycles;
  * Suppresses the VPOSR-read auto-present so presentation has a single driver. */
 extern int g_hw_pc_owns_present;
 
+/* True while the native gameplay renderer (BenRen) owns the frame. */
+int hw_benren_active(void);
+/* Re-send the whole framebuffer on the next present (after a mode change). */
+void hw_fullscreen_refresh(void);
+
 /* Returns the current COP1LC ($DFF080) value last written by the game. */
 uint32_t hw_get_cop1lc(void);
 
@@ -245,4 +253,7 @@ extern void (*g_hw_cop1lc_present)(void);
 void hw_get_snap(FrameState *s);
 void hw_load_audio_sync(const char *path);
 void hw_seed_sync_regs(const struct FrameState *snap);
+#endif
+#ifdef __cplusplus
+} /* extern "C" */
 #endif

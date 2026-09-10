@@ -1,6 +1,8 @@
 /* main.c – Native PC game entry point (single path: native disk boot) */
 #include "common/log.h"
+#include "engine/hw.h"
 #include "port/port.h"
+#include "render/present_backend.h"
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,7 +18,6 @@
  * GPU present path works with the display off. Returns process exit code. */
 static int run_vk_selftest(void) {
 #ifdef BENEFACTOR_HAVE_VULKAN
-    extern int present_vulkan_selftest(const uint32_t *argb, int w, int h);
     int w = 480, h = 282;
     uint32_t *img = malloc((size_t)w * h * 4);
     if (!img)
@@ -107,7 +108,6 @@ int main(int argc, char **argv) {
     (void)s_running;
 
     if (headless) {
-        extern void hw_request_headless(void);
         hw_request_headless();
     }
     int init_rc = direct_level > 0 ? pc_init_to_gameplay(disks, nd, direct_level)

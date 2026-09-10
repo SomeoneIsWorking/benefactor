@@ -1,3 +1,7 @@
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* src/port/frame_accounting.h — where a frame's guest time and frames go.
  *
  * A screen that runs at the wrong speed is one of a few very different faults:
@@ -52,4 +56,7 @@ void pc_account(uint64_t *slot, uint64_t *peak, uint64_t cycles);
  * cop1lc actually changes. */
 void pc_note_frame_phase(void);
 
+#endif
+#ifdef __cplusplus
+} /* extern "C" */
 #endif

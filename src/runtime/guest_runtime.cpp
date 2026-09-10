@@ -1,10 +1,10 @@
 #include "runtime/guest_runtime.h"
+#include "engine/hw.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 #include "common/log.h"
-#include "engine/hw.h"
 #ifdef __cplusplus
 }
 #endif

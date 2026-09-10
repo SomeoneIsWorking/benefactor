@@ -6,6 +6,10 @@
 #include "port/config.h"
 #include "port/port.h"
 #include "runtime/guest_runtime.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Native owners call retail-image guest addresses through the image-qualified
  * runtime adapter. */
 
@@ -87,3 +91,59 @@ int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *b
 int native_wschar_count(void);
 int native_wschar_get(int i, int *x, int *y, int *w, int *h, uint32_t *data, uint32_t *mask,
                       int *rowstride);
+
+/* overrides/boot.c — intro/menu screens */
+void native_menu_glyph_blit(M68KCtx *ctx);
+void native_menu_setup(M68KCtx *ctx);
+void native_main_menu_fire_dispatch(M68KCtx *ctx);
+void native_menu_cursor_up(M68KCtx *ctx);
+void native_menu_cursor_down(M68KCtx *ctx);
+void native_menu_diff_left(M68KCtx *ctx);
+void native_menu_diff_right(M68KCtx *ctx);
+void native_menu_art_unpack(M68KCtx *ctx);
+void native_menu_pwfield_draw(M68KCtx *ctx);
+void native_password_build(M68KCtx *ctx);
+void native_gameover_menu(M68KCtx *ctx);
+/* overrides/level_load.c */
+void native_level_decrunch(M68KCtx *ctx);
+/* overrides/gameplay.c — capture + widescreen world state */
+void native_gameplay_input(M68KCtx *ctx);
+void native_anim_patch(M68KCtx *ctx);
+void native_banner_capture(M68KCtx *ctx);
+void native_telanim_capture(M68KCtx *ctx);
+void native_getready_capture(M68KCtx *ctx);
+void native_gameover_text_capture(M68KCtx *ctx);
+void native_levelcomplete_text_capture(M68KCtx *ctx);
+void native_obj_anim_59AC38(M68KCtx *ctx);
+void native_build_red(M68KCtx *ctx);
+void native_build_blind(M68KCtx *ctx);
+void native_build_clear(M68KCtx *ctx);
+void native_wsrope_build(M68KCtx *ctx);
+void native_wsrope_seg(M68KCtx *ctx);
+/* Widescreen world state, published for the renderer after a complete frame. */
+void native_ws_promote(void);
+void native_wsobj_commit_reset(void);
+int native_wsrope_count(void);
+void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1);
+int native_wswater_count(void);
+int native_wswater_get(int i, int *worldX, int *row, int *col, uint32_t *src);
+/* overrides/platformer.c — the optional modern movement model */
+int pc_platformer_on(void);
+void native_pf_hop(M68KCtx *ctx);
+void native_pf_longjump(M68KCtx *ctx);
+void native_pf_arc(M68KCtx *ctx);
+void native_pf_lj(M68KCtx *ctx);
+void native_pf_diag(M68KCtx *ctx);
+void native_pf_fall(M68KCtx *ctx);
+void native_pf_collision(M68KCtx *ctx);
+void native_pf_landing_impact(M68KCtx *ctx);
+/* overrides/pickup.c — the widened object-interaction range */
+void interact_register(void);
+int interact_extend_px(void);
+void native_mm_pickup_gate(M68KCtx *ctx);
+void native_place_probe(M68KCtx *ctx);
+/* port/guest_trace.c — traps executing the exception vector table. */
+void pc_trap_vector_execution(M68KCtx *ctx);
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
