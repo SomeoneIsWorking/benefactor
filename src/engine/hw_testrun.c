@@ -83,8 +83,54 @@ void hw_testrun_capture(int frame, const uint32_t *surface, int width, int heigh
     }
 }
 
+/* A frame-indexed fire timeline: presses="7200:8,7450:8,7700:8", each entry a
+ * frame to press fire on and how many frames to hold it. Reaching gameplay
+ * takes three presses (credits -> menu -> level intro -> play), and comparing
+ * gameplay against the reference only means something if both products press
+ * on the SAME frame — which wall-clock input cannot promise. */
+#define TESTRUN_PRESSES_MAX 16
+
+static void hw_testrun_fire_timeline(int frame) {
+    static struct {
+        int at;
+        int frames;
+    } presses[TESTRUN_PRESSES_MAX];
+    static int count = -1;
+
+    if (count < 0) {
+        count = 0;
+        char spec[256];
+        if (pc_cfg_string("presses", "", spec, sizeof spec) && spec[0]) {
+            for (char *entry = strtok(spec, ","); entry && count < TESTRUN_PRESSES_MAX;
+                 entry = strtok(NULL, ",")) {
+                int at = 0;
+                int frames = 4;
+                if (sscanf(entry, "%d:%d", &at, &frames) >= 1 && at >= 0) {
+                    presses[count].at = at;
+                    presses[count].frames = frames > 0 ? frames : 1;
+                    count++;
+                }
+            }
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "test", "fire timeline: %d press(es)", count);
+        }
+    }
+
+    for (int i = 0; i < count; i++) {
+        if (frame == presses[i].at) {
+            hw_set_fire(1);
+            hw_set_mouse_lmb(1);
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "test", "fire pressed at frame %d", frame);
+        } else if (frame == presses[i].at + presses[i].frames) {
+            hw_set_fire(0);
+            hw_set_mouse_lmb(0);
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "test", "fire released at frame %d", frame);
+        }
+    }
+}
+
 /* Timed input, the end-of-run memory dump and the frame limit. */
 void hw_testrun_script(int frame) {
+    hw_testrun_fire_timeline(frame);
     {
         static int test_frames = -1;
         static int press_frame = -1;
