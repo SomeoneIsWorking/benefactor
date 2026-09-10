@@ -41,11 +41,6 @@ template <typename T> amigaport::MemoryRead<T> unmapped() {
     return {.value = 0, .fault = amigaport::MemoryFault::Unmapped};
 }
 
-/* An odd word/long address is a real 68000 address error, not open bus. */
-template <typename T> amigaport::MemoryRead<T> misaligned() {
-    return {.value = 0, .fault = amigaport::MemoryFault::Misaligned};
-}
-
 class GuestMemory final : public amigaport::Memory {
   public:
     explicit GuestMemory(std::vector<std::uint8_t> &bytes) : bytes_(bytes) {}
@@ -60,7 +55,7 @@ class GuestMemory final : public amigaport::Memory {
 
     amigaport::MemoryRead<std::uint16_t> read16(amigaport::GuestAddress address) override {
         if ((address & 1u) != 0u)
-            return misaligned<std::uint16_t>();
+            return unmapped<std::uint16_t>();
         if (is_hardware_address(address))
             return {.value = hw_read16(address), .fault = amigaport::MemoryFault::None};
         if (address > bytes_.size() - 2u)
@@ -71,7 +66,7 @@ class GuestMemory final : public amigaport::Memory {
 
     amigaport::MemoryRead<std::uint32_t> read32(amigaport::GuestAddress address) override {
         if ((address & 1u) != 0u)
-            return misaligned<std::uint32_t>();
+            return unmapped<std::uint32_t>();
         if (is_hardware_address(address))
             return {.value = hw_read32(address), .fault = amigaport::MemoryFault::None};
         if (address > bytes_.size() - 4u)
