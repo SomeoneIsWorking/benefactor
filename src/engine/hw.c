@@ -1381,8 +1381,7 @@ int hw_present_frame(void) {
         hw_perf_acc(&g_hw_perf.present_us, perf_t);
         hw_perf_fps_tick();
     }
-    /* Headless means no window, not no time: a headless timing measurement has
-     * to be the timing the player gets. The harness opts out via hw_set_no_pace. */
+    /* Headless means no window, not no time (the harness opts out via hw_set_no_pace). */
     hw_pace_frame(); /* PAL 50 Hz scaled by the effective speed */
     s_in_present_frame = 0;
 
@@ -1443,6 +1442,10 @@ int hw_present_frame(void) {
         }
     }
 
+    {
+        extern void pc_note_frame_phase(void);
+        pc_note_frame_phase();
+    }
     s_frame_num++;
 
     /* ── Test mode hooks (env vars) ──────────────────────────────────────── */

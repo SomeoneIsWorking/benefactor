@@ -908,6 +908,7 @@ static void coro_deliver_timer_irq(void) {
         if (v3 && irq_level_enabled(INTENA_LVL3)) {
             uint64_t before = rt_get_guest_cycles();
             g_pc_guest_owner = 3;
+            g_pc_irq3_calls++;
             call_fn(&s_game_ctx, v3);
             g_pc_guest_owner = 0;
             pc_account(&g_pc_cycles_irq3, &g_pc_cycles_irq3_max, rt_get_guest_cycles() - before);
@@ -933,6 +934,7 @@ static void coro_deliver_timer_irq(void) {
     if (v3) {
         uint64_t before = rt_get_guest_cycles();
         g_pc_guest_owner = 3;
+        g_pc_irq3_calls++;
         call_fn(&s_game_ctx, v3);
         g_pc_guest_owner = 0;
         pc_account(&g_pc_cycles_irq3, &g_pc_cycles_irq3_max, rt_get_guest_cycles() - before);
@@ -940,6 +942,7 @@ static void coro_deliver_timer_irq(void) {
     if (v6) {
         uint64_t before = rt_get_guest_cycles();
         g_pc_guest_owner = 6;
+        g_pc_irq6_calls++;
         call_fn(&s_game_ctx, v6);
         g_pc_guest_owner = 0;
         pc_account(&g_pc_cycles_irq6, &g_pc_cycles_irq6_max, rt_get_guest_cycles() - before);

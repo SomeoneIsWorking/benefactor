@@ -165,6 +165,7 @@ static void handle_state(http_socket_t fd) {
         "\"elapsed\":%llu,\"present\":%llu,\"iter\":%llu,\"iter_max\":%llu,"
         "\"flow_max\":%llu,\"irq3_max\":%llu,\"irq6_max\":%llu},"
         "\"present\":{\"calls\":%u,\"reentrant\":%u},"
+        "\"irq_calls\":{\"irq3\":%u,\"irq6\":%u},"
         "\"yield\":{\"calls\":%u,\"refused\":%u,\"parks\":%u},\"title_draws\":%u,"
         "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u}}\n",
         hw_get_frame_num(), level, cop1lc, g_gameplay_active, g_overlay_active, g_credits_active,
@@ -181,8 +182,9 @@ static void handle_state(http_socket_t fd) {
         (unsigned long long)g_pc_cycles_outside, (unsigned long long)g_pc_cycles_iter_max,
         (unsigned long long)g_pc_cycles_flow_max, (unsigned long long)g_pc_cycles_irq3_max,
         (unsigned long long)g_pc_cycles_irq6_max, g_hw_present_calls, g_hw_present_reentrant,
-        g_pc_yield_calls, g_pc_yield_refused, g_pc_yield_parks, g_pc_title_draws, g_hw_perf.game_us,
-        g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us);
+        g_pc_irq3_calls, g_pc_irq6_calls, g_pc_yield_calls, g_pc_yield_refused, g_pc_yield_parks,
+        g_pc_title_draws, g_hw_perf.game_us, g_hw_perf.render_us, g_hw_perf.compose_us,
+        g_hw_perf.present_us);
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
