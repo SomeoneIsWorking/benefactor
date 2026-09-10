@@ -2032,6 +2032,23 @@ void hw_write16(uint32_t addr, uint16_t v) {
             if (v & 0x10) {
                 s_ciab_ta_cnt = s_ciab_ta_latch;
             } /* LOAD strobe */
+            /* The music player's tempo IS this latch: the level-6 vector runs
+             * once per timer A underflow, and the E-clock is 709379 Hz, so the
+             * guest is asking for 709379/latch deliveries a second. */
+            {
+                static uint16_t reported_latch = 0xFFFFu;
+                static uint8_t reported_cra = 0xFFu;
+                if (s_ciab_ta_latch != reported_latch || (uint8_t)v != reported_cra) {
+                    reported_latch = s_ciab_ta_latch;
+                    reported_cra = (uint8_t)v;
+                    benefactor_log_write(
+                        BENEFACTOR_LOG_DEBUG, "ciab",
+                        "timer A cra=$%02X latch=%u -> %.2f per PAL frame (frame %d)",
+                        (unsigned)reported_cra, (unsigned)reported_latch,
+                        reported_latch ? 709379.0 / 50.0 / (double)reported_latch : 0.0,
+                        hw_get_frame_num());
+                }
+            }
             break;
         case CIA_ICR:
             if (v & 0x80)
@@ -2319,22 +2336,20 @@ void hw_write16(uint32_t addr, uint16_t v) {
         case AUD3LCL:
         case AUD3PER:
         case AUD3VOL:
-            s_regs[reg >> 1] = v;
-            if (pc_cfg_bool("audio_trace", 0)) {
-                static FILE *_af = NULL;
-                static int _tried = 0;
-                if (!_tried) {
-                    _tried = 1;
-                    _af = fopen("logs/aud_trace.txt", "w");
-                }
-                static const char *rn[] = {"LCH", "LCL", "LEN", "PER", "VOL"};
-                int ch = (reg - AUD0LCH) / 0x10, rt = ((reg - AUD0LCH) % 0x10) >> 1;
-                if (_af) {
-                    fprintf(_af, "[aud] f=%d ch%d %s=$%04X\n", hw_get_frame_num(), ch,
-                            rt < 5 ? rn[rt] : "?", v);
-                    fflush(_af);
-                }
+            /* Only report a write that CHANGES the register, and name the guest
+             * PC that made it: "which channel is being re-pointed, and by whom"
+             * is the question this trace exists to answer, and a shadow copy
+             * that rewrites the same value every frame drowns it out. */
+            if (s_regs[reg >> 1] != v && pc_cfg_bool("audio_trace", 0)) {
+                static const char *const kName[] = {"LCH", "LCL", "LEN", "PER", "VOL"};
+                const int channel = (reg - AUD0LCH) / 0x10;
+                const int which = ((reg - AUD0LCH) % 0x10) >> 1;
+                benefactor_log_write(BENEFACTOR_LOG_DEBUG, "audio",
+                                     "frame %d ch%d %s $%04X -> $%04X from pc $%06X owner %u",
+                                     hw_get_frame_num(), channel, which < 5 ? kName[which] : "?",
+                                     s_regs[reg >> 1], v, rt_get_pc(), g_pc_guest_owner);
             }
+            s_regs[reg >> 1] = v;
             break;
         /* AUDxLEN: shadow + start DMA stream for the channel if idle. */
         case AUD0LEN:
@@ -2372,24 +2387,11 @@ void hw_write32(uint32_t addr, uint32_t v) {
 /* Synthetic beam counter – advance one frame worth of scanlines               */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-void hw_advance_scanline(void) {
-    s_scanline++;
-    if (s_scanline >= 312) {
-        s_scanline = 0;
-        s_frame_num++;
-    }
-    /* Tick CIA-B timer once per scanline */
-    if ((s_ciab_cra & 1) && s_ciab_ta_cnt > 0) {
-        s_ciab_ta_cnt--;
-        if (s_ciab_ta_cnt == 0) {
-            s_ciab_icr_data |= 0x01;
-            if (s_ciab_cra & 0x08) /* one-shot */
-                s_ciab_cra &= ~1;
-            else
-                s_ciab_ta_cnt = s_ciab_ta_latch;
-        }
-    }
-}
+/* There is no synthetic scanline counter any more: the beam is derived from
+ * consumed guest cycles (see the Timing section of CLAUDE.md), and the CIA-B
+ * timer that used to be ticked from here counted scanlines, not E-clocks. The
+ * level-6 rate the game actually asks for is documented where it is used, in
+ * coro_deliver_timer_irq. */
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Runtime-adapter helpers – expose internal state to guest execution           */

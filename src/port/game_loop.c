@@ -525,6 +525,11 @@ static void coro_call_vector(unsigned owner, uint32_t addr) {
     coro_call_vector_as(owner, addr, GUEST_ENTRY_RTE);
 }
 
+/* How many links of the self-rewriting level-6 vector chain to deliver in one
+ * frame. The intro's chain is two deep ($3160 -> $58C2); the bound stops a
+ * handler that rewrites $78 unboundedly from spinning the frame loop. */
+#define PC_IRQ6_CHAIN_MAX 4
+
 static void coro_deliver_timer_irq(void) {
     if (g_gameplay_active || g_overlay_active || g_credits_active) {
         /* Gameplay / overlay / credits each install their own level-3 ($6c,
@@ -557,10 +562,36 @@ static void coro_deliver_timer_irq(void) {
                         ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
     if (v3)
         coro_call_vector(3, v3);
-    const uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
-                        ((uint32_t)g_chip[0x7a] << 8) | (uint32_t)g_chip[0x7b];
-    if (v6)
+    /* Deliver the WHOLE level-6 chain, not just its first link. Because the
+     * handlers chain by rewriting $78, delivering one link per frame ran the
+     * music driver on every OTHER frame, and the intro tune advanced at 56% of
+     * the reference's rate (145 sample-pointer moves against 259 over the
+     * 6290-frame crawl). The reference calls both leaves every frame.
+     *
+     * Once per frame is not a rate the game asked for either: it programs CIA-B
+     * timer A with latch 384 against a 709379 Hz E-clock, i.e. ~37 deliveries a
+     * PAL frame, so on real hardware every link of a two-deep chain certainly
+     * runs within one frame.
+     *
+     * Each DISTINCT vector runs at most once per frame. The chain is a ring —
+     * $3160 rewrites $78 to $58C2 and $58C2 rewrites it back — so walking it
+     * until the vector stops moving goes round twice and ran the music driver
+     * twice a frame instead of once (525 sample-pointer moves against 259). */
+    uint32_t delivered[PC_IRQ6_CHAIN_MAX];
+    unsigned links = 0;
+    for (;;) {
+        const uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
+                            ((uint32_t)g_chip[0x7a] << 8) | (uint32_t)g_chip[0x7b];
+        if (!v6 || links >= PC_IRQ6_CHAIN_MAX)
+            break;
+        int seen = 0;
+        for (unsigned i = 0; i < links && !seen; i++)
+            seen = delivered[i] == v6;
+        if (seen)
+            break;
+        delivered[links++] = v6;
         coro_call_vector(6, v6);
+    }
 }
 
 /* Common bring-up shared between the full-boot path and the direct-to-gameplay

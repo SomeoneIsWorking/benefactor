@@ -471,3 +471,70 @@ menu at 7334, the level running at 7612.
 That the frames can be fixed at all is a consequence of the vblank charge — the
 four screens before the credits now match the reference exactly, so a frame
 number means the same thing in both products up to that point.
+
+## Found and fixed: the intro music ran at half speed because only one link of the level-6 chain was delivered
+
+With the frames matching exactly, one column still did not: the tune advanced
+145 times over the 6290-frame crawl where the reference advanced 259, and the
+channel volumes moved 869 times against 3028.
+
+The intro's level-6 handlers **chain by rewriting their own vector**. Delivering
+the `$78` vector once per displayed frame therefore ran a *different* link each
+frame, so the music driver ran on every other frame:
+
+| link | what it does | instructions |
+| --- | --- | --- |
+| `$003160` | saves registers, `BSR $0055A0` (the music driver), clears INTREQ, RTE | 83 |
+| `$005892` | acknowledges CIA-B, re-arms timer A (`CRA=$19`), writes DMACON | 9 |
+| `$0058C2` | copies the audio shadow into Paula — `AUD0LC`, `AUD0LEN`, … | 17 |
+
+Once per frame was never a rate the game asked for. It programs CIA-B timer A
+with a latch of **384** against the 709379 Hz E-clock — about **37 deliveries
+per PAL frame** — so on real hardware every link of the chain certainly runs
+within one frame. (That latch is now reported at debug level, once per change,
+from the CRA write: `ciab: timer A cra=$19 latch=384 -> 36.95 per PAL frame`.)
+
+So `coro_deliver_timer_irq` now delivers the whole chain, each **distinct**
+vector at most once per frame. Both halves of that sentence were measured:
+
+| | crawl music | crawl volume | logo volume | `$0077C0` volume |
+| --- | --- | --- | --- | --- |
+| reference | 259 | 3028 | 22 | 131 |
+| one link per frame | 145 | 869 | 1 | 102 |
+| walk until the vector stops moving | 525 | 3039 | 22 | 250 |
+| **each distinct link once** | 251 (ch0) | **3028** | **22** | **131** |
+
+The middle row is the trap: the chain is a *ring* — `$3160` moves `$78` on and
+`$58C2` moves it back — so walking it until the vector stops changing goes round
+twice and runs the driver twice a frame.
+
+Volumes, palette fades and frame counts are now identical to the reference, and
+so is the melody: channel 0's pointer sequence is the reference's sequence
+offset by one entry (`06594E, 064446, 064DE0, 064446, …`), 251 changes against
+229, with the same gap distribution (commonest gaps 8, 48, 16, 24 frames in both).
+
+### Still open: channels 1-3 are re-pointed more often than the reference
+
+| channel | reference changes | interpreter changes | distinct samples |
+| --- | --- | --- | --- |
+| 0 (melody) | 229 | 251 | 7 vs 9 |
+| 1 | 7 | 315 | 4 vs 4 |
+| 2 | 39 | 203 | 9 vs 11 |
+| 3 | 17 | 267 | 8 vs 11 |
+
+Nearly the same small set of samples, revisited far more often, and on a regular
+period (channel 3's commonest gaps are 1 and 7 frames) rather than at random —
+so this looks like rhythm the reference is not playing, not spurious restarts.
+Two reasons to think the interpreter may be the more faithful one here, which is
+why this is recorded rather than "fixed":
+
+- the reference **never runs `$005892`** at all, and cannot: a static recompiler
+  takes no asynchronous interrupts, so it calls `$0055A0` and `$0058C2` by hand
+  and skips the handler whose job is to acknowledge and re-arm a timer it does
+  not have. Seven pointer changes on channel 1 in 6290 frames is one every ~15
+  seconds, which is not obviously a bass line.
+- the volumes match to the exact event count (3028 against 3028). A channel
+  being restarted spuriously would show up there first.
+
+Deciding this needs listening, not counting. See `docs/oracle.md` on why a
+difference from the oracle is a lead and not a verdict.
