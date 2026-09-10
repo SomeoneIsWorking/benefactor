@@ -249,34 +249,40 @@ class Runtime final {
         return count;
     }
 
-    /* A breakpoint must NOT unwind the run. The guest's stack and PC are
-     * exactly at the address, and returning the exit to the caller lets the
-     * game flow carry on as though the slice had finished — measured: the app
-     * shut itself down cleanly a moment after the first hit. So hold HERE, on
-     * the game thread, inside the run, and then continue the same run.
-     *
-     * The frame watchdog has to stand down while held, for the same reason it
-     * does around the control channel's pause: a frame that never finishes is
-     * the point of a breakpoint, not an infinite loop. */
-    amigaport::ExecutionExit hold_through_breakpoints(amigaport::ExecutionExit result) {
+    /* A breakpoint is observed by the executor's handler, on the address,
+     * before anything unwinds — see install_breakpoint_handler. All that is
+     * left here is to continue the run afterwards: returning the exit to the
+     * caller lets the game flow carry on as though the slice had finished,
+     * and the app shut itself down cleanly a moment after the first hit. */
+    amigaport::ExecutionExit resume_past_breakpoints(amigaport::ExecutionExit result) {
         while (result.reason == amigaport::ExitReason::Breakpoint) {
-            pc_debug_breakpoint_reached(executor.state().pc, executor.state().pc);
-            hw_watchdog_disarm();
-            while (pc_control_paused() != 0)
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            hw_watchdog_rearm();
             result = executor.execute();
         }
         return result;
     }
 
+    /* Hold the game thread right where the breakpoint is, so /cpu, /mem and
+     * /fb.ppm all describe the address rather than wherever the CPU ended up
+     * once the slice unwound. Without this the stop inside a nested interrupt
+     * delivery reported the right address with the crawl loop's registers. */
+    void install_breakpoint_handler() {
+        executor.set_breakpoint_handler([](amigaport::Executor &stopped) {
+            pc_debug_breakpoint_reached(stopped.state().pc, stopped.state().pc);
+            hw_watchdog_disarm();
+            while (pc_control_paused() != 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            hw_watchdog_rearm();
+        });
+    }
+
     amigaport::ExecutionExit execute(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
         record_call(address);
-        amigaport::ExecutionExit result = hold_through_breakpoints(executor.call(address));
+        amigaport::ExecutionExit result = resume_past_breakpoints(executor.call(address));
         while (result.reason == amigaport::ExitReason::InstructionBudget ||
                result.reason == amigaport::ExitReason::NativeOverride) {
-            result = hold_through_breakpoints(executor.execute());
+            result = resume_past_breakpoints(executor.execute());
         }
         if (result.reason == amigaport::ExitReason::MemoryFault) {
             benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
@@ -298,7 +304,7 @@ class Runtime final {
         record_call(address);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
-        return hold_through_breakpoints(executor.call_original());
+        return resume_past_breakpoints(executor.call_original());
     }
 
     amigaport::ExecutionExit call_original_subroutine(std::uint32_t address) {
@@ -306,7 +312,7 @@ class Runtime final {
         record_call(address);
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
-        return hold_through_breakpoints(executor.call_original_subroutine());
+        return resume_past_breakpoints(executor.call_original_subroutine());
     }
 
     int return_from_native() {
@@ -330,7 +336,7 @@ class Runtime final {
     }
 
     amigaport::ExecutionExit call_interrupt(std::uint32_t address) {
-        return hold_through_breakpoints(executor.call_interrupt(address));
+        return resume_past_breakpoints(executor.call_interrupt(address));
     }
 
     void exit_to_host() {
@@ -652,6 +658,7 @@ int rt_init(const char *, uint32_t, uint32_t) {
         return -1;
     const int result = boundary([] {
         g_runtime = std::make_unique<Runtime>();
+        g_runtime->install_breakpoint_handler();
         g_runtime->activate(BENEFACTOR_IMAGE_MAIN);
         g_mem = g_runtime->bytes.data();
     });

@@ -538,3 +538,32 @@ why this is recorded rather than "fixed":
 
 Deciding this needs listening, not counting. See `docs/oracle.md` on why a
 difference from the oracle is a lead and not a verdict.
+
+#### The obvious explanation is ruled out
+
+The tempting answer was `$005892`: it is the one handler we deliver and the
+oracle cannot, so anything we do extra should come from there. It does not.
+
+With the audio trace naming the guest PC of every register write that actually
+changes a value, the channel 1-3 pointer writes come overwhelmingly from
+`$0059BC` (owner 6). A breakpoint there, held at the instant of the hit, gives
+the real guest stack:
+
+```
+/break?at=59BC
+  {"stopped":{"at":"0059BC","pc":"0059BC","frame":36,...}}
+/cpu   -> a7 = $0007FFAA
+/mem?addr=07FFAA -> 00005640 00003168 00025384 00000057
+```
+
+`$003168` is the return address inside `$003160`, immediately after its
+`BSR $0055A0`. So the chain is `$003160 -> $0055A0 -> ... -> $005640 ->
+$0059BC`: the writes come from **the music driver, which the oracle calls
+too**, not from the extra handler. Both products run that driver once per
+frame.
+
+So the difference is not "we run something the oracle does not". It is that the
+same driver, run the same number of times, reaches a different decision — which
+points at the state it reads (the CIA-B timer having been acknowledged and
+re-armed, DMACON, or a counter one of the other links advances) rather than at
+the delivery count. Recorded here rather than guessed at further.

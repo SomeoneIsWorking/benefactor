@@ -5,6 +5,7 @@
 extern "C" {
 #include "common/log.h"
 #include "engine/hw.h"
+#include "port/frame_accounting.h"
 #include "runtime/guest_runtime.h"
 }
 
@@ -41,8 +42,8 @@ void Debugger::reached(std::uint32_t address, std::uint32_t program_counter) {
      * before anything could read it. */
     control::InputScript::instance().pause();
     benefactor_log_write(BENEFACTOR_LOG_INFO, "debug",
-                         "breakpoint $%06X reached at pc $%06X, frame %d; holding", address,
-                         program_counter, last_.frame);
+                         "breakpoint $%06X reached at pc $%06X, frame %d, owner %u; holding",
+                         address, program_counter, last_.frame, g_pc_guest_owner);
 }
 
 Stop Debugger::last_stop() const { return last_; }
