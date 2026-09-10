@@ -10,6 +10,7 @@
 #include "port/config.h"
 #include "port/frame_accounting.h"
 #include "port/guest_trace.h"
+#include "port/guest_vectors.h"
 #include "port/input.h"
 #include "port/overlay_ui.h"
 #include "port/port.h"
@@ -220,12 +221,12 @@ int pc_step_threaded(void);
  * (call_fn) — it must NOT block here (would deadlock), so non-game threads return
  * immediately. On a restart request the parked thread exits cleanly. */
 static int game_thread_yield(void) {
-    g_pc_yield_calls++;
+    pc_note_wait_reached();
     if (!s_is_game_thread) {
-        g_pc_yield_refused++;
+        pc_note_wait_refused();
         return 0;
     }
-    g_pc_yield_parks++;
+    pc_note_wait_parked();
     pthread_mutex_lock(&s_hand_mtx);
     s_turn = 0; /* hand the turn back to main */
     pthread_cond_broadcast(&s_hand_cv);
@@ -423,8 +424,7 @@ int pc_step(void) {
     {
         static uint64_t last_exit_cycles = 0;
         const uint64_t now = rt_get_guest_cycles();
-        pc_account(&g_pc_cycles_outside, &g_pc_cycles_iter_max,
-                   last_exit_cycles ? now - last_exit_cycles : 0);
+        pc_account_iteration(last_exit_cycles ? now - last_exit_cycles : 0);
         last_exit_cycles = now;
     }
     hw_watchdog_arm("PC", 2); /* catch an infinite loop in one frame */
@@ -491,17 +491,13 @@ void pc_music_tick(void) {
         return;
     if (!irq_level_enabled(INTENA_LVL6))
         return;
-    uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
-                  ((uint32_t)g_chip[0x7a] << 8) | (uint32_t)g_chip[0x7b];
+    uint32_t v6 = guest_vector_handler(GUEST_VECTOR_LEVEL6_TIMER);
     if (v6)
         call_fn(&s_game_ctx, v6);
 }
 
 /* Deliver one interrupt vector, accounting its guest cycles to its level. */
-static void coro_call_vector_as(unsigned owner, uint32_t addr, GuestEntry entry) {
-    uint64_t *const total = owner == 3 ? &g_pc_cycles_irq3 : &g_pc_cycles_irq6;
-    uint64_t *const peak = owner == 3 ? &g_pc_cycles_irq3_max : &g_pc_cycles_irq6_max;
-    volatile uint32_t *const calls = owner == 3 ? &g_pc_irq3_calls : &g_pc_irq6_calls;
+static void coro_call_vector_as(PcOwner owner, uint32_t addr, GuestEntry entry) {
     const uint64_t before = rt_get_guest_cycles();
     /* The blitter registers are one shared set. If the game flow parked
      * mid-sequence, this vector's own blits would overwrite its half-written
@@ -511,17 +507,16 @@ static void coro_call_vector_as(unsigned owner, uint32_t addr, GuestEntry entry)
     const int mid_blit = hw_blit_setup_open();
     if (mid_blit)
         hw_blit_regs_save(blt);
-    g_pc_guest_owner = owner;
-    (*calls)++;
+    pc_set_running_owner(owner);
     call_fn_as(&s_game_ctx, addr, entry);
-    g_pc_guest_owner = 0;
+    pc_set_running_owner(PC_OWNER_FLOW);
     if (mid_blit)
         hw_blit_regs_restore(blt);
-    pc_account(total, peak, rt_get_guest_cycles() - before);
+    pc_account_owner(owner, rt_get_guest_cycles() - before);
 }
 
 /* An installed vector: entered as an interrupt, returns through RTE. */
-static void coro_call_vector(unsigned owner, uint32_t addr) {
+static void coro_call_vector(PcOwner owner, uint32_t addr) {
     coro_call_vector_as(owner, addr, GUEST_ENTRY_RTE);
 }
 
@@ -539,10 +534,9 @@ static void coro_deliver_timer_irq(void) {
          * Level-3 fires once per displayed frame here; level-6 is delivered by
          * pc_music_tick at the per-screen sub-frame rate, so firing it here too
          * would over-count it. */
-        uint32_t v3 = ((uint32_t)g_chip[0x6c] << 24) | ((uint32_t)g_chip[0x6d] << 16) |
-                      ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
+        uint32_t v3 = guest_vector_handler(GUEST_VECTOR_LEVEL3_VBLANK);
         if (v3 && irq_level_enabled(INTENA_LVL3))
-            coro_call_vector(3, v3);
+            coro_call_vector(PC_OWNER_LEVEL3_VBLANK, v3);
         return;
     }
     /* Intro and title: deliver exactly what the game installed at the vectors.
@@ -558,10 +552,9 @@ static void coro_deliver_timer_irq(void) {
      * in the one-frame wait at $3732; and once a screen has been loaded over
      * those bytes they are somebody else's data ($58C2 read as $FFFF at frame
      * 900 and trapped). See docs/issues/0008. */
-    const uint32_t v3 = ((uint32_t)g_chip[0x6c] << 24) | ((uint32_t)g_chip[0x6d] << 16) |
-                        ((uint32_t)g_chip[0x6e] << 8) | (uint32_t)g_chip[0x6f];
+    const uint32_t v3 = guest_vector_handler(GUEST_VECTOR_LEVEL3_VBLANK);
     if (v3)
-        coro_call_vector(3, v3);
+        coro_call_vector(PC_OWNER_LEVEL3_VBLANK, v3);
     /* Deliver the WHOLE level-6 chain, not just its first link. Because the
      * handlers chain by rewriting $78, delivering one link per frame ran the
      * music driver on every OTHER frame, and the intro tune advanced at 56% of
@@ -580,8 +573,7 @@ static void coro_deliver_timer_irq(void) {
     uint32_t delivered[PC_IRQ6_CHAIN_MAX];
     unsigned links = 0;
     for (;;) {
-        const uint32_t v6 = ((uint32_t)g_chip[0x78] << 24) | ((uint32_t)g_chip[0x79] << 16) |
-                            ((uint32_t)g_chip[0x7a] << 8) | (uint32_t)g_chip[0x7b];
+        const uint32_t v6 = guest_vector_handler(GUEST_VECTOR_LEVEL6_TIMER);
         if (!v6 || links >= PC_IRQ6_CHAIN_MAX)
             break;
         int seen = 0;
@@ -590,7 +582,7 @@ static void coro_deliver_timer_irq(void) {
         if (seen)
             break;
         delivered[links++] = v6;
-        coro_call_vector(6, v6);
+        coro_call_vector(PC_OWNER_LEVEL6_TIMER, v6);
     }
 }
 
@@ -796,16 +788,16 @@ int pc_step_threaded(void) {
     {
         uint64_t before = rt_get_guest_cycles();
         game_thread_run_one_frame(); /* run the game to its next vblank wait (parks) */
-        pc_account(&g_pc_cycles_flow, &g_pc_cycles_flow_max, rt_get_guest_cycles() - before);
+        pc_account_flow(rt_get_guest_cycles() - before);
     }
 
     if (g_harness_prerender_hook)
         g_harness_prerender_hook();
-    g_pc_cycles_frame = rt_get_guest_cycles() - frame_cycles_before;
+    pc_set_frame_cycles(rt_get_guest_cycles() - frame_cycles_before);
     {
         const uint64_t before = rt_get_guest_cycles();
         const int stop = hw_present_frame();
-        g_pc_cycles_present = rt_get_guest_cycles() - before;
+        pc_set_present_cycles(rt_get_guest_cycles() - before);
         if (stop != 0)
             return 1;
     }

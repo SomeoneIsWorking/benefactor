@@ -327,7 +327,7 @@ static void hw_step_register_beam(int at_beam_read) {
      * the global says "level 6" while the game thread is spinning in its own
      * code. Reading it directly blamed the timer interrupt for the crawl's
      * frame wait. */
-    pc_profile_sample(rt_get_pc(), pc_on_game_thread() ? 0u : g_pc_guest_owner);
+    pc_profile_sample(rt_get_pc(), pc_on_game_thread() ? 0u : (uint32_t)pc_running_owner());
     uint64_t line = rt_get_guest_cycles() / BEAM_CYCLES_PER_LINE;
     uint64_t frame = line / BEAM_LINES_PER_FRAME;
     s_scanline = (int)(line % BEAM_LINES_PER_FRAME);
@@ -338,7 +338,7 @@ static void hw_step_register_beam(int at_beam_read) {
     g_hw_beam_crossed++;
     if (pc_on_game_thread())
         g_hw_beam_by_flow++;
-    else if (g_pc_guest_owner != 0)
+    else if (pc_running_owner() != PC_OWNER_FLOW)
         g_hw_beam_by_irq++;
     else
         g_hw_beam_by_host++;
@@ -2084,7 +2084,7 @@ void hw_write16(uint32_t addr, uint16_t v) {
          * audio trace comparing s_regs to v never fired once, because the
          * comparison had already been made true here.) */
         const uint16_t previous = s_regs[reg >> 1];
-        s_regs[reg >> 1] = v; /* shadow copy */
+        s_regs[reg >> 1] = v; /* shadow copy — the ONLY one; no arm repeats it */
 
         /* COP1LCL completes the 32-bit COP1LC write (the game uses move.l to
          * $7e(a6)): the display copper pointer is now committed — present here. */
@@ -2344,16 +2344,14 @@ void hw_write16(uint32_t addr, uint16_t v) {
                 benefactor_log_write(BENEFACTOR_LOG_DEBUG, "audio",
                                      "frame %d ch%d %s $%04X -> $%04X from pc $%06X owner %u",
                                      hw_get_frame_num(), channel, which < 5 ? kName[which] : "?",
-                                     s_regs[reg >> 1], v, rt_get_pc(), g_pc_guest_owner);
+                                     previous, v, rt_get_pc(), (uint32_t)pc_running_owner());
             }
-            s_regs[reg >> 1] = v;
             break;
         /* AUDxLEN: shadow + start DMA stream for the channel if idle. */
         case AUD0LEN:
         case AUD1LEN:
         case AUD2LEN:
         case AUD3LEN:
-            s_regs[reg >> 1] = v;
             benefactor_log_write(BENEFACTOR_LOG_TRACE, "audio", "channel %d LEN=$%04X",
                                  (reg - AUD0LCH) / 0x10, v);
             hw_audio_dma_kick((reg - AUD0LCH) / 0x10);

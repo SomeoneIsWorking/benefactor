@@ -51,7 +51,7 @@ static void hw_watchdog_handler(int sig) {
                               sizeof values / sizeof values[0]);
 
     const uint32_t beam[] = {g_hw_beam_crossed, g_hw_beam_taken, g_hw_beam_declined,
-                             g_pc_guest_owner};
+                             (uint32_t)pc_running_owner()};
     benefactor_log_signal_hex("beam crossed / taken / declined, guest owner (0=flow,3=vbl,6=timer)",
                               beam, sizeof beam / sizeof beam[0]);
 
