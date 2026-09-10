@@ -26,6 +26,7 @@
 #include "port/port.h"
 #include "runtime/guest_runtime.h"
 
+#include "port/input.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,7 +140,6 @@ static void send_response(http_socket_t fd, const char *status, const char *ctyp
 }
 
 static void handle_state(http_socket_t fd) {
-    extern uint8_t *g_mem;
     uint16_t level = (uint16_t)((g_mem[0x20] << 8) | g_mem[0x21]);
     uint32_t cop1lc = (((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1]) & 0xFFFFFFu;
     /* player position+state block at $57FEB8 ($10A6(a5)) — 4 words */
@@ -147,11 +147,9 @@ static void handle_state(http_socket_t fd) {
     uint16_t p1 = (uint16_t)((g_mem[0x57FEBA] << 8) | g_mem[0x57FEBB]);
     uint16_t p2 = (uint16_t)((g_mem[0x57FEBC] << 8) | g_mem[0x57FEBD]);
     uint16_t p3 = (uint16_t)((g_mem[0x57FEBE] << 8) | g_mem[0x57FEBF]);
-    extern int pc_savestate_allowed(const char **);
     const char *why = NULL;
     int saveable = pc_savestate_allowed(&why);
-    extern int hw_get_frame_num(void);
-    char body[768];
+    char body[2048];
     int n = snprintf(
         body, sizeof body,
         "{\"frame\":%d,\"level\":%u,\"cop1lc\":\"%06X\","
@@ -185,11 +183,16 @@ static void handle_state(http_socket_t fd) {
         g_pc_irq3_calls, g_pc_irq6_calls, g_pc_yield_calls, g_pc_yield_refused, g_pc_yield_parks,
         g_pc_title_draws, g_hw_perf.game_us, g_hw_perf.render_us, g_hw_perf.compose_us,
         g_hw_perf.present_us);
+    /* snprintf returns what it WOULD have written; sending that as the length
+     * over-reads the buffer and truncates the JSON mid-token. */
+    if (n < 0)
+        return;
+    if ((size_t)n >= sizeof body)
+        n = (int)sizeof body - 1;
     send_response(fd, "200 OK", "application/json", body, (size_t)n);
 }
 
 static void handle_mem(http_socket_t fd, const char *q) {
-    extern uint8_t *g_mem;
     char a[32] = {0}, l[32] = {0};
     if (!query_get(q, "addr", a, sizeof a)) {
         send_response(fd, "400 Bad Request", "text/plain", "need addr\n", 10);
@@ -221,7 +224,6 @@ static void handle_mem(http_socket_t fd, const char *q) {
 }
 
 static void handle_poke(http_socket_t fd, const char *q) {
-    extern uint8_t *g_mem;
     char a[32] = {0}, v[32] = {0};
     if (!query_get(q, "addr", a, sizeof a) || !query_get(q, "val", v, sizeof v)) {
         send_response(fd, "400 Bad Request", "text/plain", "need addr&val\n", 14);
@@ -242,9 +244,6 @@ static void handle_poke(http_socket_t fd, const char *q) {
 /* /input?interact=1&fire=0&u=0&d=0&l=0&r=0 — drive the game over HTTP (held until
  * changed). Lets the debugger move the player, fire, and interact without a window. */
 static void handle_input(http_socket_t fd, const char *q) {
-    extern void hw_set_interact(int), hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_drop(int),
-        hw_set_hop(int);
-    extern void hw_set_joystick(int, int, int, int, int);
     char b[8];
     int interact = query_get(q, "interact", b, sizeof b) ? atoi(b) : 0;
     int fire = query_get(q, "fire", b, sizeof b) ? atoi(b) : 0;
@@ -255,7 +254,6 @@ static void handle_input(http_socket_t fd, const char *q) {
     int drop = query_get(q, "drop", b, sizeof b) ? atoi(b) : 0;
     int hop = query_get(q, "hop", b, sizeof b) ? atoi(b) : 0;
     {
-        extern void hw_set_ffwd(int); /* hold-to-fast-forward (speed tests) */
         if (query_get(q, "ffwd", b, sizeof b))
             hw_set_ffwd(atoi(b));
     }
@@ -274,8 +272,6 @@ static void handle_input(http_socket_t fd, const char *q) {
 
 /* /pickup?extend=N — live-tune the extra horizontal pickup/interaction reach (px). */
 static void handle_pickup(http_socket_t fd, const char *q) {
-    extern int pc_cfg_int(const char *, int);
-    extern void pc_cfg_set(const char *, const char *);
     char b[8];
     if (query_get(q, "extend", b, sizeof b))
         pc_cfg_set("interact_extend", b); /* unified store */
@@ -353,15 +349,12 @@ static void handle_request(http_socket_t fd, char *req) {
     else if (!strcmp(path, "/fb.bin"))
         handle_fb(fd, 0);
     else if (!strcmp(path, "/save")) {
-        extern int g_pc_pending_save;
         g_pc_pending_save = 1;
         send_response(fd, "200 OK", "text/plain", "save queued\n", 12);
     } else if (!strcmp(path, "/load")) {
-        extern int g_pc_pending_load;
         g_pc_pending_load = 1;
         send_response(fd, "200 OK", "text/plain", "load queued\n", 12);
     } else if (!strcmp(path, "/gameover")) { /* debug: force a death (drain a life) */
-        extern void pc_debug_game_over(void);
         pc_debug_game_over();
         send_response(fd, "200 OK", "text/plain", "death triggered\n", 16);
     } else if (!strcmp(path, "/trace")) { /* recently retired guest instructions */
@@ -369,7 +362,6 @@ static void handle_request(http_socket_t fd, char *req) {
         size_t n = pc_format_retired_instructions(body, sizeof body);
         send_response(fd, "200 OK", "text/plain", body, n);
     } else if (!strcmp(path, "/recent")) { /* debug: recent rt_call targets (oldest..newest) */
-        extern int rt_recent_snapshot(uint32_t *out, int max);
         uint32_t r[48];
         int n = rt_recent_snapshot(r, 48);
         char body[1024];

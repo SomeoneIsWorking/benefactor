@@ -17,7 +17,10 @@
 #include <string.h>
 
 #include "common/game_state.h" /* g_gameplay_active (menu subtext gate) */
-#include "port/port.h"         /* level/world layout + name accessors (single source of truth) */
+#include "engine/hw.h"
+#include "port/overlay_ui.h"
+#include "port/port.h" /* level/world layout + name accessors (single source of truth) */
+#include "render/native_renderer.h"
 
 int g_level_select_visible = 0;
 
@@ -197,7 +200,6 @@ int pc_toast_visible(void) { return s_toast_frames > 0 && s_toast[0] != 0; }
  * menu's current palette fade — so it appears/fades exactly with the RE'd menu items
  * instead of popping at full brightness or drifting in widescreen. */
 static void menu_small_text(uint32_t *fb, int content_x, int content_y, const char *s) {
-    extern int native_scanline_palette_luma(int y);
     int margin = (s_draw_w - FB_W) / 2;
     if (margin < 0)
         margin = 0;
@@ -216,10 +218,6 @@ static void menu_small_text(uint32_t *fb, int content_x, int content_y, const ch
  * to the menu layout and fade with it. Gated on the menu being on screen
  * (g_pc_menu_visible) + the menu copper list. */
 void pc_menu_subtext_overlay(uint32_t *fb) {
-    extern int g_pc_menu_visible, g_menu_continue_x, g_menu_continue_y;
-    extern int pc_menu_continue_level(void);
-    extern int pc_extra_worlds_available(void);
-    extern uint32_t hw_get_cop1lc(void);
     if (!g_pc_menu_visible || g_gameplay_active)
         return;
     if (hw_get_cop1lc() != 0x8302u)

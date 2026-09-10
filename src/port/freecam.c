@@ -18,9 +18,11 @@
  * the toggle refuses with a toast there. Horizontal only — the engine camera
  * ($57FDBA) is X-only; levels do not scroll vertically. */
 #include "common/game_state.h" /* g_gameplay_active */
+#include "engine/hw.h"
 #include "port/config.h"
 #include "port/input.h"
 #include "render/engine_view.h"
+#include "render/native_renderer.h"
 #include <stdint.h>
 
 extern int hw_output_width(void);
@@ -90,7 +92,6 @@ void pc_freecam_toggle(void) {
      * off-screen tilemap, and hw_compose_output builds that draw list while freecam is
      * active even at 4:3. Only the Vanilla copper-blit renderer can't pan (it has only
      * the engine's blit of the visible playfield). */
-    extern int hw_benren_active(void);
     if (!hw_benren_active()) {
         pc_toast_show("FREE CAM NEEDS THE SOFTWARE OR HARDWARE RENDERER", 1);
         return;
@@ -149,7 +150,6 @@ void pc_freecam_tick(void) {
      * of ws_view_left's clamp, shared geometry). Clamping on different bounds let
      * s_x roam past where view_left is already pinned at the edge — an invisible
      * dead zone you had to pan back through before the view responded. */
-    extern int ws_follow_clamp(int ow, int sx);
     s_x = ws_follow_clamp(hw_output_width(), s_x);
 }
 

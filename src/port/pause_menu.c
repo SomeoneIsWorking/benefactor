@@ -36,8 +36,10 @@
 
 #include "common/game_state.h" /* g_state + g_gameplay_active / g_credits_active /
                            * g_enter_gameplay / g_gameplay_entry macros */
+#include "engine/hw.h"
 #include "port/config.h"
 #include "port/input.h"
+#include "port/overlay_ui.h"
 #include <SDL3/SDL.h> /* SDLK_/SDL_GAMEPAD_ constants only */
 #include <stdint.h>
 #include <stdio.h>
@@ -293,7 +295,6 @@ static void graphics_cycle(int row, int dir) {
         aspect_set(aspect_index() + dir);
         break;
     case RR_FULLSCREEN: {
-        extern void hw_fullscreen_refresh(void);
         pc_cfg_persist("fullscreen", pc_cfg_bool("fullscreen", 0) ? "false" : "true");
         hw_fullscreen_refresh();
         break;
@@ -329,7 +330,6 @@ static int speed_index(void) {
 }
 
 static void speed_set(int idx) {
-    extern void hw_speed_refresh(void);
     char json[16];
     snprintf(json, sizeof json, "\"%s\"",
              k_speed_vals[(idx % NUM_SPEEDS + NUM_SPEEDS) % NUM_SPEEDS]);
@@ -720,7 +720,6 @@ extern void pc_request_cold_restart(void);
  * pc_step_threaded — so this is safe to call from inside the game thread too
  * (e.g. the native game-over transition). Exposed for src/port/overrides/gameplay.c. */
 void pc_request_level_restart(void) {
-    extern int g_pc_restart_reinit;
     g_gameplay_entry = 0x577000u;
     g_enter_gameplay = 1;
     g_pc_restart_reinit = 1; /* re-decrunch overlay + re-pin card sentinels on restart */
@@ -808,7 +807,6 @@ void pc_pause_menu_overlay(uint32_t *fb) {
 
     /* Dim the background by overlaying ~50%-black across the whole frame. Use the live
      * overlay target size (the wide output), so the dim spans the full widescreen view. */
-    extern int pc_overlay_w(void), pc_overlay_h(void);
     const int ow = pc_overlay_w(), oh = pc_overlay_h();
     for (int i = 0; i < ow * oh; i++) {
         uint32_t p = fb[i];

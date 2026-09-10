@@ -6,6 +6,7 @@
  *   copper.c — copper list rebuild helpers, frame-level overrides
  *   render.c — render pipeline hook wrappers
  */
+#include "port/config.h"
 #include "port/port_internal.h"
 
 /* ── Registration ────────────────────────────────────────────────────────────
@@ -13,13 +14,11 @@
  * implementations.  Address order matches the game call sequence. */
 void pc_register_overrides(void) {
     {
-        extern void pc_config_load(void);
         pc_config_load();
     } /* benefactor.json */
 
     /* Diagnostic: executing the exception vector table is always a wild jump. */
     {
-        extern void pc_trap_vector_execution(M68KCtx * ctx);
         rt_register_native(BENEFACTOR_IMAGE_MASK_ALL, 0x000000u, pc_trap_vector_execution);
     }
 
@@ -44,7 +43,6 @@ void pc_register_overrides(void) {
      * "ENTER PASSWORD" without touching the chip-RAM strings. See
      * native_menu_glyph_blit() for the full disassembly translation. */
     {
-        extern void native_menu_glyph_blit(M68KCtx * ctx);
         rt_register_replacement(0x000049B6u, native_menu_glyph_blit);
     }
 
@@ -55,8 +53,6 @@ void pc_register_overrides(void) {
      * frame drawing/animation still run through original address $003872. The
      * leaf helpers (glyph blit $0049B6, cursor $3C5A/$3C88) stay overridden above. */
     {
-        extern void native_menu_setup(M68KCtx * ctx);
-        extern void native_main_menu_fire_dispatch(M68KCtx * ctx);
         rt_register_override(0x00003872u, native_menu_setup);
         rt_register_override(0x000039D0u, native_main_menu_fire_dispatch);
     }
@@ -83,10 +79,6 @@ void pc_register_overrides(void) {
      *
      * These focused native owners preserve the measured menu behavior. */
     {
-        extern void native_menu_cursor_down(M68KCtx * ctx);
-        extern void native_menu_cursor_up(M68KCtx * ctx);
-        extern void native_menu_diff_left(M68KCtx * ctx);
-        extern void native_menu_diff_right(M68KCtx * ctx);
         rt_register_replacement(0x00003C5Au, native_menu_cursor_down);
         rt_register_replacement(0x00003C88u, native_menu_cursor_up);
         rt_register_replacement(0x00003C6Eu, native_menu_diff_left);
@@ -95,7 +87,6 @@ void pc_register_overrides(void) {
     /* $003700 — menu-art unpacker post-hook: re-draws on-page extras (the
      * DISK.4 indicator) after each page-1 unpack. */
     {
-        extern void native_menu_art_unpack(M68KCtx * ctx);
         rt_register_override(0x00003700u, native_menu_art_unpack);
     }
     /* $003DAA — the password-field text renderer (cell-wise, from the live
@@ -103,7 +94,6 @@ void pc_register_overrides(void) {
      * LEVEL SELECT in this port. See the RE block in boot.c. (The art itself
      * ships a clean field area — verified.) */
     {
-        extern void native_menu_pwfield_draw(M68KCtx * ctx);
         rt_register_override(0x00003DAAu, native_menu_pwfield_draw);
     }
     /* Gameplay overlay's disk reader ($577B8C) — services the "ACCESSING!"
@@ -112,7 +102,6 @@ void pc_register_overrides(void) {
     /* In-game level-segment decruncher ($577E96): adds IMP! (fan Disk.4)
      * support next to the original retail-image ATN! path. */
     {
-        extern void native_level_decrunch(M68KCtx * ctx);
         rt_register_override_gp(0x00577E96u, native_level_decrunch);
     }
 
@@ -144,13 +133,11 @@ void pc_register_overrides(void) {
      * (→ level card) instead of showing the menu, via the clean thread re-entry.
      * See native_gameover_menu. */
     {
-        extern void native_gameover_menu(M68KCtx * ctx);
         rt_register_override_gp(0x0059C5B0u, native_gameover_menu);
     }
     rt_register_override_gp(0x0059DC02u, native_level_load);
     rt_register_override_gp(0x005782B4u, native_level_setup);
     {
-        extern void native_place_probe(M68KCtx * ctx); /* BENEFACTOR_DBG_DROP probe */
         rt_register_override_gp(0x0057EB20u, native_place_probe);
     }
 
@@ -181,7 +168,6 @@ void pc_register_overrides(void) {
      * in our code instead of the engine's bail wild-jumping into object data (the W6L2
      * "no function at $58081A" crash). Good state delegates to the original guest body. */
     {
-        extern void native_obj_anim_59AC38(M68KCtx * ctx);
         rt_register_override_gp(0x0059AC38u, native_obj_anim_59AC38);
     }
     /* Marry-Man build-entry capture: $57B07C (compositor frame start → clear), $57B19E
@@ -189,8 +175,6 @@ void pc_register_overrides(void) {
      * marry man (in view + culled) is captured with the engine's own frame/facing/variant,
      * resolved natively from the $4a72 table. See overrides/gameplay.c. */
     {
-        extern void native_build_red(M68KCtx * ctx), native_build_blind(M68KCtx * ctx),
-            native_build_clear(M68KCtx * ctx);
         rt_register_override_gp(0x0057B07Cu, native_build_clear);
         rt_register_override_gp(0x0057B19Eu, native_build_red);
         rt_register_override_gp(0x0057B856u, native_build_blind);
@@ -205,7 +189,6 @@ void pc_register_overrides(void) {
      * ropes show across the full wide view (incl. creators culled off the vanilla view).
      * Both call the original guest body → vanilla unaffected. */
     {
-        extern void native_wsrope_build(M68KCtx * ctx), native_wsrope_seg(M68KCtx * ctx);
         rt_register_override_gp(0x0057DCAEu, native_wsrope_build);
         rt_register_override_gp(0x0057DCD4u, native_wsrope_seg);
     }
@@ -214,7 +197,6 @@ void pc_register_overrides(void) {
      * vanilla window — BenRen missed them entirely. Capture each record PRE-cull; the
      * original guest body still runs (engine behaviour identical). native_wswater_compose draws. */
     {
-        extern void native_anim_patch(M68KCtx * ctx);
         rt_register_override_gp(0x0057D81Cu, native_anim_patch);
     }
     /* GET READY / GAME OVER banner: the native wide renderer ignores the engine page,
@@ -223,10 +205,6 @@ void pc_register_overrides(void) {
      * the teleport animation ($578B94), and the text ($578860 GET READY / $57889C GAME
      * OVER, rendered by the $57892E font). */
     {
-        extern void native_banner_capture(M68KCtx * ctx);
-        extern void native_telanim_capture(M68KCtx * ctx);
-        extern void native_getready_capture(M68KCtx * ctx);
-        extern void native_gameover_text_capture(M68KCtx * ctx);
         rt_register_override_gp(0x00578974u, native_banner_capture);
         rt_register_override_gp(0x00578B94u, native_telanim_capture);
         rt_register_override_gp(0x00578860u, native_getready_capture);
@@ -234,8 +212,6 @@ void pc_register_overrides(void) {
         /* LEVEL COMPLETE banner: capture its text like the siblings + replace the
          * vanilla "PASSWORD: ..." with "LEVEL COMPLETE" after each build. */
         {
-            extern void native_levelcomplete_text_capture(M68KCtx * ctx);
-            extern void native_password_build(M68KCtx * ctx);
             rt_register_override_gp(0x005788DEu, native_levelcomplete_text_capture);
             rt_register_override_gp(0x0057901Eu, native_password_build);
         }
@@ -246,23 +222,17 @@ void pc_register_overrides(void) {
      * vanilla UP-hop/long-jump commits are suppressed, and the JUMP trigger
      * rides the per-frame terrain pass. Knob off = verified passthrough. */
     {
-        extern void native_pf_hop(M68KCtx * ctx), native_pf_longjump(M68KCtx * ctx),
-            native_pf_fall(M68KCtx * ctx), native_pf_collision(M68KCtx * ctx);
-        extern void native_pf_arc(M68KCtx * ctx);
         rt_register_replacement_gp(0x00579D84u, native_pf_hop);
         rt_register_replacement_gp(0x00579D52u, native_pf_arc); /* abort-arc variants */
         {
-            extern void native_pf_lj(M68KCtx * ctx);
             rt_register_replacement_gp(0x00579A62u, native_pf_lj);
         } /* the LONG JUMP */
         rt_register_replacement_gp(0x00579DDCu, native_pf_longjump);
         rt_register_replacement_gp(0x00579F3Au, native_pf_fall);
         {
-            extern void native_pf_diag(M68KCtx * ctx);
             rt_register_replacement_gp(0x00579E02u, native_pf_diag);
         } /* UP+dir diagonal hop */
         {
-            extern void native_pf_landing_impact(M68KCtx * ctx);
             /* fall-damage scaling knob ("fall_damage"), independent of platformer */
             rt_register_replacement_gp(0x00579F86u, native_pf_landing_impact);
         }
@@ -301,10 +271,6 @@ void pc_register_overrides(void) {
      *     widens the reach with no restart. Debug-only env: PICKUP_SCAN identifies
      *     item handlers. */
     {
-        extern int pc_modern_kb(void), pc_modern_pad(void);
-        extern void native_gameplay_input(M68KCtx * ctx);
-        extern void interact_register(void);
-        extern int interact_extend_px(void);
 
         benefactor_log_write(
             BENEFACTOR_LOG_DEBUG, "override",

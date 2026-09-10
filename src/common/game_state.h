@@ -63,6 +63,9 @@ typedef struct GameState {
 
     /* ── Game-state machine (cross-coroutine restart flags) ──────────────── */
     int enter_gameplay;
+    /* The title overlay was loaded from the title INTERRUPT, which cannot jump
+     * the game flow: the host restarts it at the poster entry instead. */
+    int enter_title;
     uint32_t gameplay_entry;
     int pc_start_level;
 } GameState;
@@ -106,6 +109,7 @@ enum { PC_SCR_INTRO = 0, PC_SCR_OVERLAY, PC_SCR_GAMEPLAY, PC_SCR_CREDITS };
 #define g_gameplay_active (g_state.screen == PC_SCR_GAMEPLAY)
 #define g_credits_active (g_state.screen == PC_SCR_CREDITS)
 #define g_enter_gameplay (g_state.enter_gameplay)
+#define g_pc_enter_title (g_state.enter_title)
 #define g_gameplay_entry (g_state.gameplay_entry)
 #define g_pc_start_level (g_state.pc_start_level)
 

@@ -6,6 +6,7 @@
  *
  * Stage 1 (this file, so far): the SFX TRIGGER ($58656E). Faithful 1:1 translation.
  */
+#include "engine/hw.h"
 #include "port/port_internal.h"
 
 /* For confirming the override actually fires during gameplay (gpl bank). */
@@ -32,7 +33,6 @@ void native_sfx_trigger(M68KCtx *ctx) {
 
     const uint32_t src = ctx->A[3]; /* &new sound descriptor             */
     const uint32_t cur = 0x57fe50u; /* active descriptor slot            */
-    extern int hw_get_frame_num(void);
 
     if (MR8(0x57fe4e)) { /* a sound is currently playing      */
         uint16_t new_pri = MR16(src + 0x10);

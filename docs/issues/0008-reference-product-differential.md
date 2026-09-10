@@ -73,7 +73,57 @@ blank is about right.
   disagree and neither looks right, `vendor/libretro-uae` (the diagnostic
   emulator behind `benefactor-harness`) is the higher authority.
 
-## What the difference actually is (measured 2026-09-10)
+## Result (2026-09-10, after the VPOSR fix)
+
+| screen (cop1lc)  | reference | interpreter |
+| ---------------- | --------: | ----------: |
+| `000000/007770`               |    3 |    5 |
+| `007BC8/0086CC` (intro crawl) | 6290 | 6279 |
+| `0077C0/0078F0`               |  191 |  127 |
+| `007770/0091D0`               |  296 |  233 |
+| `0081D2/00844A` (cover art)   | 4845 | 2967 |
+
+The crawl now matches the reference to 0.2%. The cause was not pacing at all:
+**OCS VPOSR (`$DFF004`) carries only LOF (bit 15) and V8 (bit 0)** — V7..V0 live
+in VHPOSR's high byte. Returning the whole scanline in the low bits put V0 where
+V8 belongs, so the intro's one-frame wait at `$00346E`
+
+    btst #0,$3(a6) / beq.s  ; wait until V8 sets    (a6 = $DFF002)
+    btst #0,$5(a6) / bne.s  ; wait until V8 clears
+
+was satisfied by any two adjacent scanlines instead of once per frame — 312x too
+often. See `src/engine/hw.c`, case `VPOSR`.
+
+## What NOT to copy from the reference
+
+The reference's intro interrupt branch does not deliver the installed vectors:
+
+    /* the $3160 wrapper isn't recompiled, so call its leaf music driver
+     * + the audio-shadow copy directly. */
+    call_fn(&s_game_ctx, 0x0055A0u);
+    call_fn(&s_game_ctx, 0x0058C2u);
+
+That is a workaround for the retired translator's own missing translations, not
+a description of the hardware, and copying it into the interpreter is wrong on
+three counts, each measured:
+
+- **`$0055A0` is not a leaf.** It is a tail-branch dispatcher (`bra.w $5EB0`,
+  `bra.w $5812`) whose chain reaches `$5892`, which ends in RTE. Entered as a
+  subroutine it returns into the game flow's own stack and hangs the boot
+  spinning the one-frame wait at `$3732`; entered as an interrupt its RTS pops
+  the exception frame's SR word as the high half of a return address and jumps
+  to `$20000000` / `$27000000` (~2000 faults per run).
+- **`$0058C2` needs no caller.** The level-6 handlers chain by rewriting their
+  own vector: `$5892` ends with `addi.l #$30,$78(a0)` (a0 = 0), moving `$78` on
+  to `$58C2`. The hardware reaches it through `$78` like the first handler.
+- **Those bytes do not stay put.** Once a screen has been loaded over them,
+  `$58C2` is somebody else's data — it read as `$FFFF` at frame 900 and trapped.
+
+Delivering exactly what the game installed at `$6c`/`$78` gives 6279 crawl
+frames and zero faults.
+
+## What is still wrong: the interrupt is starved
+
 
 The reference ran **one host iteration per displayed frame**: the game flow was
 parked at its per-frame wait, the host presented, and it delivered the level-3
@@ -106,3 +156,31 @@ satisfies it in about two scanlines instead of a frame.
 Next: find that spin in the crawl's handler and give it real per-frame
 semantics — a hardware-wait override of the kind `register.c` already uses for
 the blitter wait at `$0031A0`.
+
+## Where the remaining divergence comes from (measured 2026-09-10)
+
+Over 10,225 presented frames of a plain boot:
+
+    frames presented      10225
+    level-3 deliveries      399
+    level-6 deliveries      399     -> one delivery per ~25 frames
+    beam boundaries taken   335 of 62,922 crossed (the rest declined off-flow)
+
+One root cause explains both remaining symptoms:
+
+- **No music during the crawl.** `$3160` -> `$0055A0` IS the music player, and
+  it writes Paula directly (`lea $DFF000,a5` is its first instruction). It is
+  simply called 399 times instead of 10,225, so channels 1-3 never get a
+  period or a volume. Measured: `vol=[45,0,0,0] per=[320,0,0,0]` throughout.
+- **The logo screens run short** (127/233 against 191/296).
+
+The mechanism is the one this document already described: guest code reached
+from the level-6 delivery runs on the MAIN thread, where `hw_vblank_wait()` is
+a no-op and nothing can park, so its own one-frame wait is satisfied by the
+beam immediately and the whole sequence runs inside a single delivery.
+
+The fix is NOT to bypass the vector (see above). It is to give the frame wait
+real per-frame semantics off the game flow, or to deliver level 6 on the game
+thread where it can park. An earlier attempt — charging the remainder of the
+beam frame in an off-flow `hw_vblank_wait()` — over-corrected badly (`0077C0`
+and `0091D0` ballooned past 700 frames) and was reverted.

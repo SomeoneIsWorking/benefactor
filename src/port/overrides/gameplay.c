@@ -5,7 +5,12 @@
  * high-level behavior (the "what" and "when") and delegate the heavy
  * hardware/teardown work to the existing handlers for now.
  */
+#include "engine/hw.h"
+#include "port/config.h"
+#include "port/overlay_ui.h"
 #include "port/port_internal.h"
+#include "render/native_renderer.h"
+#include "runtime/guest_runtime.h"
 
 /* gameplay work-area globals (a5 = $0057EE12) */
 #define GP_MODE_001E 0x001Eu  /* screen/mode word: 2 = in a level, 8 = game-over menu */
@@ -95,7 +100,6 @@ void native_gameover_menu(M68KCtx *ctx) {
      * menu. Redirect THERE to the level card (reload current level) via the clean
      * thread re-entry we already own. */
     if ((f & 0x60u) == 0x60u) {
-        extern void pc_request_level_restart(void);
         MW8(0x57FEA5u, f & ~0x60u); /* drop the markers for a clean restarted state */
         pc_request_level_restart(); /* respawn at $577000 (current level) → level card */
         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow",
@@ -136,11 +140,6 @@ void native_gameover_menu(M68KCtx *ctx) {
  * translation + prone handling below are binding-agnostic. $bfe001 bit7 reads as
  * (s_fire_pressed || s_mouse_lmb), so both are driven. State is restored after decode. */
 void native_gameplay_input(M68KCtx *ctx) {
-    extern int hw_get_interact(void), hw_get_fire(void), hw_get_mouse_lmb(void);
-    extern int hw_joy_down(void), hw_get_drop(void), hw_joy_up(void), hw_get_hop(void);
-    extern int hw_get_fire_vanilla(void);
-    extern void hw_set_fire(int), hw_set_mouse_lmb(int), hw_set_joy_down(int), hw_set_joy_up(int);
-    extern int pc_modern_any(void);
 
     /* No device on the modern scheme → fully vanilla decode, untouched. (hw.c
      * gates interact/drop/hop signals to modern devices, so they'd all be 0
@@ -208,7 +207,6 @@ void native_gameplay_input(M68KCtx *ctx) {
      * BENMOTION: with platformer physics ON the JUMP button is handled natively
      * (native_pf_collision trigger) and must NOT present as Up — a jump next to
      * a ladder/door would climb/enter instead of jumping. */
-    extern int pc_platformer_on(void);
     int up_dir = hw_joy_up();
     int want_up = up_dir || (hw_get_hop() && !pc_platformer_on());
     /* (The 2026-06-13 "modern UP diagonal-freeze guard" was removed same day:
@@ -290,7 +288,6 @@ void native_gameplay_input(M68KCtx *ctx) {
  * Logs the caller PC + input state each time the place routine runs, to pin the
  * fire+down gate that selects the drop (so we can port it to interact+down). */
 void native_place_probe(M68KCtx *ctx) {
-    extern uint32_t rt_get_last_insn(void);
     uint32_t a5 = ctx->A[5];
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "gameplay",
                          "$57EB20 from $%06X $f80=%04X d4=%08X $1094=%04X $109c=%08X",
@@ -304,8 +301,6 @@ void native_place_probe(M68KCtx *ctx) {
  * via rt_get_last_insn) and the level-selecting registers, so we learn the
  * dispatch mechanism from the level-1 entry we can reach headless. */
 void native_level_setup(M68KCtx *ctx) {
-    extern uint32_t rt_get_last_insn(void);
-    extern int rt_insn_ring_snapshot(uint32_t *out, int max);
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-setup",
                          "$5782B4 entered from insn $%06X "
                          "d0=%08X d1=%08X d4=%08X d5=%08X d6=%08X d7=%08X a3=%08X",
@@ -803,7 +798,6 @@ static int ws_obj_cull_skip(uint16_t worldX, uint16_t cam, uint16_t origLeft, ui
         uint16_t d1 = (uint16_t)(worldX + origLeft - cam);
         return d1 > origWidth;
     }
-    extern int ws_view_left(int ow);
     int vl = ws_view_left(ow);
     int PAD = 48; /* object-width slop so edge sprites still dispatch */
     int rel = (int)(int16_t)worldX - (vl - PAD);
@@ -1317,7 +1311,6 @@ void native_gameover_text_capture(M68KCtx *ctx) {
  * BenRen banner like its GET READY / GAME OVER siblings. */
 void native_lc_text_set(void) {
     static const char txt[] = "LEVEL COMPLETE";
-    extern uint8_t *g_mem;
     uint32_t base = GP_A5 - 0x64FCu; /* $578916 */
     g_mem[base] = 0;
     g_mem[base + 1] = 15; /* position word (8px cols): 14=centered, +1 nudges right slightly */
@@ -1335,7 +1328,6 @@ void native_levelcomplete_text_capture(M68KCtx *ctx) {
      * point of this banner (vanilla shows the next level's password, generated
      * by $57901E from $20) — so the level just won is $20 - 1. Verified live:
      * winning level 3 reads $20 == 4 here. */
-    extern uint8_t *g_mem;
     pc_profile_mark_completed((int)((g_mem[0x20] << 8) | g_mem[0x21]) - 1);
     banner_text_capture(ctx, GP_A5 - 0x64FCu, 0x005788DEu);
 }

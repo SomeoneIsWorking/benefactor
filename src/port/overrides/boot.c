@@ -1,7 +1,12 @@
 /* src/port/overrides/boot.c — Boot-time animation overrides (native PC C, no M68K emulation) */
+#include "engine/disk_boot.h"
 #include "engine/gameplay_handoff.h" /* $150 loader-body low-memory init */
-#include "engine/overlay_load.h"     /* shared pure overlay loaders */
+#include "engine/hw.h"
+#include "engine/overlay_load.h" /* shared pure overlay loaders */
+#include "port/overlay_ui.h"
+#include "port/port.h"
 #include "port/port_internal.h"
+#include "runtime/guest_runtime.h"
 
 /* Step a single 12-bit Amiga color one nibble-step toward its target.
  * Each of the R/G/B 4-bit channels moves ±1 per call. */
@@ -138,7 +143,17 @@ void native_overlay_loader(M68KCtx *ctx) {
     native_overlay_load();
     rt_activate_image(ctx, BENEFACTOR_IMAGE_TITLE);
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
-                         "[overlay-loader] gameplay overlay loaded; entering $3330\n");
+                         "[overlay-loader] title overlay loaded; entering $3330 (flow=%d)\n",
+                         pc_on_game_thread());
+    /* Off the game flow this runs on the title interrupt, which owns neither the
+     * flow's PC nor its stack: jumping here left the flow executing an image that
+     * no longer exists, and it unwound with `image-replaced`. Ask the host to
+     * restart it at the poster entry — the same hand-off exit-to-menu uses. */
+    if (!pc_on_game_thread()) {
+        g_pc_enter_title = 1;
+        rt_exit_to_host(ctx);
+        return;
+    }
     /* Enter the gameplay code (sets a5=$511E itself). */
     rt_jump(ctx, ctx->image, 0x00003330u);
 }
@@ -175,7 +190,6 @@ void native_overlay_load_d0(void) {
  * PC doesn't emulate. Reproduce natively: d0 = source (offset<<8 | disk-1),
  * d1 = length, d2 = dest; read linearly from the WHDLoad image, report success. */
 void native_gp_disk_read(M68KCtx *ctx) {
-    extern int disk_boot_load(int, uint32_t, uint32_t, uint32_t);
     uint32_t src = ctx->D[0], len = ctx->D[1], dest = ctx->D[2];
     uint32_t off = src >> 8;
     int disk = (int)(src & 0xFFu) + 1;
@@ -195,7 +209,6 @@ void native_gp_disk_read(M68KCtx *ctx) {
  * avoids spending nearly a million interpreted instructions per segment while
  * preserving the guest JSR continuation. */
 void native_level_decrunch(M68KCtx *ctx) {
-    extern uint32_t atn_decrunch(uint32_t);
     uint32_t magic = MR32(ctx->A[0]);
     if (magic == 0x41544E21u || magic == 0x494D5021u) { /* "ATN!" or "IMP!" */
         uint32_t n = atn_decrunch(ctx->A[0]);
@@ -258,7 +271,6 @@ void native_menu_glyph_blit(M68KCtx *ctx) {
     /* Capture the CONTINUE item's on-page position so the subtext overlay can
      * anchor under it (content px = byte-col*8, row), regardless of widescreen. */
     if (!strcmp(buf, "CONTINUE")) {
-        extern int g_menu_continue_x, g_menu_continue_y;
         uint32_t a1c = ctx->A[1];
         if (a1c >= s_menu_page_base && a1c < s_menu_page_base + 0xC8u * 282u) {
             uint32_t off = a1c - s_menu_page_base;
@@ -343,13 +355,6 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
          * one frame per iteration, but the menu state machine is parked
          * here until we return — no risk of $003C5A et al. double-handling
          * the arrows. */
-        extern void hw_vblank_wait(void);
-        extern int hw_joy_up(void);
-        extern int hw_joy_down(void);
-        extern int hw_joy_left(void);
-        extern int hw_joy_right(void);
-        extern int hw_get_fire(void);
-        extern int g_level_select_visible;
         /* pc_set_start_level / pc_get_start_level / pc_level_split come from
          * pc.h (via pc_internal.h) — the single declaration point. */
 
@@ -434,7 +439,6 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
             return;
         }
         {
-            extern int g_pc_menu_visible;
             g_pc_menu_visible = 0;
         }
 
@@ -457,7 +461,6 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
          * the on-screen highlight stays put, so fire would then run CONTINUE
          * with OPTIONS still visually selected (user-reported). */
         {
-            extern void pc_pause_open_options(void);
             pc_pause_open_options();
         }
         rt_jump(ctx, ctx->image, 0x0039BEu);
@@ -471,7 +474,6 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
      * so try_select cannot refuse; the level-1 fallback is belt-and-braces. */
     {
         {
-            extern int g_pc_menu_visible;
             g_pc_menu_visible = 0;
         }
         int next = pc_menu_continue_level();
@@ -505,7 +507,6 @@ int pc_menu_continue_level(void) {
 }
 
 static void menu_write_string(uint32_t dst, const char *str) {
-    extern uint8_t *g_mem;
     uint32_t i = 0;
     for (; str[i]; i++)
         g_mem[dst + i] = (uint8_t)str[i];
@@ -680,9 +681,6 @@ void native_menu_diff_right(M68KCtx *ctx) {
 }
 
 void native_overlay_loader_reloc(M68KCtx *ctx) {
-    extern uint8_t *g_mem;
-    extern int disk_boot_load(int, uint32_t, uint32_t, uint32_t);
-    extern uint32_t atn_decrunch(uint32_t);
 
     if (ctx->D[0] == 3u) {
         /* d0=3: END-GAME / credits overlay. Path taken by $5773A2 (the win-
@@ -738,7 +736,6 @@ void native_overlay_loader_reloc(M68KCtx *ctx) {
      * touched, no levels played. See [[project-title-card-structure]] for
      * the renderer-buffer copy code at $57CBBA (g_mem-resident at runtime). */
     {
-        extern void pc_preload_all_level_names(void);
         pc_preload_all_level_names();
     }
 

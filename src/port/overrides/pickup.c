@@ -23,6 +23,8 @@
  *
  * Reach: `interact_extend` cfg knob (px, horizontal only). Logging: REPL `pklog`.
  */
+#include "engine/hw.h"
+#include "port/config.h"
 #include "port/port_internal.h"
 
 #define A5_F80 3968u /* current input bits ($20 = fire)  */
@@ -140,8 +142,6 @@ static int s_interact_consumed = 0;
  * $f80/$f94 are restored immediately after the handler runs. latch=1 (levers) fires once
  * per key press (consumed on a real state change); latch=0 (collectibles) every frame. */
 static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch) {
-    extern int hw_get_interact(void), hw_get_fire_vanilla(void);
-    extern int pc_modern_any(void);
 
     /* VANILLA controls: keep FIRE as the trigger and the handler's own semantics —
      * only EXTEND the horizontal reach by `extend` px (nudge the player toward the
@@ -224,7 +224,6 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch) {
 /* Resolve the horizontal-extend knob LIVE (ENV > REPL > JSON > 0), so a runtime
  * `cfg interact_extend N` takes effect on the next frame with no restart. */
 int interact_extend_px(void) {
-    extern int pc_cfg_int(const char *, int);
     int e = pc_cfg_int("interact_extend", 0);
     return e < 0 ? 0 : e;
 }
@@ -316,8 +315,6 @@ IK(59B0B0)
 int native_hands_full(M68KCtx *ctx) { return (MR16(ctx->A[5] + 0x10ACu) & 0x4000u) != 0; }
 
 void native_mm_pickup_gate(M68KCtx *ctx) {
-    extern int pc_modern_any(void);
-    extern int hw_get_interact(void), hw_get_fire_vanilla(void);
     if ((ctx->D[4] & 0x4000u))
         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
                              "[mm] $57EA76 d4=%08X held=%d int=%d vfire=%d\n", ctx->D[4],

@@ -55,3 +55,7 @@ void trace_dump_side_by_side(FILE *fp, uint32_t addr, int max_entries);
 int trace_count(void);
 
 #endif /* HARNESS_TRACE_H */
+
+/* Frames the harness has compared so far — the engine tags its per-blit trace
+ * with this so a divergence can be lined up against the PUAE side. */
+extern int g_harness_compared_frame;
