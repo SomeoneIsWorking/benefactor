@@ -1,36 +1,31 @@
 /* src/port/overrides/render.c — Render pipeline hook overrides
  *
- * These are stable hook points in the render pipeline, currently delegating
- * to the original guest routines through the interpreter. Each wrapper can become
- * a binary-grounded native implementation independently.
+ * What is left here is native code that actually does something. There used to
+ * be ten more "hook points" in this file, each a function whose whole body was
+ * `rt_call_original(ctx, ctx->image, <its own address>)` — $00405C, $0040B6,
+ * $0040B8, $0040BA, $0040BC, $0040BE, $0040CC, $004102, $00412E and $004236,
+ * plus $003488 in copper.c. Registering an override that only calls the
+ * original is behaviourally identical to not registering one, so they were
+ * removed: they were placeholders from the retired translator, kept for a
+ * native implementation that a later reading of the render path never needed.
  *
- * Hook addresses and their roles in the frame render sequence:
+ * They were not free. $004236 is entered by a BSR from $004226, and a wrapper
+ * entered as a subroutine must complete its boundary with
+ * rt_call_original_subroutine; with plain rt_call_original the executor failed
+ * closed on every level load:
  *
- *   $00405C  native_text_sprite_render  — outer render entry; updates BPLPTRs
- *   $0040B6  native_dispatch_table      — render dispatch table entry
- *   $0040B8  native_item_dispatch_1     — dispatch item type 1
- *   $0040BA  native_item_dispatch_2     — dispatch item type 2
- *   $0040BC  native_item_dispatch_3     — dispatch item type 3
- *   $0040BE  native_item_decrement      — item counter decrement
- *   $0040CC  native_item_scroll         — scrolling item handler
- *   $004102  native_item_position       — item position update
- *   $00412E  native_item_blitter        — item blit operation
- *   $004236  native_blit_row_callback   — per-row blit callback (3 blits/row)
+ *   native override $004236 returned without completing its guest boundary;
+ *   entered from $004226 opcode=$610E
+ *
+ * An override that does nothing cannot get its boundary wrong if it does not
+ * exist. See the override table in CLAUDE.md before adding one back.
+ *
  *   $0052A4  native_post_blit_handler   — post-blit: animation advance, zero fill
- *   $0055A0  native_timer_interrupt     — CIA-B timer B: palette animation tick
+ *
+ * The level-6 timer leaf $0055A0 has NO native owner, deliberately — see the
+ * note further down this file. Do not re-wrap it.
  */
 #include "port/port_internal.h"
-
-void native_text_sprite_render(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x00405Cu); }
-void native_dispatch_table(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040B6u); }
-void native_item_dispatch_1(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040B8u); }
-void native_item_dispatch_2(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040BAu); }
-void native_item_dispatch_3(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040BCu); }
-void native_item_decrement(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040BEu); }
-void native_item_scroll(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x0040CCu); }
-void native_item_position(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x004102u); }
-void native_item_blitter(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x00412Eu); }
-void native_blit_row_callback(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x004236u); }
 
 void native_post_blit_handler(M68KCtx *ctx) {
     ctx->A[1] = ctx->D[0];

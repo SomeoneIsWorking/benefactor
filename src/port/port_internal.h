@@ -56,18 +56,7 @@ void pickup_register(void);
 void pickup_register_scan(void);
 /* overrides/copper.c */
 void native_sprite_blitter_setup(M68KCtx *ctx);
-void native_game_frame(M68KCtx *ctx);
 /* overrides/render.c */
-void native_text_sprite_render(M68KCtx *ctx);
-void native_dispatch_table(M68KCtx *ctx);
-void native_item_dispatch_1(M68KCtx *ctx);
-void native_item_dispatch_2(M68KCtx *ctx);
-void native_item_dispatch_3(M68KCtx *ctx);
-void native_item_decrement(M68KCtx *ctx);
-void native_item_scroll(M68KCtx *ctx);
-void native_item_position(M68KCtx *ctx);
-void native_item_blitter(M68KCtx *ctx);
-void native_blit_row_callback(M68KCtx *ctx);
 void native_post_blit_handler(M68KCtx *ctx);
 /* overrides/gameplay.c */
 void native_end_of_level(M68KCtx *ctx);

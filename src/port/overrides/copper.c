@@ -11,4 +11,3 @@ void native_sprite_blitter_setup(M68KCtx *ctx) {
 }
 
 /* $003488 — per-frame game logic entry (car-demo screen) */
-void native_game_frame(M68KCtx *ctx) { rt_call_original(ctx, ctx->image, 0x003488u); }
