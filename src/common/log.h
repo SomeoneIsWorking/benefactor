@@ -4,6 +4,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* C linkage when included from C++: the port is growing C++ modules and every
+ * one of them logs. Without this each had to wrap the include itself, and
+ * forgetting only showed up as a link error. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum BenefactorLogLevel {
     BENEFACTOR_LOG_TRACE = 0,
     BENEFACTOR_LOG_DEBUG = 1,
@@ -48,3 +55,7 @@ void benefactor_log_signal_hex(const char *message, const uint32_t *values, size
 
 #define GLOBAL_LOG(...) benefactor_log_write(BENEFACTOR_LOG_INFO, "app", __VA_ARGS__)
 #define GLOBAL_LOG_FLUSH() benefactor_log_flush()
+
+#ifdef __cplusplus
+}
+#endif

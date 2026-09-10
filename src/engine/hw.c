@@ -453,6 +453,16 @@ int hw_ffwd_active(void) { return s_ffwd_held; } /* HUD icon */
  * the early-skip path previously returned before pacing, which made
  * fast-forward effectively unbounded instead of 5x. */
 static void hw_pace_frame(void) {
+    /* Held still by the control channel: stop advancing the game at all, so a
+     * frame can be looked at. The channel answers on its own thread, which is
+     * what lets /resume and /step get back in, and the frame watchdog has to
+     * stand down — a held frame never finishing is the point, not a fault. */
+    if (pc_control_paused()) {
+        hw_watchdog_disarm();
+        while (pc_control_paused() && hw_running)
+            SDL_Delay(5);
+        hw_watchdog_rearm();
+    }
     if (s_no_pace)
         return;
     static uint64_t s_next_frame_us = 0;

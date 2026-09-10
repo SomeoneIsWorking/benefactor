@@ -51,7 +51,7 @@ int pc_savestate(const char *path);
 int pc_loadstate(const char *path);
 
 /* Opt-in HTTP debug server (no-op unless BENEFACTOR_HTTP=<port> is set). */
-void pc_http_debug_start(void);
+/* The loopback control channel lives in port/control/control_server.h. */
 
 /* When set, pc_run skips host-rate pacing (harness drives stepping itself). */
 void pc_set_harness_mode(int on);

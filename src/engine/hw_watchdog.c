@@ -22,6 +22,7 @@ volatile uint32_t g_hw_beam_declined_off_flow = 0;
  * interpreter is circling, the last hardware register read, and the recent call
  * targets, then kills the app. */
 static volatile const char *s_wd_what = NULL;
+static volatile int s_wd_seconds = 0;
 
 #define WD_TRACE_DEPTH 64
 #define WD_TRACE_PER_LINE 16
@@ -90,6 +91,7 @@ void hw_watchdog_arm(const char *what, int seconds) {
     }
 #endif
     s_wd_what = what;
+    s_wd_seconds = seconds;
 #ifndef _WIN32
     alarm((unsigned)(seconds > 0 ? seconds : 2));
 #endif
@@ -104,4 +106,13 @@ void hw_watchdog_disarm(void) {
 #else
     alarm(0);
 #endif
+}
+
+/* Re-arm whatever was armed last, for its original budget. The debugger's pause
+ * holds the frame open on purpose, and that is the one wait the watchdog must
+ * not count: the caller disarms, holds, then re-arms through here so it does
+ * not have to know what the frame was armed as. */
+void hw_watchdog_rearm(void) {
+    if (s_wd_what != NULL)
+        hw_watchdog_arm((const char *)s_wd_what, s_wd_seconds);
 }
