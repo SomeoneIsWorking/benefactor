@@ -5,6 +5,8 @@
 extern "C" {
 #include "common/log.h"
 #include "engine/hw.h"
+#include <cstdio>
+
 #include "port/frame_accounting.h"
 #include "runtime/guest_runtime.h"
 }
@@ -37,6 +39,8 @@ void Debugger::reached(std::uint32_t address, std::uint32_t program_counter) {
                  .frame = hw_get_frame_num(),
                  .guest_cycles = rt_get_guest_cycles(),
                  .valid = true};
+    /* Freeze how it got here BEFORE anything else runs. See Stop::trace. */
+    last_.trace_length = rt_insn_ring_entries(last_.trace, last_.trace_opcodes, kStopTraceDepth);
     /* Hold at the next frame boundary. Ending the slice alone would let the
      * game flow run straight on, and the state at the breakpoint would be gone
      * before anything could read it. */
@@ -47,6 +51,27 @@ void Debugger::reached(std::uint32_t address, std::uint32_t program_counter) {
 }
 
 Stop Debugger::last_stop() const { return last_; }
+
+std::size_t Debugger::format_stop_trace(char *buffer, std::size_t capacity) const {
+    if (buffer == nullptr || capacity == 0) {
+        return 0;
+    }
+    buffer[0] = '\0';
+    if (!last_.valid || last_.trace_length <= 0) {
+        return 0;
+    }
+    std::size_t used = 0;
+    for (int index = 0; index < last_.trace_length; index++) {
+        const int written =
+            snprintf(buffer + used, capacity - used, "%s$%06X %04X", used ? " " : "",
+                     last_.trace[index], last_.trace_opcodes[index]);
+        if (written < 0 || (std::size_t)written >= capacity - used) {
+            break;
+        }
+        used += (std::size_t)written;
+    }
+    return used;
+}
 
 void Debugger::forget_last_stop() { last_ = Stop{}; }
 
