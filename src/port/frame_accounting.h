@@ -27,6 +27,11 @@ extern uint64_t g_pc_cycles_outside, g_pc_cycles_iter_max; /* the whole iteratio
  * thread, where the per-frame wait cannot park anything. */
 extern volatile uint32_t g_pc_guest_owner;
 
+/* How many times each vector was DELIVERED. The cycle totals say how long a
+ * delivery ran; these say how often it happened, which is what a screen driven
+ * from inside an interrupt (the intro crawl) actually advances on. */
+extern volatile uint32_t g_pc_irq3_calls, g_pc_irq6_calls;
+
 /* Per-frame wait accounting: reached, refused (not the game flow), parked. */
 extern volatile uint32_t g_pc_yield_calls, g_pc_yield_refused, g_pc_yield_parks;
 
@@ -38,5 +43,13 @@ extern volatile uint32_t g_pc_title_draws;
 
 /* Record one measured span into its slot, keeping the running peak. */
 void pc_account(uint64_t *slot, uint64_t *peak, uint64_t cycles);
+
+/* Name every screen change with the frame it happened on. A phase timeline is
+ * what makes two runs comparable: `tools/oracle_diff.py` builds the retired
+ * reference product out of tree, has it emit the same lines, and diffs the two
+ * timelines phase by phase — a screen that runs at the wrong speed shows up as a
+ * frame count that does not match. Logged once per presented frame, only when
+ * cop1lc actually changes. */
+void pc_note_frame_phase(void);
 
 #endif
