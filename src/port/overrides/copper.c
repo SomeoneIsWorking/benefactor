@@ -6,7 +6,7 @@
  * intro/title screen's redraw, and comparing its rate to the presented frame
  * rate says whether the screen is being stepped faster than it is shown. */
 void native_sprite_blitter_setup(M68KCtx *ctx) {
-    g_pc_title_draws++;
+    pc_note_title_draw();
     rt_call_original(ctx, ctx->image, 0x0041A4u);
 }
 

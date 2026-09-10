@@ -113,10 +113,11 @@ set(BENEFACTOR_SOURCES
     src/engine/sb_decompress.c
     src/port/config.c
     src/port/freecam.c
-    src/port/frame_accounting.c
+    src/port/frame_accounting.cpp
     src/port/frame_signature.c
     src/port/guest_profile.cpp
     src/port/game_loop.c
+    src/port/guest_vectors.c
     src/port/level_layout.c
     src/port/guest_trace.c
     src/port/control/control_server.cpp

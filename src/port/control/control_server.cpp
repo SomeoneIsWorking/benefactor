@@ -107,6 +107,10 @@ Response route_state() {
      * /cpu for a5 and /mem for the block, rather than guessing here. */
     const char *why = nullptr;
     const int saveable = pc_savestate_allowed(&why);
+    /* One read of the frame's numbers, so every field below describes the same
+     * instant rather than drifting while the reply is formatted. */
+    PcFrameAccounting frame;
+    pc_frame_accounting(&frame);
 
     return Response::json(
         200, "OK",
@@ -138,16 +142,16 @@ Response route_state() {
             s_regs[0x0C6 >> 1], s_regs[0x0D6 >> 1], g_hw_beam_crossed, g_hw_beam_taken,
             g_hw_beam_declined, g_hw_beam_declined_off_flow, g_hw_beam_pending_blit,
             g_hw_blt_last_reg, g_hw_beam_by_flow, g_hw_beam_by_irq, g_hw_beam_by_host,
-            (unsigned long long)g_pc_cycles_flow, (unsigned long long)g_pc_cycles_irq3,
-            (unsigned long long)g_pc_cycles_irq6, (unsigned long long)g_pc_cycles_frame,
+            (unsigned long long)frame.flow, (unsigned long long)frame.irq3,
+            (unsigned long long)frame.irq6, (unsigned long long)frame.frame,
             (unsigned long long)rt_get_cycle_base(), (unsigned long long)rt_get_cycles_elapsed(),
-            (unsigned long long)g_pc_cycles_present, (unsigned long long)g_pc_cycles_outside,
-            (unsigned long long)g_pc_cycles_iter_max, (unsigned long long)g_pc_cycles_flow_max,
-            (unsigned long long)g_pc_cycles_irq3_max, (unsigned long long)g_pc_cycles_irq6_max,
-            g_hw_present_calls, g_hw_present_reentrant, g_pc_irq3_calls, g_pc_irq6_calls,
-            pc_on_game_thread(), g_pc_guest_owner, g_pc_yield_calls, g_pc_yield_refused,
-            g_pc_yield_parks, g_pc_title_draws, g_hw_perf.game_us, g_hw_perf.render_us,
-            g_hw_perf.compose_us, g_hw_perf.present_us));
+            (unsigned long long)frame.present, (unsigned long long)frame.iteration,
+            (unsigned long long)frame.iteration_peak, (unsigned long long)frame.flow_peak,
+            (unsigned long long)frame.irq3_peak, (unsigned long long)frame.irq6_peak,
+            g_hw_present_calls, g_hw_present_reentrant, frame.irq3_deliveries,
+            frame.irq6_deliveries, pc_on_game_thread(), frame.running_owner, frame.waits_reached,
+            frame.waits_refused, frame.waits_parked, frame.title_draws, g_hw_perf.game_us,
+            g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us));
 }
 
 Response route_cpu() {
