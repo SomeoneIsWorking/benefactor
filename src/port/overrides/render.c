@@ -64,31 +64,23 @@ void native_post_blit_handler(M68KCtx *ctx) {
     hw_write16(ctx->A[6] + 0x56u, 0x54u);
 }
 
-void native_timer_interrupt(M68KCtx *ctx) {
-    /* Call $0055A0 once per frame to match PUAE's CIA-B timer rate.
-     * Confirmed by harness: PUAE fires the timer interrupt once per VBL
-     * (ctr sequence: 1→8→7→6 over 3 frames). Two calls per frame causes
-     * the PC counter to run at double rate (reaching 3 by frame 3 vs 6 for
-     * PUAE), diverging the animation table and copper list BPL pointers. */
-    static int s_calls_per_frame = 1;
-    for (int i = 0; i < s_calls_per_frame; i++) {
-        uint16_t before = r16(0x0067D2u);
-        uint8_t d5before = r8(0x0067D5u);
-        uint32_t copptr_before = r32(0x0069DCu);
-        benefactor_log_write(BENEFACTOR_LOG_TRACE, "timer",
-                             "call %d/%d ctr=$%04X d5=$%02X copptr=$%08X a5=$%06X a6=$%06X", i + 1,
-                             s_calls_per_frame, before, d5before, copptr_before, ctx->A[5],
-                             ctx->A[6]);
-        rt_call_original(ctx, ctx->image, 0x0055A0u);
-        uint16_t after = r16(0x0067D2u);
-        uint32_t copptr_after = r32(0x0069DCu);
-        benefactor_log_write(BENEFACTOR_LOG_TRACE, "timer",
-                             "call %d/%d ctr after=$%04X copptr after=$%08X", i + 1,
-                             s_calls_per_frame, after, copptr_after);
-    }
-    /* NOTE: do NOT zero $0069F0-$006AE9 here.  $0055A0 writes palette animation
-     * state to this region each frame (CIA-B timer modulation tables).  Clearing
-     * it after the call destroys the state that the NEXT frame's timer interrupt
-     * reads to compute the correct palette modulation — causing COLOR01-COLOR09
-     * to diverge from PUAE every frame. */
-}
+/* The level-6 timer leaf $0055A0 has NO native owner, deliberately.
+ *
+ * It used to be wrapped here to control how often it ran, back when the host
+ * called it directly. The guest's own vector wrapper ($003160) already does
+ * `bsr $55A0` once per delivery — the same thing the reference product does —
+ * so the wrapper was a second caller, and a harmful one: rt_call_original runs
+ * without stopping at an RTE, and $55A0's chain ends at one ($005892). Past
+ * that RTE the run carried straight on into the code the interrupt had
+ * interrupted — a million instructions of the intro crawl inside one timer
+ * interrupt, then a rollback of the lot. The music player, which is what the
+ * interrupt is FOR, advanced once per twenty frames.
+ *
+ * Do not re-wrap it. A native owner for the timer must be entered as the
+ * vector (so the delivery's own RTE boundary applies), not as a wrapper around
+ * a routine the guest is already calling.
+ *
+ * Its palette-animation state at $0069F0-$006AE9 must also survive between
+ * deliveries: $55A0 writes the CIA-B timer modulation tables there and the
+ * next delivery reads them back. Clearing them made COLOR01-COLOR09 diverge
+ * from the reference every frame. */

@@ -39,3 +39,4 @@ profile.json
 
 # WHDLoad content dir (copyrighted disks) — only needed for BENEFACTOR_REFREEZE
 /whdload/
+*.measuring

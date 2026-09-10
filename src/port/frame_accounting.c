@@ -2,6 +2,7 @@
 
 #include "common/log.h"
 #include "engine/hw.h"
+#include "port/guest_profile.h"
 
 uint64_t g_pc_cycles_flow = 0, g_pc_cycles_flow_max = 0;
 uint64_t g_pc_cycles_irq3 = 0, g_pc_cycles_irq3_max = 0;
@@ -29,4 +30,12 @@ void pc_note_frame_phase(void) {
     last = cop1lc;
     benefactor_log_write(BENEFACTOR_LOG_INFO, "phase", "frame=%d cop1lc=%06X", hw_get_frame_num(),
                          cop1lc);
+    /* One screen's hot loop must not be read as the next screen's. Report the
+     * screen that is ending before clearing it. */
+    {
+        char hot[512];
+        if (pc_profile_report(hot, (int)sizeof hot) > 0)
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "hot", "%s", hot);
+        pc_profile_reset();
+    }
 }
