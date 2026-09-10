@@ -136,7 +136,6 @@ void native_overlay_load(void) {
      * copy, so it is safe from ANY state (boot, exit-to-menu after gameplay
      * reused $6E000+, retry, …). */
     overlay_load_title();
-    pc_fold_wait_idioms(BENEFACTOR_IMAGE_MASK_TITLE);
     g_pc_screen = PC_SCR_OVERLAY;
 }
 
@@ -176,7 +175,6 @@ void native_overlay_load_d0(void) {
      * before the $6D714 block copy, so re-entry from a state where gameplay
      * already reused $6E000+ (retry, level select after play) stays correct. */
     overlay_load_gameplay();
-    pc_fold_wait_idioms(BENEFACTOR_IMAGE_MASK_GAMEPLAY);
     g_pc_screen = PC_SCR_OVERLAY;
     rt_activate_image(NULL, BENEFACTOR_IMAGE_GAMEPLAY);
 }
