@@ -567,3 +567,36 @@ same driver, run the same number of times, reaches a different decision — whic
 points at the state it reads (the CIA-B timer having been acknowledged and
 re-armed, DMACON, or a counter one of the other links advances) rather than at
 the delivery count. Recorded here rather than guessed at further.
+
+#### A second delivery path exists, and it is not guarded like the first
+
+Found while making the frame accounting an object: level 6 is delivered from
+**two** places, and they are not the same.
+
+| | `coro_deliver_timer_irq` | `pc_music_tick` |
+| --- | --- | --- |
+| when | once per presented frame, whole chain | the per-screen sub-frame rate |
+| entry | `GUEST_ENTRY_RTE` | `GUEST_ENTRY_RTE` (identical) |
+| owner recorded | `PC_OWNER_LEVEL6_TIMER` | **nothing** — attributed to the flow |
+| blitter registers lent | yes | **no** |
+
+The entry is identical, so this is not a wrong-return question. Two things do
+differ, and both matter:
+
+- **The accounting lies.** Cycles burned by the sub-frame music deliveries are
+  charged to the game flow, and those deliveries are not counted at all. So
+  `irq6` under-reports and `flow` over-reports by however much the music
+  player costs — on a screen driven from inside an interrupt, that is most of
+  the frame. Every earlier reading of this instrument on the intro screens was
+  wrong in that direction.
+- **The blitter guard is missing on the busier path.** The frame-loop path
+  lends the interrupt a copy of the blitter registers precisely because the
+  registers are one shared set and a delivery landing between a `BLTxxx` write
+  and `BLTSIZE` merges two blits into one runaway blit (see issue 0007). The
+  path that delivers *more often* does not do that.
+
+Whether the missing guard is what makes the same driver reach a different
+decision is untested — that is the open question above, and this is a lead, not
+a verdict. But the accounting error is not a lead, it is a fault in the
+instrument, and it has to be fixed before any further reading of `irq6` against
+`flow` means anything.
