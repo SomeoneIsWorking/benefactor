@@ -132,7 +132,10 @@ Reach for these before adding a print:
   far above that is the fault. The peaks matter: a runaway iteration is
   invisible to a sampler, which only ever sees what the previous short
   iteration left behind. This is what found the crawl bug — `irq6_max` of 14M
-  cycles (99 frames inside one interrupt delivery).
+  cycles (99 frames inside one interrupt delivery). Recording is by NAMED owner
+  (`pc_account_owner(PC_OWNER_LEVEL6_TIMER, cycles)`) — never hand a function
+  the storage to write into, and add a new number as a member of
+  `benefactor::diag::FrameAccounting`, not as another global.
 - **Breakpoints** (`src/port/debug/debugger.h`) — `/break?at=3732` stops the
   guest when the PC reaches an address, BEFORE the instruction runs, and holds
   the game there; `/breaks` lists what is set and where it last stopped;
