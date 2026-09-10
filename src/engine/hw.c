@@ -2077,27 +2077,24 @@ void hw_write16(uint32_t addr, uint16_t v) {
             if (s_blt_setup_open)
                 g_hw_blt_last_reg = reg;
         }
+        /* The shadow is stored for EVERY custom-chip write, before any
+         * register's own handling below. So a handler that wants to know
+         * whether the write changed anything cannot read s_regs any more —
+         * it is already the new value. Hand it the old one. (Measured: an
+         * audio trace comparing s_regs to v never fired once, because the
+         * comparison had already been made true here.) */
+        const uint16_t previous = s_regs[reg >> 1];
         s_regs[reg >> 1] = v; /* shadow copy */
 
         /* COP1LCL completes the 32-bit COP1LC write (the game uses move.l to
          * $7e(a6)): the display copper pointer is now committed — present here. */
         if (reg == COP1LCL && g_hw_cop1lc_present)
             g_hw_cop1lc_present();
-        {
-            if ((reg == COP1LCL || reg == COP1LCH) && g_gameplay_active &&
-                pc_cfg_bool("copper_trace", 0)) {
-                uint32_t c = ((uint32_t)s_regs[COP1LCH >> 1] << 16) | s_regs[COP1LCL >> 1];
-                static FILE *cf = NULL;
-                static int tried = 0;
-                if (!tried) {
-                    tried = 1;
-                    cf = fopen("logs/gp_cop_trace.txt", "w");
-                }
-                if (cf) {
-                    fprintf(cf, "COP1LC=$%06X\n", c & 0xFFFFFF);
-                    fflush(cf);
-                }
-            }
+        if ((reg == COP1LCL || reg == COP1LCH) && g_gameplay_active && previous != v &&
+            pc_cfg_bool("copper_trace", 0)) {
+            const uint32_t list = ((uint32_t)s_regs[COP1LCH >> 1] << 16) | s_regs[COP1LCL >> 1];
+            benefactor_log_write(BENEFACTOR_LOG_DEBUG, "copper", "COP1LC=$%06X (frame %d)",
+                                 list & 0xFFFFFFu, hw_get_frame_num());
         }
 
         switch (reg) {
@@ -2340,7 +2337,7 @@ void hw_write16(uint32_t addr, uint16_t v) {
              * PC that made it: "which channel is being re-pointed, and by whom"
              * is the question this trace exists to answer, and a shadow copy
              * that rewrites the same value every frame drowns it out. */
-            if (s_regs[reg >> 1] != v && pc_cfg_bool("audio_trace", 0)) {
+            if (previous != v && pc_cfg_bool("audio_trace", 0)) {
                 static const char *const kName[] = {"LCH", "LCL", "LEN", "PER", "VOL"};
                 const int channel = (reg - AUD0LCH) / 0x10;
                 const int which = ((reg - AUD0LCH) % 0x10) >> 1;
