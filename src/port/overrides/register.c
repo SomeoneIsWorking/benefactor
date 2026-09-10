@@ -107,19 +107,8 @@ void pc_register_overrides(void) {
 
     /* Copper / frame (overrides/copper.c) */
     rt_register_override(0x0041A4u, native_sprite_blitter_setup);
-    rt_register_override(0x003488u, native_game_frame);
 
     /* Render pipeline (overrides/render.c) */
-    rt_register_override(0x00405Cu, native_text_sprite_render);
-    rt_register_override(0x0040B6u, native_dispatch_table);
-    rt_register_override(0x0040B8u, native_item_dispatch_1);
-    rt_register_override(0x0040BAu, native_item_dispatch_2);
-    rt_register_override(0x0040BCu, native_item_dispatch_3);
-    rt_register_override(0x0040BEu, native_item_decrement);
-    rt_register_override(0x0040CCu, native_item_scroll);
-    rt_register_override(0x004102u, native_item_position);
-    rt_register_override(0x00412Eu, native_item_blitter);
-    rt_register_override(0x004236u, native_blit_row_callback);
     /* Replacement: it reimplements $0052A4 outright (it only ever calls the
      * different routine $0052F0), so the adapter must complete the RTS. */
     rt_register_replacement(0x0052A4u, native_post_blit_handler);
