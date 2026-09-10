@@ -30,6 +30,7 @@ import re
 import shutil
 import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +42,8 @@ REFERENCE_COMMIT = "028be16"
 REFERENCE_WORKTREE = ROOT.parent / "benefactor-oracle"
 DISKS = ("Disk.1", "Disk.2", "Disk.3")
 PHASE_LINE = re.compile(r"phase: frame=(\d+) cop1lc=([0-9A-F]+)")
+#: any instrument line carrying a frame number — how far the run has got
+FRAME_ANY = re.compile(r"frame=(\d+)")
 # What the frame PLAYED and SHOWED — see src/port/frame_signature.h. Frame
 # counts alone cannot see a stalled melody or a fade that never ramps.
 SIGNATURE_LINE = re.compile(
@@ -289,8 +292,28 @@ def interpreter_executable() -> Path:
     return build_product()
 
 
-def collect_run(executable: Path, seconds: float, log: Path, presses: str = "") -> Run:
-    """Run one product headless for `seconds` and return the screens it showed.
+def collect_run(
+    executable: Path,
+    log: Path,
+    presses: str = "",
+    until: str = "",
+    settle: int = 200,
+    timeout: float = 900.0,
+) -> Run:
+    """Run one product headless until it has shown enough, and return its screens.
+
+    Bounded by the GAME's own progress, not by a stopwatch. `until` is a cop1lc
+    address (the last screen the comparison needs); the run stops once that
+    screen has been up for `settle` frames. The product is asked to skip its
+    50Hz pacing, so the same frame sequence arrives as fast as the host can
+    produce it — the beam is derived from consumed guest cycles, so nothing
+    about the game's timeline depends on wall-clock.
+
+    This used to take a `seconds` argument, and the caller had to guess a
+    wall-clock duration long enough to cover the frames it wanted: reaching
+    gameplay needed --seconds 420, seven minutes per experiment, and a guess
+    that came in short silently produced a table with "never shown" in it.
+    `timeout` is now only a backstop against a hang, not the measurement.
 
     The binary is run from a snapshot taken now, not from the build tree: a
     rebuild part-way through a measurement otherwise silently replaces the
@@ -305,8 +328,10 @@ def collect_run(executable: Path, seconds: float, log: Path, presses: str = "") 
     log.parent.mkdir(parents=True, exist_ok=True)
     executable = _snapshot(executable)
     environment = dict(os.environ)
+    environment["BENEFACTOR_NO_PACE"] = "1"
     if presses:
         environment["BENEFACTOR_PRESSES"] = presses
+    deadline = time.monotonic() + timeout
     with log.open("w", encoding="utf-8") as sink:
         process = subprocess.Popen(
             [str(executable), "--headless", "--disk", *_disk_arguments()],
@@ -315,10 +340,9 @@ def collect_run(executable: Path, seconds: float, log: Path, presses: str = "") 
             stderr=subprocess.STDOUT,
             env=environment,
         )
-        try:
-            process.wait(timeout=seconds)
-            LOGGER.warning("%s exited on its own after %.0fs", executable.name, seconds)
-        except subprocess.TimeoutExpired:
+        reason = _await_progress(process, log, until, settle, deadline)
+        LOGGER.info("%s: %s", executable.name, reason)
+        if process.poll() is None:
             process.send_signal(signal.SIGTERM)
             try:
                 process.wait(timeout=10)
@@ -326,6 +350,60 @@ def collect_run(executable: Path, seconds: float, log: Path, presses: str = "") 
                 process.kill()
     text = log.read_text(encoding="utf-8", errors="replace")
     return Run(_phases(text), _signatures(text))
+
+
+def _await_progress(
+    process: subprocess.Popen[bytes],
+    log: Path,
+    until: str,
+    settle: int,
+    deadline: float,
+) -> str:
+    """Block until `until`'s screen has been up for `settle` frames, then say why it stopped.
+
+    Reads the log the product is writing, because that is the only channel it
+    has: the product reports its own progress in `phase:` and `sig:` lines. The
+    alternative is a fixed sleep, which is the wall-clock guess this exists to
+    remove.
+
+    Progress is measured as "the newest frame the product has reported, minus
+    the frame the target screen began on". It deliberately does NOT use the
+    phase's own span: a screen that holds still writes no copper pointer, so
+    the last, still-live phase has nothing to measure against and its span
+    stays at one frame forever. Measured that way, waiting for gameplay to
+    settle ran 35,000 frames past it and would have sat there until the
+    backstop fired.
+
+    The log is read incrementally from a saved offset. Re-reading it whole on
+    every poll means re-parsing a file that grows to megabytes, which is real
+    time spent while the thing being measured is still running.
+    """
+    target = (until or "").upper().lstrip("$")
+    began_at: int | None = None
+    newest = 0
+    offset = 0
+    while True:
+        if log.is_file():
+            with log.open("r", encoding="utf-8", errors="replace") as source:
+                source.seek(offset)
+                fresh = source.read()
+                offset = source.tell()
+            for line in fresh.splitlines():
+                frame = FRAME_ANY.search(line)
+                if frame:
+                    newest = max(newest, int(frame.group(1)))
+                phase = PHASE_LINE.search(line)
+                if phase and began_at is None and phase.group(2).upper() == target:
+                    began_at = int(phase.group(1))
+                    LOGGER.info("${%s} reached at frame %d", target, began_at)
+        if target and began_at is not None and newest - began_at >= settle:
+            return f"${target} was shown for {newest - began_at} frames"
+        if process.poll() is not None:
+            return f"exited on its own (code {process.returncode}) at frame {newest}"
+        if time.monotonic() > deadline:
+            reached = "never reached" if began_at is None else f"reached at {began_at}"
+            return f"TIMED OUT at frame {newest} — ${target} {reached}. This table is INCOMPLETE."
+        time.sleep(0.25)
 
 
 def _signatures(text: str) -> list[Signature]:
@@ -508,7 +586,27 @@ def main(argv: list[str] | None = None) -> int:
         "--setup", action="store_true", help="check out and build the reference product, then exit"
     )
     parser.add_argument(
-        "--seconds", type=float, default=180.0, help="how long to run each product (default 180)"
+        "--until",
+        metavar="COP1LC",
+        default="003484",
+        help="stop each run once this screen has been up for --settle frames. Bounds the "
+        "measurement by the GAME's progress rather than a stopwatch: the default is "
+        "gameplay ($003484), so the whole intro-to-playing comparison is covered. "
+        "Pass '' to run to the --timeout backstop instead.",
+    )
+    parser.add_argument(
+        "--settle",
+        type=int,
+        default=200,
+        help="how many frames --until's screen must be up before stopping (default 200). "
+        "A screen is only comparable once both products have spent time on it.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=900.0,
+        help="wall-clock backstop against a hang, per product (default 900). This is NOT "
+        "the measurement — a run that hits it says so and its table is incomplete.",
     )
     parser.add_argument(
         "--out", type=Path, default=ROOT / "scratch/oracle", help="where the two run logs go"
@@ -546,11 +644,23 @@ def main(argv: list[str] | None = None) -> int:
         text = reference_log.read_text(encoding="utf-8", errors="replace")
         reference = Run(_phases(text), _signatures(text))
     else:
-        LOGGER.info("running the reference product for %.0fs", options.seconds)
-        reference = collect_run(reference_executable, options.seconds, reference_log, options.play)
-    LOGGER.info("running the interpreter product for %.0fs", options.seconds)
+        LOGGER.info("running the reference product until %s", options.until or "the backstop")
+        reference = collect_run(
+            reference_executable,
+            reference_log,
+            options.play,
+            options.until,
+            options.settle,
+            options.timeout,
+        )
+    LOGGER.info("running the interpreter product until %s", options.until or "the backstop")
     candidate = collect_run(
-        candidate_executable, options.seconds, options.out / "interpreter.log", options.play
+        candidate_executable,
+        options.out / "interpreter.log",
+        options.play,
+        options.until,
+        options.settle,
+        options.timeout,
     )
 
     if not reference.phases:

@@ -157,6 +157,8 @@ static const struct {
     {"renderer", "frame renderer: vanilla (Amiga blit) | benren (sprite-based, "
                  "native; hosts widescreen+effects)"},
     {"log_level", "minimum process log level: trace | debug | info | warning | error"},
+    {"no_pace", "run frames at full host speed instead of pacing to 50Hz; the game's "
+                "frame sequence is unchanged (bool, for differential runs)"},
     {"present", "present backend: sdl (software) | vulkan (BenRen VK "
                 "per-sprite GPU renderer; benren only)"},
     {"fx_ambient", "GPU effect (Hardware): ambient darkness vignette (bool)"},

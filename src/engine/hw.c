@@ -1124,6 +1124,14 @@ void hw_request_headless(void) { s_force_headless = 1; }
 int hw_init(const char *title, const char **disk_paths, int n_disks) {
     pc_config_load();
     s_headless = s_force_headless || pc_cfg_bool("headless", 0);
+    /* Run the game's own frames as fast as the host can, instead of pacing to
+     * 50Hz. The game's frame SEQUENCE is unchanged — the beam is derived from
+     * consumed guest cycles, not from wall-clock — so a differential run gets
+     * the same timeline in a fraction of the time. Reaching gameplay takes
+     * ~2.5 minutes of real time paced, seconds unpaced, which is the
+     * difference between an experiment per turn and an experiment per idea. */
+    if (pc_cfg_bool("no_pace", 0))
+        hw_set_no_pace(1);
 
     /* Widescreen output width (widescreen=<px>, or =1 → 480). Read here
      * (before the headless branch) so headless widescreen captures work too. */

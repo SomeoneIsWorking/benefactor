@@ -51,17 +51,29 @@ rewrites has moved.
 
 ```bash
 uv run --frozen python -m tools.oracle_diff --setup
-uv run --frozen python -m tools.oracle_diff --seconds 300
-uv run --frozen python -m tools.oracle_diff --seconds 420 \
-    --play 7300:8,7420:8,7560:8 --reuse-reference
+uv run --frozen python -m tools.oracle_diff --play 7300:8,7420:8,7560:8 --reuse-reference
 ```
 
+- The run is bounded by **the game's own progress**, not by a stopwatch.
+  `--until COP1LC` (default `003484`, gameplay) stops each product once that
+  screen has been up for `--settle` frames. `--timeout` is only a backstop
+  against a hang; a run that hits it says so and its table is incomplete.
+- Each product is run **unpaced** (`no_pace`), so the same frame sequence
+  arrives as fast as the host can produce it. Nothing about the game's timeline
+  depends on wall-clock — the beam is derived from consumed guest cycles — so
+  this changes the duration, not the result. Reaching gameplay took seven
+  minutes paced and about half a minute unpaced.
 - `--play FRAME:HELD,...` drives **both** products with the same frame-indexed
   fire timeline. Without it neither product ever leaves the attract loop, so
   gameplay is never compared. Menu presses have to land on the same *frame* in
   both; wall-clock input cannot promise that.
 - `--reuse-reference` skips re-running the reference. It is a fixed commit, so
   its timeline only changes when the instrument does.
+
+There used to be a `--seconds`, and the caller had to guess a wall-clock
+duration long enough to contain the frames they wanted. Reaching gameplay meant
+`--seconds 420`, so every experiment cost seven minutes, and a guess that came
+in short produced a table with `never shown` in it rather than an error.
 
 Two traps the tool now handles, both of which produced convincing wrong tables:
 
