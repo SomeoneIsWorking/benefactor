@@ -118,6 +118,15 @@ Useful options:
   frame after it is compared against the wrong partner and reports the same
   single difference for the rest of the run.
 
+**How far it reaches.** The two products are frame-exact from the boot logo to
+the poster — 7160 frames. They cannot be made frame-exact past it: the poster's
+blits cost this product about four tenths of a frame each in guest time and cost
+the reference nothing, so this product genuinely runs one frame more through the
+handover, and every per-frame counter takes a tick from it. Dropping the frame
+realigns what is displayed, not what is counted. Compare gameplay with
+`tools/oracle_diff.py` instead, which measures per screen and does not need the
+two timelines to be the same length. `docs/issues/0008` has the measurements.
+
 **What is deliberately not compared**, each with the measurement behind it, is
 in `STRUCTURAL_DIFFERENCES`, `STRUCTURAL_FIELDS` and `REALIGNMENTS` at the top
 of the tool:
