@@ -299,6 +299,7 @@ def collect_run(
     until: str = "",
     settle: int = 200,
     timeout: float = 900.0,
+    paced: bool = False,
 ) -> Run:
     """Run one product headless until it has shown enough, and return its screens.
 
@@ -328,7 +329,13 @@ def collect_run(
     log.parent.mkdir(parents=True, exist_ok=True)
     executable = _snapshot(executable)
     environment = dict(os.environ)
-    environment["BENEFACTOR_NO_PACE"] = "1"
+    #: Unpaced by default, because the beam is derived from consumed guest
+    #: cycles and so the frame sequence should not depend on wall-clock. That
+    #: is a claim about the engine, not an axiom — `paced` exists to test it,
+    #: and any measurement that turns out to differ between the two is
+    #: reporting a real dependency on host speed, which is a bug in the engine
+    #: rather than a quirk of the instrument.
+    environment["BENEFACTOR_NO_PACE"] = "0" if paced else "1"
     if presses:
         environment["BENEFACTOR_PRESSES"] = presses
     deadline = time.monotonic() + timeout
@@ -619,6 +626,14 @@ def main(argv: list[str] | None = None) -> int:
         "does — this halves the turnaround while iterating on the interpreter.",
     )
     parser.add_argument(
+        "--paced",
+        action="store_true",
+        help="run the products at the original 50Hz instead of full speed. The frame "
+        "sequence is not supposed to depend on wall-clock (the beam comes from guest "
+        "cycles), so this is the control for that claim: a table that changes between "
+        "paced and unpaced is evidence of a real timing dependency.",
+    )
+    parser.add_argument(
         "--play",
         metavar="FRAME:HELD,...",
         default="",
@@ -652,6 +667,7 @@ def main(argv: list[str] | None = None) -> int:
             options.until,
             options.settle,
             options.timeout,
+            options.paced,
         )
     LOGGER.info("running the interpreter product until %s", options.until or "the backstop")
     candidate = collect_run(
@@ -661,6 +677,7 @@ def main(argv: list[str] | None = None) -> int:
         options.until,
         options.settle,
         options.timeout,
+        options.paced,
     )
 
     if not reference.phases:

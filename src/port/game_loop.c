@@ -95,9 +95,6 @@ static void call_fn_as(M68KCtx *ctx, uint32_t addr, GuestEntry entry) {
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "irq", "<- $%06X", addr);
 }
 
-/* An installed interrupt vector always ends in RTE. */
-static void call_fn(M68KCtx *ctx, uint32_t addr) { call_fn_as(ctx, addr, GUEST_ENTRY_RTE); }
-
 /* ── Game loop (single path: disk-boot coroutine) ───────────────────────────── */
 
 int pc_run(void) {
@@ -218,7 +215,7 @@ int pc_step_threaded(void);
 /* The game thread's per-frame wait. Wired to hw_vblank_wait via g_hw_vblank_yield
  * (the same seam the old coroutine used). Hands the turn to main and blocks until
  * the host releases it. An IRQ handler that hits a wait runs on the MAIN thread
- * (call_fn) — it must NOT block here (would deadlock), so non-game threads return
+ * (call_fn_as) — it must NOT block here (would deadlock), so non-game threads return
  * immediately. On a restart request the parked thread exits cleanly. */
 static int game_thread_yield(void) {
     pc_note_wait_reached();
@@ -484,6 +481,8 @@ static int irq_level_enabled(uint16_t levelbits) {
  * Set from BENEFACTOR_MUTE_MUSIC at bring-up; toggleable at the REPL ("mute"). */
 int g_mute_music = 0;
 
+static void coro_call_vector(PcOwner owner, uint32_t addr);
+
 void pc_music_tick(void) {
     if (g_mute_music)
         return;
@@ -491,9 +490,19 @@ void pc_music_tick(void) {
         return;
     if (!irq_level_enabled(INTENA_LVL6))
         return;
-    uint32_t v6 = guest_vector_handler(GUEST_VECTOR_LEVEL6_TIMER);
+    const uint32_t v6 = guest_vector_handler(GUEST_VECTOR_LEVEL6_TIMER);
     if (v6)
-        call_fn(&s_game_ctx, v6);
+        /* Through the SAME door as the frame loop's own delivery. This used to
+         * call the vector directly, which differed in two ways that both bit:
+         * it recorded no owner, so the music player's cycles were charged to
+         * the game flow and its deliveries were never counted (this path runs
+         * more often than the frame loop's, so that is most of an intro
+         * screen's time misattributed); and it did not lend the interrupt a
+         * copy of the blitter registers, so a delivery landing between a
+         * BLTxxx write and BLTSIZE could merge two blits into one runaway blit
+         * — the hazard issue 0007 describes, on the busier of the two paths.
+         * See docs/issues/0008. */
+        coro_call_vector(PC_OWNER_LEVEL6_TIMER, v6);
 }
 
 /* Deliver one interrupt vector, accounting its guest cycles to its level. */
