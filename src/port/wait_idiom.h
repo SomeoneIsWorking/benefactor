@@ -31,7 +31,7 @@
 
 typedef enum {
     PC_WAIT_NONE = 0,
-    /* `btst #0,$5(a6)` / `beq` then the same with `bne`: hold until the beam
+    /* `btst #0,$3/$5(a6)` / `beq` then the same with `bne`: hold until the beam
      * is past line 256, then hold until it has wrapped back above it. That
      * pair spans exactly one frame — the guest's own vertical-blank wait. */
     PC_WAIT_FRAME,
@@ -39,8 +39,11 @@ typedef enum {
      * 256" (the branch loops while bit 8 is clear); ABOVE is the other half. */
     PC_WAIT_BEAM_BELOW,
     PC_WAIT_BEAM_ABOVE,
-    /* `btst #6,(a6)` / `bne`: DMACONR bit 6, BBUSY. This port's blitter is
-     * synchronous, so the bit is never set. */
+    /* `cmpi.b #line,$6(a6)` / `bne`: VHPOSR scanline wait. The steady-gameplay
+     * frame boundary in the main loop ($57712E) and level setup ($578472). */
+    PC_WAIT_SCANLINE,
+    /* `btst #6,(a6)` or `btst #6,$2(a6)` / `bne`: DMACONR bit 6, BBUSY. This port's
+     * blitter is synchronous, so the bit is never set. */
     PC_WAIT_BLITTER,
 } PcWaitIdiomKind;
 
@@ -49,10 +52,9 @@ typedef struct {
     uint32_t resume; /* the address after the loop (or loops) */
 } PcWaitIdiom;
 
-/* `btst #0,$5(a6)` — bit 8 of VPOSR ($DFF004), with a6 = $DFF000. */
+/* `btst #0,$3(a6)` or `$5(a6)` — bit 8 of VPOSR ($DFF004). */
 #define PC_WAIT_OP_VPOSR_0 0x082Eu
 #define PC_WAIT_OP_VPOSR_1 0x0000u
-#define PC_WAIT_OP_VPOSR_2 0x0003u
 /* `btst #6,(a6)` — bit 6 of DMACONR ($DFF002), with a6 = $DFF002. */
 #define PC_WAIT_OP_BBUSY_0 0x0816u
 #define PC_WAIT_OP_BBUSY_1 0x0006u
@@ -78,15 +80,48 @@ static inline int pc_wait_branch_back(const uint8_t *memory, uint32_t at, uint32
     return 0;
 }
 
-/* Is there a poll on the beam's bit 8 at `at`? 1 = beq form, 2 = bne form. */
+/* Is there a poll on the beam's bit 8 at `at`? 1 = beq form, 2 = bne form.
+ * Accepts displacement $0003 (when a6=$DFF002) and $0005 (when a6=$DFF000). */
 static inline int pc_wait_vposr_poll(const uint8_t *memory, uint32_t size, uint32_t at) {
     if (at + 8u > size)
         return 0;
     if (pc_wait_word(memory, at) != PC_WAIT_OP_VPOSR_0 ||
-        pc_wait_word(memory, at + 2u) != PC_WAIT_OP_VPOSR_1 ||
-        pc_wait_word(memory, at + 4u) != PC_WAIT_OP_VPOSR_2)
+        pc_wait_word(memory, at + 2u) != PC_WAIT_OP_VPOSR_1)
+        return 0;
+    const uint32_t disp = pc_wait_word(memory, at + 4u);
+    if (disp != 0x0003u && disp != 0x0005u)
         return 0;
     return pc_wait_branch_back(memory, at + 6u, at);
+}
+
+/* Is there a scanline poll `cmpi.b #line,$6(a6); bne self` at `at`? */
+static inline int pc_wait_scanline_poll(const uint8_t *memory, uint32_t size, uint32_t at) {
+    if (at + 8u > size)
+        return 0;
+    if (pc_wait_word(memory, at) != 0x0C2Eu)
+        return 0;
+    if ((pc_wait_word(memory, at + 2u) & 0xFF00u) != 0u)
+        return 0;
+    if (pc_wait_word(memory, at + 4u) != 0x0006u)
+        return 0;
+    return pc_wait_branch_back(memory, at + 6u, at) == 2;
+}
+
+/* Is there a blitter busy poll at `at`? Returns instruction length (6 or 8) or 0. */
+static inline uint32_t pc_wait_blitter_poll(const uint8_t *memory, uint32_t size, uint32_t at) {
+    /* Form 1 (length 6): btst #6,(a6) ; bne.s self (with a6 = $DFF002) */
+    if (at + 6u <= size && pc_wait_word(memory, at) == PC_WAIT_OP_BBUSY_0 &&
+        pc_wait_word(memory, at + 2u) == PC_WAIT_OP_BBUSY_1 &&
+        pc_wait_branch_back(memory, at + 4u, at) == 2) {
+        return 6u;
+    }
+    /* Form 2 (length 8): btst #6,$2(a6) ; bne.s self (with a6 = $DFF000) */
+    if (at + 8u <= size && pc_wait_word(memory, at) == 0x082Eu &&
+        pc_wait_word(memory, at + 2u) == 0x0006u && pc_wait_word(memory, at + 4u) == 0x0002u &&
+        pc_wait_branch_back(memory, at + 6u, at) == 2) {
+        return 8u;
+    }
+    return 0u;
 }
 
 /* Recognise the busy-wait that begins at `addr`, if there is one. */
@@ -106,11 +141,15 @@ static inline PcWaitIdiom pc_wait_idiom_at(const uint8_t *memory, uint32_t size,
         found.resume = addr + 8u;
         return found;
     }
-    if (addr + 6u <= size && pc_wait_word(memory, addr) == PC_WAIT_OP_BBUSY_0 &&
-        pc_wait_word(memory, addr + 2u) == PC_WAIT_OP_BBUSY_1 &&
-        pc_wait_branch_back(memory, addr + 4u, addr) == 2) {
+    if (pc_wait_scanline_poll(memory, size, addr)) {
+        found.kind = PC_WAIT_SCANLINE;
+        found.resume = addr + 8u;
+        return found;
+    }
+    const uint32_t blit_len = pc_wait_blitter_poll(memory, size, addr);
+    if (blit_len != 0u) {
         found.kind = PC_WAIT_BLITTER;
-        found.resume = addr + 6u;
+        found.resume = addr + blit_len;
         return found;
     }
     return found;

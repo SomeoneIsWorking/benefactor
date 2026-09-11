@@ -12,6 +12,7 @@
 
 #include "port/control/input_script.h"
 #include "port/debug/debugger.h"
+#include "port/frame_accounting.h"
 
 #include "common/log.h"
 
@@ -19,7 +20,6 @@ extern "C" {
 #include "common/game_state.h"
 #include "engine/hw.h"
 #include "port/config.h"
-#include "port/frame_accounting.h"
 #include "port/guest_trace.h"
 #include "port/input.h"
 #include "port/overlay_ui.h"

@@ -22,6 +22,7 @@ static void native_wait_idiom(M68KCtx *ctx) {
     const PcWaitIdiom found = pc_wait_idiom_at(g_mem, (uint32_t)RT_MEM_SIZE, at);
     switch (found.kind) {
     case PC_WAIT_FRAME:
+    case PC_WAIT_SCANLINE:
         /* The whole point: the guest is asking for the next frame, so say so to
          * the HOST. That parks the game flow and presents here, which is where
          * the oracle's own injected wait presented too. */
@@ -59,7 +60,7 @@ void pc_register_wait_idioms(uint32_t image_mask, uint32_t low, uint32_t high) {
     if ((scanned & image_mask) == image_mask)
         return;
     scanned |= image_mask;
-    unsigned frames = 0, halves = 0, blits = 0;
+    unsigned frames = 0, halves = 0, blits = 0, scanlines = 0;
     for (uint32_t at = low; at + 6u <= high; at += 2u) {
         const PcWaitIdiom found = pc_wait_idiom_at(g_mem, (uint32_t)RT_MEM_SIZE, at);
         if (found.kind == PC_WAIT_NONE)
@@ -70,6 +71,8 @@ void pc_register_wait_idioms(uint32_t image_mask, uint32_t low, uint32_t high) {
             /* The second half of a pair is a poll in its own right and the
              * guest can branch straight into it; give it its own owner, but
              * step the scan past the first half only, so that is what happens. */
+        } else if (found.kind == PC_WAIT_SCANLINE) {
+            scanlines++;
         } else if (found.kind == PC_WAIT_BLITTER) {
             blits++;
         } else {
@@ -77,7 +80,7 @@ void pc_register_wait_idioms(uint32_t image_mask, uint32_t low, uint32_t high) {
         }
     }
     benefactor_log_write(BENEFACTOR_LOG_INFO, "override",
-                         "[waits] image mask %u, $%06X-$%06X: %u frame waits, %u beam halves, "
-                         "%u blitter waits now native\n",
-                         image_mask, low, high, frames, halves, blits);
+                         "[waits] image mask %u, $%06X-$%06X: %u frame waits, %u scanlines, "
+                         "%u beam halves, %u blitter waits now native\n",
+                         image_mask, low, high, frames, scanlines, halves, blits);
 }

@@ -1,13 +1,13 @@
 #include "port/debug/debugger.h"
 
+#include <cstdio>
+
 #include "port/control/input_script.h"
+#include "port/frame_accounting.h"
 
 extern "C" {
 #include "common/log.h"
 #include "engine/hw.h"
-#include <cstdio>
-
-#include "port/frame_accounting.h"
 #include "runtime/guest_runtime.h"
 }
 

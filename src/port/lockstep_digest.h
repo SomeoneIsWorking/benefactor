@@ -25,6 +25,10 @@
 #ifndef BENEFACTOR_PORT_LOCKSTEP_DIGEST_H
 #define BENEFACTOR_PORT_LOCKSTEP_DIGEST_H
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>

@@ -683,6 +683,8 @@ int pc_init_from_disk(const char **disks, int n_disks) {
      * with the title overlay loaded the same way. */
     if (pc_cfg_bool("skip_intro", 0)) {
         native_overlay_load();
+        rt_activate_image(NULL, BENEFACTOR_IMAGE_TITLE);
+        pc_register_wait_idioms(BENEFACTOR_IMAGE_MASK_TITLE, 0u, (uint32_t)RT_MEM_SIZE);
         pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
                              "[pc] disk boot: skip_intro -> poster ($003330)\n");
@@ -718,6 +720,7 @@ int pc_init_from_disk(const char **disks, int n_disks) {
 void pc_request_credits_start(void) {
     pc_state_reset_defaults();
     overlay_load_credits();
+    pc_register_wait_idioms(BENEFACTOR_IMAGE_MASK_CREDITS, 0u, (uint32_t)RT_MEM_SIZE);
     g_pc_screen = PC_SCR_CREDITS;
     pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
     benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
@@ -727,6 +730,8 @@ void pc_request_credits_start(void) {
 void pc_request_cold_restart(void) {
     pc_state_reset_defaults(); /* zeros g_state, resets non-zero defaults */
     native_overlay_load();     /* reload title/intro overlay + block-copy */
+    rt_activate_image(NULL, BENEFACTOR_IMAGE_TITLE);
+    pc_register_wait_idioms(BENEFACTOR_IMAGE_MASK_TITLE, 0u, (uint32_t)RT_MEM_SIZE);
     pc_cps_start_at(0x00003330u, 0x0000511Eu, /*gameplay=*/0, /*d5=*/0, /*d6=*/0);
     benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
                          "[pc] exit-to-menu: flow restart at $003330 (poster)\n");
@@ -825,16 +830,6 @@ int pc_step_threaded(void) {
         if (stop != 0)
             return 1;
     }
-    /* Pay back the frames the boundary hold owes. A held boundary is a frame
-     * that really elapsed while the guest was still mid-work; the display owes
-     * it, and what it owes is the state the guest had when it finally waited —
-     * which is what the oracle showed. Presenting them here, on the main thread
-     * with the guest parked, keeps the frame COUNT right, so the game does not
-     * run fast. Measured without it: the poster's fade was two steps ahead of
-     * the oracle's by frame 7161 (engine/hw_beam.c, docs/issues/0008). */
-    for (int owed = hw_boundary_take_owed(); owed > 0; owed--)
-        if (hw_present_paused_frame() != 0)
-            return 1;
     const int presented = hw_get_frame_num() != frame_before_present;
     if (g_harness_frame_hook)
         g_harness_frame_hook();
