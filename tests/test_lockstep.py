@@ -329,9 +329,21 @@ class RealignTest(unittest.TestCase):
         self.assertIsNotNone(report.divergence)
         self.assertEqual(6, report.frame)
 
+    def test_the_reference_can_be_the_one_a_frame_ahead(self) -> None:
+        """The skew goes both ways. When THIS product is the one running early,
+        the frame with no partner is the reference's, and dropping the
+        candidate's would widen the gap instead of closing it."""
+        left = write_fake(self.directory, "left.py", frames=9, lag_from=3)
+        right = write_fake(self.directory, "right.py", frames=8)
+        report = lockstep.run(
+            left, right, out=self.directory, frame_timeout=20.0, realign_reference=(4,)
+        )
+        self.assertIsNone(report.divergence)
+
     def test_every_recorded_realignment_carries_its_reason(self) -> None:
-        for frame, why in lockstep.REALIGNMENTS:
+        for frame, product, why in lockstep.REALIGNMENTS:
             self.assertIsInstance(frame, int)
+            self.assertIn(product, ("reference", "interpreter"))
             self.assertTrue(why.strip(), "a realignment without a reason is a hidden bug")
 
 
