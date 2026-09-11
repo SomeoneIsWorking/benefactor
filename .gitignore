@@ -28,6 +28,7 @@ __pycache__
 /.venv/
 .DS_Store
 .claude/
+.pi/
 .vscode/
 scratch/
 /coord/
