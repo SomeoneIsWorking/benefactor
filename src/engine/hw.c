@@ -1235,6 +1235,8 @@ volatile uint32_t g_hw_present_reentrant = 0;
  * One presented frame per beam frame, whoever notices the boundary first. */
 static uint64_t s_presented_beam_frame = UINT64_MAX;
 
+static int hw_present_body(void);
+
 int hw_present_frame(void) {
     g_hw_present_calls++;
     if (g_hw_vblank_yield) {
@@ -1244,6 +1246,24 @@ int hw_present_frame(void) {
             return 0;
         s_presented_beam_frame = beam_frame;
     }
+    return hw_present_body();
+}
+
+/* Present while the GAME is frozen but the host is not: the pause menu and the
+ * freecam freeze (src/port/game_loop.c). One present per beam frame is the
+ * right rule while the guest runs, and exactly the wrong one here — the guest
+ * is parked, so the only thing still moving the beam is the music ISR itself,
+ * a few thousand cycles a pass against a frame's 141,648. hw_present_frame
+ * then declines almost every call and returns BEFORE hw_pace_frame at the
+ * bottom, so the paused loop had no clock at all: it span at host speed, and
+ * pc_audio_frame runs music ticks once per pass, so the soundtrack ran as fast
+ * as the machine could loop. The pause menu is not a speed control. */
+int hw_present_paused_frame(void) {
+    g_hw_present_calls++;
+    return hw_present_body();
+}
+
+static int hw_present_body(void) {
     if (s_in_present_frame) {
         g_hw_present_reentrant++;
         return 0;

@@ -411,7 +411,12 @@ int pc_step(void) {
         pc_audio_frame();
         if (g_harness_prerender_hook)
             g_harness_prerender_hook();
-        if (hw_present_frame() != 0)
+        /* hw_present_paused_frame, not hw_present_frame: with the guest parked
+         * the beam barely moves, so the one-present-per-beam-frame rule would
+         * decline nearly every call and skip the 50 Hz pacing inside it. This
+         * loop would then run at host speed and take the music with it —
+         * pc_audio_frame above ticks the music player once per pass. */
+        if (hw_present_paused_frame() != 0)
             return 1;
         if (g_harness_frame_hook)
             g_harness_frame_hook();

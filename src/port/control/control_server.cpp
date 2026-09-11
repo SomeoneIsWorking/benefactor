@@ -22,6 +22,7 @@ extern "C" {
 #include "port/frame_accounting.h"
 #include "port/guest_trace.h"
 #include "port/input.h"
+#include "port/overlay_ui.h"
 #include "port/port.h"
 #include "runtime/guest_runtime.h"
 }
@@ -380,6 +381,14 @@ Response dispatch(const Request &request) {
         return route_break(request);
     if (path == "/breaks")
         return route_breaks();
+    /* The game's own pause menu, which only a key opens otherwise. Here so a
+     * headless run can enter it and be measured: the paused loop has its own
+     * clock, and "is the music still at tempo in there" is a question with an
+     * answer (/state irq_calls.irq6 against wall time). */
+    if (path == "/menu") {
+        pc_pause_toggle();
+        return Response::json(200, "OK", formatted("{\"menu\":%d}\n", pc_pause_active() ? 1 : 0));
+    }
     if (path == "/pause") {
         InputScript::instance().pause();
         return Response::json(200, "OK", "{\"paused\":true}\n");
