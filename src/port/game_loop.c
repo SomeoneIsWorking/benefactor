@@ -825,6 +825,16 @@ int pc_step_threaded(void) {
         if (stop != 0)
             return 1;
     }
+    /* Pay back the frames the boundary hold owes. A held boundary is a frame
+     * that really elapsed while the guest was still mid-work; the display owes
+     * it, and what it owes is the state the guest had when it finally waited —
+     * which is what the oracle showed. Presenting them here, on the main thread
+     * with the guest parked, keeps the frame COUNT right, so the game does not
+     * run fast. Measured without it: the poster's fade was two steps ahead of
+     * the oracle's by frame 7161 (engine/hw_beam.c, docs/issues/0008). */
+    for (int owed = hw_boundary_take_owed(); owed > 0; owed--)
+        if (hw_present_paused_frame() != 0)
+            return 1;
     const int presented = hw_get_frame_num() != frame_before_present;
     if (g_harness_frame_hook)
         g_harness_frame_hook();

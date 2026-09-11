@@ -125,8 +125,8 @@ STRUCTURAL_DIFFERENCES = (
 #: the measurement behind it, and never on a hunch.
 REALIGNMENTS = (
     (
-        7159,
-        "interpreter",
+        7158,
+        "reference",
         "the intro -> poster handover, where the two products are one frame apart and "
         "stay that way. The oracle had no cycle model: its frames ended only at the host "
         "waits its translator put in place of the guest's busy-wait loops. This product "
@@ -135,8 +135,10 @@ REALIGNMENTS = (
         "list and made the 7157 frames before this one byte-identical — but the last "
         "screen of the crawl comes out one frame shorter here, so the poster starts at "
         "7159 against the oracle's 7160 and every per-frame counter after it is one tick "
-        "on. The frame has no partner; dropping it is what lets the comparison reach "
-        "gameplay at all. docs/issues/0008 has the measurements.",
+        "on. This product is the one running EARLY, so the frame with no partner is the "
+        "oracle's: its 7158 is a frame this product does not have. Dropping it is what "
+        "lets the comparison reach gameplay at all. docs/issues/0008 has the "
+        "measurements.",
     ),
 )
 
