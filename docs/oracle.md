@@ -119,13 +119,13 @@ Useful options:
   single difference for the rest of the run.
 
 **How far it reaches.** The two products are frame-exact from the boot logo to
-the poster — 7160 frames. They cannot be made frame-exact past it: the poster's
-blits cost this product about four tenths of a frame each in guest time and cost
-the reference nothing, so this product genuinely runs one frame more through the
-handover, and every per-frame counter takes a tick from it. Dropping the frame
-realigns what is displayed, not what is counted. Compare gameplay with
-`tools/oracle_diff.py` instead, which measures per screen and does not need the
-two timelines to be the same length. `docs/issues/0008` has the measurements.
+the poster — 7157 frames byte-identical, with the screen sequence matching
+exactly — and the poster handover itself lands one frame apart. That earlier
+claim here, that they could NOT be made frame-exact past the poster because a
+blit costs this product guest time, was wrong in its conclusion: the blit cost
+is right, and what was wrong was ending the frame at the cycle boundary instead
+of at the guest's own wait. `src/engine/hw_beam.c` and `src/port/wait_idiom.h`
+fix that; `docs/issues/0008` has the measurements.
 
 **What is deliberately not compared**, each with the measurement behind it, is
 in `STRUCTURAL_DIFFERENCES`, `STRUCTURAL_FIELDS` and `REALIGNMENTS` at the top
@@ -136,10 +136,12 @@ address only during gameplay), the port's scratch at `$700000`, the audio DMA
 enables and the `AUDxLC` sample pointers (both written by handlers the
 reference reaches by hand, in one breath, where this product reaches them on
 the game's own sub-frame timer). `REALIGNMENTS` holds whole FRAMES rather than
-state — one so far, the intro → poster handover, where a blit costs this
-product guest time and the reference nothing, so this product shows the
-poster's copper list for a frame before its bitplane pointers are patched in.
-Nothing goes on any of those lists on a hunch.
+state, for a frame one product shows that the other never does. Its one entry
+was the intro → poster handover, and it is now a historical note rather than a
+live exclusion: the handover was fixed at the source (`src/engine/hw_beam.c`),
+so `--no-realign` is the honest way to run the tool today. Nothing goes on any
+of those lists on a hunch, and nothing stays on one after the thing it hid is
+fixed.
 
 ## What the oracle is not
 
