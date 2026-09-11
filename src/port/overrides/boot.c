@@ -153,6 +153,7 @@ void native_overlay_load(void) {
 void native_overlay_loader(M68KCtx *ctx) {
     native_overlay_load();
     rt_activate_image(ctx, BENEFACTOR_IMAGE_TITLE);
+    pc_register_wait_idioms(BENEFACTOR_IMAGE_MASK_TITLE, 0u, (uint32_t)RT_MEM_SIZE);
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
                          "[overlay-loader] title overlay loaded; entering $3330 (flow=%d)\n",
                          pc_on_game_thread());
@@ -188,6 +189,7 @@ void native_overlay_load_d0(void) {
     overlay_load_gameplay();
     g_pc_screen = PC_SCR_OVERLAY;
     rt_activate_image(NULL, BENEFACTOR_IMAGE_GAMEPLAY);
+    pc_register_wait_idioms(BENEFACTOR_IMAGE_MASK_GAMEPLAY, 0u, (uint32_t)RT_MEM_SIZE);
 }
 
 /* Override for $000150 — the loader body the game relocated to low memory and

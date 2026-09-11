@@ -48,12 +48,32 @@ int main(void) {
 
     /* The blitter poll. This port's blitter is synchronous, so BBUSY is never
      * set and the loop falls through on its first test anyway — recognising it
-     * only saves the interpretation. */
+     * only saves the interpretation. Form 1 (a6=$DFF002) and Form 2 (a6=$DFF000). */
     memset(memory, 0, sizeof memory);
     put(0x100, BTST_BBUSY BNE_BACK_6, 6);
     found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
     assert(found.kind == PC_WAIT_BLITTER);
     assert(found.resume == 0x106);
+
+    memset(memory, 0, sizeof memory);
+    put(0x100, "\x08\x2E\x00\x06\x00\x02" BNE_BACK_8, 8);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_BLITTER);
+    assert(found.resume == 0x108);
+
+    /* The gameplay scanline poll (cmpi.b #line,$6(a6); bne.s self). */
+    memset(memory, 0, sizeof memory);
+    put(0x100, "\x0C\x2E\x00\x3B\x00\x06" BNE_BACK_8, 8);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_SCANLINE);
+    assert(found.resume == 0x108);
+
+    /* VPOSR poll with a6=$DFF000 (displacement $0005). */
+    memset(memory, 0, sizeof memory);
+    put(0x100, "\x08\x2E\x00\x00\x00\x05" BEQ_BACK_8 "\x08\x2E\x00\x00\x00\x05" BNE_BACK_8, 16);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_FRAME);
+    assert(found.resume == 0x110);
 
     /* NOT idioms. */
     memset(memory, 0, sizeof memory);

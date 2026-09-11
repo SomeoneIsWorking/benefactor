@@ -318,72 +318,21 @@ volatile uint32_t g_hw_beam_by_host = 0; /* the host (render/present)   */
  * number of times it read the register. The interpreter executes the game's
  * real busy-waits, so a wait must cost the beam what it cost on hardware. */
 static void hw_step_register_beam(int at_beam_read) {
-    /* Every busy-wait must touch a register to make progress, so this is also
-     * the honest place to ask which PC is burning whose cycles.
-     *
-     * Attribute by THREAD, not by the global owner: the game flow and an
-     * interrupt delivery run guest code on two different threads at once, so
-     * the global says "level 6" while the game thread is spinning in its own
-     * code. Reading it directly blamed the timer interrupt for the crawl's
-     * frame wait. */
+    (void)at_beam_read;
+    /* Attribute by THREAD, not by the global owner: the game flow and an
+     * interrupt delivery run guest code on two different threads at once. */
     pc_profile_sample(rt_get_pc(), pc_on_game_thread() ? 0u : (uint32_t)pc_running_owner());
     uint64_t line = rt_get_guest_cycles() / BEAM_CYCLES_PER_LINE;
     uint64_t frame = line / BEAM_LINES_PER_FRAME;
     s_scanline = (int)(line % BEAM_LINES_PER_FRAME);
     if (frame == s_beam_frame)
         return;
-    /* crossed==taken means the guest itself is stuck; crossed racing ahead of
-     * taken means the boundary has nowhere to land. The watchdog reports both. */
+    s_beam_frame = frame;
     g_hw_beam_crossed++;
-    if (pc_on_game_thread())
-        g_hw_beam_by_flow++;
-    else if (pc_running_owner() != PC_OWNER_FLOW)
-        g_hw_beam_by_irq++;
-    else
-        g_hw_beam_by_host++;
-
-    /* The boundary belongs to the game flow: only that flow can park. */
     if (!g_hw_vblank_yield) {
-        s_beam_frame = frame;
         s_frame_num++;
         g_hw_beam_taken++;
-        return;
     }
-    /* Cross the boundary here; do not necessarily END the frame here. The
-     * flow's frame ends at the flow's own wait, which is where the oracle's
-     * frames ended too — engine/hw_beam.c says why at length. */
-    if (hw_boundary_hold()) {
-        s_beam_frame = frame;
-        return;
-    }
-    /* Never park mid-blit: the blitter registers are one shared set, so an
-     * interrupt delivered here writes the same registers and the two blits merge
-     * into one runaway blit. See docs/issues/0007. */
-    if (g_hw_vblank_yield() == 0) {
-        g_hw_beam_declined++;
-        if (!pc_on_game_thread())
-            g_hw_beam_declined_off_flow++;
-        /* An interrupt cannot park, but the crawl's animation loop lives inside
-         * the level-6 handler and still crosses real frames. Present (and queue
-         * the frame's audio, which otherwise waits for the host iteration to
-         * end) only at a beam READ: the guest saying it is done with the frame.
-         * Any other access can land mid-blit, and presenting there showed a
-         * half-drawn buffer. The renderer reads registers too — guard re-entry. */
-        static int presenting = 0;
-        if (!at_beam_read || presenting)
-            return;
-        s_beam_frame = frame;
-        presenting = 1;
-        (void)hw_present_frame();
-        if (g_hw_frame_audio)
-            g_hw_frame_audio();
-        presenting = 0;
-        hw_watchdog_arm("PC", 2); /* this frame finished; the next gets its own */
-        return;
-    }
-    g_hw_beam_taken++;
-    s_beam_frame = frame;
-    hw_boundary_release();
 }
 
 int hw_get_frame_num(void) { return s_frame_num; }
@@ -1234,23 +1183,10 @@ void hw_fini(void) {
 volatile uint32_t g_hw_present_calls = 0;
 volatile uint32_t g_hw_present_reentrant = 0;
 
-/* The beam frame the display last showed. Both the game flow parking at a
- * boundary and an interrupt crossing one ask to present, and on the crawl both
- * fall in the same guest frame — pacing each halved the guest's speed to 21 fps.
- * One presented frame per beam frame, whoever notices the boundary first. */
-static uint64_t s_presented_beam_frame = UINT64_MAX;
-
 static int hw_present_body(void);
 
 int hw_present_frame(void) {
     g_hw_present_calls++;
-    if (g_hw_vblank_yield) {
-        const uint64_t beam_frame =
-            rt_get_guest_cycles() / (BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME);
-        if (beam_frame == s_presented_beam_frame)
-            return 0;
-        s_presented_beam_frame = beam_frame;
-    }
     return hw_present_body();
 }
 
@@ -1440,6 +1376,13 @@ static int hw_present_body(void) {
     pc_lockstep_frame();
     s_frame_num++;
     hw_testrun_script(s_frame_num);
+
+    if (s_frame_watchdog_limit > 0 && ++s_frame_watchdog_count >= s_frame_watchdog_limit) {
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "test", "reached frame limit %d",
+                             s_frame_watchdog_limit);
+        hw_running = 0;
+        return 1;
+    }
 
     return 0;
 }
