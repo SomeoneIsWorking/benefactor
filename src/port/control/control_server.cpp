@@ -121,7 +121,8 @@ Response route_state() {
             "\"saveable\":%d,\"save_reason\":\"%s\",\"paused\":%d,\"press_left\":%d,"
             "\"instructions\":%llu,"
             "\"guest_cycles\":%llu,\"blit_cycles\":%llu,\"fps\":%d,"
-            "\"audio\":{\"dmacon\":\"%04X\",\"vol\":[%u,%u,%u,%u],\"per\":[%u,%u,%u,%u]},"
+            "\"audio\":{\"dmacon\":\"%04X\",\"intena\":\"%04X\",\"vol\":[%u,%u,%u,%u],\"per\":[%u,%"
+            "u,%u,%u]},"
             "\"beam\":{\"crossed\":%u,\"taken\":%u,\"declined\":%u,\"off_flow\":%u,"
             "\"pending_blit\":%u,\"held\":%u,\"blt_reg\":\"%03X\","
             "\"by_flow\":%u,\"by_irq\":%u,\"by_host\":%u},"
@@ -138,21 +139,21 @@ Response route_state() {
             InputScript::instance().press_frames_left(),
             (unsigned long long)rt_get_executed_instructions(),
             (unsigned long long)rt_get_guest_cycles(), (unsigned long long)g_hw_blit_cycles,
-            g_hw_perf.fps, s_regs[0x096 >> 1], s_regs[0x0A8 >> 1], s_regs[0x0B8 >> 1],
-            s_regs[0x0C8 >> 1], s_regs[0x0D8 >> 1], s_regs[0x0A6 >> 1], s_regs[0x0B6 >> 1],
-            s_regs[0x0C6 >> 1], s_regs[0x0D6 >> 1], g_hw_beam_crossed, g_hw_beam_taken,
-            g_hw_beam_declined, g_hw_beam_declined_off_flow, g_hw_beam_pending_blit, g_hw_beam_held,
-            g_hw_blt_last_reg, g_hw_beam_by_flow, g_hw_beam_by_irq, g_hw_beam_by_host,
-            (unsigned long long)frame.flow, (unsigned long long)frame.irq3,
-            (unsigned long long)frame.irq6, (unsigned long long)frame.frame,
-            (unsigned long long)rt_get_cycle_base(), (unsigned long long)rt_get_cycles_elapsed(),
-            (unsigned long long)frame.present, (unsigned long long)frame.iteration,
-            (unsigned long long)frame.iteration_peak, (unsigned long long)frame.flow_peak,
-            (unsigned long long)frame.irq3_peak, (unsigned long long)frame.irq6_peak,
-            g_hw_present_calls, g_hw_present_reentrant, frame.irq3_deliveries,
-            frame.irq6_deliveries, pc_on_game_thread(), frame.running_owner, frame.waits_reached,
-            frame.waits_refused, frame.waits_parked, frame.title_draws, g_hw_perf.game_us,
-            g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us));
+            g_hw_perf.fps, s_regs[0x096 >> 1], hw_get_intena(), s_regs[0x0A8 >> 1],
+            s_regs[0x0B8 >> 1], s_regs[0x0C8 >> 1], s_regs[0x0D8 >> 1], s_regs[0x0A6 >> 1],
+            s_regs[0x0B6 >> 1], s_regs[0x0C6 >> 1], s_regs[0x0D6 >> 1], g_hw_beam_crossed,
+            g_hw_beam_taken, g_hw_beam_declined, g_hw_beam_declined_off_flow,
+            g_hw_beam_pending_blit, g_hw_beam_held, g_hw_blt_last_reg, g_hw_beam_by_flow,
+            g_hw_beam_by_irq, g_hw_beam_by_host, (unsigned long long)frame.flow,
+            (unsigned long long)frame.irq3, (unsigned long long)frame.irq6,
+            (unsigned long long)frame.frame, (unsigned long long)rt_get_cycle_base(),
+            (unsigned long long)rt_get_cycles_elapsed(), (unsigned long long)frame.present,
+            (unsigned long long)frame.iteration, (unsigned long long)frame.iteration_peak,
+            (unsigned long long)frame.flow_peak, (unsigned long long)frame.irq3_peak,
+            (unsigned long long)frame.irq6_peak, g_hw_present_calls, g_hw_present_reentrant,
+            frame.irq3_deliveries, frame.irq6_deliveries, pc_on_game_thread(), frame.running_owner,
+            frame.waits_reached, frame.waits_refused, frame.waits_parked, frame.title_draws,
+            g_hw_perf.game_us, g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us));
 }
 
 Response route_cpu() {

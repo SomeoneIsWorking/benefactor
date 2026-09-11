@@ -128,7 +128,6 @@ void pc_register_overrides(void) {
         rt_register_override_gp(0x0059C5B0u, native_gameover_menu);
     }
     rt_register_override_gp(0x0059DC02u, native_level_load);
-    rt_register_override_gp(0x005782B4u, native_level_setup);
     {
         rt_register_override_gp(0x0057EB20u, native_place_probe);
     }

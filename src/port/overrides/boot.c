@@ -231,7 +231,7 @@ void native_level_decrunch(M68KCtx *ctx) {
         (void)rt_return_from_native(ctx);
         return;
     }
-    rt_call_original_subroutine(ctx, ctx->image, 0x00577E96u);
+    rt_call(ctx, ctx->image, 0x00577E96u);
 }
 
 /* Native port of the title-bank glyph blitter at $0049B6 — the routine
@@ -559,7 +559,7 @@ void native_menu_setup(M68KCtx *ctx) {
      * ($3700 hook) — the engine renders the menu on page 1 only (GLYPH_LOG:
      * every item draw targets $4xxxx; page 2 is the pwfield restore source). */
 
-    rt_call_original(ctx, ctx->image, 0x00003872u);
+    rt_call(ctx, ctx->image, 0x00003872u);
 }
 
 /* $3700 — menu-art unpacker post-hook: page 1 ($49000) is unpacked from the
@@ -573,7 +573,7 @@ void native_menu_art_unpack(M68KCtx *ctx) {
      * at its caller's return PC; letting it run through the caller leaves the
      * guest frame on the wrong continuation and eventually trips the frame
      * watchdog during menu input. */
-    rt_call_original_subroutine(ctx, ctx->image, 0x00003700u);
+    rt_call(ctx, ctx->image, 0x00003700u);
     if (is_menu_art)
         s_menu_page_base = dst; /* anchor base for the glyph-blit capture */
 }

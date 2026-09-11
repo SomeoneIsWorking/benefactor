@@ -87,6 +87,21 @@ void hw_beam_wait_above(void) {
         (void)g_hw_vblank_yield();
 }
 
+void hw_beam_wait_scanline(uint8_t line) {
+    if (!pc_on_game_thread())
+        return;
+    const uint64_t per_frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
+    const uint64_t into = rt_get_guest_cycles() % per_frame;
+    const uint64_t target = (uint64_t)line * BEAM_CYCLES_PER_LINE;
+    if (into < target) {
+        rt_add_guest_cycles(target - into);
+    } else {
+        rt_add_guest_cycles((per_frame - into) + target);
+        if (g_hw_vblank_yield)
+            (void)g_hw_vblank_yield();
+    }
+}
+
 /* A native body waiting for the vertical blank stands in for guest code that
  * would have spun for a frame — so it must COST the guest a frame, the same way
  * a blit costs the guest the bus cycles it would have occupied. The beam is

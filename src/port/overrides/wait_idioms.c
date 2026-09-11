@@ -22,11 +22,13 @@ static void native_wait_idiom(M68KCtx *ctx) {
     const PcWaitIdiom found = pc_wait_idiom_at(g_mem, (uint32_t)RT_MEM_SIZE, at);
     switch (found.kind) {
     case PC_WAIT_FRAME:
-    case PC_WAIT_SCANLINE:
         /* The whole point: the guest is asking for the next frame, so say so to
          * the HOST. That parks the game flow and presents here, which is where
          * the oracle's own injected wait presented too. */
         hw_vblank_wait();
+        break;
+    case PC_WAIT_SCANLINE:
+        hw_beam_wait_scanline(found.scanline);
         break;
     case PC_WAIT_BEAM_BELOW:
         hw_beam_wait_below();

@@ -50,6 +50,7 @@ typedef enum {
 typedef struct {
     PcWaitIdiomKind kind;
     uint32_t resume; /* the address after the loop (or loops) */
+    uint8_t scanline;
 } PcWaitIdiom;
 
 /* `btst #0,$3(a6)` or `$5(a6)` — bit 8 of VPOSR ($DFF004). */
@@ -126,7 +127,7 @@ static inline uint32_t pc_wait_blitter_poll(const uint8_t *memory, uint32_t size
 
 /* Recognise the busy-wait that begins at `addr`, if there is one. */
 static inline PcWaitIdiom pc_wait_idiom_at(const uint8_t *memory, uint32_t size, uint32_t addr) {
-    PcWaitIdiom found = {PC_WAIT_NONE, 0u};
+    PcWaitIdiom found = {PC_WAIT_NONE, 0u, 0u};
     const int beam = pc_wait_vposr_poll(memory, size, addr);
     if (beam != 0) {
         /* The pair is the thing the guest means by "wait for the next frame":
@@ -144,6 +145,7 @@ static inline PcWaitIdiom pc_wait_idiom_at(const uint8_t *memory, uint32_t size,
     if (pc_wait_scanline_poll(memory, size, addr)) {
         found.kind = PC_WAIT_SCANLINE;
         found.resume = addr + 8u;
+        found.scanline = memory[addr + 3u];
         return found;
     }
     const uint32_t blit_len = pc_wait_blitter_poll(memory, size, addr);

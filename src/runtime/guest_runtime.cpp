@@ -299,22 +299,6 @@ class Runtime final {
         return result;
     }
 
-    amigaport::ExecutionExit call_original(std::uint32_t address) {
-        last_call_address.store(address, std::memory_order_relaxed);
-        record_call(address);
-        executor.state().pc = address;
-        executor.state().prefetch_valid = false;
-        return resume_past_breakpoints(executor.call_original());
-    }
-
-    amigaport::ExecutionExit call_original_subroutine(std::uint32_t address) {
-        last_call_address.store(address, std::memory_order_relaxed);
-        record_call(address);
-        executor.state().pc = address;
-        executor.state().prefetch_valid = false;
-        return resume_past_breakpoints(executor.call_original_subroutine());
-    }
-
     int return_from_native() {
         const auto return_pc = memory.read32(executor.state().address[7]);
         if (!return_pc) {
@@ -636,21 +620,6 @@ void rt_exit_to_host(M68KCtx *ctx) {
     if (ctx != nullptr)
         rt_context_bind(ctx);
     runtime().exit_to_host();
-}
-
-void rt_call_original(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
-    (void)image;
-    (void)address;
-    if (ctx != nullptr)
-        rt_context_bind(ctx);
-    log_exit("call-original", address, runtime().call_original(address));
-}
-
-void rt_call_original_subroutine(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
-    (void)image;
-    if (ctx != nullptr)
-        rt_context_bind(ctx);
-    log_exit("call-original-sub", address, runtime().call_original_subroutine(address));
 }
 
 int rt_return_from_native(M68KCtx *ctx) {
