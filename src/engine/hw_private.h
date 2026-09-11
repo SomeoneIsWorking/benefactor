@@ -23,6 +23,15 @@ extern int s_copper_writing;
 
 extern SDL_AudioStream *s_audio_stream;
 extern volatile uint32_t g_hw_last_read;
+/* PAL geometry in 68000 cycles: 227 colour clocks a line at two cycles each,
+ * 312 lines a frame. The beam is derived from consumed guest time, never from
+ * how many times the guest read a register (engine/hw_beam.c). */
+#define BEAM_CYCLES_PER_LINE 454u
+#define BEAM_LINES_PER_FRAME 312u
+
+/* engine/hw_beam.c — "when is a frame over". */
+int hw_boundary_hold(void);
+
 extern volatile uint32_t g_hw_beam_crossed;
 extern volatile uint32_t g_hw_beam_taken;
 extern volatile uint32_t g_hw_beam_declined;

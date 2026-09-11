@@ -192,6 +192,18 @@ void hw_blitter_sync(void);
 /* Wait for vblank (Amiga VPOSR sync pair: bit0=0 then bit0=1).
  * On PC this is a no-op — frame timing is driven by SDL in hw_present_frame(). */
 void hw_vblank_wait(void);
+/* The two halves of that wait, for guest code that polls VPOSR bit 8 itself:
+ * _below waits for the beam to come down past line 256, _above for it to wrap
+ * back. See src/port/wait_idiom.h for why this port recognises those loops. */
+void hw_beam_wait_below(void);
+void hw_beam_wait_above(void);
+/* A held frame boundary lands when the flow reaches a wait (engine/hw_beam.c). */
+void hw_boundary_release(void);
+/* The two halves of that wait, for a guest that polls VPOSR bit 8 on its own:
+ * _below waits for the beam to come down past line 256, _above for it to wrap
+ * back. See src/port/wait_idiom.h for why the port recognises these at all. */
+void hw_beam_wait_below(void);
+void hw_beam_wait_above(void);
 
 /* Beam-boundary accounting: frames the guest's cycle-derived beam crossed, how
  * many were presented, and how many were declined because the caller was not
@@ -213,6 +225,14 @@ int hw_blit_setup_open(void);
 void hw_blit_regs_save(uint16_t *dst);
 void hw_blit_regs_restore(const uint16_t *src);
 extern volatile uint32_t g_hw_beam_pending_blit;
+/* Frame boundaries crossed and HELD, waiting for the game flow to reach its
+ * own wait so the frame ends where the guest says it does. */
+extern volatile uint32_t g_hw_beam_held;
+/* Frame boundaries crossed and HELD, waiting for the game flow to reach its
+ * own wait so the frame ends where the guest says it does. */
+extern volatile uint32_t g_hw_beam_held;
+/* Called when the flow reaches a wait: a held boundary lands there. */
+void hw_boundary_release(void);
 extern volatile uint32_t g_hw_blt_last_reg;
 extern volatile uint32_t g_hw_present_calls;
 extern volatile uint32_t g_hw_present_reentrant;

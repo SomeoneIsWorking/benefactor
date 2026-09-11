@@ -278,10 +278,7 @@ static int s_frame_num = 0;
 
 /* Sampled on EVERY custom-chip access: a guest loop that syncs on something
  * other than the beam (the intro crawl waits on the blitter) would otherwise
- * never cross a frame boundary. PAL geometry in 68000 cycles: 227 color clocks
- * a line at two cycles each, 312 lines a frame. */
-#define BEAM_CYCLES_PER_LINE 454u
-#define BEAM_LINES_PER_FRAME 312u
+ * never cross a frame boundary. The PAL geometry is in engine/hw_private.h. */
 
 /* A blit's register sequence is half-written: a BLTxxx write with no BLTSIZE
  * after it. The blitter registers are ONE shared set, so an interrupt delivered
@@ -352,6 +349,13 @@ static void hw_step_register_beam(int at_beam_read) {
         g_hw_beam_taken++;
         return;
     }
+    /* Cross the boundary here; do not necessarily END the frame here. The
+     * flow's frame ends at the flow's own wait, which is where the oracle's
+     * frames ended too — engine/hw_beam.c says why at length. */
+    if (hw_boundary_hold()) {
+        s_beam_frame = frame;
+        return;
+    }
     /* Never park mid-blit: the blitter registers are one shared set, so an
      * interrupt delivered here writes the same registers and the two blits merge
      * into one runaway blit. See docs/issues/0007. */
@@ -379,6 +383,7 @@ static void hw_step_register_beam(int at_beam_read) {
     }
     g_hw_beam_taken++;
     s_beam_frame = frame;
+    hw_boundary_release();
 }
 
 int hw_get_frame_num(void) { return s_frame_num; }
@@ -2457,33 +2462,8 @@ void (*g_hw_cop1lc_present)(void) = NULL;
 /* Current copper-list-1 location (last value written to COP1LC $DFF080/82). */
 uint32_t hw_get_cop1lc(void) { return ((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1]; }
 
-/* A native body waiting for the vertical blank stands in for guest code that
- * would have spun for a frame — so it must COST the guest a frame, the same way
- * a blit costs the guest the bus cycles it would have occupied. The beam is
- * derived from consumed guest cycles, and native code consumes none: without
- * this charge, a native body that waits 32 times in a row advances the beam not
- * at all and every wait returns immediately.
- *
- * That is what flattened the boot logo fade. Its palette animation is 16 passes
- * of two frames each; it asked for 32 frames, got 1, and all sixteen colour
- * steps landed in a single displayed frame.
- *
- * This charge applies only to NATIVE callers. Guest code that spins on VPOSR
- * itself (the intro crawl at $003732) is interpreted instruction by
- * instruction and already pays for its own spin — charging that too, or
- * replacing it with this call, gives the crawl a second clock and it runs
- * ~165x too fast. See docs/issues/0008. */
-void hw_vblank_wait(void) {
-    if (pc_on_game_thread()) {
-        const uint64_t per_frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
-        rt_add_guest_cycles(per_frame - rt_get_guest_cycles() % per_frame);
-    }
-    /* Disk-boot coroutine mode: this is the per-frame yield point — hand control
-     * back to the frame driver (render + input + IRQs), then resume the game.
-     * Otherwise a no-op (the snapshot path drives frames from src/port/game_loop.c). */
-    if (g_hw_vblank_yield)
-        (void)g_hw_vblank_yield();
-}
+/* hw_vblank_wait and the rest of "when is a frame over" moved to
+ * engine/hw_beam.c. */
 
 void hw_wait_fire(int want_pressed) {
     /* Folded `tst.b $bfe001; b(mi|pl) self` busy-loop. On real OCS the loop is
