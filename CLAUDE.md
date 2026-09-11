@@ -18,6 +18,13 @@ they come back in any form.
 
 Standing direction from the user, not a one-off preference:
 
+- **The game working comes first, and native code is how it gets there.** The
+  retired static recompiler played the game correctly; anything this product
+  does that the player can see going wrong is a regression against that, whatever
+  its justification. "This product is the more faithful one" is not an answer to
+  a broken game — if it were faithful the game would work. Fix it, natively, and
+  measure that the fix worked; reach for a native owner before reaching for a
+  more careful emulation of the guest.
 - **Move behaviour into native owned bodies.** Where the guest spins, polls or
   re-implements something the host already owns — wait idioms, blitter and beam
   polls, timing loops — replace it with native code registered through the

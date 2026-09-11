@@ -48,6 +48,10 @@ uint16_t hw_get_intena(void);
  * Returns 0 to keep running, 1 if the user closed the window.
  */
 int hw_present_frame(void);
+/* Present one frame while the game is frozen (pause menu / freecam). Unlike
+ * hw_present_frame it does not decline on the beam — a parked guest does not
+ * move the beam — so the 50 Hz pacing at the end of a present still runs. */
+int hw_present_paused_frame(void);
 
 /* Get pointer to the internal ARGB8888 framebuffer (HW_DISPLAY_W × HW_DISPLAY_H pixels). */
 const uint32_t *hw_get_framebuffer(void);
