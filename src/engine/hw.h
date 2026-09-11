@@ -199,6 +199,9 @@ void hw_beam_wait_below(void);
 void hw_beam_wait_above(void);
 /* A held frame boundary lands when the flow reaches a wait (engine/hw_beam.c). */
 void hw_boundary_release(void);
+/* Frames the hold owes the display, cleared by asking. Each is a frame that
+ * really elapsed, to be shown as the state the guest had when it waited. */
+int hw_boundary_take_owed(void);
 /* The two halves of that wait, for a guest that polls VPOSR bit 8 on its own:
  * _below waits for the beam to come down past line 256, _above for it to wrap
  * back. See src/port/wait_idiom.h for why the port recognises these at all. */

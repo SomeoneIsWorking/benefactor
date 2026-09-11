@@ -44,6 +44,13 @@
  * so 2 it is: the smallest cap that lets the guest finish what it started. */
 #define HW_BOUNDARY_HOLD_MAX 2
 static int s_boundary_held = 0;
+/* Held is not the same as LOST. A boundary that was held still happened: the
+ * display owes that frame, and the frame it owes is the state the guest had
+ * when it finally waited — which is the state the oracle showed, because the
+ * oracle never saw the half-finished one at all. Without this the hold silently
+ * dropped frames and the game ran fast: the poster's fade was two steps ahead
+ * of the oracle's by frame 7161. */
+static int s_boundary_owed = 0;
 volatile uint32_t g_hw_beam_held = 0;
 
 /* Should the crossing just raised be HELD for the flow's own wait? Only the
@@ -57,8 +64,26 @@ int hw_boundary_hold(void) {
     return 1;
 }
 
-/* A boundary was taken, or the flow reached a wait: the hold is over. */
-void hw_boundary_release(void) { s_boundary_held = 0; }
+/* The flow reached a wait, so the hold is over — and whatever it held is now
+ * owed to the display. */
+void hw_boundary_release(void) {
+    /* The wait the flow just reached ends a frame of its own, and that present
+     * pays for the FIRST held boundary. Only a second one is a frame nobody
+     * would otherwise show. Owing all of them instead put the poster at frame
+     * 13690 against the oracle's 7160 — the whole run at half speed. */
+    if (s_boundary_held > 1)
+        s_boundary_owed += s_boundary_held - 1;
+    s_boundary_held = 0;
+}
+
+/* How many frames the hold owes, and they are no longer owed once asked for.
+ * The frame driver presents this many extra frames after the flow parks
+ * (src/port/game_loop.c), on the main thread with the guest parked. */
+int hw_boundary_take_owed(void) {
+    const int owed = s_boundary_owed;
+    s_boundary_owed = 0;
+    return owed;
+}
 
 /* The two halves of the guest's own vertical-blank poll, as host waits. The
  * guest spins on VPOSR bit 8 — first until the beam has come DOWN past line
