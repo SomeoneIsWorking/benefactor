@@ -595,7 +595,11 @@ void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     (void)image_kind(image);
     if (ctx != nullptr)
         rt_context_bind(ctx);
-    log_exit("execute", address, runtime().execute(address));
+    const auto exit = runtime().execute(address);
+    log_exit("execute", address, exit);
+    if (exit.hand_off_to_host && !runtime().native_host_exits.empty()) {
+        runtime().exit_to_host();
+    }
 }
 
 void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
