@@ -145,7 +145,7 @@ void native_gameplay_input(M68KCtx *ctx) {
      * gates interact/drop/hop signals to modern devices, so they'd all be 0
      * here anyway — this also skips the down/fire reshuffling below.) */
     if (!pc_modern_any()) {
-        rt_call_original(ctx, ctx->image, 0x0057DEACu);
+        rt_call_original_subroutine(ctx, ctx->image, 0x0057DEACu);
         return;
     }
 
@@ -265,7 +265,7 @@ void native_gameplay_input(M68KCtx *ctx) {
         restore = 1;
     }
 
-    rt_call_original(ctx, ctx->image, 0x0057DEACu);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0057DEACu);
 
     if (restore) {
         hw_set_fire(sf);
@@ -293,7 +293,7 @@ void native_place_probe(M68KCtx *ctx) {
                          "$57EB20 from $%06X $f80=%04X d4=%08X $1094=%04X $109c=%08X",
                          rt_get_last_insn(), MR16(a5 + 0xf80u), ctx->D[4], MR16(a5 + 0x1094u),
                          MR32(a5 + 0x109Cu));
-    rt_call_original(ctx, ctx->image, 0x0057EB20u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0057EB20u);
 }
 
 /* ── $5782B4 — level setup (runs on every level entry, incl. the win's next

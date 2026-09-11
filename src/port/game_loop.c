@@ -649,7 +649,8 @@ void pc_resume_gameplay_thread(void) {
     game_thread_stop();
     rt_reset_callstack();
     g_pc_screen = PC_SCR_GAMEPLAY;
-    s_game_entry = 0x00577114u;
+    const uint32_t pc = rt_get_pc();
+    s_game_entry = pc ? pc : 0x00577114u;
     s_game_resume = 1;
     game_thread_spawn();
 }

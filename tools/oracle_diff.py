@@ -30,6 +30,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -377,6 +378,11 @@ def setup_reference(worktree: Path = REFERENCE_WORKTREE) -> Path:
             vendored.rmdir()
         vendored.symlink_to(ROOT / "vendor/libretro-uae")
 
+    for name in DISKS:
+        disk_link = worktree / name
+        if not disk_link.exists():
+            disk_link.symlink_to(ROOT / name)
+
     # The lockstep protocol has exactly one implementation, and it lives in
     # this repository. Copy it in rather than restating it in the patch: two
     # copies of a hash drift, and a drifted hash reports a divergence on every
@@ -404,7 +410,13 @@ def setup_reference(worktree: Path = REFERENCE_WORKTREE) -> Path:
 
     scratch = worktree / "scratch/tmp"
     scratch.mkdir(parents=True, exist_ok=True)
-    environment = {**os.environ, "TMPDIR": str(scratch)}
+    python_bin = str(Path(sys.executable).parent)
+    path_env = os.environ.get("PATH", "")
+    environment = {
+        **os.environ,
+        "TMPDIR": str(scratch),
+        "PATH": f"{python_bin}:{path_env}",
+    }
     if shutil.which("ninja") is None:
         raise RuntimeError("ninja is required to build the reference product")
     LOGGER.info("configuring the reference build (this regenerates it from your disks)")

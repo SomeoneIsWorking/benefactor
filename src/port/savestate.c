@@ -8,6 +8,12 @@
  */
 #include "port/port_internal.h"
 
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
+
 /* Savestate: snapshot the image-qualified interpreter state and guest memory
  * between frame steps, while the execution owner is parked at $577114. */
 
@@ -26,7 +32,8 @@ int pc_savestate_allowed(const char **reason) {
             *reason = "Can only save during gameplay";
         return 0;
     }
-    if (!rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577114u)) {
+    if (!rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577114u) &&
+        !rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577130u)) {
         if (reason)
             *reason = "Can't save here (level transition)";
         return 0;
@@ -48,6 +55,20 @@ int pc_savestate_allowed(const char **reason) {
 int pc_savestate(const char *path) {
     if (!g_mem || !path)
         return -1;
+    const char *last_slash = strrchr(path, '/');
+    if (last_slash) {
+        char dir[512];
+        size_t len = (size_t)(last_slash - path);
+        if (len < sizeof dir) {
+            memcpy(dir, path, len);
+            dir[len] = '\0';
+#ifdef _WIN32
+            (void)_mkdir(dir);
+#else
+            (void)mkdir(dir, 0755);
+#endif
+        }
+    }
     FILE *f = fopen(path, "wb");
     if (!f) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game", "[pc] savestate: open %s failed\n", path);
@@ -128,7 +149,8 @@ int pc_loadstate(const char *path) {
      * from the restored guest memory and CPU state (no native stack restored).
      * Saves are only ever taken in that state (pc_savestate_allowed), so every valid
      * savestate loads this way. */
-    int at_resume = rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577114u);
+    int at_resume = rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577114u) ||
+                    rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577130u);
     if (g_gameplay_active && at_resume) {
         pc_resume_gameplay_thread();
     } else {
