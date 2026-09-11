@@ -683,7 +683,22 @@ is by address, so a pattern matching bytes the guest never executes is inert.
 
 Measured frame by frame after the change: **the screen sequence matches the
 oracle exactly** — no `$008182`, no `$0033E0`, no extra screen pair — and 7157
-frames are byte-identical. The handover lands one frame before the oracle's.
+frames are byte-identical, and the poster handover lands on **frame 7160, the
+same frame as the oracle**.
+
+Two things remain, both inside the handover and both measured:
+
+- The title overlay's decrunch lands a frame early here — at 7158 against the
+  oracle's 7159, 2292 bytes of the title music driver at `$005F34`-`$006DFF`.
+  The load itself is native in both products, so this is when the guest reaches
+  it, not how long it takes.
+- The poster's own fade then runs fast for its first frames: at 7161 its
+  palette is two steps on here (`6DAB8C1E` against `E4C64D45`), with the
+  copper's colour block at `$008240`-`$0082B9` differing to match. The guest is
+  completing more of its frame-wait iterations per PRESENTED frame than the
+  oracle does, which points at a wait that produced no present — `hw_present_frame`
+  declining because the interrupt path had already shown that beam frame. That
+  is the next thing to measure and it is not yet explained.
 
 The hold cap is **2**, and it was measured rather than argued. A cap of 1 reads
 better — a second held boundary puts two frames of guest work into one
