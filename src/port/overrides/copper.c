@@ -7,7 +7,7 @@
  * rate says whether the screen is being stepped faster than it is shown. */
 void native_sprite_blitter_setup(M68KCtx *ctx) {
     pc_note_title_draw();
-    rt_call_original(ctx, ctx->image, 0x0041A4u);
+    rt_call_original_subroutine(ctx, ctx->image, 0x0041A4u);
 }
 
 /* $003488 — per-frame game logic entry (car-demo screen) */

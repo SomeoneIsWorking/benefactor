@@ -49,7 +49,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         executable = build_product()
-        subprocess.run([str(executable), "--disk", *(str(path) for path in disks)], check=True)
+        subprocess.run(
+            [str(executable), "--disk", *(str(path) for path in disks), *config.extra_args],
+            check=True,
+        )
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
         LOGGER.error("could not launch Benefactor: %s", error)
         return 2

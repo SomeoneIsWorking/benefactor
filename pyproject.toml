@@ -2,7 +2,9 @@
 name = "benefactor-port-tools"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "capstone>=5.0.9",
+]
 
 [dependency-groups]
 dev = ["clang-format==22.1.8", "ruff==0.16.3"]
