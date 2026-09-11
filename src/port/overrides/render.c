@@ -2,20 +2,12 @@
  *
  * What is left here is native code that actually does something. There used to
  * be ten more "hook points" in this file, each a function whose whole body was
- * `rt_call_original(ctx, ctx->image, <its own address>)` — $00405C, $0040B6,
+ * `rt_call(ctx, ctx->image, <its own address>)` — $00405C, $0040B6,
  * $0040B8, $0040BA, $0040BC, $0040BE, $0040CC, $004102, $00412E and $004236,
  * plus $003488 in copper.c. Registering an override that only calls the
  * original is behaviourally identical to not registering one, so they were
  * removed: they were placeholders from the retired translator, kept for a
  * native implementation that a later reading of the render path never needed.
- *
- * They were not free. $004236 is entered by a BSR from $004226, and a wrapper
- * entered as a subroutine must complete its boundary with
- * rt_call_original_subroutine; with plain rt_call_original the executor failed
- * closed on every level load:
- *
- *   native override $004236 returned without completing its guest boundary;
- *   entered from $004226 opcode=$610E
  *
  * An override that does nothing cannot get its boundary wrong if it does not
  * exist. See the override table in CLAUDE.md before adding one back.
@@ -41,7 +33,7 @@ void native_post_blit_handler(M68KCtx *ctx) {
          * instantly on PC so the blitter-wait inside $0052F0 returns at once —
          * no stall occurs.  PUAE harness also runs the blit instantly (v=19
          * compositing in the same retro_run), so deferral is incorrect. */
-        rt_call_original(ctx, ctx->image, 0x0052F0u);
+        rt_call(ctx, ctx->image, 0x0052F0u);
         return;
     }
 
@@ -64,7 +56,7 @@ void native_post_blit_handler(M68KCtx *ctx) {
  * It used to be wrapped here to control how often it ran, back when the host
  * called it directly. The guest's own vector wrapper ($003160) already does
  * `bsr $55A0` once per delivery — the same thing the reference product does —
- * so the wrapper was a second caller, and a harmful one: rt_call_original runs
+ * so the wrapper was a second caller, and a harmful one: a raw call runs
  * without stopping at an RTE, and $55A0's chain ends at one ($005892). Past
  * that RTE the run carried straight on into the code the interrupt had
  * interrupted — a million instructions of the intro crawl inside one timer

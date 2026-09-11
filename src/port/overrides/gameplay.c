@@ -65,7 +65,7 @@ void native_end_of_level(M68KCtx *ctx) {
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow",
                          "$578C3E enter $1E=%u cop1lc=%06X $10AC=%04X", r16(GP_MODE_001E),
                          hw_get_cop1lc(), r16(ctx->A[5] + GP_FLAGS_10AC));
-    rt_call_original(ctx, ctx->image, 0x00578C3Eu);
+    rt_call(ctx, ctx->image, 0x00578C3Eu);
 }
 
 /* ── $59C5B0 — card/menu screen renderer: port the game-over transition ───────
@@ -111,7 +111,7 @@ void native_gameover_menu(M68KCtx *ctx) {
         rt_exit_to_host(ctx);
         return;
     }
-    rt_call_original_subroutine(ctx, ctx->image, 0x0059C5B0u);
+    rt_call(ctx, ctx->image, 0x0059C5B0u);
 }
 
 /* ── $57DEAC — gameplay input read: re-gate item DROP onto the interact key ────
@@ -140,12 +140,11 @@ void native_gameover_menu(M68KCtx *ctx) {
  * translation + prone handling below are binding-agnostic. $bfe001 bit7 reads as
  * (s_fire_pressed || s_mouse_lmb), so both are driven. State is restored after decode. */
 void native_gameplay_input(M68KCtx *ctx) {
-
     /* No device on the modern scheme → fully vanilla decode, untouched. (hw.c
      * gates interact/drop/hop signals to modern devices, so they'd all be 0
      * here anyway — this also skips the down/fire reshuffling below.) */
     if (!pc_modern_any()) {
-        rt_call_original_subroutine(ctx, ctx->image, 0x0057DEACu);
+        rt_call(ctx, ctx->image, 0x0057DEACu);
         return;
     }
 
@@ -265,7 +264,7 @@ void native_gameplay_input(M68KCtx *ctx) {
         restore = 1;
     }
 
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057DEACu);
+    rt_call(ctx, ctx->image, 0x0057DEACu);
 
     if (restore) {
         hw_set_fire(sf);
@@ -293,7 +292,7 @@ void native_place_probe(M68KCtx *ctx) {
                          "$57EB20 from $%06X $f80=%04X d4=%08X $1094=%04X $109c=%08X",
                          rt_get_last_insn(), MR16(a5 + 0xf80u), ctx->D[4], MR16(a5 + 0x1094u),
                          MR32(a5 + 0x109Cu));
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057EB20u);
+    rt_call(ctx, ctx->image, 0x0057EB20u);
 }
 
 /* ── $5782B4 — level setup (runs on every level entry, incl. the win's next
@@ -313,7 +312,7 @@ void native_level_setup(M68KCtx *ctx) {
     for (int i = 0; i < in && used > 0 && used < (int)sizeof lead_up; i++)
         used += snprintf(lead_up + used, sizeof lead_up - (size_t)used, " %06X", ins[i]);
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-setup", "%s", lead_up);
-    rt_call_original_subroutine(ctx, ctx->image, 0x005782B4u);
+    rt_call(ctx, ctx->image, 0x005782B4u);
 }
 
 /* ── Native object capture for widescreen ($57D79A walk + $57D8D0 draw) ───────
@@ -557,15 +556,15 @@ static void wsbuild_capture(M68KCtx *ctx, int blind) {
 }
 void native_build_red(M68KCtx *ctx) {
     wsbuild_capture(ctx, 0);
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057B19Eu);
+    rt_call(ctx, ctx->image, 0x0057B19Eu);
 }
 void native_build_blind(M68KCtx *ctx) {
     wsbuild_capture(ctx, 1);
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057B856u);
+    rt_call(ctx, ctx->image, 0x0057B856u);
 }
 void native_build_clear(M68KCtx *ctx) {
     s_wsbuild_n = 0;
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057B07Cu);
+    rt_call(ctx, ctx->image, 0x0057B07Cu);
 }
 
 void native_char_capture(M68KCtx *ctx) {
@@ -598,7 +597,7 @@ void native_char_capture(M68KCtx *ctx) {
                          "x=%d y=%d (screenX=%d) w=%d h=%d data=%06X mask=%06X rs=%d", worldX,
                          worldY, worldX - log_cam, w, h, data, mask, rowstride);
 
-    rt_call_original(ctx, ctx->image, 0x0057D3F4u);
+    rt_call(ctx, ctx->image, 0x0057D3F4u);
 }
 
 /* ROPES — the engine builds a per-frame line-segment list ($57DCAE driver) by walking a
@@ -629,7 +628,7 @@ void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1) {
 void native_wsrope_build(M68KCtx *ctx) /* $57DCAE — driver; reset before the emit chain */
 {
     s_wsrope_n = 0;
-    rt_call_original(ctx, ctx->image, 0x0057DCAEu);
+    rt_call(ctx, ctx->image, 0x0057DCAEu);
 }
 /* ANIMATED PAGE PATCHES (water surface line etc.) — the object-list walker's
  * "multi-tile" path $57D81C (reached from $57D7BC via `bmi` when the object record's
@@ -682,7 +681,7 @@ void native_anim_patch(M68KCtx *ctx) /* $57D81C — capture pre-cull, then deleg
         uint32_t src = a2 + (uint32_t)(int16_t)MR16(sp);
         s_wswater[s_wswater_n++] = (WsWater){wx, (int16_t)(off / 46u), (int16_t)(off % 46u), src};
     }
-    rt_call_original(ctx, ctx->image, 0x0057D81Cu);
+    rt_call(ctx, ctx->image, 0x0057D81Cu);
 }
 
 void native_wsrope_seg(M68KCtx *ctx) /* $57DCD4 — shared clip/emit entry, PRE-cull */
@@ -690,7 +689,7 @@ void native_wsrope_seg(M68KCtx *ctx) /* $57DCD4 — shared clip/emit entry, PRE-
     if (s_wsrope_n < WS_ROPE_MAX)
         s_wsrope[s_wsrope_n++] = (WsRope){(int16_t)ctx->D[0], (int16_t)ctx->D[1],
                                           (int16_t)ctx->D[2], (int16_t)ctx->D[3]};
-    rt_call_original(ctx, ctx->image, 0x0057DCD4u);
+    rt_call(ctx, ctx->image, 0x0057DCD4u);
 }
 
 /* Object anim+draw dispatcher $59AC38 (one of the per-object-type handlers the
@@ -716,7 +715,7 @@ void native_obj_anim_59AC38(M68KCtx *ctx) {
     uint32_t a3 = (uint32_t)(int16_t)MR16(ctx->A[5] - 0xF22u); /* $59AC52 movea.w (sign-ext) */
     uint16_t gate = MR16(a3);                                  /* $59AC56 cmp.w (a3),d2 */
     if (gate == d2) {
-        rt_call_original(ctx, ctx->image, 0x0059AC38u);
+        rt_call(ctx, ctx->image, 0x0059AC38u);
         return;
     }
 
@@ -1080,7 +1079,7 @@ void native_objdraw_capture(M68KCtx *ctx) {
                          "x=%d y=%d (screenX=%d) w=%d h=%d src=%06X mod=%08X", worldX, worldY,
                          worldX - log_cam, w, h, src, mod);
 
-    rt_call_original(ctx, ctx->image, 0x0057D8D0u);
+    rt_call(ctx, ctx->image, 0x0057D8D0u);
 }
 
 /* ── Native PLAYER capture for widescreen ($57A666) ──────────────────────────
@@ -1163,7 +1162,7 @@ void native_player_capture(M68KCtx *ctx) {
                                  1,
                                  black};
 
-    rt_call_original(ctx, ctx->image, 0x0057A666u);
+    rt_call(ctx, ctx->image, 0x0057A666u);
 }
 
 /* ── Native GET READY / GAME OVER BANNER capture for widescreen ($578974) ──────
@@ -1271,7 +1270,7 @@ void native_banner_capture(M68KCtx *ctx) /* $578974 — box */
     s_banner_active = 1;
     s_banner_fresh = 1;  /* latch objwalk# at next present  */
     s_banner_ttl = 1200; /* ~20s cap; cleared earlier on resume */
-    rt_call_original_subroutine(ctx, ctx->image, 0x00578974u);
+    rt_call(ctx, ctx->image, 0x00578974u);
 }
 
 void native_telanim_capture(M68KCtx *ctx) /* $578B94 — teleport animation */
@@ -1280,7 +1279,7 @@ void native_telanim_capture(M68KCtx *ctx) /* $578B94 — teleport animation */
     s_tel_src = (uint32_t)(uint16_t)MR16(a1) + 0xC2D6u;
     s_tel_rel = (banner_cam_tile(ctx) + 16) * 2 + (int)(uint16_t)MR16(0x5A1DCAu);
     s_tel_active = 1;
-    rt_call_original_subroutine(ctx, ctx->image, 0x00578B94u);
+    rt_call(ctx, ctx->image, 0x00578B94u);
 }
 
 /* GET READY ($578860, string a5-$6584) and GAME OVER ($57889C, string a5-$6542):
@@ -1290,7 +1289,7 @@ static void banner_text_capture(M68KCtx *ctx, uint32_t strbase, uint32_t guest_a
     s_txt_str = strbase + 2;
     s_txt_rel = banner_cam_tile(ctx) * 2 + (int)(uint16_t)MR16(0x5A1DEEu) + (int)pos;
     s_txt_active = 1;
-    rt_call_original_subroutine(ctx, ctx->image, guest_address);
+    rt_call(ctx, ctx->image, guest_address);
 }
 void native_getready_capture(M68KCtx *ctx) {
     banner_text_capture(ctx, GP_A5 - 0x6584u, 0x00578860u);
@@ -1318,7 +1317,7 @@ void native_lc_text_set(void) {
         g_mem[base + 2u + i] = (uint8_t)txt[i];
 }
 void native_password_build(M68KCtx *ctx) {
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057901Eu);
+    rt_call(ctx, ctx->image, 0x0057901Eu);
     native_lc_text_set();
 }
 void native_levelcomplete_text_capture(M68KCtx *ctx) {

@@ -21,5 +21,5 @@ void native_level_load(M68KCtx *ctx) {
     }
     benefactor_log_write(BENEFACTOR_LOG_ERROR, "level-load",
                          "=SB= decode failed at $%06X; preserving guest decoder", ctx->D[0]);
-    rt_call_original_subroutine(ctx, ctx->image, 0x0059DC02u);
+    rt_call(ctx, ctx->image, 0x0059DC02u);
 }

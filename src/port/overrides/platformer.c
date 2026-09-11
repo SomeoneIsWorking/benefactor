@@ -417,7 +417,7 @@ void native_pf_hop(M68KCtx *ctx) {
                          MR32(ctx->A[5] + 0xF78u), s_fly, s_vy);
     if (!pf_active(ctx)) {
         s_fly = s_track = 0;
-        rt_call_original_subroutine(ctx, ctx->image, 0x00579D84u);
+        rt_call(ctx, ctx->image, 0x00579D84u);
         return;
     }
 
@@ -438,7 +438,7 @@ void native_pf_hop(M68KCtx *ctx) {
 void native_pf_lj(M68KCtx *ctx) {
     if (!pf_active(ctx)) {
         s_fly = s_track = 0;
-        rt_call_original_subroutine(ctx, ctx->image, 0x00579A62u);
+        rt_call(ctx, ctx->image, 0x00579A62u);
         return;
     }
     flight_start(ctx, 0);
@@ -453,7 +453,7 @@ void native_pf_lj(M68KCtx *ctx) {
 void native_pf_diag(M68KCtx *ctx) {
     if (!pf_active(ctx)) {
         s_fly = s_track = 0;
-        rt_call_original_subroutine(ctx, ctx->image, 0x00579E02u);
+        rt_call(ctx, ctx->image, 0x00579E02u);
         return;
     }
     flight_start(ctx, 0);
@@ -465,7 +465,7 @@ void native_pf_diag(M68KCtx *ctx) {
 void native_pf_fall(M68KCtx *ctx) {
     if (!pf_active(ctx)) {
         s_fly = s_track = 0;
-        rt_call_original_subroutine(ctx, ctx->image, 0x00579F3Au);
+        rt_call(ctx, ctx->image, 0x00579F3Au);
         return;
     }
 
@@ -499,7 +499,7 @@ void native_pf_fall(M68KCtx *ctx) {
 static void air_track(M68KCtx *ctx, uint32_t original_address) {
     if (!pf_active(ctx)) {
         s_fly = s_track = 0;
-        rt_call_original_subroutine(ctx, ctx->image, original_address);
+        rt_call(ctx, ctx->image, original_address);
         return;
     }
 
@@ -507,7 +507,7 @@ static void air_track(M68KCtx *ctx, uint32_t original_address) {
     int16_t x_in = (int16_t)(uint16_t)ctx->D[1];
     uint32_t state_in = MR32(ctx->A[5] + 0xF70u);
 
-    rt_call_original_subroutine(ctx, ctx->image, original_address);
+    rt_call(ctx, ctx->image, original_address);
 
     if (fresh) {
         s_track = 1;
@@ -583,7 +583,7 @@ static void fall_dmg_scale(M68KCtx *ctx, int mode, uint16_t energy_before) {
 void native_pf_landing_impact(M68KCtx *ctx) {
     int mode = fall_dmg_mode();
     uint16_t before = MR16(0x1Cu);
-    rt_call_original_subroutine(ctx, ctx->image, 0x00579F86u);
+    rt_call(ctx, ctx->image, 0x00579F86u);
     if (mode)
         fall_dmg_scale(ctx, mode, before);
 }
@@ -592,7 +592,7 @@ void native_pf_landing_impact(M68KCtx *ctx) {
 void native_pf_collision(M68KCtx *ctx) {
     int dmg_mode = fall_dmg_mode();
     uint16_t energy_before = MR16(0x1Cu);
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057A934u);
+    rt_call(ctx, ctx->image, 0x0057A934u);
     if (dmg_mode)
         fall_dmg_scale(ctx, dmg_mode, energy_before);
 

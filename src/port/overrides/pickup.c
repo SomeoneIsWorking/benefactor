@@ -162,7 +162,7 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch) {
                                  (int)(int16_t)MR16(ctx->A[0] + 2u), px,
                                  (int)(int16_t)MR16(ctx->A[5] + A5_F94), npx);
         }
-        rt_call_original_subroutine(ctx, ctx->image, addr);
+        rt_call(ctx, ctx->image, addr);
         MW16(ctx->A[5] + A5_F96, s_f96); /* restore X (f80 untouched)    */
         return;
     }
@@ -207,7 +207,7 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch) {
 
     uint32_t pre0 = MR32(ctx->A[0]);      /* obj +0/+2 (coords / active)  */
     uint32_t pre4 = MR32(ctx->A[0] + 4u); /* obj +4/+6 (state)            */
-    rt_call_original_subroutine(ctx, ctx->image, addr);
+    rt_call(ctx, ctx->image, addr);
     int triggered = active && (MR32(ctx->A[0]) != pre0 || MR32(ctx->A[0] + 4u) != pre4);
 
     MW16(ctx->A[5] + A5_F80, s_f80); /* restore input                */
@@ -329,7 +329,7 @@ void native_mm_pickup_gate(M68KCtx *ctx) {
      * passes; vanilla-device fire keeps its original semantics. */
     if (pc_modern_any() && !(hw_get_interact() || hw_get_fire_vanilla()))
         ctx->D[4] &= ~0x4000u;
-    rt_call_original_subroutine(ctx, ctx->image, 0x0057EA76u);
+    rt_call(ctx, ctx->image, 0x0057EA76u);
 }
 
 void pickup_register(void) {
@@ -384,7 +384,7 @@ void interact_register(void) {
                 BENEFACTOR_LOG_DEBUG, "override", "[pkscan] $" #hex " objX=%d objY=%d\n",          \
                 (int)(int16_t)MR16(ctx->A[0] + 2u), (int)(int16_t)MR16(ctx->A[0]));                \
         }                                                                                          \
-        rt_call_original_subroutine(ctx, ctx->image, 0x##hex##u);                                  \
+        rt_call(ctx, ctx->image, 0x##hex##u);                                                      \
     }
 PKSCAN(586B1C)
 PKSCAN(586B2A)
