@@ -125,22 +125,18 @@ STRUCTURAL_DIFFERENCES = (
 #: the measurement behind it, and never on a hunch.
 REALIGNMENTS = (
     (
-        7160,
-        "the intro -> poster handover. $0033A6 points COP1LC at $008182, then the poster "
-        "runs two blits and patches the six bitplane pointers into that list at $0082BC "
-        "before $00345A points COP1LC at the finished $0081D2. A blit costs this product "
-        "guest time (docs/issues/0007), so the beam boundary falls between the BLTSIZE "
-        "write at $003424 and the BBUSY poll at $00342A and the half-built list is shown "
-        "for a frame; the reference has no cycle cost for a blit, so its whole pass lands "
-        "in one frame and it never shows $008182. Measured with a breakpoint on $00345A: "
-        "the level-3 and level-6 handlers run between $003424 and $00342A, which is the "
-        "host presenting. Real hardware takes that time, so this product is the faithful "
-        "one and the frame is real — it is dropped here, not removed from the product. "
-        "Dropping it realigns what is DISPLAYED and cannot realign what is COUNTED: the "
-        "frame is real, so every per-frame counter takes a tick from it. $0065D4 is one "
-        "frame further on at the first aligned frame, and by frame 7165 its countdown has "
-        "started the title music a frame early. The frame-exact comparison ends here; "
-        "docs/issues/0008 has the measurements.",
+        7159,
+        "interpreter",
+        "the intro -> poster handover, where the two products are one frame apart and "
+        "stay that way. The oracle had no cycle model: its frames ended only at the host "
+        "waits its translator put in place of the guest's busy-wait loops. This product "
+        "now ends its frames at those same waits (src/engine/hw_beam.c, "
+        "src/port/wait_idiom.h) — which is what removed the poster's half-built copper "
+        "list and made the 7157 frames before this one byte-identical — but the last "
+        "screen of the crawl comes out one frame shorter here, so the poster starts at "
+        "7159 against the oracle's 7160 and every per-frame counter after it is one tick "
+        "on. The frame has no partner; dropping it is what lets the comparison reach "
+        "gameplay at all. docs/issues/0008 has the measurements.",
     ),
 )
 
@@ -379,6 +375,7 @@ def run(
     structural: bool = True,
     dump_at: tuple[int, ...] = (),
     realign: tuple[int, ...] = (),
+    realign_reference: tuple[int, ...] = (),
     reference_env: dict[str, str] | None = None,
     candidate_env: dict[str, str] | None = None,
     reference_cwd: Path | None = None,
@@ -412,15 +409,23 @@ def run(
             right = _next_frame(candidate, frame_timeout, report)
             if right is None:
                 return report
-            # A frame this product shows and the reference never does: let it
-            # go by unmatched rather than comparing every frame after it
-            # against the wrong one (REALIGNMENTS says which, and why).
+            # A frame one product shows and the other never does: let it go by
+            # unmatched rather than comparing every frame after it against the
+            # wrong one (REALIGNMENTS says which, whose, and why). The skew
+            # goes both ways, so either side can be the one a frame ahead.
             while right.frame in realign:
                 LOGGER.info("realigning: this product's frame %d has no partner", right.frame)
                 skew += 1
                 candidate.send("go")
                 right = _next_frame(candidate, frame_timeout, report)
                 if right is None:
+                    return report
+            while left.frame in realign_reference:
+                LOGGER.info("realigning: the reference's frame %d has no partner", left.frame)
+                skew -= 1
+                reference.send("go")
+                left = _next_frame(reference, frame_timeout, report)
+                if left is None:
                     return report
             report.frames = max(report.frames, left.frame + 1)
             if left.frame in dump_at:
@@ -630,8 +635,8 @@ def main(argv: list[str] | None = None) -> int:
         for name, why in STRUCTURAL_FIELDS:
             LOGGER.info("not comparing %s — %s", name, why)
     if not options.no_realign:
-        for frame, why in REALIGNMENTS:
-            LOGGER.info("dropping this product's frame %d — %s", frame, why)
+        for frame, who, why in REALIGNMENTS:
+            LOGGER.info("dropping the %s's frame %d — %s", who, frame, why)
     LOGGER.info("running both products in step; the first disagreement stops them")
     try:
         report = run(
@@ -644,7 +649,12 @@ def main(argv: list[str] | None = None) -> int:
             ignore_spec=options.ignore,
             structural=not options.compare_everything,
             dump_at=tuple(int(frame) for frame in options.dump_at.split(",") if frame.strip()),
-            realign=() if options.no_realign else tuple(frame for frame, _ in REALIGNMENTS),
+            realign=()
+            if options.no_realign
+            else tuple(frame for frame, who, _ in REALIGNMENTS if who == "interpreter"),
+            realign_reference=()
+            if options.no_realign
+            else tuple(frame for frame, who, _ in REALIGNMENTS if who == "reference"),
             reference_env=environment,
             candidate_env=environment,
             reference_cwd=reference_executable.parent,
