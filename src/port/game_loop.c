@@ -618,6 +618,7 @@ static int pc_common_bringup(const char **disks, int n_disks) {
      * Shared with the bank dumper via overlay_load_main(). */
     overlay_load_main();
     pc_register_overrides();
+    pc_register_wait_idioms(BENEFACTOR_IMAGE_MASK_MAIN, 0u, (uint32_t)RT_MEM_SIZE);
     g_hw_vblank_yield = game_thread_yield; /* hw_vblank_wait parks the game thread */
     g_hw_frame_audio = pc_audio_frame;     /* a frame reached inside an IRQ still owes audio */
     g_hw_pc_owns_present = 1;

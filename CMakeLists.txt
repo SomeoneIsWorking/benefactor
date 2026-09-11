@@ -105,6 +105,7 @@ set(BENEFACTOR_SOURCES
     src/engine/disk_boot.c
     src/engine/gameplay_handoff.c
     src/engine/hw.c
+    src/engine/hw_beam.c
     src/engine/hw_audio.c
     src/engine/hw_blitter.c
     src/engine/hw_testrun.c
@@ -138,6 +139,7 @@ set(BENEFACTOR_SOURCES
     src/port/overrides/pickup.c
     src/port/overrides/platformer.c
     src/port/overrides/register.c
+    src/port/overrides/wait_idioms.c
     src/port/overrides/render.c
     src/port/pause_menu.c
     src/port/profile.c

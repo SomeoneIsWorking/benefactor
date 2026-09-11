@@ -123,7 +123,7 @@ Response route_state() {
             "\"guest_cycles\":%llu,\"blit_cycles\":%llu,\"fps\":%d,"
             "\"audio\":{\"dmacon\":\"%04X\",\"vol\":[%u,%u,%u,%u],\"per\":[%u,%u,%u,%u]},"
             "\"beam\":{\"crossed\":%u,\"taken\":%u,\"declined\":%u,\"off_flow\":%u,"
-            "\"pending_blit\":%u,\"blt_reg\":\"%03X\","
+            "\"pending_blit\":%u,\"held\":%u,\"blt_reg\":\"%03X\","
             "\"by_flow\":%u,\"by_irq\":%u,\"by_host\":%u},"
             "\"cycles\":{\"flow\":%llu,\"irq3\":%llu,\"irq6\":%llu,\"frame\":%llu,\"base\":%llu,"
             "\"elapsed\":%llu,\"present\":%llu,\"iter\":%llu,\"iter_max\":%llu,"
@@ -141,7 +141,7 @@ Response route_state() {
             g_hw_perf.fps, s_regs[0x096 >> 1], s_regs[0x0A8 >> 1], s_regs[0x0B8 >> 1],
             s_regs[0x0C8 >> 1], s_regs[0x0D8 >> 1], s_regs[0x0A6 >> 1], s_regs[0x0B6 >> 1],
             s_regs[0x0C6 >> 1], s_regs[0x0D6 >> 1], g_hw_beam_crossed, g_hw_beam_taken,
-            g_hw_beam_declined, g_hw_beam_declined_off_flow, g_hw_beam_pending_blit,
+            g_hw_beam_declined, g_hw_beam_declined_off_flow, g_hw_beam_pending_blit, g_hw_beam_held,
             g_hw_blt_last_reg, g_hw_beam_by_flow, g_hw_beam_by_irq, g_hw_beam_by_host,
             (unsigned long long)frame.flow, (unsigned long long)frame.irq3,
             (unsigned long long)frame.irq6, (unsigned long long)frame.frame,

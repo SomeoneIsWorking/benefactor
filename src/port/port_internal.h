@@ -44,6 +44,11 @@ void pc_resume_gameplay_thread(void);
 /* ── Override registration ─────────────────────────────────────────────────────── */
 void pc_register_overrides(void);
 
+/* Give every custom-register busy-wait in a freshly decrunched image a native
+ * owner (overrides/wait_idioms.c, src/port/wait_idiom.h). Call it once per
+ * image, with that image's mask, after the bytes are in g_mem. */
+void pc_register_wait_idioms(uint32_t image_mask, uint32_t low, uint32_t high);
+
 /* ── Native override function declarations (`src/port/overrides/`) ── */
 /* overrides/hw.c */
 void native_hw_wait(M68KCtx *ctx);

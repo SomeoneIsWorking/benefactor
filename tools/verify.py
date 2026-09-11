@@ -91,6 +91,9 @@ def main() -> int:
     # needs no product objects — and must pass before either is measured
     # against the other (tools/lockstep.py).
     _compile_and_run_c_test(compiler, "test_lockstep_digest", ["tests/test_lockstep_digest.c"])
+    # The busy-wait recogniser decides where this product's frames begin and
+    # end (src/port/wait_idiom.h), so it is pure and header-only on purpose.
+    _compile_and_run_c_test(compiler, "test_wait_idiom", ["tests/test_wait_idiom.c"])
     return 0
 
 
