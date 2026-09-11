@@ -77,6 +77,19 @@ Guest time never runs backwards. An interrupt whose handler does not reach its
 RTE rolls the CPU state back, and `elapsed_cycles` is deliberately carried
 across that restore — those cycles were really spent.
 
+**The beam comes from guest time; the FRAME ends where the guest asks to
+wait.** Those are two different questions and conflating them was the fault
+behind every divergence from the oracle (docs/issues/0008). A VPOSR read has to
+say where the beam really is, because the game polls it. But ending the frame
+at the cycle boundary put it wherever a frame's budget ran out — a blit costs
+four tenths of a frame, so it landed between a `BLTSIZE` write and the poll
+waiting for that blit, with the poster's copper list half rebuilt. So: crossing
+the boundary RAISES it (`src/engine/hw_beam.c`), and the game flow reaching one
+of its own wait loops LANDS it. Those loops have native owners, found by
+scanning the player's own image (`src/port/wait_idiom.h`). The hold is capped
+at one frame — a second would put two frames of guest work in one presented
+frame, which is worse than the latency.
+
 **Present exactly one frame per beam frame, whoever notices the boundary.** The
 game flow parks at its boundary and the host presents; guest code inside an
 interrupt runs on the host thread and cannot be parked, so it presents (and

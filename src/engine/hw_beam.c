@@ -33,13 +33,16 @@
 /* Boundaries crossed while waiting for the game flow to reach its own wait,
  * and the cap that stops a screen which never waits from never presenting.
  *
- * ONE. Holding a second boundary means two frames' worth of guest work lands
- * in one presented frame — the game runs fast and jerky, which is worse than
- * the frame of latency holding costs. Measured on the poster handover: a cap
- * of 1 puts it one frame after the oracle, a cap of 2 or more one frame
- * before, and nothing lands exactly on it, so the tie goes to the setting
- * that cannot drop a frame. */
-#define HW_BOUNDARY_HOLD_MAX 1
+ * TWO, and that is measured, not reasoned. A cap of 1 sounds better — holding
+ * a second boundary puts two frames of guest work into one presented frame —
+ * but the poster's rebuild does not fit inside one held frame, so a cap of 1
+ * reproduces the whole fault this file exists to fix: the frame boundary lands
+ * back between the BLTSIZE write at $003424 and the BBUSY poll at $00342A,
+ * and frame 7160 shows $008182 with null bitplane pointers again, 23548 bytes
+ * of the 8 MB differing. At 2 that frame is gone and 7157 frames are
+ * byte-identical to the oracle. Raising it further changes nothing measured,
+ * so 2 it is: the smallest cap that lets the guest finish what it started. */
+#define HW_BOUNDARY_HOLD_MAX 2
 static int s_boundary_held = 0;
 volatile uint32_t g_hw_beam_held = 0;
 

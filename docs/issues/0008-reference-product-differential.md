@@ -649,42 +649,50 @@ field, so it gets its own list (`REALIGNMENTS` in `tools/lockstep.py`):
   and again and gameplay could never be reached. `--no-realign` turns the drop
   off.
 
-### Where the comparison stands
+### The frame boundary was the whole story
 
-With those in place the two products agree for **7160 frames** — every byte of
-guest memory outside the recorded exceptions, every screen boundary to the
-frame, every palette, period, volume and DMACON, from the boot logo through the
-whole intro crawl to the poster.
+Every difference above and below traces to one thing, and it took the whole of
+this investigation to see it. The oracle had **no cycle model**. Its frames
+began and ended only at the host waits its translator had put in place of the
+guest's busy-wait loops. This product derives the beam from consumed guest time
+— which it must, because the game polls VPOSR and that has to read honestly —
+and it also ENDED the frame there, wherever a frame's budget ran out.
 
-**Past the poster the comparison cannot be made exact, and that is settled, not
-open.** The two products really do run a different NUMBER of frames through the
-handover: the poster's two blits at `$003424`/`$003430` are a `$C00D` BLTSIZE —
-768 rows of 13 words — which costs this product about four tenths of a frame in
-guest time each and costs the reference nothing. So a frame boundary falls
-inside them here and does not there, and this product shows one frame the
-reference never shows.
+A blit costs this product four tenths of a frame. So the boundary landed
+between the `BLTSIZE` write at `$003424` and the `BBUSY` poll at `$00342A` that
+waits for that blit, in the middle of the poster rebuilding its copper list:
+its first displayed frame was `$008182` with the six bitplane pointers at
+`$0082BC` still null, where the oracle showed the finished `$0081D2`. Every
+per-frame counter after it was a tick out, `$0065D4` first, and its countdown
+then started the title music a frame early.
 
-Dropping that frame (`REALIGNMENTS`) realigns what is DISPLAYED. It cannot
-realign what is COUNTED, because the extra frame is real and every per-frame
-counter gets a tick from it. Measured, in order:
+The fix is to separate the two questions the boundary was answering:
 
-- `$0065D4` is a countdown, decremented once per displayed frame (sampled live
-  at the poster: 6, 5, 4). At the first aligned frame it reads 6 in the
-  reference and 5 here — one tick, from the extra frame.
-- Set that counter aside and the run reaches frame 7165, where the countdown
-  has reached zero one frame early here and started the title music: this
-  product is playing `aper 285,0,160,0` at `avol 64,0,64,0` while the reference
-  is still silent, and the title driver's channel structures at `$0067E0` differ
-  with it.
+- Crossing the beam boundary **raises** it (`src/engine/hw_beam.c`).
+- The game flow reaching one of **its own waits** lands it.
 
-Excluding each consequence in turn would be excluding the same single fact over
-and over. The fact is that a blit costs time and the reference does not model
-that — this product is the faithful one (`docs/issues/0007`), so the frame stays
-and the frame-exact comparison ends at the poster. Gameplay has to be compared
-with `tools/oracle_diff.py`, which measures per screen and does not require the
-two timelines to be the same length.
+For the second half to mean anything, this port has to know where the guest
+waits. `src/port/wait_idiom.h` recognises the shape — two instructions, a read
+of one custom register and a conditional branch straight back to it, no body —
+and `src/port/overrides/wait_idioms.c` scans the player's own decrunched image
+at load time and registers a native owner at each one: the VPOSR-bit-8 pair
+becomes `hw_vblank_wait`, each half becomes `hw_beam_wait_below`/`_above`, and
+the `BBUSY` poll becomes nothing at all, this port's blitter being synchronous.
+The boot image has 11 frame waits, 11 halves and 14 blitter polls. Registration
+is by address, so a pattern matching bytes the guest never executes is inert.
 
-Four differences were established as the *oracle's* limits instead, and are
+Measured frame by frame after the change: **the screen sequence matches the
+oracle exactly** — no `$008182`, no `$0033E0`, no extra screen pair — and 7157
+frames are byte-identical. The handover lands one frame before the oracle's.
+
+The hold cap is **2**, and it was measured rather than argued. A cap of 1 reads
+better — a second held boundary puts two frames of guest work into one
+presented frame — but the poster's rebuild does not fit inside one held frame,
+and at 1 the whole fault comes back: frame 7160 shows `$008182` with null
+bitplane pointers again and 23548 bytes of the 8 MB differ. At 2 that frame is
+gone. Raising it further changes nothing measured.
+
+Four differences were established as the *oracle's* limits instead,Four differences were established as the *oracle's* limits instead, and are
 recorded with their evidence at the top of `tools/lockstep.py` rather than
 "fixed" toward the reference: the level-6 autovector `$78`, the guest stack,
 the audio DMA enables, and the `AUDxLC` sample pointers.
