@@ -29,9 +29,6 @@ extern volatile uint32_t g_hw_last_read;
 #define BEAM_CYCLES_PER_LINE 454u
 #define BEAM_LINES_PER_FRAME 312u
 
-/* engine/hw_beam.c — "when is a frame over". */
-int hw_boundary_hold(void);
-
 extern volatile uint32_t g_hw_beam_crossed;
 extern volatile uint32_t g_hw_beam_taken;
 extern volatile uint32_t g_hw_beam_declined;

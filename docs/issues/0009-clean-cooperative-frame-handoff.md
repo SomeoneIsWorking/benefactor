@@ -34,7 +34,7 @@ Additionally, steady gameplay in Benefactor synchronises on scanlines by polling
 
 ### 4. Clean cooperative frame handoff
 - Removed mid-instruction yields from `hw_step_register_beam()`. The function now solely updates scanline registers (`s_scanline`) and beam frames based on consumed cycles for guest register reads without preempting the execution context.
-- Removed compensatory boundary-holding mechanisms: `hw_boundary_hold`, `hw_boundary_release`, and `hw_boundary_take_owed` now no-op cleanly.
+- Removed compensatory boundary-holding mechanisms: `hw_boundary_hold`, `hw_boundary_release`, and `hw_boundary_take_owed` have no remaining product interface.
 - Removed `s_presented_beam_frame` and the owed-frame replay loop in `pc_step_threaded`.
 - Connected `s_frame_watchdog_limit` in `hw_present_body` so unattended benchmark and test runs terminate deterministically upon reaching their limit.
 

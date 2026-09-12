@@ -177,10 +177,6 @@ uint16_t hw_joystick(void);
 /* CIA-A keyboard byte (parallel data register) – 0xFF if no key */
 uint8_t hw_cia_keyboard(void);
 
-/* Programmatic input injection for testing/REPL */
-void hw_set_fire(int pressed);
-void hw_set_mouse_lmb(int pressed);
-
 /* ── Guest-runtime helpers ───────────────────────────────────────────────────── */
 
 /* Return BZERO state: 1 = blit complete, 0 = blitter busy */
@@ -189,8 +185,7 @@ int hw_blitter_bzero(void);
 /* Block until blitter BZERO becomes 1 (blit complete) */
 void hw_blitter_sync(void);
 
-/* Wait for vblank (Amiga VPOSR sync pair: bit0=0 then bit0=1).
- * On PC this is a no-op — frame timing is driven by SDL in hw_present_frame(). */
+/* Charge a native vblank wait to guest time and yield the game flow. */
 void hw_vblank_wait(void);
 /* The two halves of that wait, for guest code that polls VPOSR bit 8 itself:
  * _below waits for the beam to come down past line 256, _above for it to wrap
@@ -198,11 +193,6 @@ void hw_vblank_wait(void);
 void hw_beam_wait_below(void);
 void hw_beam_wait_above(void);
 void hw_beam_wait_scanline(uint8_t line);
-/* A held frame boundary lands when the flow reaches a wait (engine/hw_beam.c). */
-void hw_boundary_release(void);
-/* Frames the hold owes the display, cleared by asking. Each is a frame that
- * really elapsed, to be shown as the state the guest had when it waited. */
-int hw_boundary_take_owed(void);
 
 /* Beam-boundary accounting: frames the guest's cycle-derived beam crossed, how
  * many were presented, and how many were declined because the caller was not
@@ -211,9 +201,7 @@ extern volatile uint32_t g_hw_beam_crossed;
 extern volatile uint32_t g_hw_beam_taken;
 extern volatile uint32_t g_hw_beam_declined;
 extern volatile uint32_t g_hw_beam_declined_off_flow;
-/* Boundaries left pending because a blit's register sequence was half-written,
- * and the BLTxxx register that set that flag (to identify a sequence that
- * never reached BLTSIZE). */
+/* Last BLTxxx register written before BLTSIZE, for diagnostics. */
 extern volatile uint32_t g_hw_beam_by_flow;
 extern volatile uint32_t g_hw_beam_by_irq;
 extern volatile uint32_t g_hw_beam_by_host;
@@ -223,15 +211,6 @@ extern volatile uint32_t g_hw_beam_by_host;
 int hw_blit_setup_open(void);
 void hw_blit_regs_save(uint16_t *dst);
 void hw_blit_regs_restore(const uint16_t *src);
-extern volatile uint32_t g_hw_beam_pending_blit;
-/* Frame boundaries crossed and HELD, waiting for the game flow to reach its
- * own wait so the frame ends where the guest says it does. */
-extern volatile uint32_t g_hw_beam_held;
-/* Frame boundaries crossed and HELD, waiting for the game flow to reach its
- * own wait so the frame ends where the guest says it does. */
-extern volatile uint32_t g_hw_beam_held;
-/* Called when the flow reaches a wait: a held boundary lands there. */
-void hw_boundary_release(void);
 extern volatile uint32_t g_hw_blt_last_reg;
 extern volatile uint32_t g_hw_present_calls;
 extern volatile uint32_t g_hw_present_reentrant;

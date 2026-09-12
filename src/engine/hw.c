@@ -292,8 +292,7 @@ static int s_frame_num = 0;
  * and give the interrupt its own copy of the registers instead — see
  * hw_blit_regs_save / _restore, used by the vector delivery. */
 static int s_blt_setup_open = 0;
-volatile uint32_t g_hw_beam_pending_blit = 0; /* boundaries left pending here  */
-volatile uint32_t g_hw_blt_last_reg = 0;      /* BLTxxx write that set the flag */
+volatile uint32_t g_hw_blt_last_reg = 0; /* BLTxxx write that set the flag */
 
 int hw_blit_setup_open(void) { return s_blt_setup_open; }
 

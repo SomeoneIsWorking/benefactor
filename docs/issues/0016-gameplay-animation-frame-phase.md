@@ -40,3 +40,11 @@ different timing models. Do not insert a special-case yield at the banner
 transition just to match the oracle. Compare the transition against PUAE or
 hardware, then correct the responsible clock/wait owner if the interpreter is
 actually early. The 20 ms audio phase difference remains open.
+
+The retained PUAE sources are not yet an independently built diagnostic. A
+one-off build of the retired combined `benefactor-harness` compiled its sources
+but failed at link: its vendor-side snapshot include now calls the current
+`benefactor_log_write`, which that old target does not link. The old harness
+also hardcodes `/tmp/WHDLoad` for disk copies. Recompose the PUAE side as a
+separate scratch-scoped diagnostic rather than reviving the static product or
+changing gameplay timing to satisfy its oracle.
