@@ -375,6 +375,14 @@ class Runtime final {
         *native_continuations.back() = true;
     }
 
+    void continue_original() {
+        if (native_continuations.empty()) {
+            throw std::logic_error("original continuation requested outside an override");
+        }
+        const amigaport::ExecutionExit result = executor.continue_original();
+        *native_continuations.back() = result.continue_execution;
+    }
+
     amigaport::MemoryRead<std::uint8_t> read8(std::uint32_t address) {
         return memory.read8(address);
     }
@@ -638,6 +646,14 @@ void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     if (exit.hand_off_to_host && !runtime().native_host_exits.empty()) {
         runtime().exit_to_host();
     }
+}
+
+void rt_continue_original(M68KCtx *ctx, BenefactorImageIdentity image) {
+    runtime().require_image(image);
+    if (ctx != nullptr) {
+        rt_context_bind(ctx);
+    }
+    runtime().continue_original();
 }
 
 void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
