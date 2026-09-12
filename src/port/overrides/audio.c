@@ -1,8 +1,8 @@
 /* src/port/overrides/audio.c — native owner of the gameplay audio trigger.
  *
  * See instructions/audio-engine.md for the full RE map. The engine is a unified
- * music-replayer + SFX system. Native behavior is verified against PUAE or the
- * separately built test oracle.
+ * music-replayer + SFX system. Native behavior is checked against the pinned
+ * historical reference oracle.
  *
  * Stage 1 (this file, so far): the SFX TRIGGER ($58656E). Faithful 1:1 translation.
  */
@@ -75,9 +75,6 @@ void native_sfx_trigger(M68KCtx *ctx) {
     int loop_b = loop_add ? loop_chunks * chunk_b : 0;
     hw_audio_sfx_play(0, base, total_b, period, vol, loop_ptr, loop_b);
 
-    /* This routine is entered by a guest JSR from the live music/IRQ path.
-     * A native override must consume that guest return address; otherwise the
-     * interpreter resumes at the override PC and invokes this function again
-     * forever on the first sound effect. */
-    (void)rt_return_from_native(ctx);
+    /* The replacement adapter completes the same guest RTS on both the
+     * accepted and rejected paths. */
 }

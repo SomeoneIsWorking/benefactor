@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.launcher import runtime_blocker
 
@@ -18,6 +19,13 @@ class LauncherTests(unittest.TestCase):
             present = Path(directory) / "amigaport"
             present.mkdir()
             self.assertIsNone(runtime_blocker(present))
+
+    def test_runtime_override_uses_canonical_shared_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            present = Path(directory) / "amigaport"
+            present.mkdir()
+            with patch.dict("os.environ", {"BENEFACTOR_AMIGAPORT_DIR": str(present)}):
+                self.assertIsNone(runtime_blocker())
 
 
 if __name__ == "__main__":

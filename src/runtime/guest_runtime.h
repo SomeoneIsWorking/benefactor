@@ -9,12 +9,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum BenefactorImageKind {
-    BENEFACTOR_IMAGE_MAIN = 1,
-    BENEFACTOR_IMAGE_TITLE = 2,
-    BENEFACTOR_IMAGE_GAMEPLAY = 3,
-    BENEFACTOR_IMAGE_CREDITS = 4,
-} BenefactorImageKind;
+typedef uint8_t BenefactorImageKind;
+#define BENEFACTOR_IMAGE_MAIN ((BenefactorImageKind)1)
+#define BENEFACTOR_IMAGE_TITLE ((BenefactorImageKind)2)
+#define BENEFACTOR_IMAGE_GAMEPLAY ((BenefactorImageKind)3)
+#define BENEFACTOR_IMAGE_CREDITS ((BenefactorImageKind)4)
 
 typedef struct BenefactorImageIdentity {
     BenefactorImageKind kind;
@@ -37,13 +36,11 @@ typedef void (*NativeFn)(M68KCtx *ctx);
 extern "C" {
 #endif
 
-enum {
-    BENEFACTOR_IMAGE_MASK_MAIN = 1u << 0,
-    BENEFACTOR_IMAGE_MASK_TITLE = 1u << 1,
-    BENEFACTOR_IMAGE_MASK_GAMEPLAY = 1u << 2,
-    BENEFACTOR_IMAGE_MASK_CREDITS = 1u << 3,
-    BENEFACTOR_IMAGE_MASK_ALL = 0x0fu,
-};
+#define BENEFACTOR_IMAGE_MASK_MAIN (1u << 0)
+#define BENEFACTOR_IMAGE_MASK_TITLE (1u << 1)
+#define BENEFACTOR_IMAGE_MASK_GAMEPLAY (1u << 2)
+#define BENEFACTOR_IMAGE_MASK_CREDITS (1u << 3)
+#define BENEFACTOR_IMAGE_MASK_ALL 0x0fu
 
 uint8_t rt_read8(M68KCtx *ctx, uint32_t addr);
 uint16_t rt_read16(M68KCtx *ctx, uint32_t addr);
@@ -87,6 +84,9 @@ void rt_register_replacement_title(uint32_t address, NativeFn function);
 void rt_context_bind(M68KCtx *ctx);
 void rt_context_reset(M68KCtx *ctx, BenefactorImageKind image_kind);
 void rt_activate_image(M68KCtx *ctx, BenefactorImageKind image_kind);
+/* A self-call runs the original guest body against its existing return;
+ * a native call to another address creates its own guest subroutine frame
+ * and dispatches that address's override if present. */
 void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);

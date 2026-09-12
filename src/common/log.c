@@ -38,8 +38,9 @@ static const char *level_name(BenefactorLogLevel level) {
         return "warning";
     case BENEFACTOR_LOG_ERROR:
         return "error";
+    default:
+        return "unknown";
     }
-    return "unknown";
 }
 
 static void default_sink(void *context, BenefactorLogLevel level, const char *category,
