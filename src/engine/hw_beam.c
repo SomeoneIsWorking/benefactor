@@ -1,54 +1,10 @@
-/* hw_beam.c — when is a frame over?
- *
- * Split out of hw.c, which owns the rest of the chip set. This file owns that
- * one question, and the answer has two halves that must not be confused:
- *
- *   - The BEAM comes from consumed guest time. A VPOSR read has to say where
- *     the beam really is, because the game polls it (engine/hw.c derives
- *     s_scanline from rt_get_guest_cycles for exactly that).
- *   - The FRAME ends where the GUEST asks to wait — not where the beam
- *     happens to cross. Crossing raises the boundary; reaching a wait is what
- *     lands it.
- *
- * That second half is the thing the working oracle product did and this one
- * did not, and it is where every divergence measured against it came from
- * (docs/issues/0008). The oracle had no cycle model at all: its frames began
- * and ended only at the host waits its translator had put in place of the
- * guest's busy-wait loops. Deriving the boundary from cycles instead put it
- * wherever a frame's budget ran out — and a blit costs four tenths of a frame,
- * so it landed between a BLTSIZE write and the poll waiting for that blit,
- * with the poster's copper list half rebuilt. Measured: its first frame showed
- * $008182 with null bitplane pointers where the oracle showed the finished
- * $0081D2, and every per-frame counter after it was a tick out.
- *
- * The guest's own wait loops are given native owners by
- * src/port/wait_idiom.h + src/port/overrides/wait_idioms.c, so "reaching a
- * wait" is something this file can actually be told about.
- */
+/* Guest time determines the beam position; recognized guest waits determine
+ * when gameplay can yield a completed frame. The wait idioms are owned by
+ * src/port/wait_idiom.h and src/port/overrides/wait_idioms.c. */
 #include "engine/hw_private.h"
 
 #include "port/port.h"
 #include "runtime/guest_runtime.h"
-
-/* Boundaries crossed while waiting for the game flow to reach its own wait,
- * and the cap that stops a screen which never waits from never presenting.
- *
- * TWO, and that is measured, not reasoned. A cap of 1 sounds better — holding
- * a second boundary puts two frames of guest work into one presented frame —
- * but the poster's rebuild does not fit inside one held frame, so a cap of 1
- * reproduces the whole fault this file exists to fix: the frame boundary lands
- * back between the BLTSIZE write at $003424 and the BBUSY poll at $00342A,
- * and frame 7160 shows $008182 with null bitplane pointers again, 23548 bytes
- * of the 8 MB differing. At 2 that frame is gone and 7157 frames are
- * byte-identical to the oracle. Raising it further changes nothing measured,
- * so 2 it is: the smallest cap that lets the guest finish what it started. */
-volatile uint32_t g_hw_beam_held = 0;
-
-int hw_boundary_hold(void) { return 0; }
-
-void hw_boundary_release(void) {}
-
-int hw_boundary_take_owed(void) { return 0; }
 
 /* The two halves of the guest's own vertical-blank poll, as host waits. The
  * guest spins on VPOSR bit 8 — first until the beam has come DOWN past line
