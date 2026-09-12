@@ -46,6 +46,7 @@ class ReleaseBuilderTests(unittest.TestCase):
         self.assertNotIn("accept", parser.attributes)
         self.assertIn("multiple", parser.attributes)
         self.assertIn("image-rendering: pixelated", page)
+        self.assertIn('<canvas id="canvas"', page)
 
     def test_web_package_bootstraps_isolation_before_emscripten(self) -> None:
         root = Path(__file__).parents[1] / "platforms" / "web"
