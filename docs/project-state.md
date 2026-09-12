@@ -362,9 +362,10 @@ a complete browser game boot.
 On the current deployment, WebLua again selected the player's `Disk.1`; the
 missing-two-disks error re-enabled the chooser without committing a set. A
 local ZIP containing all three authenticated disks reached the WASM boot path
-(audio device opened and disk boot began), but the isolated Chromium process
-then exited and WebLua lost its control connection. The browser cause is not
-yet known; this run cannot establish gameplay, ZIP-start success, or one-shot
+(audio device opened and disk boot began), but WebLua lost its Chrome DevTools
+heartbeat and self-shut down, closing its isolated Chromium process. That
+harness behavior does not establish whether the browser page or Chromium failed
+first. This run cannot establish gameplay, ZIP-start success, or one-shot
 behavior in a running browser.
 
 Gap: packaged desktop first-run/reselection UX, the deployed browser's native
