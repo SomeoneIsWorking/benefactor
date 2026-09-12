@@ -6,7 +6,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
 
-from tools import build_desktop, build_wasm
+from tools import build_desktop, build_wasm, check_windows_imports
 from tools.paths import SCRATCH
 from tools.release_common import ensure_disk_free
 
@@ -23,6 +23,20 @@ class DiskInputParser(HTMLParser):
 
 
 class ReleaseBuilderTests(unittest.TestCase):
+    def test_windows_import_check_rejects_unbundled_mingw_runtime(self) -> None:
+        imports = "DLL Name: KERNEL32.dll\nDLL Name: libstdc++-6.dll\n"
+        self.assertEqual(
+            check_windows_imports.unbundled_imports(imports, set()), ["libstdc++-6.dll"]
+        )
+
+    def test_windows_import_check_accepts_bundled_or_system_dlls(self) -> None:
+        imports = "DLL Name: KERNEL32.dll\nDLL Name: SDL3.dll\n"
+        self.assertEqual(check_windows_imports.unbundled_imports(imports, {"SDL3.dll"}), [])
+
+    def test_windows_import_check_refuses_empty_inspection(self) -> None:
+        with self.assertRaisesRegex(ValueError, "did not report any"):
+            check_windows_imports.unbundled_imports("not a PE import table", set())
+
     def test_web_picker_has_no_filter_for_numeric_disk_suffixes(self) -> None:
         page = (Path(__file__).parents[1] / "platforms" / "web" / "index.html").read_text()
         parser = DiskInputParser()
