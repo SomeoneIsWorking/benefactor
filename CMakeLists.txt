@@ -65,6 +65,15 @@ else()
     endif()
 endif()
 add_subdirectory("${BENEFACTOR_LUCENT_DIR}" "${CMAKE_BINARY_DIR}/lucent")
+if(MINGW AND LUCENT_BUILD_ZIP)
+    include(CheckIncludeFileCXX)
+    check_include_file_cxx(zlib.h BENEFACTOR_ZLIB_HEADER_IN_COMPILER_PATH)
+    if(BENEFACTOR_ZLIB_HEADER_IN_COMPILER_PATH)
+        # FindZLIB re-exports MinGW's implicit system include as -isystem.
+        # That moves stdlib.h before libstdc++'s cstdlib and breaks include_next.
+        set_property(TARGET ZLIB::ZLIB PROPERTY INTERFACE_INCLUDE_DIRECTORIES "")
+    endif()
+endif()
 
 if(ANDROID)
     set(BENEFACTOR_SDL3_PREFIX "" CACHE PATH "Shared Android-port SDL3 prefix")
