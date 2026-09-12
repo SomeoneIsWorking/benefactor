@@ -28,11 +28,19 @@ def package_macos(build: Path, output: Path) -> None:
     app = next((build / "install").rglob("Benefactor.app"), None)
     if app is None or not app.is_dir():
         raise SystemExit(f"desktop: macOS build did not produce {build}/Benefactor.app")
+    ensure_disk_free(app, "desktop")
     output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists():
-        shutil.rmtree(output)
-    shutil.copytree(app, output)
-    ensure_disk_free(output.parent, "desktop")
+    if output.suffix == ".zip":
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(app.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(app.parent).as_posix())
+    elif output.name == "Benefactor.app":
+        if output.exists():
+            shutil.rmtree(output)
+        shutil.copytree(app, output)
+    else:
+        raise SystemExit("desktop: macOS output must be Benefactor.app or a .zip archive")
 
 
 def main() -> int:

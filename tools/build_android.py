@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import importlib.util
 import os
 import re
@@ -18,6 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build" / "android"
 ABI = "arm64-v8a"
 MIN_API = 21
+BUILD_TOOLS = "35.0.0"
+# Public signer of the already published v0.1.0 APK; updates must retain it.
+PUBLISHED_CERT_SHA256 = "DE34DE30538BE4197BC56196F9999D20BBFA11A8E15832D6B44D02BDBF730BF1"
 
 
 def refuse(message: str) -> None:
@@ -160,16 +165,38 @@ def stage_gradle_project(profile) -> Path:
     return project
 
 
-def prepare_signing_environment(environment: dict[str, str], jdk: Path) -> None:
+def prepare_signing_environment(environment: dict[str, str], jdk: Path) -> Path | None:
     signing_names = (
         "BENEFACTOR_ANDROID_KEYSTORE",
         "BENEFACTOR_ANDROID_KEY_ALIAS",
         "BENEFACTOR_ANDROID_STORE_PASSWORD",
         "BENEFACTOR_ANDROID_KEY_PASSWORD",
     )
+    encoded_keystore = environment.pop("BENEFACTOR_ANDROID_KEYSTORE_B64", "")
+    if encoded_keystore:
+        if environment.get("BENEFACTOR_ANDROID_KEYSTORE"):
+            refuse("provide either a keystore path or base64 keystore, not both")
+        if environment.get("BENEFACTOR_ANDROID_EPHEMERAL_SIGNING") == "1":
+            refuse("persistent and ephemeral signing cannot be selected together")
+        if not all(environment.get(name) for name in signing_names[1:]):
+            refuse("base64 keystore requires alias, store password, and key password")
+        try:
+            decoded = base64.b64decode(encoded_keystore, validate=True)
+        except binascii.Error:
+            refuse("BENEFACTOR_ANDROID_KEYSTORE_B64 is not valid base64")
+        if not decoded:
+            refuse("BENEFACTOR_ANDROID_KEYSTORE_B64 decoded to an empty keystore")
+        keystore = BUILD / "release.keystore"
+        keystore.parent.mkdir(parents=True, exist_ok=True)
+        keystore.write_bytes(decoded)
+        keystore.chmod(0o600)
+        environment["BENEFACTOR_ANDROID_KEYSTORE"] = str(keystore)
+        return keystore
     configured = [environment.get(name) for name in signing_names]
     if all(configured):
-        return
+        if environment.get("BENEFACTOR_ANDROID_EPHEMERAL_SIGNING") == "1":
+            refuse("persistent and ephemeral signing cannot be selected together")
+        return None
     if any(configured):
         refuse("all BENEFACTOR_ANDROID_KEY_* and password variables are required together")
     if environment.get("BENEFACTOR_ANDROID_EPHEMERAL_SIGNING") != "1":
@@ -184,7 +211,8 @@ def prepare_signing_environment(environment: dict[str, str], jdk: Path) -> None:
     keystore = BUILD / "ci-test.keystore"
     password = "benefactor-ci-only"
     if not keystore.is_file():
-        run(
+        print("android: generating CI-only keystore")
+        subprocess.run(
             [
                 str(keytool),
                 "-genkeypair",
@@ -206,7 +234,9 @@ def prepare_signing_environment(environment: dict[str, str], jdk: Path) -> None:
                 "-dname",
                 "CN=Benefactor CI",
             ],
-            environment=environment,
+            cwd=ROOT,
+            env=environment,
+            check=True,
         )
     environment.update(
         {
@@ -216,9 +246,10 @@ def prepare_signing_environment(environment: dict[str, str], jdk: Path) -> None:
             "BENEFACTOR_ANDROID_KEY_PASSWORD": password,
         }
     )
+    return keystore
 
 
-def inspect_apk(apk: Path) -> None:
+def inspect_apk(apk: Path, sdk: Path, *, release: bool, ephemeral_signing: bool) -> None:
     if not apk.is_file():
         refuse(f"Gradle did not produce {apk}")
     names = shared_android_port_tool().inspect_apk_runtime(apk, ABI)
@@ -234,6 +265,15 @@ def inspect_apk(apk: Path) -> None:
         refuse("APK contains prohibited disk image paths: " + ", ".join(forbidden))
     if missing:
         refuse("APK is missing required contents: " + ", ".join(missing))
+    if release:
+        fingerprint = shared_android_port_tool().verify_apk_signature(
+            apk, sdk, BUILD_TOOLS, MIN_API
+        )
+        if not ephemeral_signing and fingerprint != PUBLISHED_CERT_SHA256:
+            refuse(
+                "release APK signer differs from the published Benefactor signing identity: "
+                + fingerprint
+            )
 
 
 def main() -> int:
@@ -273,14 +313,23 @@ def main() -> int:
     environment = dict(os.environ)
     environment["ANDROID_SDK_ROOT"] = str(sdk)
     environment["JAVA_HOME"] = str(jdk)
-    prepare_signing_environment(environment, jdk)
-    task = ":app:assembleRelease" if args.release else ":app:assembleDebug"
-    run(["./gradlew", "--no-daemon", task], cwd=project, environment=environment)
-    variant = "release" if args.release else "debug"
-    apk = project / f"app/build/outputs/apk/{variant}/app-{variant}.apk"
-    inspect_apk(apk)
-    output = BUILD / f"Benefactor-{ABI}-{variant}.apk"
-    copy_required(apk, output)
+    temporary_keystore = prepare_signing_environment(environment, jdk)
+    try:
+        task = ":app:assembleRelease" if args.release else ":app:assembleDebug"
+        run(["./gradlew", "--no-daemon", task], cwd=project, environment=environment)
+        variant = "release" if args.release else "debug"
+        apk = project / f"app/build/outputs/apk/{variant}/app-{variant}.apk"
+        inspect_apk(
+            apk,
+            sdk,
+            release=args.release,
+            ephemeral_signing=environment.get("BENEFACTOR_ANDROID_EPHEMERAL_SIGNING") == "1",
+        )
+        output = BUILD / f"Benefactor-{ABI}-{variant}.apk"
+        copy_required(apk, output)
+    finally:
+        if temporary_keystore is not None:
+            temporary_keystore.unlink(missing_ok=True)
     print(f"android: wrote {output}")
     return 0
 
