@@ -163,14 +163,16 @@ $578328: lea $4D064.l, a0
 ... another dispatcher call
 ```
 
-That `jsr $59DC02` is the chain that runs the actual per-level `gp-disk-read` calls
-(produces the `[gp-disk-read]` log lines). It also decodes the bounded `=SB=` stream
-(`$3D53423D`) into the destination in `a0`; the stream uses the title's LH5-style
-parameters (`DICBIT=13`, `NC=510`, `NT=19`, `NP=14`). The shipping native owner is
-`src/engine/sb_decompress.c`, and its replacement returns through the guest JSR
-stack slot before the interpreter resumes at the caller. **The per-level data
-tables — including the jump table at `$59AC6C` and the level-engine state byte at
-`$1890.w` — are populated along this chain.**
+That `jsr $59DC02` enters the per-level stream dispatcher. It installs stream
+callbacks, maintains decoder state, runs the bounded `=SB=` LH5-style decoder,
+using the title's parameters (`DICBIT=13`, `NC=510`, `NT=19`, `NP=14`),
+and returns through the guest JSR. `native_level_load` resets only the
+per-level presentation state before calling the whole retail dispatcher through
+the interpreter. Replacing `$59DC02` with one `=SB=` decode into `a0` skipped
+its callback and state setup; that corrupted `$073880` and the surrounding
+sample bank during the level card, leaving gameplay graphics and music wrong.
+**The per-level data tables — including the jump table at `$59AC6C` and the
+level-engine state byte at `$1890.w` — are populated along this chain.**
 
 ## Repair DUST-CLOUD overlay (RE'd 2026-06-10, ported to BenRen/wide)
 

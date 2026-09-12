@@ -112,7 +112,6 @@ set(BENEFACTOR_SOURCES
     src/engine/hw_testrun.c
     src/engine/hw_watchdog.c
     src/engine/overlay_load.c
-    src/engine/sb_decompress.c
     src/port/config.c
     src/port/freecam.c
     src/port/frame_accounting.cpp

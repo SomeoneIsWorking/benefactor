@@ -11,7 +11,7 @@ updated: 2026-09-08
 
 The narrow Benefactor executor adapter around `shared/amigaport` is implemented
 and the first authenticated Disk.1-Disk.3 run reaches `$577000`, performs native
-ATN loads, and completes the native `=SB=` level-data path. Preserve the
+ATN loads, and runs the retail `=SB=` level-data dispatcher. Preserve the
 production disk/image, memory, OCS/CIA, native override, and host subsystem
 boundaries. Remaining work is the complete four-image representative gameplay
 gate on each claimed host; do not compose mixed static/interpreter gameplay.
