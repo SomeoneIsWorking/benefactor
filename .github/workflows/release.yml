@@ -31,7 +31,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: f29d809c86b6138e37459656abfe88b8dcf22820
+          ref: 9a91e6940106bde7f5d95275c7707818b763cb6e
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -58,6 +58,13 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.10.12"
+      - name: Provision matching MinGW zlib
+        shell: pwsh
+        run: |
+          & 'C:\msys64\usr\bin\pacman.exe' -S --noconfirm --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib
+          "CC=C:\msys64\mingw64\bin\gcc.exe" >> $env:GITHUB_ENV
+          "CXX=C:\msys64\mingw64\bin\g++.exe" >> $env:GITHUB_ENV
+          "CMAKE_PREFIX_PATH=C:\msys64\mingw64" >> $env:GITHUB_ENV
       - name: Build Windows package
         run: uv run --frozen python -m tools.build_desktop --platform windows --output build/release/Benefactor-windows-x86_64.zip
       - name: Upload Windows package
@@ -85,7 +92,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: f29d809c86b6138e37459656abfe88b8dcf22820
+          ref: 9a91e6940106bde7f5d95275c7707818b763cb6e
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -139,7 +146,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: f29d809c86b6138e37459656abfe88b8dcf22820
+          ref: 9a91e6940106bde7f5d95275c7707818b763cb6e
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -216,7 +223,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: f29d809c86b6138e37459656abfe88b8dcf22820
+          ref: 9a91e6940106bde7f5d95275c7707818b763cb6e
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -275,7 +282,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: f29d809c86b6138e37459656abfe88b8dcf22820
+          ref: 9a91e6940106bde7f5d95275c7707818b763cb6e
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
