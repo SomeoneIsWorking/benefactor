@@ -54,7 +54,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34704766306`, macOS job `103582713792`, built and uploaded the CMake bundle with current pinned shared runtime, SDL3, and Lucent inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34704766306`, Linux job `103582713702`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
 | S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34704766306`, Android job `103582713838`, assembled an arm64-v8a APK with a CI-only ephemeral key. Manual signing-verification run `34694150527` passed Android job `103554610317` using the existing persistent release secrets and checking against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | partial | Source run `34704766306` built the asset-free package at `85283aa`; central Pages run `34705149702` deployed it, and the live `publication.json` names that commit and source run. Issue 0024 found that the deployed package hangs when valid disks enter the desktop pthread frame handoff; the current source enables Emscripten pthreads and a GitHub Pages service-worker isolation handshake, but hosted rebuild and live browser gameplay evidence are open. | G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34708373281` built the asset-free pthread-capable package from `4f41501`; Pages run `34708732681` deployed it from Pages commit `3d415f4`. A fresh WebLua session at the live route reported secure context, cross-origin isolation, and an active service worker, accepted the authenticated three-disk ZIP, created the SDL canvas, and continued rendering past frame 500. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 | S032 | A qualified version tag publishes one GitHub Release with all four native packages | partial | S023, S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs and an explicit state gate; no qualified tag has exercised publication | G004 |
 
@@ -317,24 +317,23 @@ Android device performance and gameplay evidence are not yet available.
 
 ### S030 — WASM Pages delivery
 
-Evidence: `CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. Its browser
-entry mounts the three validated disk files into the production disk path before
-calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs.
-The source workflow uploads the package as a normal CI artifact; the sibling
-`pages` repository owns publication. Source run `34700630248` passed its WASM
-job and central Pages run `34700756608` deployed that artifact. The live
-`/benefactor/publication.json` confirms source commit `dbcfdd7` and the run.
-WebLua loaded that deployment with an unrestricted multi-file disk input and
-no failed network requests.
+Evidence: `CMakeLists.txt` owns a real `benefactor_web` Emscripten target. Its
+browser entry mounts the three validated disk files into the production disk
+path before calling `pc_init_from_disk`; `tools/build_wasm.py` requires real
+JS/WASM outputs. The source workflow uploads the package as a normal CI
+artifact and the sibling `pages` repository owns publication. Source run
+`34708373281` built the pthread-capable package from `4f41501`; Pages run
+`34708732681` deployed it from Pages commit `3d415f4`.
 
-The current source now enables the pthread worker required by the retained
-cooperative frame handoff and stages `isolation.mjs` plus `service-worker.js`.
-The service worker supplies COOP/COEP/CORP headers after one bounded reload so
-GitHub Pages can run the pthread-backed target.
+The live WebLua session reported secure context, `crossOriginIsolated=true`,
+an active service worker, no failed network requests, and the SDL-owned canvas
+at `704x564` with `image-rendering: pixelated`. It accepted a ZIP containing
+the authenticated Disk.1-Disk.3 files and rendered a live frame capture after
+frame 500. Issues 0024 and 0025 cover the pthread/isolation and SDL canvas
+contracts that were required to reach this evidence.
 
-Gap: hosted rebuild, live service-worker isolation, browser gameplay execution,
-and real disk boot remain unverified under S023. Issue 0024 tracks the
-previous package's heartbeat loss.
+The remaining browser gap belongs to S023's title-wide conformance and
+performance evidence, not the WASM build/deployment boundary.
 
 ### S031 — Cross-platform disk browse
 
@@ -360,25 +359,16 @@ persistence leaves the previous slot and selection intact, and that a later
 successful import commits the complete new set. This covers storage behavior,
 not a packaged first-run UI run.
 
-On the deployed Pages route, WebLua/CDP selected the player's `Disk.1` through
-the unrestricted input and received the expected missing-Disk.2/3 validation
-message. A ZIP lacking the disk set reached the ZIP-content validator. Neither
-selection started the game or changed the last valid disk set. This proves the
-browser input accepts both file types, not the operating system's chooser UI or
-a complete browser game boot.
+The live deployment accepts numeric-suffix disk files without an HTML MIME
+filter and accepts one bounded ZIP containing all three authenticated disks.
+WebLua verified the ZIP path through the running pthread-backed browser target
+and observed the SDL canvas rendering. The browser's one-shot selection rule
+still preserves the committed set after success; the page asks the user to
+reload before choosing a different set.
 
-On the current deployment, WebLua again selected the player's `Disk.1`; the
-missing-two-disks error re-enabled the chooser without committing a set. A
-local ZIP containing all three authenticated disks reached the WASM boot path
-(audio device opened and disk boot began), but WebLua lost its Chrome DevTools
-heartbeat and self-shut down, closing its isolated Chromium process. That
-harness behavior does not establish whether the browser page or Chromium failed
-first. This run cannot establish gameplay, ZIP-start success, or one-shot
-behavior in a running browser.
-
-Gap: packaged desktop first-run/reselection UX, the deployed browser's native
-file-dialog behavior, and end-to-end browser/native runtime handoff remain
-unverified on release artifacts.
+Gap: packaged desktop first-run/reselection UX and Android device evidence
+remain unverified; the live browser file-dialog UI itself is still host-owned
+and is not substituted by the validator.
 
 ### S032 — Qualified GitHub Release
 
