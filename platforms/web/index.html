@@ -8,7 +8,7 @@
       /* Preserve the authored Amiga pixels when the canvas is enlarged on a
          HiDPI display. SDL's desktop backend applies the equivalent texture
          policy at the renderer boundary. */
-      #benefactor-canvas {
+      #canvas {
         image-rendering: crisp-edges;
         image-rendering: pixelated;
       }
@@ -24,7 +24,7 @@
            not treat numeric suffixes as selectable media types. The JavaScript
            validator still checks exact names, sizes, and hashes. -->
       <input id="disk-files" type="file" multiple>
-      <canvas id="benefactor-canvas" aria-label="Benefactor game"></canvas>
+      <canvas id="canvas" aria-label="Benefactor game"></canvas>
     </main>
     <script type="module">
       import { prepareApplication } from "./isolation.mjs";
