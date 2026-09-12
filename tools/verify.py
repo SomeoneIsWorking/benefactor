@@ -30,6 +30,7 @@ C_TIDY_PATHS = (
 CXX_TIDY_PATHS = (
     "src/platform/disk_selection_store.cpp",
     "tests/test_disk_selection_store.cpp",
+    "tests/test_guest_call_policy.cpp",
 )
 
 
@@ -126,6 +127,9 @@ def main() -> int:
         cpp_compiler,
         "disk-selection-store",
         ["src/platform/disk_selection_store.cpp", "tests/test_disk_selection_store.cpp"],
+    )
+    _compile_and_run_cpp_test(
+        cpp_compiler, "guest-call-policy", ["tests/test_guest_call_policy.cpp"]
     )
     return 0
 
