@@ -19,3 +19,10 @@ The code change is not yet proof that a deployed browser/OS picker enables the
 player's files. Verify the Pages artifact in a real file dialog, then confirm
 that all three authenticated disks reach the WASM runtime and only then mark
 the issue resolved.
+
+Hosted release run `34689816660` built the updated WASM package and deployed
+it. An isolated browser session at the live `/benefactor/` route observed the
+new `<input type="file" multiple>` with no `accept` attribute, whereas the
+previous deployment exposed `accept=".1,.2,.3,.zip,..."`. The network and
+console error buffers were empty. This proves the live filter is removed; an
+actual OS file-dialog selection and validated-disk gameplay boot remain open.
