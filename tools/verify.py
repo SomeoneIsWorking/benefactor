@@ -109,12 +109,29 @@ def main() -> int:
     _run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"])
     for tool in EXTERNAL_TOOLS:
         _require(tool)
+    sdl_source = os.environ.get("BENEFACTOR_SDL3_DIR")
+    sdl_include_args: list[str] = []
+    if sdl_source:
+        sdl_include = Path(sdl_source).expanduser().resolve() / "include"
+        if not (sdl_include / "SDL3" / "SDL.h").is_file():
+            raise SystemExit(f"verify needs SDL3 headers at {sdl_include}")
+        sdl_include_args.append(f"-I{sdl_include}")
     _run(["clang-format", "--dry-run", "--Werror", *C_FORMAT_PATHS])
-    _run(["clang-tidy", *C_TIDY_PATHS, "--", "-std=c11", "-Isrc"])
+    _run(["clang-tidy", *C_TIDY_PATHS, "--", "-std=c11", "-Isrc", *sdl_include_args])
     shared_include = amigaport_dir() / "include"
     if not (shared_include / "amigaport" / "executor.hpp").is_file():
         raise SystemExit(f"verify needs shared/amigaport headers at {shared_include}")
-    _run(["clang-tidy", *CXX_TIDY_PATHS, "--", "-std=c++20", "-Isrc", f"-I{shared_include}"])
+    _run(
+        [
+            "clang-tidy",
+            *CXX_TIDY_PATHS,
+            "--",
+            "-std=c++20",
+            "-Isrc",
+            f"-I{shared_include}",
+            *sdl_include_args,
+        ]
+    )
     compiler = shlex.split(os.environ.get("CC", "cc"))
     _compile_and_run_c_test(compiler, "test_log", ["src/common/log.c", "tests/test_log.c"])
     _compile_and_run_c_test(

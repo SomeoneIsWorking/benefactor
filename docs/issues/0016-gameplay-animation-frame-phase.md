@@ -21,9 +21,9 @@ frame 464. The descriptor is accepted by both products.
 The `$1E.w` mode word also differs (2 in the interpreter, 0 in the oracle's
 direct-level developer path), but preserving 0 experimentally did not change
 the frame-464 SFX trigger. The SFX rejection path is not reached in this
-scenario. Although that path has no explicit `rt_return_from_native`, the
-outermost replacement callback in `guest_runtime.cpp` completes an unchanged
-subroutine boundary automatically, so it is not evidence for this difference.
+scenario. Both accepted and rejected native SFX now use the replacement
+adapter's automatic RTS (issue 0019), so this frame-phase difference is not
+evidence for that path.
 
 The interpreter's wait trace identifies the boundary: the card's VPOSR wait at
 `$57859E` presents frame 460 and resumes on frame 461, then the first gameplay
