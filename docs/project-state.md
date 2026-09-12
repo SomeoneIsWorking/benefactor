@@ -49,12 +49,12 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | partial | S005; the Clang product target links only `amigaport::amigaport`, and an authenticated Disk.1-Disk.3 run reaches `$577000`; title-wide conformance and symbol/build audit remain open | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
-| S025 | Asset-free source-policy CI runs from a full-history checkout | verified | Hosted run `34200853713` passed the locked source-policy verifier from a full-history checkout without game inputs. | G003 |
+| S025 | Asset-free source-policy CI runs from a full-history checkout | verified | Hosted run `34696922050` passed the locked source-policy verifier from a full-history checkout with pinned shared runtime and SDL3 headers, without game inputs. | G003 |
 | S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34691039895`, Windows job `103546198321`, uploaded the MinGW package after its PE import gate found no unbundled runtime DLLs. | G004 |
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34691039895`, macOS job `103546198331`, built and uploaded the CMake bundle with pinned shared runtime, SDL3, and Lucent inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34691039895`, Linux job `103546198266`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
 | S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34691039895` assembled an arm64-v8a APK with a CI-only ephemeral key. Manual signing-verification run `34694150527` passed Android job `103554610317` using the existing persistent release secrets and checking against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34691039895` built the asset-free package at `2af02ba`; central `pages` run `34691323575` deployed it to https://someoneisworking.github.io/benefactor/. The live `publication.json` names the source run. Browser gameplay execution remains open under S023. | G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34696922059` built the asset-free package at `645f7c9`; central Pages run `34697302076` deployed it, and the live `publication.json` names that commit and source run. Browser gameplay execution remains open under S023. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 | S032 | A qualified version tag publishes one GitHub Release with all four native packages | partial | S023, S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs and an explicit state gate; no qualified tag has exercised publication | G004 |
 
@@ -319,11 +319,11 @@ Evidence: `CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. I
 entry mounts the three validated disk files into the production disk path before
 calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs.
 The source workflow uploads the package as a normal CI artifact; the sibling
-`pages` repository owns publication. Source run `34691039895` passed its WASM
-job and central Pages run `34691323575` deployed that artifact. The live
-`/benefactor/publication.json` confirms the source commit and run. WebLua loaded
-the central setup page with an unrestricted multi-file disk input and no console
-errors or failed requests.
+`pages` repository owns publication. Source run `34696922059` passed its WASM
+job and central Pages run `34697302076` deployed that artifact. The live
+`/benefactor/publication.json` confirms source commit `645f7c9` and the run.
+WebLua loaded that deployment with an unrestricted multi-file disk input; its
+console and failed-network reports were empty.
 
 Gap: browser gameplay execution and real disk boot remain unverified locally and
 under S023.
@@ -345,6 +345,13 @@ fixed install slots: a focused synthetic-file test confirms that failed
 persistence leaves the previous slot and selection intact, and that a later
 successful import commits the complete new set. This covers storage behavior,
 not a packaged first-run UI run.
+
+On the deployed Pages route, WebLua/CDP selected the player's `Disk.1` through
+the unrestricted input and received the expected missing-Disk.2/3 validation
+message. A ZIP lacking the disk set reached the ZIP-content validator. Neither
+selection started the game or changed the last valid disk set. This proves the
+browser input accepts both file types, not the operating system's chooser UI or
+a complete browser game boot.
 
 Gap: packaged desktop first-run/reselection UX, the deployed browser's native
 file-dialog behavior, and end-to-end browser/native runtime handoff remain
