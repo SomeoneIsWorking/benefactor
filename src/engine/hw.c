@@ -505,6 +505,7 @@ void hw_overlay_rect(int x, int y, int w, int h) {
 static uint8_t s_joy_buttons = 0; /* bit 0 = fire (Z/LCTRL) */
 static uint8_t s_joy_up = 0, s_joy_down = 0, s_joy_left = 0, s_joy_right = 0;
 static uint8_t s_mouse_lmb = 0;         /* SPACE / RETURN (active high) */
+static uint8_t s_mouse_lmb_raw = 0;     /* real mouse LMB state */
 static uint8_t s_fire_pressed = 0;      /* any fire key pressed (active high) */
 static uint8_t s_interact = 0;          /* dedicated INTERACT key (X) — separate from fire */
 static uint8_t s_drop = 0;              /* dedicated DROP button — one of the drop bindings */
@@ -539,7 +540,10 @@ void hw_set_fire(int on) {
     else
         s_joy_buttons &= ~1;
 }
-void hw_set_mouse_lmb(int on) { s_mouse_lmb = on; }
+void hw_set_mouse_lmb(int on) {
+    s_mouse_lmb_raw = (uint8_t)(on ? 1 : 0);
+    s_mouse_lmb = (uint8_t)(on ? 1 : 0);
+}
 int hw_get_interact(void) { return s_interact; }
 void hw_set_interact(int on) { s_interact = !!on; }
 int hw_get_drop(void) { return s_drop; }
@@ -574,17 +578,18 @@ static void apply_bound_input(void) {
             (pdm && pc_input_active_dev(PI_DEV_PAD, PI_HOP)) ||
             (tcm && pc_input_active_dev(PI_DEV_TOUCH, PI_HOP));
     int fire = pc_input_active(PI_FIRE);
-    /* Outside gameplay the JUMP button doubles as fire/confirm, so the primary
-     * face button (pad A / Space on the modern scheme) still drives the game's
-     * own title/menu screens. In gameplay it is strictly JUMP. */
-    if (s_hop && !g_gameplay_active)
+    /* Outside gameplay (or on the level card before playfield begins) the
+     * JUMP button doubles as fire/confirm, so the primary face button
+     * (pad A / Space on the modern scheme) still drives the game's own
+     * title/menu/card screens. In playfield gameplay it is strictly JUMP. */
+    if (s_hop && (!g_gameplay_active || hw_get_cop1lc() == 0x003914u))
         fire = 1;
     s_fire_pressed = fire;
     if (fire)
         s_joy_buttons |= 1;
     else
         s_joy_buttons &= ~1;
-    s_mouse_lmb = fire; /* fire also = port-0/menu select */
+    s_mouse_lmb = (uint8_t)(fire || s_mouse_lmb_raw); /* fire also = port-0/menu select */
     /* Fire held on a VANILLA-scheme device: that fire is allowed to keep its
      * original interact/drop meaning in the overrides (hw_get_fire_vanilla). */
     s_fire_vanilla = (!kbm && pc_input_active_dev(PI_DEV_KB, PI_FIRE)) ||
@@ -1226,8 +1231,10 @@ static int hw_present_body(void) {
             if (hw_handle_sdl_event(&ev))
                 continue; /* controllers, window resize */
             if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN || ev.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-                if (ev.button.button == SDL_BUTTON_LEFT)
-                    s_mouse_lmb = (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+                if (ev.button.button == SDL_BUTTON_LEFT) {
+                    s_mouse_lmb_raw = (uint8_t)(ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+                    apply_bound_input();
+                }
             }
             if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_KEY_UP) {
                 int down = (ev.type == SDL_EVENT_KEY_DOWN);
