@@ -1,6 +1,6 @@
 # Benefactor gameplay AUDIO engine — RE map (for native port)
 
-Status: **reverse-engineered, native port not yet started.** This is the foundation so
+Status: **partially native-owned; full music/PCM conformance remains open.** This is the foundation so
 the port isn't blind (per user). a5(gameplay)=`$57EE12`, a6 in ISRs=`$dff000`.
 
 ## Big picture
@@ -79,7 +79,8 @@ verify gpl), tempo `$59b806`/`$59b808`. Full per-note RE still TODO.
 4. **Port the music replayer** (`$59BA7A` core + note/instrument/effect helpers).
 5. Remove the hw_audio boundary-reload guesswork once the native engine drives PCM.
 
-Verify each stage behaviorally vs PUAE (WAV compare + sfxcmp), never blind.
+Verify each stage behaviorally against the pinned static-recompiler oracle,
+including frame signatures and PCM; a native call-site hit alone is not parity.
 
 ## Status / progress (2026-06-03)
 
@@ -93,15 +94,13 @@ Verify each stage behaviorally vs PUAE (WAV compare + sfxcmp), never blind.
   one-shot/looped on Paula's fixed pan while `$57fe4e`/`$57fe4f` is set, bypassing the
   chunk-follow. Every jump now bursts consistently (14/14 vs ~10/14). Total length =
   `chunks(+c) * (chunk_longs_m1(+a)+1) * 4` bytes from base `$57fe78`; loop if `+e`≠0.
-- **OPEN: overall level gap.** PC full-mix peaks ~18% vs PUAE ~48% (same fire+left run).
-  Separate from the drop bug — looks like a master/mix-gain difference; not yet resolved.
 - **Music replayer (`$59BA7A`/`$59BB5E`+)** still executes from the gameplay
   image through the interpreter, not yet native-owned.
 
-### Tooling
-- `AUDIO_SFX_ONLY=1` — mixer renders only the native SFX voices (drops music) WITHOUT
-  freezing the timer. Do NOT use `BENEFACTOR_MUTE_MUSIC` — it gates the LVL6 CIA timer,
-  which also stalls GET READY + SFX output (everything goes silent, level never starts).
-- `AUDIO_DUMP=path` (PC raw s16 stereo @22050) / `AUDIODUMP=1` (PUAE → logs/audio_puae.raw
-  @44100). `scratch/audio_tools.py` = `raw2wav` + `bursts` (envelope/peak per sound).
-- Drive: `rungame` (PC) + `pugoto N` (PUAE) — see instructions/current-state.md.
+### Current comparison
+
+`tools/oracle_diff.py` drives the pinned static reference and interpreter with
+the same frame-indexed inputs. Issue 0015 records equal gameplay PCM through
+frame 463; issue 0016 records the first frame-phase divergence. Do not infer
+music parity from an active `$78` timer vector alone: the level-3 sequencer and
+sample-bank identity must also match.
