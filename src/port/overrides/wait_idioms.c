@@ -20,6 +20,7 @@
 static void native_wait_idiom(M68KCtx *ctx) {
     const uint32_t at = rt_get_pc();
     const PcWaitIdiom found = pc_wait_idiom_at(g_mem, (uint32_t)RT_MEM_SIZE, at);
+    const int frame_before = hw_get_frame_num();
     switch (found.kind) {
     case PC_WAIT_FRAME:
         /* The whole point: the guest is asking for the next frame, so say so to
@@ -46,6 +47,8 @@ static void native_wait_idiom(M68KCtx *ctx) {
          * guest run its own code rather than guessing what it now means. */
         return;
     }
+    benefactor_log_write(BENEFACTOR_LOG_TRACE, "wait", "$%06X kind=%u frame=%d->%d resume=$%06X",
+                         at, (unsigned)found.kind, frame_before, hw_get_frame_num(), found.resume);
     rt_jump(ctx, ctx->image, found.resume);
 }
 
