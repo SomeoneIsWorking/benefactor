@@ -317,14 +317,21 @@ under S023.
 ### S031 — Cross-platform disk browse
 
 Android has a Lucent SAF directory browser that validates the three filenames
-before promotion. The browser package now has an unrestricted picker so
-extensionless `Disk.1`, `Disk.2`, and `Disk.3` files are selectable; it accepts
+before promotion. The browser package omits the HTML `accept` attribute so
+numeric-suffix `Disk.1`, `Disk.2`, and `Disk.3` files are not MIME-filtered; it accepts
 those three files directly or one bounded ZIP containing them at any folder
 depth, then validates names, archive safety, byte sizes, and SHA-256 identities
 before dispatching a committed selection to the WASM bridge. The locked source
 launcher also exposes `./run.sh --browse` through a native Tk file picker and
 validates the same set before building or launching the product.
 
-Gap: packaged desktop native file-picker persistence and end-to-end
-browser/native runtime handoff remain unverified; failed selection must leave
-the previous valid installation active.
+The packaged SDL3 desktop setup has a native multi-file dialog and verifies
+the exact disk set before persisting it. ZIP imports now publish through two
+fixed install slots: a focused synthetic-file test confirms that failed
+persistence leaves the previous slot and selection intact, and that a later
+successful import commits the complete new set. This covers storage behavior,
+not a packaged first-run UI run.
+
+Gap: packaged desktop first-run/reselection UX, the deployed browser's native
+file-dialog behavior, and end-to-end browser/native runtime handoff remain
+unverified on release artifacts.

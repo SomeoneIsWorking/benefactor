@@ -154,7 +154,9 @@ set(BENEFACTOR_SOURCES
     src/runtime/guest_runtime.cpp)
 
 if(NOT ANDROID AND NOT BENEFACTOR_WEB)
-    list(APPEND BENEFACTOR_SOURCES src/platform/desktop_setup.cpp)
+    list(APPEND BENEFACTOR_SOURCES
+        src/platform/desktop_setup.cpp
+        src/platform/disk_selection_store.cpp)
 endif()
 
 if(BENEFACTOR_WEB)
