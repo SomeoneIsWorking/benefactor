@@ -110,7 +110,7 @@ in the same frame. Don't reorder when native-porting.
 | 3 | -$3FE2(a5) | `$57AE30` | `lea $5A231C,a0; lea $43E9,a1; lea $10A6(a5),a2` | Sprite mask/composite | not owned |
 | 4 | -$3F42(a5) | `$57AED0` | Init d0/d1=0; `lea $1094(a5),a0; lea $49F4(a5),a1; lea $1098(a5),a2; lea $4A40(a5),a3` | Multi-channel state/scroll? | not owned |
 | 5 | -$40FC(a5) | `$57AD16` | `lea $1028(a5),a0; lea $5AC4E6,a1; cmp.l (a1),d0` | Per-frame compare against constant table | not owned |
-| 6 | -$278C(a5) | `$57C686` | `movea.l $10DC(a5),a0; move.l $10D8(a5),d1; add.w (a0)+,d1; swap d1; add.w $6(a6),d1` | Reads VPOSR `$6(a6)` — beam-position related, scrolling? | not owned |
+| 6 | -$278C(a5) | `$57C686` | `movea.l $10DC(a5),a0; move.l $10D8(a5),d1; add.w (a0)+,d1; swap d1; add.w $6(a6),d1` | Beam-seeded gameplay RNG; picks normal-grunt pitch variant via `$10DB` bit 7 | not owned |
 | 7 | -$2738(a5) | `$57C6DA` | `lea $5A5272,a0; lea $5800F8,a1; lea $FB0(a5),a2; move.w $F82(a5),d0; cmpi.w #$8,d0` | Reads `$F82(a5)` ("game state index"), dispatch | not owned |
 | 8 | -$5782(a5) | `$579690` | `move.l $F90(a5),$10C0(a5); move.w $FA4(a5),$FA6(a5); clr.w $FA4(a5); bsr $57DEAC` | Frame-state housekeeping | not owned |
 | 9 | -$44DE(a5) | `$57A934` | `lea $10A6(a5),a2; move.w $F6A(a5),d7; cmp.w $2(a2),d7` | Player-vs-enemy compare? `$F6A` looks like player coord | not owned |
@@ -486,8 +486,8 @@ displacements). Tracking only the ones we've seen referenced so far.
 | `+$0FA8` | `$57FDBA` | word | **CAMERA X (screen-left world coordinate)** — confirmed via differential memory scan (`scratch/camhunt.py`): tracks player world X (`$10A6`) 1:1 in mid-level but offset by the player's screen X (held constant ≈175 while scrolling). This is the engine's scroll position, already clamped to the level's real edges (a normal camera "stops" here). For native widescreen: read this as the camera, clamp the wide view to its min/max (the level edges). camera_tile = `$0FA8`>>4, fine = `$0FA8`&15. |
 | `+$10C0` | `$57FED2` | long | backup of `$F90` |
 | `+$10D4` | `$57FEE6` | long | snapshot of `$28.w` at level start |
-| `+$10D8` | `$57FEEA` | long | (`$57C686`) scroll/position acc |
-| `+$10DC` | `$57FEEE` | long | (`$57C686`) ptr fed to acc |
+| `+$10D8` | `$57FEEA` | long | beam-seeded RNG state (`$57C686`) |
+| `+$10DC` | `$57FEEE` | long | RNG table cursor (`$57C686`) |
 | `+$1092` | `$57FEA4` | word | set to `$20` at `$5770F8` |
 | `+$1093` | `$57FEA5` | bits | bit7 = "no-input-fire" flag, bit0/bit5 = branches |
 | `+$1162` | `$57FF74` | array | **OBJECT POINTER LIST** (null-terminated longs) |
