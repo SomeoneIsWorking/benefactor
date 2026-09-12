@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from pathlib import Path
 
@@ -9,15 +8,14 @@ from tools.build_product import build_product
 from tools.config import parse_launch_config
 from tools.disk_browse import browse_for_disks
 from tools.disk_identity import validate_disk_set
-from tools.paths import AMIGAPORT
+from tools.paths import AMIGAPORT, amigaport_dir
 
 LOGGER = logging.getLogger("benefactor.launcher")
 
 
 def runtime_blocker(amigaport: Path = AMIGAPORT) -> str | None:
-    configured = os.environ.get("BENEFACTOR_AMIGAPORT_DIR")
-    if configured and amigaport == AMIGAPORT:
-        amigaport = Path(configured).expanduser().resolve()
+    if amigaport == AMIGAPORT:
+        amigaport = amigaport_dir()
     if not amigaport.is_dir():
         return f"shared/amigaport is missing at {amigaport}"
     adapter = Path(__file__).resolve().parents[1] / "src/runtime/guest_runtime.cpp"

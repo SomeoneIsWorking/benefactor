@@ -11,13 +11,12 @@
 extern "C" {
 #endif
 
-typedef enum BenefactorLogLevel {
-    BENEFACTOR_LOG_TRACE = 0,
-    BENEFACTOR_LOG_DEBUG = 1,
-    BENEFACTOR_LOG_INFO = 2,
-    BENEFACTOR_LOG_WARNING = 3,
-    BENEFACTOR_LOG_ERROR = 4,
-} BenefactorLogLevel;
+typedef uint8_t BenefactorLogLevel;
+#define BENEFACTOR_LOG_TRACE ((BenefactorLogLevel)0)
+#define BENEFACTOR_LOG_DEBUG ((BenefactorLogLevel)1)
+#define BENEFACTOR_LOG_INFO ((BenefactorLogLevel)2)
+#define BENEFACTOR_LOG_WARNING ((BenefactorLogLevel)3)
+#define BENEFACTOR_LOG_ERROR ((BenefactorLogLevel)4)
 
 typedef void (*BenefactorLogSink)(void *context, BenefactorLogLevel level, const char *category,
                                   const char *message);

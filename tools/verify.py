@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.paths import ROOT, SCRATCH
+from tools.paths import ROOT, SCRATCH, amigaport_dir
 
 PYTHON_PATHS = ("bootstrap.py", "tools", "tests")
 C_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".m", ".mm"}
@@ -24,11 +24,14 @@ C_TIDY_PATHS = (
     "src/harness/puae_options.c",
     "src/port/config.c",
     "src/port/project_paths.c",
+    "src/port/overrides/audio.c",
     "tests/test_log.c",
     "tests/test_project_paths.c",
 )
 
 CXX_TIDY_PATHS = (
+    "src/runtime/guest_runtime.cpp",
+    "src/runtime/guest_call_policy.cpp",
     "src/platform/disk_selection_store.cpp",
     "tests/test_disk_selection_store.cpp",
     "tests/test_guest_call_policy.cpp",
@@ -108,7 +111,10 @@ def main() -> int:
         _require(tool)
     _run(["clang-format", "--dry-run", "--Werror", *C_FORMAT_PATHS])
     _run(["clang-tidy", *C_TIDY_PATHS, "--", "-std=c11", "-Isrc"])
-    _run(["clang-tidy", *CXX_TIDY_PATHS, "--", "-std=c++20", "-Isrc"])
+    shared_include = amigaport_dir() / "include"
+    if not (shared_include / "amigaport" / "executor.hpp").is_file():
+        raise SystemExit(f"verify needs shared/amigaport headers at {shared_include}")
+    _run(["clang-tidy", *CXX_TIDY_PATHS, "--", "-std=c++20", "-Isrc", f"-I{shared_include}"])
     compiler = shlex.split(os.environ.get("CC", "cc"))
     _compile_and_run_c_test(compiler, "test_log", ["src/common/log.c", "tests/test_log.c"])
     _compile_and_run_c_test(

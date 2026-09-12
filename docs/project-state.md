@@ -236,7 +236,10 @@ arm64 evidence remain open. Issue #2.
 
 Evidence: the adapter keys registrations by shared image identity, replaces the
 identity on overlay changes, and routes scoped original calls through the shared
-override suppression boundary.
+override suppression boundary. The host-owned subroutine continuation now gives
+native-to-other `rt_call` targets their own guest return while retaining a
+bounded stop boundary across intermediate exits (issue 0019); synthetic tests
+and a Clang product build pass, but changed gameplay behavior is not yet verified.
 
 Gap: execute and compare all four address-reusing images with authenticated
 disks, including restore behavior and negative recursion checks. Issue #3.

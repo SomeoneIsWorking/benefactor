@@ -23,7 +23,8 @@ static_assert(boundary_for(0x4ED0U) == GuestCallBoundary::TailTransfer); // JMP 
 static_assert(boundary_for(0x6100U) == GuestCallBoundary::Subroutine);   // BSR
 static_assert(boundary_for(0x61FEU) == GuestCallBoundary::Subroutine);   // BSR.s
 static_assert(boundary_for(0x4E90U) == GuestCallBoundary::Subroutine);   // JSR (A0)
-static_assert(boundary_for(0x6000U, kNativeAddress + 2U) == GuestCallBoundary::Subroutine);
+static_assert(boundary_for(0x6000U, kNativeAddress + 2U) == GuestCallBoundary::HostSubroutine);
+static_assert(boundary_for(0x4E90U, kNativeAddress + 2U) == GuestCallBoundary::HostSubroutine);
 
 constexpr GuestImageToken title{.kind = 2U, .generation = 3U};
 static_assert(GuestCallPolicy::image_matches(title, title));
@@ -33,6 +34,12 @@ static_assert(!GuestCallPolicy::image_matches(title,
                                               GuestImageToken{.kind = 2U, .generation = 4U}));
 static_assert(!GuestCallPolicy::image_matches(GuestImageToken{.kind = 2U, .generation = 0U},
                                               GuestImageToken{.kind = 2U, .generation = 0U}));
+
+static_assert(GuestCallPolicy::completes_replacement(true, false, false, 0x20U, 0x20U));
+static_assert(!GuestCallPolicy::completes_replacement(false, false, false, 0x20U, 0x20U));
+static_assert(!GuestCallPolicy::completes_replacement(true, true, false, 0x20U, 0x20U));
+static_assert(!GuestCallPolicy::completes_replacement(true, false, true, 0x20U, 0x20U));
+static_assert(!GuestCallPolicy::completes_replacement(true, false, false, 0x20U, 0x40U));
 
 } // namespace
 

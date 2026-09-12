@@ -32,9 +32,6 @@ extern "C" {
         memset(g_chip + (offset), (value), (length));                                              \
     } while (0)
 
-/* ── Chip RAM pointer ─────────────────────────────────────────────────────────── */
-extern uint8_t *g_chip;
-
 /* ── Game loop (game_loop.c) ───────────────────────────────────────────────────── */
 /* Discard the game thread and spawn a fresh one that re-enters the steady
  * gameplay cycle at $577114. Used by the savestate load (savestate.c), which

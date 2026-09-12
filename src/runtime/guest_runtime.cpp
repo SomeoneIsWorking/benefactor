@@ -167,7 +167,7 @@ struct Registration final {
 class Runtime final {
   public:
     Runtime()
-        : bytes(BENEFACTOR_GUEST_MEMORY_SIZE), memory(bytes),
+        : bytes(static_cast<std::size_t>(BENEFACTOR_GUEST_MEMORY_SIZE)), memory(bytes),
           executor({.max_instructions_per_slice = 1'000'000u}, memory, logger) {}
 
     amigaport::ImageIdentity activate(BenefactorImageKind kind) {
@@ -304,15 +304,20 @@ class Runtime final {
     amigaport::ExecutionExit execute(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
         record_call(address);
-        const auto boundary =
-            !native_frames.empty() && call_policy.nested_boundary(native_frames.back(), address) ==
-                                          benefactor::runtime::GuestCallBoundary::TailTransfer
-                ? amigaport::CallBoundary::TailTransfer
-                : amigaport::CallBoundary::GuestSubroutine;
-        amigaport::ExecutionExit result = resume_past_breakpoints(executor.call(address, boundary));
+        auto boundary = amigaport::CallBoundary::GuestSubroutine;
+        if (!native_frames.empty()) {
+            const auto nested = call_policy.nested_boundary(native_frames.back(), address);
+            if (nested == benefactor::runtime::GuestCallBoundary::TailTransfer)
+                boundary = amigaport::CallBoundary::TailTransfer;
+            else if (nested == benefactor::runtime::GuestCallBoundary::HostSubroutine)
+                boundary = amigaport::CallBoundary::HostSubroutine;
+        }
+        amigaport::CallContinuation continuation{};
+        amigaport::ExecutionExit result = executor.call(address, boundary, {}, &continuation);
         while (result.reason == amigaport::ExitReason::InstructionBudget ||
-               result.reason == amigaport::ExitReason::NativeOverride) {
-            result = resume_past_breakpoints(executor.execute());
+               result.reason == amigaport::ExitReason::NativeOverride ||
+               result.reason == amigaport::ExitReason::Breakpoint) {
+            result = continuation.valid ? executor.continue_call(continuation) : executor.execute();
         }
         if (result.reason == amigaport::ExitReason::MemoryFault) {
             benefactor_log_write(BENEFACTOR_LOG_ERROR, "runtime",
@@ -444,9 +449,8 @@ class Runtime final {
                  * boundary untouched. A path that called the original, jumped, or
                  * exited to the host has already moved the PC and consumed whatever
                  * the guest stack owed. */
-                const bool is_outermost_override = native_continuations.empty();
-                if (replaces_subroutine && is_outermost_override && !continue_execution &&
-                    !exit_to_host && executor.state().pc == address)
+                if (call_policy.completes_replacement(replaces_subroutine, continue_execution,
+                                                      exit_to_host, address, executor.state().pc))
                     (void)return_from_native();
                 amigaport::ExecutionExit result{};
                 result.continue_execution = continue_execution;
