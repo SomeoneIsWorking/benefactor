@@ -27,4 +27,4 @@ class MissingToolTest(unittest.TestCase):
         self.assertEqual("cc", verify._require("cc"))
 
     def test_every_external_tool_the_run_needs_is_named(self) -> None:
-        self.assertEqual(("clang-format", "clang-tidy"), verify.EXTERNAL_TOOLS)
+        self.assertEqual(("clang-format", "clang-tidy", "node"), verify.EXTERNAL_TOOLS)

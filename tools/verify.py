@@ -41,12 +41,13 @@ CXX_TIDY_PATHS = (
 #: Tools this run shells out to that the repository does not ship. Named here
 #: so a machine without one is told which package to install, rather than being
 #: handed a FileNotFoundError from inside subprocess.
-EXTERNAL_TOOLS = ("clang-format", "clang-tidy")
+EXTERNAL_TOOLS = ("clang-format", "clang-tidy", "node")
 
 #: Where each of them comes from, for the message.
 _INSTALLED_BY = {
     "clang-format": "brew install clang-format",
     "clang-tidy": "brew install llvm (clang-tidy is not in Apple's command line tools)",
+    "node": "brew install node",
 }
 
 
@@ -109,6 +110,7 @@ def main() -> int:
     _run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"])
     for tool in EXTERNAL_TOOLS:
         _require(tool)
+    _run(["node", "--test", "tests/web_disk_setup.test.mjs"])
     sdl_source = os.environ.get("BENEFACTOR_SDL3_DIR")
     sdl_include_args: list[str] = []
     if sdl_source:
