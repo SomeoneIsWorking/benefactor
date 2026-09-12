@@ -1,7 +1,7 @@
 ---
 id: 25
 title: SDL web renderer cannot find the canvas
-status: investigating
+status: resolved
 symptom: After pthread-enabled WASM startup, SDL Emscripten createContext receives null because the HTML canvas id is benefactor-canvas instead of canvas.
 state_items: S030
 tags: wasm,browser,sdl,render
@@ -30,5 +30,7 @@ presentation owners and is not acceptable.
 
 The browser package now uses `id="canvas"` and keeps the pixelated CSS rule on
 that SDL-owned element. The focused release-builder gate checks the required
-canvas contract. A hosted rebuild and live post-start capture are required
-before resolving this issue.
+canvas contract. Hosted run `34708373281` and Pages deployment
+`34708732681` contain the fix. The live WebLua run accepted the authenticated
+ZIP, created a `704x564` SDL canvas with `image-rendering: pixelated`, and
+captured rendered gameplay without the previous null-canvas exception.

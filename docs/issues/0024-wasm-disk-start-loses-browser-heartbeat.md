@@ -1,7 +1,7 @@
 ---
 id: 24
 title: WASM disk start loses browser heartbeat
-status: investigating
+status: resolved
 symptom: The Pages picker accepts a valid Disk.1-Disk.3 ZIP, then Chrome/WebLua loses its heartbeat when native startup enters pc_step.
 state_items: S030,S023
 tags: wasm,browser,pthreads,release
@@ -33,5 +33,10 @@ The current source enables the Emscripten pthread pool and adds a bounded
 same-origin service-worker isolation handshake for GitHub Pages. The worker
 adds COOP, COEP, and CORP headers, the page reloads at most once after
 registration, and the generated runtime loads only after
-`crossOriginIsolated` is true. Hosted WASM and live Pages gameplay still need
-to verify this fix before resolving the issue.
+`crossOriginIsolated` is true. Hosted run `34708373281` built the pthread
+package, and Pages run `34708732681` deployed it. A fresh WebLua session at
+the live route accepted the authenticated three-disk ZIP, reached native boot,
+continued past frame 500, and remained alive with `crossOriginIsolated=true`
+and an active service worker. The live canvas was producing frames, so the
+heartbeat loss was the missing web pthread/isolation contract rather than a
+disk-picker failure.
