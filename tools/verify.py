@@ -21,6 +21,7 @@ C_FORMAT_PATHS = tuple(
 C_TIDY_PATHS = (
     "src/common/log.c",
     "src/harness/artifacts.c",
+    "src/harness/puae_options.c",
     "src/port/config.c",
     "src/port/project_paths.c",
     "tests/test_log.c",

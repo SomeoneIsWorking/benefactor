@@ -7,6 +7,19 @@ gameplay product.
 
 ## PUAE determinism
 
+The independent, test-only observation tool is built with
+`CC=clang CXX=clang++ uv run --frozen python -m tools.build_puae_oracle`.
+Run `build/puae-oracle/puae_oracle build/puae-oracle/puae_libretro.so
+<local-WHDLoad-game-directory> scratch/harness-puae 1000` from the checkout.
+It overwrites `puae_frames.csv` and `puae_last.ppm` in that one activity and
+never opens an audio device. The C++ runner receives its project-local activity
+path explicitly; `tools/paths.py` owns the build-time paths. Both the retained
+frontend and this runner use `src/harness/puae_options.c` for PUAE configuration.
+Its video/audio/chip markers prove that the core ran and help locate scene
+transitions; they are not a frozen-state or CPU-conformance comparison. A missing
+Kickstart warning, as observed with the local WHDLoad input, must be resolved
+before declaring its timing authoritative.
+
 A live PUAE boot is not deterministic: disk-load completion varies by roughly
 one emulated frame with host I/O. Runs were identical through Kickstart frame
 23, then differed by one frame at the game-load boundary (`cop1lc=$001000`,

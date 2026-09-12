@@ -41,10 +41,12 @@ transition just to match the oracle. Compare the transition against PUAE or
 hardware, then correct the responsible clock/wait owner if the interpreter is
 actually early. The 20 ms audio phase difference remains open.
 
-The retained PUAE sources are not yet an independently built diagnostic. A
-one-off build of the retired combined `benefactor-harness` compiled its sources
-but failed at link: its vendor-side snapshot include now calls the current
-`benefactor_log_write`, which that old target does not link. The old harness
-also hardcodes `/tmp/WHDLoad` for disk copies. Recompose the PUAE side as a
-separate scratch-scoped diagnostic rather than reviving the static product or
-changing gameplay timing to satisfy its oracle.
+A separately built, test-only PUAE/libretro runner now records video hashes,
+audio hashes and nonzero sample counts, and chip-memory markers per frame under
+`scratch/harness-puae/`. Its source-built core reaches Benefactor's intro with
+changing video and audible PCM from the local WHDLoad input. The PUAE core
+reports that `kick40068.A1200` is missing and boots with its fallback; this run
+has not reached the level-card transition or restored a frozen machine state.
+It therefore does not resolve whether the interpreter or synthetic-beam static
+oracle has the correct first-gameplay-frame phase. The old combined harness's
+snapshot contract remains to be recomposed before a deterministic comparison.
