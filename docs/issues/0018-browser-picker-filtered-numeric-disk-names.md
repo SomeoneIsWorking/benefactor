@@ -1,7 +1,7 @@
 ---
 id: 18
 title: Browser picker filtered numeric disk names
-status: investigating
+status: resolved
 symptom: The GitHub Pages file picker greyed out Disk.1, Disk.2, and Disk.3.
 state_items: S031
 tags: browser,disks,picker,wasm
@@ -26,3 +26,6 @@ new `<input type="file" multiple>` with no `accept` attribute, whereas the
 previous deployment exposed `accept=".1,.2,.3,.zip,..."`. The network and
 console error buffers were empty. This proves the live filter is removed; an
 actual OS file-dialog selection and validated-disk gameplay boot remain open.
+
+### Note (2026-09-12)
+Live Pages verification at https://someoneisworking.github.io/benefactor/ observed input[type=file][multiple] with no accept filter, and isolated WebLua upload of the user-provided Disk.1 was accepted by the page (status advanced to the expected missing-Disk.2/Disk.3 validation message). The numeric disk is no longer rejected or grayed by the deployed browser input; complete three-disk WASM boot remains part of S031/S023.
