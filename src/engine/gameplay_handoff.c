@@ -2,6 +2,7 @@
  * loader body's low-memory initialisation (see gameplay_handoff.h). */
 #include "engine/gameplay_handoff.h"
 
+#include "engine/hw.h"
 #include "runtime/guest_runtime.h" /* g_mem */
 
 #include <stdint.h>
@@ -55,4 +56,10 @@ static void normalise_gameplay_mode_word(void) {
 void gameplay_handoff_prepare_low_memory(void) {
     write_card_display_sentinels();
     normalise_gameplay_mode_word();
+    /* Clear exception vectors and INTENA across overlay switch so stale
+     * vectors from the previous screen cannot fire before the new overlay
+     * sets up its own handlers. */
+    guest_write_long(0x6Cu, 0u);
+    guest_write_long(0x78u, 0u);
+    hw_write16(0xDFF09Au, 0x7FFFu);
 }
