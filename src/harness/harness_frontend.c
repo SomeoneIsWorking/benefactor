@@ -21,6 +21,7 @@
 #include "engine/hw.h"
 #include "harness/harness_internal.h"
 #include "harness/input.h"
+#include "harness/puae_options.h"
 #include "libretro-core.h"
 #include "libretro.h"
 
@@ -52,38 +53,6 @@ void harness_combined_fini(void);
 /* ── paths set by harness_main before calling retro_init ── */
 char harness_system_dir[RETRO_PATH_MAX] = "";
 char harness_save_dir[RETRO_PATH_MAX] = "";
-
-/* ── Variable table ── */
-typedef struct {
-    const char *key;
-    const char *value;
-} VarEntry;
-static const VarEntry s_vars[] = {{"puae_model", "A1200"},
-                                  {"puae_model_fd", "A500"},
-                                  {"puae_model_hd", "A1200"},
-                                  {"puae_model_cd", "CD32"},
-                                  {"puae_kickstart", "auto"},
-                                  {"puae_chipmem_size", "2MB"},
-                                  {"puae_bogomem_size", "none"},
-                                  {"puae_fastmem_size", "4MB"},
-                                  {"puae_cpu_model", "68020"},
-                                  {"puae_cpu_multiplier", "0"},
-                                  {"puae_cpu_throttle", "0.0"},
-                                  {"puae_cpu_compatibility", "normal"},
-                                  {"puae_fpu_model", "none"},
-                                  {"puae_immediate_blits", "false"},
-                                  {"puae_collision_level", "sprites"},
-                                  {"puae_gfx_framerate", "0"},
-                                  {"puae_gfx_colors", "16bit"},
-                                  {"puae_floppy_speed", "100"},
-                                  {"puae_floppy_multidrive", "disabled"},
-                                  {"puae_floppy_sound", "disabled"},
-                                  {"puae_floppy_sound_empty_mute", "disabled"},
-                                  {"puae_floppy_write_protection", "disabled"},
-                                  {"puae_floppy_write_redirect", "disabled"},
-                                  {"puae_statusbar", "disabled"},
-                                  {"puae_use_whdload_buttonwait", "disabled"},
-                                  {NULL, NULL}};
 
 /* ── PUAE video callback ── */
 static void video_cb(const void *data, unsigned w, unsigned h, size_t pitch) {
@@ -273,14 +242,8 @@ static bool harness_environ_cb(unsigned cmd, void *data) {
         return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
         struct retro_variable *var = (struct retro_variable *)data;
-        for (const VarEntry *e = s_vars; e->key; e++) {
-            if (strcmp(e->key, var->key) == 0) {
-                var->value = e->value;
-                return true;
-            }
-        }
-        var->value = NULL;
-        return false;
+        var->value = puae_option_value(var->key);
+        return var->value != NULL;
     }
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
         *(bool *)data = false;
