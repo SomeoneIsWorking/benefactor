@@ -4,6 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Benefactor</title>
+    <style>
+      /* Preserve the authored Amiga pixels when the canvas is enlarged on a
+         HiDPI display. SDL's desktop backend applies the equivalent texture
+         policy at the renderer boundary. */
+      #benefactor-canvas {
+        image-rendering: crisp-edges;
+        image-rendering: pixelated;
+      }
+    </style>
   </head>
   <body>
     <main>

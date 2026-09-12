@@ -20,3 +20,6 @@ Evidence from 2026-09-12:
   the renderer default to `SDL_SCALEMODE_NEAREST` before presentation
   textures are created, so HiDPI scaling and the BenRen texture path preserve
   authored pixels. Vulkan configures its sampler independently.
+- The browser canvas now declares `image-rendering: pixelated` (with the
+  `crisp-edges` fallback), covering CSS/device-pixel-ratio scaling in the
+  GitHub Pages package.
