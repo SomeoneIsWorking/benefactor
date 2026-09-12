@@ -56,6 +56,7 @@ if(NOT IS_DIRECTORY "${BENEFACTOR_LUCENT_DIR}")
         "provide -DBENEFACTOR_LUCENT_DIR=<checkout>")
 endif()
 set(LUCENT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LUCENT_BUILD_ZIP ON CACHE BOOL "" FORCE)
 add_subdirectory("${BENEFACTOR_LUCENT_DIR}" "${CMAKE_BINARY_DIR}/lucent")
 
 if(ANDROID)
@@ -150,7 +151,12 @@ set(BENEFACTOR_SOURCES
     src/render/present_sdl.c
     src/render/scene.c
     src/render/scene_sdl.c
+    src/runtime/guest_call_policy.cpp
     src/runtime/guest_runtime.cpp)
+
+if(NOT ANDROID AND NOT BENEFACTOR_WEB)
+    list(APPEND BENEFACTOR_SOURCES src/platform/desktop_setup.cpp)
+endif()
 
 if(BENEFACTOR_WEB)
     list(REMOVE_ITEM BENEFACTOR_SOURCES src/main.c)
@@ -187,6 +193,9 @@ target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE
     lucent::lucent
     ${BENEFACTOR_SDL_TARGET}
     Threads::Threads)
+if(NOT ANDROID AND NOT BENEFACTOR_WEB)
+    target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE lucent::zip)
+endif()
 if(NOT WIN32 AND NOT BENEFACTOR_WEB)
     target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE m)
 endif()

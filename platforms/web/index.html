@@ -11,9 +11,11 @@
       <p id="disk-status">Select your original Disk.1, Disk.2, and Disk.3 files, or one ZIP containing them, to continue.</p>
       <label for="disk-files">Browse for disks</label>
       <!-- Disk images use numeric suffixes rather than usual media extensions.
-           The JavaScript validator still checks exact names, sizes, and hashes. -->
+           Keep the chooser unrestricted because some browser file dialogs do
+           not treat numeric suffixes as selectable media types. The JavaScript
+           validator still checks exact names, sizes, and hashes. -->
       <input id="disk-files" type="file" multiple
-             accept=".1,.2,.3,.zip,application/zip,application/octet-stream">
+             accept="*/*">
       <canvas id="benefactor-canvas" aria-label="Benefactor game"></canvas>
     </main>
     <script src="disk_setup.js"></script>

@@ -2,6 +2,7 @@
 #include "engine/hw.h"
 #include "port/control/input_script.h"
 #include "port/debug/debugger.h"
+#include "runtime/guest_call_policy.h"
 #include <chrono>
 #include <thread>
 
@@ -279,7 +280,10 @@ class Runtime final {
     amigaport::ExecutionExit execute(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
         record_call(address);
-        amigaport::ExecutionExit result = resume_past_breakpoints(executor.call(address));
+        const auto boundary = native_frames.empty()
+                                  ? amigaport::CallBoundary::GuestSubroutine
+                                  : call_policy.nested_boundary(native_frames.back(), address);
+        amigaport::ExecutionExit result = resume_past_breakpoints(executor.call(address, boundary));
         while (result.reason == amigaport::ExitReason::InstructionBudget ||
                result.reason == amigaport::ExitReason::NativeOverride) {
             result = resume_past_breakpoints(executor.execute());
@@ -366,6 +370,8 @@ class Runtime final {
     std::vector<Registration> registrations;
     std::vector<bool *> native_continuations;
     std::vector<bool *> native_host_exits;
+    std::vector<benefactor::runtime::NativeEntry> native_frames;
+    benefactor::runtime::GuestCallPolicy call_policy;
     std::atomic<std::uint32_t> last_call_address{};
     std::atomic<std::uint32_t> last_pc{};
     std::uint64_t cycle_base{};
@@ -392,6 +398,7 @@ class Runtime final {
                        replaces_subroutine = registration.replaces_subroutine](auto &) {
                 M68KCtx context{};
                 bind(&context);
+                native_frames.push_back(call_policy.observe_entry(executor, address));
                 bool continue_execution = false;
                 bool exit_to_host = false;
                 native_continuations.push_back(&continue_execution);
@@ -401,16 +408,19 @@ class Runtime final {
                 } catch (...) {
                     native_continuations.pop_back();
                     native_host_exits.pop_back();
+                    native_frames.pop_back();
                     throw;
                 }
                 native_continuations.pop_back();
                 native_host_exits.pop_back();
+                native_frames.pop_back();
                 /* Complete the replaced subroutine's RTS only when the body left the
                  * boundary untouched. A path that called the original, jumped, or
                  * exited to the host has already moved the PC and consumed whatever
                  * the guest stack owed. */
-                if (replaces_subroutine && !continue_execution && !exit_to_host &&
-                    executor.state().pc == address)
+                const bool is_outermost_override = native_continuations.empty();
+                if (replaces_subroutine && is_outermost_override && !continue_execution &&
+                    !exit_to_host && executor.state().pc == address)
                     (void)return_from_native();
                 amigaport::ExecutionExit result{};
                 result.continue_execution = continue_execution;

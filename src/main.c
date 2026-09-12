@@ -3,6 +3,9 @@
 #include "engine/hw.h"
 #include "port/control/control_server.h"
 #include "port/port.h"
+#ifndef BENEFACTOR_ANDROID
+#include "platform/desktop_setup.h"
+#endif
 #include "render/present_backend.h"
 #include <signal.h>
 #include <stdint.h>
@@ -88,6 +91,14 @@ int main(int argc, char **argv) {
 #ifdef BENEFACTOR_ANDROID
     if (nd == 0) {
         if (!android_bridge_select_disks(disks, 4))
+            return 1;
+        nd = 3;
+    }
+#endif
+
+#ifndef BENEFACTOR_ANDROID
+    if (nd == 0) {
+        if (!desktop_setup_disks(disks, 4))
             return 1;
         nd = 3;
     }
