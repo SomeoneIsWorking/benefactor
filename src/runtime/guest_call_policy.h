@@ -16,10 +16,21 @@ struct NativeEntry final {
     std::uint16_t transfer_opcode{};
 };
 
+struct GuestImageToken final {
+    std::uint32_t kind{};
+    std::uint64_t generation{};
+};
+
 enum class GuestCallBoundary : std::uint8_t { Subroutine, TailTransfer };
 
 class GuestCallPolicy final {
   public:
+    [[nodiscard]] static constexpr bool image_matches(GuestImageToken requested,
+                                                      GuestImageToken active) noexcept {
+        return requested.kind != 0U && requested.kind == active.kind &&
+               requested.generation != 0U && requested.generation == active.generation;
+    }
+
     [[nodiscard]] NativeEntry observe_entry(const amigaport::Executor &executor,
                                             std::uint32_t address) const noexcept;
 

@@ -24,6 +24,7 @@ extern "C" {
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -188,9 +189,32 @@ class Runtime final {
         ctx->sr = &executor.state().sr;
         ctx->memory = bytes.data();
         ctx->memory_size = bytes.size();
+        ctx->image = current_image();
+    }
+
+    [[nodiscard]] BenefactorImageIdentity current_image() const noexcept {
         const auto image = executor.image();
-        ctx->image = {.kind = static_cast<BenefactorImageKind>(image.tag.value),
-                      .generation = image.generation};
+        return {.kind = static_cast<BenefactorImageKind>(image.tag.value),
+                .generation = image.generation};
+    }
+
+    [[nodiscard]] bool image_matches(BenefactorImageIdentity requested) const noexcept {
+        const auto active = current_image();
+        return call_policy.image_matches(
+            {.kind = static_cast<std::uint32_t>(requested.kind),
+             .generation = requested.generation},
+            {.kind = static_cast<std::uint32_t>(active.kind), .generation = active.generation});
+    }
+
+    void require_image(BenefactorImageIdentity requested) const {
+        const auto active = current_image();
+        if (!image_matches(requested)) {
+            throw std::logic_error("stale Benefactor image identity: requested kind=" +
+                                   std::to_string(requested.kind) +
+                                   " generation=" + std::to_string(requested.generation) +
+                                   " active kind=" + std::to_string(active.kind) +
+                                   " generation=" + std::to_string(active.generation));
+        }
     }
 
     /* Guest time never runs backwards for the host, even though the CPU state
@@ -442,8 +466,6 @@ Runtime &runtime() {
     return *g_runtime;
 }
 
-BenefactorImageKind image_kind(BenefactorImageIdentity image) { return image.kind; }
-
 /* Name the instruction that transferred control into an override, so a missing
  * boundary says whether the guest arrived by JSR/BSR (the replacement owes an
  * rt_return_from_native) or by JMP/BRA (it owes an explicit next PC). */
@@ -604,7 +626,7 @@ void rt_activate_image(M68KCtx *ctx, BenefactorImageKind kind) {
 }
 
 void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
-    (void)image_kind(image);
+    runtime().require_image(image);
     if (ctx != nullptr)
         rt_context_bind(ctx);
     const auto exit = runtime().execute(address);
@@ -615,14 +637,14 @@ void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
 }
 
 void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
-    (void)image_kind(image);
+    runtime().require_image(image);
     if (ctx != nullptr)
         rt_context_bind(ctx);
     log_exit("interrupt", address, runtime().call_interrupt(address));
 }
 
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
-    (void)image;
+    runtime().require_image(image);
     if (ctx != nullptr)
         rt_context_bind(ctx);
     /* Native overrides return to the executor after this function returns.
@@ -669,16 +691,15 @@ void rt_resume(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     rt_call(ctx, image, address);
 }
 
-int rt_has_guest_code(BenefactorImageIdentity, uint32_t address) {
-    return address < BENEFACTOR_GUEST_MEMORY_SIZE;
+int rt_has_guest_code(BenefactorImageIdentity image, uint32_t address) {
+    return g_runtime != nullptr && runtime().image_matches(image) &&
+           address < BENEFACTOR_GUEST_MEMORY_SIZE;
 }
 
 int rt_is_resume_point(const M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     if (ctx == nullptr || ctx->amigaport_runtime != g_runtime.get())
         return 0;
-    const auto current = runtime().executor.image();
-    return current.tag.value == image.kind && current.generation == image.generation &&
-           runtime().executor.state().pc == address;
+    return runtime().image_matches(image) && runtime().executor.state().pc == address;
 }
 
 size_t rt_state_blob_size(void) { return sizeof(amigaport::CpuState); }

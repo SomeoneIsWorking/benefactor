@@ -11,15 +11,19 @@ body must explicitly complete its guest boundary:
 
 | Native body | Register with | Completion |
 | --- | --- | --- |
-| Wraps a guest routine | `rt_register_override` / `_gp` | `rt_call_original` / `rt_call_original_subroutine` |
+| Wraps a guest routine | `rt_register_override` / `_gp` | `rt_call(ctx, ctx->image, its address)` suppresses only the active override |
 | Replaces an RTS-terminated subroutine | `rt_register_replacement` / `_gp` | Adapter completes the RTS |
 | Tail-jumps, including into a loaded image | Either | `rt_jump` |
 | Unwinds to host screen ownership | Either | `rt_exit_to_host` |
 
-The executor fails closed if a native override returns without completing that
-boundary. A `$6100` or `$4EB9` entry opcode was a call and owes a return;
-`$4EF8` or `$60xx` was a jump. See `src/runtime/guest_runtime.h` for the
-current API and image-qualified registration variants.
+The executor fails closed if an outer native override returns without
+completing that boundary. Benefactor's `GuestCallPolicy` distinguishes
+`JSR`/`BSR` calls from `JMP`/`BRA` tail transfers for nested `rt_call`; it does
+not treat `BSR` as an ordinary branch. Calls and continuations must carry the
+active image kind and generation. The adapter rejects stale image tokens, and
+the host rebinds its borrowed context before interrupt delivery because a
+parked game flow may have loaded a new overlay. See
+`src/runtime/guest_runtime.h` for the current API.
 
 Native replacements own proven guest wait idioms, blitter/beam polls, and
 host-service boundaries. The original interpreted body remains available for
@@ -59,8 +63,7 @@ period, and volume alongside screen/frame counts. Matching counts alone do not
 show that fades and music advanced.
 
 - Set `BENEFACTOR_LOG_LEVEL=debug` for named guest-call exits: reason, PC,
-  instruction count, image, and entry (`execute`, `interrupt`, or
-  `call-original`).
+  instruction count, image, and entry (`execute` or `interrupt`).
 - `pc_trap_vector_execution` traps wild jumps at `$000000` before executing
   vector-table zeroes; it records the guest stack and retired-instruction ring.
 - `rt_insn_ring_snapshot` / `rt_insn_ring_entries` hold the last 256 guest PCs
@@ -99,6 +102,4 @@ uv run --frozen python -m tools.verify
 ```
 
 `./run.sh` is the player launcher. The adjacent `shared/amigaport` checkout
-must match the ref pinned in `.github/workflows/release.yml`. The current
-product refuses to build or launch until the runtime adapter exists, as
-`AGENTS.md` records.
+must match the ref pinned in `.github/workflows/release.yml`.
