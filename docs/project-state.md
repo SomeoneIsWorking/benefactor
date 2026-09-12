@@ -54,7 +54,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34691039895`, macOS job `103546198331`, built and uploaded the CMake bundle with pinned shared runtime, SDL3, and Lucent inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34691039895`, Linux job `103546198266`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
 | S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34691039895` assembled an arm64-v8a APK with a CI-only ephemeral key. Manual signing-verification run `34694150527` passed Android job `103554610317` using the existing persistent release secrets and checking against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34696922059` built the asset-free package at `645f7c9`; central Pages run `34697302076` deployed it, and the live `publication.json` names that commit and source run. Browser gameplay execution remains open under S023. | G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34700630248` built the asset-free package at `dbcfdd7`; central Pages run `34700756608` deployed it, and the live `publication.json` names that commit and source run. Browser gameplay execution remains open under S023. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 | S032 | A qualified version tag publishes one GitHub Release with all four native packages | partial | S023, S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs and an explicit state gate; no qualified tag has exercised publication | G004 |
 
@@ -319,11 +319,11 @@ Evidence: `CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. I
 entry mounts the three validated disk files into the production disk path before
 calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs.
 The source workflow uploads the package as a normal CI artifact; the sibling
-`pages` repository owns publication. Source run `34696922059` passed its WASM
-job and central Pages run `34697302076` deployed that artifact. The live
-`/benefactor/publication.json` confirms source commit `645f7c9` and the run.
-WebLua loaded that deployment with an unrestricted multi-file disk input; its
-console and failed-network reports were empty.
+`pages` repository owns publication. Source run `34700630248` passed its WASM
+job and central Pages run `34700756608` deployed that artifact. The live
+`/benefactor/publication.json` confirms source commit `dbcfdd7` and the run.
+WebLua loaded that deployment with an unrestricted multi-file disk input and
+no failed network requests.
 
 Gap: browser gameplay execution and real disk boot remain unverified locally and
 under S023.
@@ -358,6 +358,14 @@ message. A ZIP lacking the disk set reached the ZIP-content validator. Neither
 selection started the game or changed the last valid disk set. This proves the
 browser input accepts both file types, not the operating system's chooser UI or
 a complete browser game boot.
+
+On the current deployment, WebLua again selected the player's `Disk.1`; the
+missing-two-disks error re-enabled the chooser without committing a set. A
+local ZIP containing all three authenticated disks reached the WASM boot path
+(audio device opened and disk boot began), but the isolated Chromium process
+then exited and WebLua lost its control connection. The browser cause is not
+yet known; this run cannot establish gameplay, ZIP-start success, or one-shot
+behavior in a running browser.
 
 Gap: packaged desktop first-run/reselection UX, the deployed browser's native
 file-dialog behavior, and end-to-end browser/native runtime handoff remain
