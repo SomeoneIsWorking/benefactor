@@ -67,6 +67,8 @@ jobs:
           "CMAKE_PREFIX_PATH=C:\msys64\mingw64" >> $env:GITHUB_ENV
       - name: Build Windows package
         run: uv run --frozen python -m tools.build_desktop --platform windows --output build/release/Benefactor-windows-x86_64.zip
+      - name: Verify Windows runtime imports
+        run: uv run --frozen python -m tools.check_windows_imports --objdump C:/msys64/mingw64/bin/objdump.exe build/windows/install/bin/benefactor-pc.exe
       - name: Upload Windows package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
