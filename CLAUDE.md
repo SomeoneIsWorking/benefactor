@@ -1,197 +1,104 @@
-# Benefactor Amiga → PC port
+# Benefactor implementation notes
 
-`AGENTS.md` is the working agreement and takes precedence over this file. Read it,
-then `docs/project-goals.md`, `docs/project-state.md`, `docs/codemap.md`,
-`docs/oracle.md` (how the retired static-recompiler product is used as the
-reference this one is measured against) and the open items in `docs/issues/`.
+`AGENTS.md` is the canonical working agreement. For scope, state, and ownership,
+consult the documents it names. `docs/oracle.md` describes the retired static
+product used as a reference for behavioral comparison.
 
-## What this product is
+## Native override boundary
 
-Hand-written native code owns disk loading, Amiga services, rendering, audio,
-input, UI and deliberately replaced game behaviour. **Every other 68000
-instruction is interpreted** from the player's own disks by `shared/amigaport`.
-There is no offline 68000-to-C translator, no generated corpus, no static
-dispatcher — they were deleted, and `tools/source_policy.py` fails the build if
-they come back in any form.
+Native overrides enter in the middle of interpreted 68000 execution. Every
+body must explicitly complete its guest boundary:
 
-## Direction: more native code, better organised code
-
-Standing direction from the user, not a one-off preference:
-
-- **The game working comes first, and native code is how it gets there.** The
-  retired static recompiler played the game correctly; anything this product
-  does that the player can see going wrong is a regression against that, whatever
-  its justification. "This product is the more faithful one" is not an answer to
-  a broken game — if it were faithful the game would work. Fix it, natively, and
-  measure that the fix worked; reach for a native owner before reaching for a
-  more careful emulation of the guest.
-- **Move behaviour into native owned bodies.** Where the guest spins, polls or
-  re-implements something the host already owns — wait idioms, blitter and beam
-  polls, timing loops — replace it with native code registered through the
-  override boundary below. Interpreting the guest is the fallback, not the goal.
-- **Keep the code organised as it grows.** One concern per file with a header
-  that says why the file exists; no new inline `static` state or `extern`
-  declarations scattered across call sites (state belongs in
-  `src/common/game_state.h`); factor repetition out rather than copying it.
-  `tools/source_policy.py` enforces the per-file line ceilings — a file at its
-  ceiling gets split, not compressed.
-- **Never rebuild while a measurement is running.** `tools/oracle_diff.py`
-  runs the executable it was handed; replacing that file mid-run gives a
-  meaningless table (measured: a crawl of 1391 frames against 6290). Wait, or
-  measure from a copy.
-- **A behaviour change must be validated by behaviour.** Per-screen frame counts
-  are not enough: `tools/oracle_diff.py` also diffs the frame signature (what
-  each screen played and showed — `src/port/frame_signature.h`). A change that
-  matches frame counts while the melody stalls or a fade freezes is a
-  regression, and one shipped that way once (docs/issues/0008).
-
-## Working on native overrides
-
-An override is native code standing in the middle of interpreted guest
-execution, so it must always say how the guest continues. Pick one:
-
-| The native body… | Register with | Boundary |
+| Native body | Register with | Completion |
 | --- | --- | --- |
-| wraps a guest routine (measures, widens, captures) | `rt_register_override` / `_gp` | `rt_call_original` / `rt_call_original_subroutine` |
-| wholly replaces an RTS-terminated guest subroutine | `rt_register_replacement` / `_gp` | the adapter completes the RTS |
-| tail-jumps somewhere else (incl. into a newly loaded image) | either | `rt_jump` |
-| deliberately unwinds so the host takes over the screen | either | `rt_exit_to_host` |
+| Wraps a guest routine | `rt_register_override` / `_gp` | `rt_call_original` / `rt_call_original_subroutine` |
+| Replaces an RTS-terminated subroutine | `rt_register_replacement` / `_gp` | Adapter completes the RTS |
+| Tail-jumps, including into a loaded image | Either | `rt_jump` |
+| Unwinds to host screen ownership | Either | `rt_exit_to_host` |
 
-Saying nothing is a bug, not a default: the executor fails closed with
-`native override $ADDR returned without completing its guest boundary`, naming
-the instruction that entered it (a `$6100`/`$4EB9`-class opcode means the guest
-called it and it owes a return; `$4EF8`/`$60xx` means it was jumped to). Under
-the retired translator a C function returning was the routine returning — that
-assumption is what broke on the switch, so treat an override written before
-2026-09-09 as unclassified until it has run.
+The executor fails closed if a native override returns without completing that
+boundary. A `$6100` or `$4EB9` entry opcode was a call and owes a return;
+`$4EF8` or `$60xx` was a jump. See `src/runtime/guest_runtime.h` for the
+current API and image-qualified registration variants.
 
-## Timing
+Native replacements own proven guest wait idioms, blitter/beam polls, and
+host-service boundaries. The original interpreted body remains available for
+comparison where an override wraps it. Do not use an override to hide an
+unknown CPU-semantic defect.
 
-Guest time is 68000 cycles, from `rt_get_guest_cycles()`. The PAL beam is
-derived from it (454 cycles per line, 312 lines per frame) — never from how many
-times the guest read a register, and the beam is sampled on EVERY custom-chip
-access, not only the position registers: the intro crawl syncs on the blitter
-and would otherwise never cross a boundary.
+## Guest time and presentation
 
-Guest time never runs backwards. An interrupt whose handler does not reach its
-RTE rolls the CPU state back, and `elapsed_cycles` is deliberately carried
-across that restore — those cycles were really spent.
+- `rt_get_guest_cycles()` is the clock. A PAL beam line is 454 cycles; a frame
+  is 312 lines or 141,648 cycles. Sample the beam on every custom-chip access,
+  including blitter polls, not only position-register reads.
+- Guest time never rolls back. If an interrupt does not reach RTE and restores
+  CPU state, carry `elapsed_cycles` across the restore.
+- Crossing a beam-frame boundary raises a pending boundary in
+  `src/engine/hw_beam.c`. The game's own wait loops, recognized from the
+  player's image by `src/port/wait_idiom.h`, land it. Cap the hold at one frame.
+  A cycle-budget cutoff may park the guest midway through a draw or blit.
+- Present only at a beam read and at most once per beam frame. The game flow
+  can park for host presentation; an interrupt on the host thread must present
+  and pace in place. `hw_present_frame` declines a duplicate request.
+- Do not park between the first `BLTxxx` write and `BLTSIZE`: interrupt code
+  could then overwrite the shared blitter registers. Keep the boundary pending.
+- Charge blits to guest time with `rt_add_guest_cycles`: one bus cycle per
+  enabled DMA channel per word, two 68000 cycles per bus cycle, or two per
+  pixel in line mode. `WaitBlit` loops have no other clock.
 
-**The beam comes from guest time; the FRAME ends where the guest asks to
-wait.** Those are two different questions and conflating them was the fault
-behind every divergence from the oracle (docs/issues/0008). A VPOSR read has to
-say where the beam really is, because the game polls it. But ending the frame
-at the cycle boundary put it wherever a frame's budget ran out — a blit costs
-four tenths of a frame, so it landed between a `BLTSIZE` write and the poll
-waiting for that blit, with the poster's copper list half rebuilt. So: crossing
-the boundary RAISES it (`src/engine/hw_beam.c`), and the game flow reaching one
-of its own wait loops LANDS it. Those loops have native owners, found by
-scanning the player's own image (`src/port/wait_idiom.h`). The hold is capped
-at one frame — a second would put two frames of guest work in one presented
-frame, which is worse than the latency.
+The derivation and regressions are in
+`docs/issues/0007-interpreter-boundaries-and-beam-time.md` and
+`docs/issues/0008-reference-product-differential.md`.
 
-**Present exactly one frame per beam frame, whoever notices the boundary.** The
-game flow parks at its boundary and the host presents; guest code inside an
-interrupt runs on the host thread and cannot be parked, so it presents (and
-paces) in place. Both asking to present in the same beam frame halved the
-guest's speed, so `hw_present_frame` refuses a beam frame it has already shown.
-Present only at a beam READ — any other access can land mid-draw, which cropped
-crawl text mid-line.
+## Debugging and behavioral comparison
 
-**Never take a frame boundary in the middle of a blit's register sequence.** The
-blitter registers are one shared set, so parking the game flow between the first
-`BLTxxx` write and `BLTSIZE` lets the interrupt the host then delivers write the
-same registers, and the two blits merge into one runaway blit. Leave the boundary
-pending instead.
+Do not rebuild an executable while `tools/oracle_diff.py` measures it; the
+comparison may run a different binary halfway through. Its frame signature
+(`src/port/frame_signature.h`) checks palette and per-channel audio sample,
+period, and volume alongside screen/frame counts. Matching counts alone do not
+show that fades and music advanced.
 
-**A blit costs the guest time.** One bus cycle per enabled DMA channel per word,
-two 68000 cycles a bus cycle (two per pixel in line mode), charged through
-`rt_add_guest_cycles`. Code that paces itself on `WaitBlit` — the intro crawl —
-has no other clock.
-
-See `docs/issues/0007-interpreter-boundaries-and-beam-time.md`.
-
-## Debugging the interpreter
-
-Reach for these before adding a print:
-
-- **Every guest-call exit is named** at debug level (`BENEFACTOR_LOG_LEVEL=debug`):
-  `guest call exit: reason=… pc=… instructions=… image=…`.
-- **A wild jump names itself.** Reaching the exception vector table traps on the
-  FIRST instruction (`pc_trap_vector_execution`, registered on `$000000`), logs
-  the guest stack around A7, and dumps the ring — before the ring is overwritten
-  by the vector table's own zeros.
-- **Retired-instruction ring** — the last 256 guest PCs with their opcodes.
-  `rt_insn_ring_snapshot` / `rt_insn_ring_entries`, `pc_log_retired_instructions`
-  for a log dump, `/trace` on the debug server for a live one. This is what
-  turns "it hung" into an address.
-- **Watchdog output** carries the guest PC, the active call, the last hardware
-  register read, cop1lc and the retired tail.
-- **Hot PCs per owner** (`src/port/guest_profile.h`) — which PCs burned WHOSE
-  cycles, sampled at every custom-chip access (a busy-wait must touch a
-  register to make progress, so none can hide). Logged as `hot:` when a screen
-  ends. The ring says which code ran; this says whose time it was. That
-  distinction is what found the crawl's missing music: `$003732 82%` under the
-  level-6 vector was the game flow's own frame wait, running inside a timer
-  interrupt.
-- **The frame signature** (`src/port/frame_signature.h`) — one `sig:` line per
-  change in what the frame PLAYS and SHOWS (the palette from the copper list,
-  each channel's sample pointer, period and volume). `tools/oracle_diff.py`
-  diffs it against the reference per screen. A frame count cannot see a stalled
-  melody or a frozen fade; this can.
-- **Every guest-call exit names its ENTRY too** — `entry=execute($x)`,
-  `entry=interrupt($x)`, `entry=call-original($x)`. "A million instructions
-  ending at $3732" reads identically for the flow's own slice and for a
-  wrapper's `call_original` that ran past an RTE, and those want opposite
-  fixes.
-- **Frame accounting** (`src/port/frame_accounting.h`, in `/state` and the
-  watchdog): guest cycles for the last host iteration split by owner — the game
-  flow, the level-3 vector, the level-6 vector — each with its PEAK, plus the
-  beam boundaries crossed/taken/declined, the per-frame waits reached/refused/
-  parked, and presents/re-entrant. One PAL frame is 141,648 cycles; an owner
-  far above that is the fault. The peaks matter: a runaway iteration is
-  invisible to a sampler, which only ever sees what the previous short
-  iteration left behind. This is what found the crawl bug — `irq6_max` of 14M
-  cycles (99 frames inside one interrupt delivery). Recording is by NAMED owner
-  (`pc_account_owner(PC_OWNER_LEVEL6_TIMER, cycles)`) — never hand a function
-  the storage to write into, and add a new number as a member of
-  `benefactor::diag::FrameAccounting`, not as another global.
-- **Breakpoints** (`src/port/debug/debugger.h`) — `/break?at=3732` stops the
-  guest when the PC reaches an address, BEFORE the instruction runs, and holds
-  the game there; `/breaks` lists what is set and where it last stopped;
-  `/cpu` then reports D0-D7/A0-A7/PC/SR at that instant, `/mem` the memory,
-  `/fb.ppm` the screen. `/resume` continues, `/step?frames=N` lets N frames
-  pass and holds again. The hold happens INSIDE the run, on the game thread:
-  returning a breakpoint exit to the caller lets the game flow carry on as
-  though the slice had finished, which shut the app down cleanly a moment after
-  the first hit. Reach for a breakpoint when you need the state AT an address,
-  and for the retired-instruction ring when you need to know how it got there.
-- **Interactive control channel** (`BENEFACTOR_HTTP=<port>`,
-  `src/port/control/`): a page at `/` with the controls as buttons and arrow
-  keys, plus `/state` (frame, level, cop1lc, retired instructions, guest cycles,
-  fps, per-section frame times, the frame accounting above), `/cpu`, `/mem`,
+- Set `BENEFACTOR_LOG_LEVEL=debug` for named guest-call exits: reason, PC,
+  instruction count, image, and entry (`execute`, `interrupt`, or
+  `call-original`).
+- `pc_trap_vector_execution` traps wild jumps at `$000000` before executing
+  vector-table zeroes; it records the guest stack and retired-instruction ring.
+- `rt_insn_ring_snapshot` / `rt_insn_ring_entries` hold the last 256 guest PCs
+  and opcodes. Use `/trace` on the control server or
+  `pc_log_retired_instructions` for a dump.
+- The watchdog reports the guest PC, active call, last hardware-register read,
+  `cop1lc`, and retired tail. `src/port/guest_profile.h` samples hot PCs by
+  owner at every custom-chip access and reports them at screen end.
+- `src/port/frame_accounting.h` and `/state` split guest cycles by game flow,
+  level-3, and level-6 interrupt, with per-owner peaks and beam/wait/present
+  counts. An owner far above 141,648 cycles indicates a runaway frame. Add
+  fields through `benefactor::diag::FrameAccounting` and account by named owner.
+- `/break?at=3732` stops before that guest instruction; `/breaks`, `/cpu`,
+  `/mem`, and `/fb.ppm` inspect the held state. `/resume` continues, and
+  `/step?frames=N` advances N frames. Keep the hold inside the game thread:
+  returning a breakpoint exit to game flow would let it continue or shut down.
+- `BENEFACTOR_HTTP=<port>` enables the Lucent-backed control server in
+  `src/port/control/`. Its `/` page is interactive; `/state`, `/cpu`, `/mem`,
   `/poke`, `/hold`, `/press?fire=1&frames=4`, `/pause`, `/resume`,
-  `/step?frames=N`, `/fb.ppm`, `/trace`, `/recent`, `/save`, `/load`. Built on
-  `lucent::http`, so it answers on its own thread and `/resume` still gets in
+  `/step?frames=N`, `/fb.ppm`, `/trace`, `/recent`, `/save`, and `/load`
+  expose live control and inspection. Its server thread can accept `/resume`
   while the game is held.
-- **A frame-indexed fire timeline** (`BENEFACTOR_PRESSES=7300:8,7420:8,7560:8`)
-  drives the menus from fixed frames instead of wall-clock input, which is what
-  lets `oracle_diff --play` compare gameplay in both products.
-- **Drive it headless**: `./build/run/…/Benefactor --headless --disk Disk.1 Disk.2 Disk.3`
-  with `BENEFACTOR_HTTP` set, then `curl "localhost:PORT/input?fire=1"`.
-
-New inspection needs become one of these owners. Do not scatter `getenv`-gated
-`fprintf` traces through the engine — `src/port/config.c` is the only module
-that may read the environment and `src/common/log.c` the only one that may write
-to a process stream.
+- `BENEFACTOR_PRESSES=7300:8,7420:8,7560:8` supplies frame-indexed fire
+  input for reproducible menu and gameplay comparison with `oracle_diff --play`.
+- For headless interaction, launch the built `Benefactor` with `--headless`
+  and `--disk Disk.1 Disk.2 Disk.3`, set `BENEFACTOR_HTTP`, then use the
+  control endpoints while it runs.
 
 ## Build and verify
 
-```
-BENEFACTOR_AMIGAPORT_DIR=../shared/amigaport cmake -S . -B build/run -G Ninja -DCMAKE_BUILD_TYPE=Release
+```sh
+BENEFACTOR_AMIGAPORT_DIR=../shared/amigaport cmake -S . -B build/run -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 cmake --build build/run --target benefactor_product --parallel
 uv run --frozen python -m tools.verify
 ```
 
-`./run.sh` is the player-facing launcher. `shared/amigaport` must be checked out
-next to this repository at the ref pinned in `.github/workflows/release.yml`.
+`./run.sh` is the player launcher. The adjacent `shared/amigaport` checkout
+must match the ref pinned in `.github/workflows/release.yml`. The current
+product refuses to build or launch until the runtime adapter exists, as
+`AGENTS.md` records.
