@@ -45,6 +45,7 @@ class ReleaseBuilderTests(unittest.TestCase):
         self.assertIsNotNone(parser.attributes)
         self.assertNotIn("accept", parser.attributes)
         self.assertIn("multiple", parser.attributes)
+        self.assertIn("image-rendering: pixelated", page)
 
     def test_desktop_builder_stops_at_runtime_boundary(self) -> None:
         with (
