@@ -4,23 +4,23 @@ import android.app.AlertDialog;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 
-import io.github.someoneisworking.lucent.LucentActivity;
-import io.github.someoneisworking.lucent.LucentDocumentImport;
+import io.github.someoneisworking.android.AndroidActivity;
+import io.github.someoneisworking.android.AndroidDocumentImport;
 
-/** Title-owned setup policy over Lucent's bounded, persisted SAF importer. */
-public final class BenefactorActivity extends LucentActivity {
+/** Title-owned disk setup policy over Android-port's bounded SAF importer. */
+public final class BenefactorActivity extends AndroidActivity {
     private static final int REQUEST_DISK_DIRECTORY = 4101;
-    private static final LucentDocumentImport.Limits IMPORT_LIMITS =
-            new LucentDocumentImport.Limits(128, 16L * 1024L * 1024L, 64 * 1024);
-    private LucentDocumentImport importer;
-    private LucentDocumentImport.Result pendingImport;
+    private static final AndroidDocumentImport.Limits IMPORT_LIMITS =
+            new AndroidDocumentImport.Limits(128, 16L * 1024L * 1024L, 64 * 1024);
+    private AndroidDocumentImport importer;
+    private AndroidDocumentImport.Result pendingImport;
 
     private static native void nativeDiskDirectoryResult(String directory, String error);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        importer = new LucentDocumentImport(this, IMPORT_LIMITS);
+        importer = new AndroidDocumentImport(this, IMPORT_LIMITS);
         importer.cleanStaleImports();
     }
 
@@ -37,8 +37,8 @@ public final class BenefactorActivity extends LucentActivity {
                 .setMessage(reason)
                 .setNegativeButton("Cancel", (dialog, which) -> nativeDiskDirectoryResult(null, null))
                 .setPositiveButton("Browse", (dialog, which) -> importer.pickTree(REQUEST_DISK_DIRECTORY,
-                        new LucentDocumentImport.Callback() {
-                            @Override public void onImported(LucentDocumentImport.Result result) {
+                        new AndroidDocumentImport.Callback() {
+                            @Override public void onImported(AndroidDocumentImport.Result result) {
                                 try {
                                     if (!hasDiskSet(result.stagingDirectory)) {
                                         nativeDiskDirectoryResult(null,

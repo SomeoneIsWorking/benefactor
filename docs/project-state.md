@@ -50,11 +50,11 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
 | S025 | Asset-free source-policy CI runs from a full-history checkout | verified | Hosted run `34200853713` passed the locked source-policy verifier from a full-history checkout without game inputs. | G003 |
-| S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34200853684`, Windows job `101979051649`, built and uploaded the real MinGW product package with pinned shared runtime and SDL3 inputs. | G004 |
+| S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34690738567`, Windows job `103545391578`, built and uploaded the MinGW product package; the shipping PE import gate found no unbundled runtime DLLs. | G004 |
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34200853684`, macOS job `101979051851`, built and uploaded the CMake bundle with pinned shared runtime and SDL3 inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34200853684`, Linux job `101979051817`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
 | S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34200853684`, Android job `101979051863`, assembled and inspected an arm64-v8a APK using the explicit CI-only ephemeral test key; maintainer-key signing, device performance, and gameplay evidence remain open. | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Hosted release run `34200853684`, WASM job `101979051795`, built and uploaded the package; Pages job `101979507158` deployed it to https://someoneisworking.github.io/benefactor/. Browser gameplay execution remains open under S023. | G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34689816660` built the asset-free package at `d198ad3`; central `pages` run `34690005639` deployed it to https://someoneisworking.github.io/benefactor/. The old project Pages site is disabled and the live `publication.json` names the source run. Browser gameplay execution remains open under S023. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 
 ## Capability details
@@ -92,8 +92,8 @@ Gap: re-exercise and verify the retained owner through S005's interpreter produc
 ### S004 — Packaged setup
 
 Android imports a validated three-disk set into private storage without
-packaging the disks through the Lucent SAF importer. The retired AppImage shell
-setup flow is no longer a shipping implementation.
+packaging the disks through the shared `android-port` SAF importer. The retired
+AppImage shell setup flow is no longer a shipping implementation.
 
 Gap: prove the Android path through the native/interpreter product and keep
 desktop setup in S031.
@@ -268,10 +268,11 @@ locked retained-source verifier.
 
 ### S026 — Windows package
 
-Evidence: the release workflow checks out pinned `amigaport` and SDL3 inputs, invokes
-`tools.build_desktop` on a native Windows runner, and uploads only the produced
-package. Hosted run `34200853684` passed job `101979051649` after the shared
-runtime's MinGW linker boundary was corrected.
+Evidence: the release workflow checks out pinned `amigaport`, SDL3, and Lucent
+inputs, invokes `tools.build_desktop` on a native Windows runner, and uploads
+the produced package only after inspecting its PE imports. Hosted run
+`34690738567` passed job `103545391578`; `tools.check_windows_imports` verified
+that no MinGW runtime DLL is required outside the ZIP.
 
 Gap: disk boot and real-title package inspection remain open.
 
@@ -306,17 +307,20 @@ device performance and gameplay evidence are not yet available.
 
 Evidence: `CMakeLists.txt` now owns a real `benefactor_web` Emscripten target. Its browser
 entry mounts the three validated disk files into the production disk path before
-calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs,
-and the workflow uploads and deploys them through GitHub Pages. Hosted run
-`34200853684` passed package job `101979051795` and Pages deployment
-`101979507158`.
+calling `pc_init_from_disk`; `tools/build_wasm.py` requires real JS/WASM outputs.
+The source workflow uploads the package as a normal CI artifact; the sibling
+`pages` repository owns publication. Source run `34689816660` passed its WASM
+job and central Pages run `34690005639` deployed that artifact. The live
+`/benefactor/publication.json` confirms the source commit and run. WebLua loaded
+the central setup page with an unrestricted multi-file disk input and no console
+errors or failed requests.
 
 Gap: browser gameplay execution and real disk boot remain unverified locally and
 under S023.
 
 ### S031 — Cross-platform disk browse
 
-Android has a Lucent SAF directory browser that validates the three filenames
+Android has a shared `android-port` SAF directory browser that validates the three filenames
 before promotion. The browser package omits the HTML `accept` attribute so
 numeric-suffix `Disk.1`, `Disk.2`, and `Disk.3` files are not MIME-filtered; it accepts
 those three files directly or one bounded ZIP containing them at any folder

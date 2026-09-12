@@ -143,7 +143,7 @@ def copy_required(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
-def stage_gradle_project(lucent: Path, profile) -> Path:
+def stage_gradle_project(profile) -> Path:
     project = BUILD / "project"
     if project.exists():
         shutil.rmtree(project)
@@ -156,7 +156,7 @@ def stage_gradle_project(lucent: Path, profile) -> Path:
     )
     shutil.copytree(ROOT / "platforms/android/app", project / "app")
     android_port = shared_android_port_tool()
-    android_port.stage_gradle_runtime(profile.prefix, project, lucent / "platforms/android/java")
+    android_port.stage_gradle_runtime(profile.prefix, project)
     return project
 
 
@@ -268,7 +268,7 @@ def main() -> int:
             "Android profile package.nativeLibrary must point at the configured native build: "
             f"{native}"
         )
-    project = stage_gradle_project(lucent, profile)
+    project = stage_gradle_project(profile)
     android_port.stage_package_runtime(profile)
     environment = dict(os.environ)
     environment["ANDROID_SDK_ROOT"] = str(sdk)

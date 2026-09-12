@@ -48,7 +48,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 79e3ee8b7a9d4e989be1610ebe42e9c7fe507a23
+          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
           persist-credentials: false
       - name: Set up Python and uv
@@ -111,7 +111,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 79e3ee8b7a9d4e989be1610ebe42e9c7fe507a23
+          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
           persist-credentials: false
       - name: Set up Python and uv
@@ -165,7 +165,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 79e3ee8b7a9d4e989be1610ebe42e9c7fe507a23
+          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
           persist-credentials: false
       - name: Set up Python and uv
@@ -234,7 +234,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/android-port
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: fa8b8f67bb446783b4aeea1def40c5d67040b7f1
+          ref: de534685006329abe8642e8efcc5ab1aa6935ec2
           path: shared/android-port
           persist-credentials: false
       - name: Check out pinned Lucent
@@ -242,7 +242,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 79e3ee8b7a9d4e989be1610ebe42e9c7fe507a23
+          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
           persist-credentials: false
       - name: Set up Python and uv
@@ -301,7 +301,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 79e3ee8b7a9d4e989be1610ebe42e9c7fe507a23
+          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
           persist-credentials: false
       - name: Set up Python and uv
