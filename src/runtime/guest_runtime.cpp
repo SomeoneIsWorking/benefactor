@@ -280,9 +280,11 @@ class Runtime final {
     amigaport::ExecutionExit execute(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
         record_call(address);
-        const auto boundary = native_frames.empty()
-                                  ? amigaport::CallBoundary::GuestSubroutine
-                                  : call_policy.nested_boundary(native_frames.back(), address);
+        const auto boundary =
+            !native_frames.empty() && call_policy.nested_boundary(native_frames.back(), address) ==
+                                          benefactor::runtime::GuestCallBoundary::TailTransfer
+                ? amigaport::CallBoundary::TailTransfer
+                : amigaport::CallBoundary::GuestSubroutine;
         amigaport::ExecutionExit result = resume_past_breakpoints(executor.call(address, boundary));
         while (result.reason == amigaport::ExitReason::InstructionBudget ||
                result.reason == amigaport::ExitReason::NativeOverride) {

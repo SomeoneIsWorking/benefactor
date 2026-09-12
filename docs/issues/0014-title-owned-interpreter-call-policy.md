@@ -18,6 +18,11 @@ gameplay graphics and unstable native/guest returns.
 Benefactor-specific control-flow convention. That coupled a title policy to a
 shared CPU owner and left the return-to-main-loop hand-off implicit.
 
+The first title-owned classifier then treated every `0x6xxx` branch as a tail
+transfer. That range includes `BSR` (`0x61xx`), which pushes a return address;
+classifying a `BSR` self-call as a tail transfer lets the interpreter cross its
+guest subroutine return boundary.
+
 ## Resolution
 
 - `shared/amigaport` exposes an explicit `CallBoundary` contract. A
@@ -25,16 +30,23 @@ shared CPU owner and left the return-to-main-loop hand-off implicit.
   `TailTransfer` call continues without consuming a guest return.
 - `src/runtime/guest_call_policy.*` records the opcode that entered each native
   body and selects the boundary for a nested `rt_call`. It is the Benefactor
-  owner of the title's JSR/BSR versus JMP/BRA rule.
+  owner of the title's JSR/BSR versus JMP/BRA rule; `BSR` is explicitly
+  excluded from tail transfers.
 - `rt_call` remains the only native-to-guest dispatch door: an active override
   is called when present, otherwise the guest body runs. `rt_jump` is used for
   explicit flat trampoline continuation and `rt_exit_to_host` for deliberate
   game-thread hand-off.
 - The shared executor no longer reads title execution history to make this
   decision, and the adapter's obsolete `rt_call_original*` wrappers are gone.
+- `tests/test_guest_call_policy.cpp` exercises the production title decision
+  for BRA, Bcc, JMP, BSR, JSR, and non-self calls without needing game disks.
 
 ## Verification
 
+- The asset-free `tests/test_guest_call_policy.cpp` is compiled with Clang by
+  `tools.verify` and checks `BSR` self-calls against tail branches and jumps;
+  the complete retained-source verifier passes.
+- The Clang `benefactor_product` target builds with the corrected policy.
 - `shared/amigaport/build/verify/amigaport_tests` passes the nested guest
   subroutine and explicit tail-transfer scenarios.
 - `build/run/benefactor-pc` builds with the policy owner and reaches level 1
