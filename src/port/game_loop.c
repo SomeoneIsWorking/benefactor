@@ -76,6 +76,10 @@ typedef enum { GUEST_ENTRY_RTE, GUEST_ENTRY_RTS } GuestEntry;
  * mirrors the CPU stacking registers across an interrupt. */
 static void call_fn_as(M68KCtx *ctx, uint32_t addr, GuestEntry entry) {
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "irq", "-> $%06X", addr);
+    /* An overlay can change while the game thread is parked; the host's
+     * long-lived borrowed view must follow the current image generation
+     * before it lends the CPU state to an interrupt. */
+    rt_context_bind(ctx);
     uint32_t sa[8], sd[8];
     uint16_t sr = ctx->sr ? *ctx->sr : 0;
     for (int i = 0; i < 8; i++)

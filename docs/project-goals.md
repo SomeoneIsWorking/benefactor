@@ -34,8 +34,9 @@ Constraints and non-goals:
 
 - Do not rewrite remaining portable game behavior merely to avoid integrating
   complete 68000 execution.
-- Do not use the old generated-C product as a permanent oracle, compatibility
-  mode, fallback, or alternate release.
+- Keep the working generated-C product only as an independent, local behavioral
+  oracle. Never make it a compatibility mode, fallback, build input, or
+  alternate release of the native/interpreter product.
 - Do not make a rendering redesign or one-address special case a CPU-correctness
   prerequisite.
 

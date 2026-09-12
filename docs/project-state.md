@@ -11,10 +11,10 @@ conventional emulator: 320-pixel presentation, original controls and jump
 behavior, password flow, floppy timing, and Amiga startup.
 
 The implementation baseline is this repository's native host plus
-offline-generated 68000-to-C execution. That execution method is retired and
-must not be regenerated, built, or run for new evidence. Its durable binary,
-native-subsystem, and PUAE-harness facts define the frontier that the intended
-native/interpreter product must re-establish independently.
+offline-generated 68000-to-C execution. That execution method is retired from
+the product, but the working `origin/oracle` branch remains a separate local
+behavioral oracle for interpreter comparisons. It is never a shipping path or
+build input for this tree.
 
 ## Current focus
 
@@ -30,7 +30,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S003 | Keyboard, hot-pluggable controllers, touch, rebinding, and alternate controls share logical actions | partial | S005; issue 0013 mapped the primary face button (`s_hop` / Pad A / Space under modern controls) to dismiss the level card into gameplay (`cop1lc = $003914`) and preserved real mouse clicks (`s_mouse_lmb_raw`) across bound input application | G002 |
 | S004 | Android provides no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
 | S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | partial | S020; the local Clang/headless run loads Disk.1-Disk.3, reaches `$577000`, and now runs the complete retail `=SB=` level-data dispatcher through the interpreter after native ATN loads. It sustains mixed input in gameplay after the shared JSR subroutine-boundary fixes and the `$1E.w` gameplay-mode-word normalisation (issue 0006 — the attract and direct-to-gameplay hand-offs entered `$577000` with a stale mode word, tripping the demo-input branch). Both the attract path and `--level` + fire injection now reach the level-intro card and run in-level frames without an illegal-instruction exit. Issue 0007 closed the interpreter's boundary and timing gaps. Issue 0009 established clean cooperative frame handoffs by adding scanline wait and displaced blitter idiom recognition to `src/port/wait_idiom.h`, registering wait idioms for all overlays, and eliminating mid-instruction beam-yielding and boundary-holding compensatory hacks (`hw_boundary_hold`, `s_boundary_owed`, `hw_present_paused_frame`). Issue 0010 resolved subroutine original call boundaries across native overrides and restored classic jump/fall/walk physics and in-game savestates. Issue 0011 resolved scanline wait presentation and consolidated override calling into a single unified `rt_call` across host and interpreter dispatch; issue 0014 moved the JSR/BSR-versus-JMP/BRA boundary choice into the Benefactor title adapter. Issue 0012 resolved nested override host-exit propagation across `rt_call` frames, fixing a watchdog hang at PC `$00000622` (`cop1lc = $0000097E`) when selecting Continue / Play Game from the title menu. Issue 0013 isolated interrupt vectors ($6C, $78) across overlay boundaries, removed an invalid subroutine override on music branch $59C5B0, and unified level-card dismissal inputs across modern and vanilla schemes. Issue 0015 restored the complete retail level-data dispatcher and sample-bank integrity on level-1 entry. A headless Disk.1-Disk.3 run boots unaided through the attract sequence, enters level 1 on fire, and moves the player over 11,000+ frames with no runtime errors; a windowed run holds a steady 50 fps. Four-image, platform, and performance conformance remain open | G001 |
-| S006 | PUAE differential scenarios and interactive controls are preserved as an independent oracle for the shipping interpreter | partial | S005; the independently source-built PUAE/libretro runner records changing video, nonzero PCM, and chip-memory traces from local WHDLoad input. Its boot lacks the requested Kickstart ROM and has not reached a frozen level-card comparison; deterministic first-divergence control remains open | G001 |
+| S006 | The working static recomp provides independent behavioral comparison for the shipping interpreter | partial | S005; `origin/oracle` and `tools/oracle_diff.py` reach level 1 and identify the first animation/SFX frame-phase difference in issue 0016. The static product is separate from the shipping build; representative first-divergence coverage remains open | G001 |
 | S007 | Turbo, hyper, and hold-to-fast-forward change gameplay pace while audio remains at normal speed | partial | S005 | G002 |
 | S008 | Optional platformer physics provides variable jump, air control, momentum, and tunable motion while classic physics remains | partial | S005; issues 0010 and 0011 unified call boundaries in `src/port/overrides/platformer.c`, restoring classic jump trajectories, falling, landing, directional hopping, and long jumps to match the reference oracle | G002 |
 | S009 | A 60-level selector, completion progress, and locks replace password entry | partial | S005 | G002 |
@@ -45,7 +45,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S018 | Player-facing save slots provide names, timestamps, and screenshot previews | missing | S017 | G002 |
 | S019 | Hold-to-rewind restores recent states from a bounded history | missing | S017, S020 | G002 |
 | S020 | `shared/amigaport` supplies complete 68000 PC/SR/exception/cycle state and a maintained interpreter owner | partial | Shared runtime tests cover interrupt/RTE and original-subroutine boundaries, the unterminated-override guard, native-continuation image re-authorization, and the retired-instruction trace; the Benefactor disk run boots to the menu and plays, while title conformance and ARM64 gameplay evidence remain open | G001 |
-| S021 | Image-generation-aware execution, overrides, and scoped original calls work across all four address-reusing images | partial | S005; adapter binds image tags/generations, native registrations, interrupt calls, title-owned `GuestCallPolicy` boundaries, unified `rt_call` dispatch with scoped self-suppression, and opaque CPU snapshots; issue 0012 propagates host hand-off exits across nested override calls; four-image runtime evidence remains open | G001, G003 |
+| S021 | Image-generation-aware execution, overrides, and scoped original calls work across all four address-reusing images | partial | S005; adapter binds image tags/generations, native registrations, interrupt calls, title-owned `GuestCallPolicy` boundaries, unified `rt_call` dispatch with scoped self-suppression, and opaque CPU snapshots; calls and continuations now reject a stale image token, and the host rebinds its context before IRQ delivery; issue 0012 propagates host hand-off exits across nested override calls; four-image runtime evidence remains open | G001, G003 |
 | S022 | Gameplay uses one shared interpreter CPU owner and contains no generated/static execution or direct diagnostic-emulator dependency | partial | S005; the Clang product target links only `amigaport::amigaport`, and an authenticated Disk.1-Disk.3 run reaches `$577000`; title-wide conformance and symbol/build audit remain open | G001, G003 |
 | S023 | Representative interactive gameplay conforms and meets performance gates through native/interpreter execution on x86-64, Apple Silicon macOS, and Android arm64-v8a | missing | S005, S021, S022 | G001, G002, G003 |
 | S024 | Offline translator, generated corpus/dispatcher, generation-only seeds, and static-only tests are absent | verified | — | G001, G003 |
@@ -53,7 +53,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34691039895`, Windows job `103546198321`, uploaded the MinGW package after its PE import gate found no unbundled runtime DLLs. | G004 |
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34691039895`, macOS job `103546198331`, built and uploaded the CMake bundle with pinned shared runtime, SDL3, and Lucent inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34691039895`, Linux job `103546198266`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
-| S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34691039895`, Android job `103546198330`, assembled and inspected an arm64-v8a APK with a CI-only ephemeral key. Tag builds now use existing persistent secrets and check against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
+| S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34691039895` assembled an arm64-v8a APK with a CI-only ephemeral key. Manual signing-verification run `34694150527` passed Android job `103554610317` using the existing persistent release secrets and checking against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
 | S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34691039895` built the asset-free package at `2af02ba`; central `pages` run `34691323575` deployed it to https://someoneisworking.github.io/benefactor/. The live `publication.json` names the source run. Browser gameplay execution remains open under S023. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 | S032 | A qualified version tag publishes one GitHub Release with all four native packages | partial | S023, S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs and an explicit state gate; no qualified tag has exercised publication | G004 |
@@ -123,14 +123,13 @@ open for those checks.
 
 ### S006 — Independent oracle and control
 
-The PUAE source, scenario descriptions, comparison code, and interactive
-control vocabulary are preserved independently from the removed static product.
-`tools.build_puae_oracle` now builds a standalone libretro core and headless
-frame recorder; a local WHDLoad run showed changing video and nonzero audio.
+The working static recomp is available separately on `origin/oracle` and
+`tools/oracle_diff.py` drives local comparisons without restoring generated
+source into the product. Its level-1 comparison has isolated the first
+animation and SFX frame-phase difference (issue 0016).
 
-Gap: restore the exact machine inputs and frozen-state control, then compare
-the same level-card transition against the shipping interpreter. The standalone
-recorder is observation, not yet the full differential harness.
+Gap: extend deterministic first-divergence comparisons across representative
+interactive gameplay, audio, image reloads, and credits.
 
 ### S007 — Speed controls
 

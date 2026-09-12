@@ -14,15 +14,15 @@ disk identity, the four runtime image generations, OCS/CIA services, host
 presentation, and title override policy.
 
 WebAssembly is part of the migration release contract: the project must also
-ship a browser-capable execution path that follows the same runtime boundary and
-discovery flow as desktop (nonzero translated work where applicable for the
-project, bounded fallback only as diagnostic), and include parity evidence in the
+ship a browser-capable execution path that follows the same native/interpreter
+runtime and disk-discovery flow as desktop, with parity evidence in the
 representative gameplay/host gates before release claims.
 
 The interpreter may be the default shipping CPU because Benefactor is an
-Amiga-class title. `amigaport` should reuse a maintained 68000/PUAE execution
-owner behind its typed CPU, memory, and service API rather than copy a core into
-this repository. The separate PUAE harness remains a diagnostic oracle. Boot,
+Amiga-class title. `amigaport` owns CPU execution behind its typed state,
+memory, and service API rather than copying a core into this repository. The
+working static recomp on `origin/oracle` is the local behavioral oracle; it is
+never linked or packaged with this product. Boot,
 menus, FMV-like presentation, and idle frames are not correctness or
 performance proof.
 
@@ -79,8 +79,8 @@ A representative run crosses all four image generations, begins a cavern,
 moves and jumps, interacts with an object, observes enemy/world updates,
 produces video/SFX/music and interrupts, reloads an image, reaches credits, and
 quits normally. Deterministic checkpoints compare CPU/SR/exception state,
-memory, service events, timing, audio, and frames against PUAE, hardware, or the
-separate test oracle. Every compared class reports denominators and controlled
+memory, service events, timing, audio, and frames against the separate static
+oracle. Every compared class reports denominators and controlled
 negative evidence. The x86-64 desktop, Apple Silicon macOS, and Android
 arm64-v8a releases each need frame-time percentiles, memory, loading, audio, and
 sustained-performance evidence from that representative interactive route.

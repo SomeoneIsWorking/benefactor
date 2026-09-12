@@ -7,8 +7,9 @@ the player's authenticated disks through `shared/amigaport`'s maintained 68000
 execution owner.
 
 The offline 68000-to-C translator, generated corpus, static dispatcher, and
-static launch/build paths have been deleted. Never recreate them as a bridge,
-comparison arm, cache, fallback, or convenience.
+static launch/build paths have been deleted from the product tree. Never
+recreate them here as a bridge, cache, fallback, or convenience; the existing
+`origin/oracle` branch is a separate behavioral reference only.
 
 ## Read before non-trivial work
 
@@ -45,8 +46,9 @@ issues before re-deriving an address, ABI, state transition, or failed approach.
   the original guest body through the execution owner. It never names a host-generated
   function.
 - Unsupported behavior fails with guest PC, image generation, and decoded bytes.
-  New evidence comes from independent PUAE/hardware comparisons, binary
-  analysis, or the shipping `amigaport` interpreter path.
+  Use the working static recomp as the behavioral oracle for interpreter
+  differences; binary analysis and the shipping interpreter path explain the
+  cause. The static product remains outside this tree's build and release.
 
 ## Preserved native seams
 
@@ -56,10 +58,10 @@ issues before re-deriving an address, ABI, state transition, or failed approach.
 - `src/engine/hw*`, `src/render/`, and `src/port/` retain native device,
   presentation, input, UI, and enhancement behavior.
 - `src/port/overrides/` calls guest addresses through the image-qualified seam
-  in `src/runtime/guest_runtime.h`. Finish that seam through `amigaport`; do not
+  in `src/runtime/guest_runtime.h`. Keep that seam backed by `amigaport`; do not
   reintroduce generated-body symbols.
-- `src/harness/`, `vendor/libretro-uae/`, and `instructions/harness.md` preserve
-  oracle scenarios. Recompose them only as a separate diagnostic product.
+- `tools/oracle_diff.py` and the `origin/oracle` branch preserve the working
+  static reference for local differential runs. They never enter the product.
 
 ## Structure and quality
 
@@ -87,6 +89,6 @@ issues before re-deriving an address, ABI, state transition, or failed approach.
   grow a monolith.
 - Never use raw `rm`, `pkill`, or commit/package copyrighted game inputs.
 
-The product is intentionally unavailable until `shared/amigaport` and the
-Benefactor runtime adapter exist. CMake and `./run.sh` must refuse with that one
-named boundary; they must never launch PUAE or the deleted implementation.
+The adapter and product now build. CMake and `./run.sh` must refuse a missing
+`shared/amigaport` boundary by name; they must never launch a diagnostic
+emulator or the deleted static implementation.

@@ -35,18 +35,10 @@ belong to another path). The static oracle instead implements VHPOSR as a
 synthetic counter incremented by one line per read, yielding on its 312-line
 wrap. That model places the first animation pass one displayed frame later.
 
-The interpreter's guest-cycle beam and the static oracle's per-read beam are
-different timing models. Do not insert a special-case yield at the banner
-transition just to match the oracle. Compare the transition against PUAE or
-hardware, then correct the responsible clock/wait owner if the interpreter is
-actually early. The 20 ms audio phase difference remains open.
-
-A separately built, test-only PUAE/libretro runner now records video hashes,
-audio hashes and nonzero sample counts, and chip-memory markers per frame under
-`scratch/harness-puae/`. Its source-built core reaches Benefactor's intro with
-changing video and audible PCM from the local WHDLoad input. The PUAE core
-reports that `kick40068.A1200` is missing and boots with its fallback; this run
-has not reached the level-card transition or restored a frozen machine state.
-It therefore does not resolve whether the interpreter or synthetic-beam static
-oracle has the correct first-gameplay-frame phase. The old combined harness's
-snapshot contract remains to be recomposed before a deterministic comparison.
+The interpreter's guest-cycle beam and the verified static oracle's per-read
+beam are different timing models. Use the static recomp as the behavioral
+oracle, as requested, but do not insert a one-address yield at the banner
+transition. The next discriminator is the title-owned clock/wait rule across
+the card and first gameplay scanline poll; a correction must preserve steady
+gameplay pacing too. The 20 ms audio phase difference remains open. PUAE is not
+part of this investigation.
