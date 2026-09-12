@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.paths import ROOT
+from tools.paths import ROOT, SCRATCH
 
 PYTHON_PATHS = ("bootstrap.py", "tools", "tests")
 C_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".m", ".mm"}
@@ -25,6 +25,11 @@ C_TIDY_PATHS = (
     "src/port/project_paths.c",
     "tests/test_log.c",
     "tests/test_project_paths.c",
+)
+
+CXX_TIDY_PATHS = (
+    "src/platform/disk_selection_store.cpp",
+    "tests/test_disk_selection_store.cpp",
 )
 
 
@@ -72,6 +77,27 @@ def _compile_and_run_c_test(compiler: list[str], name: str, sources: list[str]) 
     _run([str(executable)])
 
 
+def _compile_and_run_cpp_test(compiler: list[str], name: str, sources: list[str]) -> None:
+    executable = ROOT / "build" / "verification" / name
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            *compiler,
+            "-std=c++20",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Isrc",
+            *sources,
+            "-o",
+            str(executable),
+        ]
+    )
+    activity = SCRATCH / "verification" / name
+    activity.parent.mkdir(parents=True, exist_ok=True)
+    _run([str(executable), str(activity)])
+
+
 def main() -> int:
     _run([sys.executable, "-m", "ruff", "format", "--check", *PYTHON_PATHS])
     _run([sys.executable, "-m", "ruff", "check", *PYTHON_PATHS])
@@ -80,6 +106,7 @@ def main() -> int:
         _require(tool)
     _run(["clang-format", "--dry-run", "--Werror", *C_FORMAT_PATHS])
     _run(["clang-tidy", *C_TIDY_PATHS, "--", "-std=c11", "-Isrc"])
+    _run(["clang-tidy", *CXX_TIDY_PATHS, "--", "-std=c++20", "-Isrc"])
     compiler = shlex.split(os.environ.get("CC", "cc"))
     _compile_and_run_c_test(compiler, "test_log", ["src/common/log.c", "tests/test_log.c"])
     _compile_and_run_c_test(
@@ -94,6 +121,12 @@ def main() -> int:
     # The busy-wait recogniser decides where this product's frames begin and
     # end (src/port/wait_idiom.h), so it is pure and header-only on purpose.
     _compile_and_run_c_test(compiler, "test_wait_idiom", ["tests/test_wait_idiom.c"])
+    cpp_compiler = shlex.split(os.environ.get("CXX", "c++"))
+    _compile_and_run_cpp_test(
+        cpp_compiler,
+        "disk-selection-store",
+        ["src/platform/disk_selection_store.cpp", "tests/test_disk_selection_store.cpp"],
+    )
     return 0
 
 

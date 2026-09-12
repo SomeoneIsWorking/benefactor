@@ -1,4 +1,5 @@
 #include "platform/desktop_setup.h"
+#include "platform/disk_selection_store.h"
 
 #include <SDL3/SDL.h>
 #include <lucent/content.h>
@@ -11,10 +12,10 @@
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -26,7 +27,7 @@ constexpr std::array<const char *, 3> kDiskHashes = {
     "f3649c8db4adfce3c7da5e21cb018be098404771eceeec44741c2528e9071b73",
     "8dd262d02174a6706d5214b25f7bd9fc4bffe94761e16c209b880bc1dd8e7a42"};
 constexpr const char *kApplicationName = "benefactor";
-constexpr const char *kSelectionFile = "disk-selection.txt";
+using benefactor::platform::DiskSelectionStore;
 
 struct SelectionResult {
     std::mutex mutex;
@@ -37,7 +38,7 @@ struct SelectionResult {
 };
 
 std::optional<std::filesystem::path> user_data_directory() {
-    const auto directory = lucent::platform::user_data_directory(kApplicationName);
+    auto directory = lucent::platform::user_data_directory(kApplicationName);
     if (!directory)
         return std::nullopt;
     std::string error;
@@ -73,42 +74,6 @@ bool validate_set(const std::array<std::filesystem::path, 3> &paths, std::string
             return false;
     }
     return true;
-}
-
-bool read_persisted(const std::filesystem::path &directory,
-                    std::array<std::filesystem::path, 3> &paths) {
-    std::ifstream input(directory / kSelectionFile);
-    if (!input)
-        return false;
-    std::array<std::string, 3> lines;
-    for (std::string &line : lines) {
-        if (!std::getline(input, line) || line.empty())
-            return false;
-    }
-    for (std::size_t index = 0; index < paths.size(); ++index)
-        paths[index] = std::filesystem::path(lines[index]);
-    std::string error;
-    return validate_set(paths, error);
-}
-
-bool persist_selection(const std::filesystem::path &directory,
-                       const std::array<std::filesystem::path, 3> &paths) {
-    const auto temporary = directory / (std::string{kSelectionFile} + ".new");
-    std::ofstream output(temporary, std::ios::trunc);
-    if (!output)
-        return false;
-    for (const auto &path : paths)
-        output << path.string() << '\n';
-    output.close();
-    if (!output)
-        return false;
-    std::error_code status;
-    std::filesystem::rename(temporary, directory / kSelectionFile, status);
-    if (!status)
-        return true;
-    std::error_code cleanup_status;
-    std::filesystem::remove(temporary, cleanup_status);
-    return false;
 }
 
 void SDLCALL dialog_callback(void *userdata, const char *const *filelist, int) {
@@ -157,72 +122,70 @@ bool resolve_direct_files(const std::vector<std::filesystem::path> &selected,
         error = "Select exactly Disk.1, Disk.2, and Disk.3, or one ZIP archive";
         return false;
     }
+    std::array<std::filesystem::path, 3> candidate;
     for (const auto &path : selected) {
         const auto name = path.filename().string();
         for (std::size_t index = 0; index < kDiskNames.size(); ++index) {
             if (name == kDiskNames[index]) {
-                if (!paths[index].empty()) {
+                if (!candidate[index].empty()) {
                     error = "Each disk file must be selected exactly once";
                     return false;
                 }
-                paths[index] = path;
+                candidate[index] = path;
                 break;
             }
         }
     }
-    for (const auto &path : paths) {
+    for (const auto &path : candidate) {
         if (path.empty()) {
             error = "Select exactly Disk.1, Disk.2, and Disk.3";
             return false;
         }
     }
-    return validate_set(paths, error);
+    if (!validate_set(candidate, error))
+        return false;
+    paths = std::move(candidate);
+    return true;
 }
 
-bool resolve_zip(const std::filesystem::path &archive, const std::filesystem::path &directory,
+bool resolve_zip(const std::filesystem::path &archive, const DiskSelectionStore &store,
                  std::array<std::filesystem::path, 3> &paths, std::string &error) {
-    const auto pending = directory / "disk-import";
-    std::error_code status;
-    std::filesystem::remove_all(pending, status);
-    if (status) {
-        error = "Could not clear the previous disk import";
+    if (!store.prepare_import(error))
+        return false;
+    const auto pending = store.import_directory();
+    std::vector<std::filesystem::path> files;
+    const lucent::zip::ExtractionLimits limits{.max_archive_bytes = 32ULL * 1024u * 1024u,
+                                               .max_extracted_bytes = 16ULL * 1024u * 1024u,
+                                               .max_entry_bytes = 4ULL * 1024u * 1024u,
+                                               .max_entries = 128u};
+    if (!lucent::zip::extract_archive(archive, pending, files, error, limits)) {
+        store.discard_import(error);
         return false;
     }
-    std::vector<std::filesystem::path> files;
-    if (!lucent::zip::extract_archive(archive, pending, files, error))
-        return false;
+    std::array<std::filesystem::path, 3> candidate;
     for (const auto &file : files) {
         const auto name = file.filename().string();
         for (std::size_t index = 0; index < kDiskNames.size(); ++index) {
             if (name != kDiskNames[index])
                 continue;
-            if (!paths[index].empty()) {
+            if (!candidate[index].empty()) {
                 error = "The ZIP contains duplicate " + name + " files";
-                std::filesystem::remove_all(pending, status);
+                store.discard_import(error);
                 return false;
             }
-            paths[index] = file;
+            candidate[index] = file;
         }
     }
-    if (!validate_set(paths, error)) {
-        std::filesystem::remove_all(pending, status);
+    if (!validate_set(candidate, error)) {
+        store.discard_import(error);
         return false;
     }
-    const auto installed = directory / "disk-set";
-    std::filesystem::remove_all(installed, status);
-    if (status) {
-        error = "Could not replace the previous disk set";
-        std::filesystem::remove_all(pending, status);
+    std::array<std::filesystem::path, 3> installed;
+    if (!store.publish_import(candidate, installed, error)) {
+        store.discard_import(error);
         return false;
     }
-    std::filesystem::rename(pending, installed, status);
-    if (status) {
-        error = "Could not publish the validated disk set";
-        std::filesystem::remove_all(pending, status);
-        return false;
-    }
-    for (std::size_t index = 0; index < paths.size(); ++index)
-        paths[index] = installed / kDiskNames[index];
+    paths = std::move(installed);
     return true;
 }
 
@@ -260,8 +223,10 @@ extern "C" int desktop_setup_disks(const char **disks, int capacity) {
     const auto directory = user_data_directory();
     if (!directory)
         return 0;
+    const DiskSelectionStore store(*directory);
     std::array<std::filesystem::path, 3> paths;
-    if (read_persisted(*directory, paths)) {
+    std::string error;
+    if (store.read(paths) && validate_set(paths, error)) {
         publish_paths(paths, disks);
         return 1;
     }
@@ -269,17 +234,15 @@ extern "C" int desktop_setup_disks(const char **disks, int capacity) {
     if (!show_setup_message())
         return 0;
     std::vector<std::filesystem::path> selected;
-    std::string error;
     if (!choose_files(selected, error))
         return 0;
     if (selected.size() == 1 && is_zip_archive(selected[0])) {
-        if (!resolve_zip(selected[0], *directory, paths, error))
+        if (!resolve_zip(selected[0], store, paths, error))
             return 0;
-    } else if (!resolve_direct_files(selected, paths, error)) {
-        return 0;
+    } else {
+        if (!resolve_direct_files(selected, paths, error) || !store.persist_direct(paths, error))
+            return 0;
     }
-    if (!persist_selection(*directory, paths))
-        return 0;
     publish_paths(paths, disks);
     return 1;
 }
