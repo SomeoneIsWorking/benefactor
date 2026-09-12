@@ -43,6 +43,8 @@ def main() -> int:
         shutil.copy2(source, output / name)
     shutil.copy2(ROOT / "platforms/web/index.html", output / "index.html")
     shutil.copy2(ROOT / "platforms/web/disk_setup.js", output / "disk_setup.js")
+    shutil.copy2(ROOT / "platforms/web/isolation.mjs", output / "isolation.mjs")
+    shutil.copy2(ROOT / "platforms/web/service-worker.js", output / "service-worker.js")
     ensure_disk_free(output, "wasm")
     print(f"wasm: staged {output}")
     return 0

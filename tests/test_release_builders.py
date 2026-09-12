@@ -47,6 +47,18 @@ class ReleaseBuilderTests(unittest.TestCase):
         self.assertIn("multiple", parser.attributes)
         self.assertIn("image-rendering: pixelated", page)
 
+    def test_web_package_bootstraps_isolation_before_emscripten(self) -> None:
+        root = Path(__file__).parents[1] / "platforms" / "web"
+        page = (root / "index.html").read_text()
+        isolation = (root / "isolation.mjs").read_text()
+        worker = (root / "service-worker.js").read_text()
+        self.assertIn('import { prepareApplication } from "./isolation.mjs"', page)
+        self.assertIn('picker.src = "disk_setup.js"', page)
+        self.assertIn('runtime.src = "benefactor.js"', page)
+        self.assertIn("Cross-Origin-Opener-Policy", worker)
+        self.assertIn("Cross-Origin-Embedder-Policy", worker)
+        self.assertIn("crossOriginIsolated", isolation)
+
     def test_desktop_builder_stops_at_runtime_boundary(self) -> None:
         with (
             mock.patch.object(

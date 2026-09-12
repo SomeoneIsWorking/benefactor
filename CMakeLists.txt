@@ -226,9 +226,13 @@ if(ANDROID)
 endif()
 if(BENEFACTOR_WEB)
     target_compile_definitions(benefactor_web PRIVATE BENEFACTOR_WEB)
+    target_compile_options(benefactor_web PRIVATE -pthread)
     target_link_options(benefactor_web PRIVATE
+        -pthread
+        "-sPTHREAD_POOL_SIZE=1"
         "-sALLOW_MEMORY_GROWTH=1"
         "-sNO_EXIT_RUNTIME=1"
+        "-sENVIRONMENT=web,worker"
         "-sEXPORTED_FUNCTIONS=['_main','_benefactor_web_start']"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','FS']")
 elseif(NOT MSVC)

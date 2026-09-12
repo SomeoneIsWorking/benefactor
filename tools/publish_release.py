@@ -20,7 +20,14 @@ PACKAGE_NAMES = (
     "Benefactor-x86_64.AppImage",
     "Benefactor-arm64-v8a-release.apk",
 )
-WEB_NAMES = ("index.html", "disk_setup.js", "benefactor.js", "benefactor.wasm")
+WEB_NAMES = (
+    "index.html",
+    "disk_setup.js",
+    "isolation.mjs",
+    "service-worker.js",
+    "benefactor.js",
+    "benefactor.wasm",
+)
 RELEASE_STATE_IDS = (
     "S001",
     "S004",

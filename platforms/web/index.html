@@ -26,7 +26,32 @@
       <input id="disk-files" type="file" multiple>
       <canvas id="benefactor-canvas" aria-label="Benefactor game"></canvas>
     </main>
-    <script src="disk_setup.js"></script>
-    <script src="benefactor.js"></script>
+    <script type="module">
+      import { prepareApplication } from "./isolation.mjs";
+
+      async function loadApplication() {
+        const status = document.getElementById("disk-status");
+        try {
+          if (!await prepareApplication()) {
+            return;
+          }
+          const picker = document.createElement("script");
+          picker.src = "disk_setup.js";
+          picker.onload = () => {
+            const runtime = document.createElement("script");
+            runtime.src = "benefactor.js";
+            document.body.appendChild(runtime);
+          };
+          picker.onerror = () => {
+            status.textContent = "The browser could not load the disk setup module.";
+          };
+          document.body.appendChild(picker);
+        } catch (error) {
+          status.textContent = error instanceof Error ? error.message : "Browser setup failed";
+        }
+      }
+
+      loadApplication();
+    </script>
   </body>
 </html>
