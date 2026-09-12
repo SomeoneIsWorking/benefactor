@@ -44,6 +44,17 @@ static int sdl_init(const char *title, int content_w, int content_h) {
         s_renderer = SDL_CreateRenderer(s_window, "software");
     if (!s_renderer)
         return -1;
+    /* SDL3 defaults texture scaling to linear filtering. The Amiga output is
+     * indexed/pixel-authored artwork, so linear sampling creates the blurry
+     * HiDPI result reported by users and also softens BenRen's per-sprite path.
+     * Set the renderer default once so every streaming texture created by this
+     * backend, including scene_sdl's atlas and base textures, shares the same
+     * nearest-neighbour policy. Vulkan configures its sampler independently. */
+    if (!SDL_SetDefaultTextureScaleMode(s_renderer, SDL_SCALEMODE_NEAREST)) {
+        benefactor_log_write(BENEFACTOR_LOG_ERROR, "render",
+                             "cannot configure SDL nearest texture scaling: %s", SDL_GetError());
+        return -1;
+    }
 
     return sdl_ensure_content(content_w, content_h);
 }
