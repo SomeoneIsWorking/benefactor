@@ -54,7 +54,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34704766306`, macOS job `103582713792`, built and uploaded the CMake bundle with current pinned shared runtime, SDL3, and Lucent inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34704766306`, Linux job `103582713702`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
 | S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34704766306`, Android job `103582713838`, assembled an arm64-v8a APK with a CI-only ephemeral key. Manual signing-verification run `34694150527` passed Android job `103554610317` using the existing persistent release secrets and checking against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34704766306` built the asset-free package at `85283aa`; central Pages run `34705149702` deployed it, and the live `publication.json` names that commit and source run. Browser gameplay execution remains open under S023. | G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | partial | Source run `34704766306` built the asset-free package at `85283aa`; central Pages run `34705149702` deployed it, and the live `publication.json` names that commit and source run. Issue 0024 found that the deployed package hangs when valid disks enter the desktop pthread frame handoff; the current source enables Emscripten pthreads and a GitHub Pages service-worker isolation handshake, but hosted rebuild and live browser gameplay evidence are open. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
 | S032 | A qualified version tag publishes one GitHub Release with all four native packages | partial | S023, S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs and an explicit state gate; no qualified tag has exercised publication | G004 |
 
@@ -327,8 +327,14 @@ job and central Pages run `34700756608` deployed that artifact. The live
 WebLua loaded that deployment with an unrestricted multi-file disk input and
 no failed network requests.
 
-Gap: browser gameplay execution and real disk boot remain unverified locally and
-under S023.
+The current source now enables the pthread worker required by the retained
+cooperative frame handoff and stages `isolation.mjs` plus `service-worker.js`.
+The service worker supplies COOP/COEP/CORP headers after one bounded reload so
+GitHub Pages can run the pthread-backed target.
+
+Gap: hosted rebuild, live service-worker isolation, browser gameplay execution,
+and real disk boot remain unverified under S023. Issue 0024 tracks the
+previous package's heartbeat loss.
 
 ### S031 — Cross-platform disk browse
 
