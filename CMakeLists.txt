@@ -23,6 +23,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(BENEFACTOR_WEB)
+    # The shared runtime and the SDL/Lucent subprojects are compiled before
+    # the product target is declared. Apply the Emscripten pthread feature at
+    # this directory boundary so every object linked into the shared-memory
+    # module is compiled with atomics and bulk-memory support.
+    add_compile_options(-pthread)
+endif()
+
 set(BENEFACTOR_AMIGAPORT_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/../shared/amigaport")
 if(DEFINED ENV{BENEFACTOR_AMIGAPORT_DIR} AND NOT "$ENV{BENEFACTOR_AMIGAPORT_DIR}" STREQUAL "")
     set(BENEFACTOR_AMIGAPORT_DEFAULT "$ENV{BENEFACTOR_AMIGAPORT_DIR}")
@@ -226,7 +234,6 @@ if(ANDROID)
 endif()
 if(BENEFACTOR_WEB)
     target_compile_definitions(benefactor_web PRIVATE BENEFACTOR_WEB)
-    target_compile_options(benefactor_web PRIVATE -pthread)
     target_link_options(benefactor_web PRIVATE
         -pthread
         "-sPTHREAD_POOL_SIZE=1"
