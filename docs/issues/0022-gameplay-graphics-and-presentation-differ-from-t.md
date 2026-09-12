@@ -1,7 +1,7 @@
 ---
 id: 22
 title: Gameplay graphics and presentation differ from the static reference
-status: investigating
+status: resolved
 symptom: User observes horizontal and vertical lines, frozen Merry Men, missing cell doors, enemies and items, and soft/bilinear-looking presentation.
 state_items: S005,S023
 tags: render,oracle,interpreter
@@ -23,3 +23,6 @@ Evidence from 2026-09-12:
 - The browser canvas now declares `image-rendering: pixelated` (with the
   `crisp-edges` fallback), covering CSS/device-pixel-ratio scaling in the
   GitHub Pages package.
+
+### Resolution (2026-09-12)
+Root cause was presentation filtering: SDL3 used its linear texture-scale default, and the Pages canvas had no pixelated CSS scaling rule. The SDL backend now selects nearest-neighbour and the browser canvas declares crisp-edges/pixelated. Matched static-oracle captures are exact at level 1 frame 600 and levels 10, 30, and 60 frame 600; a real 1000x564 X11 SDL window at level 1 frame 650 downsampled with point filtering is also AE=0 against the composed 500x282 frame. The previously reported missing actors and doors are not reproducible on the current renderer path; direct-entry animation timing remains issue 0016.
