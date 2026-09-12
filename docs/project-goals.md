@@ -102,6 +102,8 @@ Success conditions:
 
 - Hosted CI builds a Windows package, an Android arm64-v8a APK, a macOS `.app`,
   a Linux AppImage, and a WASM package from the canonical locked build owners.
+- A qualified version tag publishes the four native packages together as a
+  GitHub Release, retaining the published Android signing identity.
 - The WASM package is deployed to GitHub Pages from the same shipping runtime
   boundary as desktop; no placeholder or green no-op job represents a missing
   backend.
@@ -117,4 +119,4 @@ Constraints and non-goals:
   adapter is absent; it must not publish a shell, emulator, or placeholder.
 - GitHub Pages hosts the browser package only; it is not a disk-file host.
 
-Contributing state items: S026-S031.
+Contributing state items: S026-S032.

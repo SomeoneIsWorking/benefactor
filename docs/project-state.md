@@ -53,9 +53,10 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S026 | Windows CI produces an asset-free package from the native/interpreter product | verified | Hosted release run `34691039895`, Windows job `103546198321`, uploaded the MinGW package after its PE import gate found no unbundled runtime DLLs. | G004 |
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34691039895`, macOS job `103546198331`, built and uploaded the CMake bundle with pinned shared runtime, SDL3, and Lucent inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34691039895`, Linux job `103546198266`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
-| S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34691039895`, Android job `103546198330`, assembled and inspected an arm64-v8a APK with the shared `android-port` Activity/SAF framework and a CI-only ephemeral key; persistent signing, device performance, and gameplay evidence remain open. | G003, G004 |
+| S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34691039895`, Android job `103546198330`, assembled and inspected an arm64-v8a APK with a CI-only ephemeral key. Tag builds now use existing persistent secrets and check against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
 | S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34691039895` built the asset-free package at `2af02ba`; central `pages` run `34691323575` deployed it to https://someoneisworking.github.io/benefactor/. The live `publication.json` names the source run. Browser gameplay execution remains open under S023. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
+| S032 | A qualified version tag publishes one GitHub Release with all four native packages | partial | S023, S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs and an explicit state gate; no qualified tag has exercised publication | G004 |
 
 ## Capability details
 
@@ -302,10 +303,13 @@ The workflow provisions pinned `amigaport`, `android-port`, and Lucent checkouts
 builds the shared SDL3 and Android application-framework prefix from the title's
 profile, then invokes the Android builder for arm64-v8a and inspects the APK.
 Hosted run `34691039895` passed job `103546198330` using an explicit CI-only
-ephemeral test key.
+ephemeral test key. Existing GitHub signing secrets now feed version-tag builds;
+the shared `apksigner` verifier passed on the published v0.1.0 APK and returned
+its public certificate SHA-256 fingerprint, which the title builder checks for
+future non-ephemeral release APKs.
 
-Gap: a maintainer key is still required for a published release APK, and Android
-device performance and gameplay evidence are not yet available.
+Gap: the new tag-signing path still needs a hosted run with the existing key;
+Android device performance and gameplay evidence are not yet available.
 
 ### S030 — WASM Pages delivery
 
@@ -343,3 +347,15 @@ not a packaged first-run UI run.
 Gap: packaged desktop first-run/reselection UX, the deployed browser's native
 file-dialog behavior, and end-to-end browser/native runtime handoff remain
 unverified on release artifacts.
+
+### S032 — Qualified GitHub Release
+
+The tag-only `tools.publish_release` gate requires the core gameplay, player
+setup, signing, and platform state items to be verified. It refuses a branch
+run or incomplete package set, inspects the downloaded ZIP/APK entries for
+unsafe or player-owned paths, and stages SHA-256 checksums for the four native
+packages. The macOS package is a ZIP containing `Benefactor.app` with its
+executable mode preserved. Focused positive and negative tests pass.
+
+Gap: no tagged workflow has passed the release gate; S023, S029, and S031
+remain unverified, so a new GitHub Release must not publish yet.

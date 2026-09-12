@@ -5,6 +5,11 @@ on:
     branches: [main]
     tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      verify_release_signing:
+        description: Verify the published Android signer without creating a GitHub Release
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -122,12 +127,12 @@ jobs:
         with:
           version: "0.10.12"
       - name: Build macOS app bundle
-        run: uv run --frozen python -m tools.build_desktop --platform macos --output build/release/Benefactor.app
+        run: uv run --frozen python -m tools.build_desktop --platform macos --output build/release/Benefactor-macos-arm64.zip
       - name: Upload macOS app bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Benefactor-macos-arm64
-          path: build/release/Benefactor.app
+          path: build/release/Benefactor-macos-arm64.zip
           if-no-files-found: error
 
   linux:
@@ -213,7 +218,11 @@ jobs:
     env:
       BENEFACTOR_AMIGAPORT_DIR: ${{ github.workspace }}/shared/amigaport
       BENEFACTOR_ANDROID_PORT_DIR: ${{ github.workspace }}/shared/android-port
-      BENEFACTOR_ANDROID_EPHEMERAL_SIGNING: "1"
+      BENEFACTOR_ANDROID_EPHEMERAL_SIGNING: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.verify_release_signing) && '0' || '1' }}
+      BENEFACTOR_ANDROID_KEYSTORE_B64: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.verify_release_signing) && secrets.BENEFACTOR_ANDROID_KEYSTORE_B64 || '' }}
+      BENEFACTOR_ANDROID_KEY_ALIAS: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.verify_release_signing) && secrets.BENEFACTOR_ANDROID_KEY_ALIAS || '' }}
+      BENEFACTOR_ANDROID_STORE_PASSWORD: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.verify_release_signing) && secrets.BENEFACTOR_ANDROID_STORE_PASSWORD || '' }}
+      BENEFACTOR_ANDROID_KEY_PASSWORD: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.verify_release_signing) && secrets.BENEFACTOR_ANDROID_KEY_PASSWORD || '' }}
     steps:
       - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
@@ -234,7 +243,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/android-port
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: de534685006329abe8642e8efcc5ab1aa6935ec2
+          ref: 9d6d96f57fe2add688f3efd4ee76c072edc342c2
           path: shared/android-port
           persist-credentials: false
       - name: Check out pinned Lucent
@@ -323,3 +332,38 @@ jobs:
           name: Benefactor-wasm
           path: build/release/web
           if-no-files-found: error
+
+  publish:
+    name: Publish qualified native release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, linux, android, wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source and qualification evidence
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download this run's packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: Benefactor-*
+          merge-multiple: true
+          path: build/release/downloaded
+      - name: Set up locked Python tooling
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.12
+        with:
+          version: "0.10.12"
+      - name: Verify qualification, inspect assets, and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          uv run --frozen python -m tools.publish_release
+          --tag "${{ github.ref_name }}"
+          --artifacts build/release/downloaded

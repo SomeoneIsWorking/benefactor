@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
@@ -58,6 +59,21 @@ class ReleaseBuilderTests(unittest.TestCase):
         ):
             build_desktop.main()
         run.assert_not_called()
+
+    def test_macos_archive_preserves_app_path_and_executable_mode(self) -> None:
+        build = SCRATCH / "verification" / "macos-archive" / "build"
+        executable = build / "install" / "Benefactor.app" / "Contents" / "MacOS" / "Benefactor"
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.write_bytes(b"synthetic executable")
+        executable.chmod(0o755)
+        archive_path = build.parent / "Benefactor-macos-arm64.zip"
+        build_desktop.package_macos(build, archive_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            member = archive.getinfo("Benefactor.app/Contents/MacOS/Benefactor")
+            self.assertEqual(archive.read(member), b"synthetic executable")
+            self.assertEqual((member.external_attr >> 16) & 0o111, 0o111)
+        archive_path.unlink()
+        executable.unlink()
 
     def test_wasm_builder_stops_at_runtime_boundary(self) -> None:
         with (
