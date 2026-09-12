@@ -38,7 +38,17 @@ wrap. That model places the first animation pass one displayed frame later.
 The interpreter's guest-cycle beam and the verified static oracle's per-read
 beam are different timing models. Use the static recomp as the behavioral
 oracle, as requested, but do not insert a one-address yield at the banner
-transition. The next discriminator is the title-owned clock/wait rule across
-the card and first gameplay scanline poll; a correction must preserve steady
-gameplay pacing too. The 20 ms audio phase difference remains open. PUAE is not
-part of this investigation.
+transition. The title-owned handoff is now represented explicitly: starting a
+fresh gameplay coroutine marks a pending gameplay display-frame sequence, and
+the first main-loop scanline poll consumes that boundary before ordinary
+cycle-derived scanline timing resumes. This is implemented by the beam owner
+(`hw_begin_gameplay_frame_sequence`), not by special-casing an execution
+address.
+
+The direct level-1 discriminator now produces the oracle's gameplay audio
+signatures: the first SFX/PCM event is no longer one frame early and the
+subsequent pointer, period, volume, and DMA signatures align. The natural
+full-boot comparison still reports broader title music and gameplay
+presentation-phase differences, so this issue remains investigating until the
+representative interactive gate is complete. PUAE is not part of this
+investigation.

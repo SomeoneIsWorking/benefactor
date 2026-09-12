@@ -669,6 +669,8 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay, uint32_t 
     s_game_entry = entry;
     s_game_resume = 0;
     g_pc_screen = gameplay ? PC_SCR_GAMEPLAY : PC_SCR_OVERLAY;
+    if (gameplay)
+        hw_begin_gameplay_frame_sequence();
     rt_context_reset(&s_game_ctx, gameplay ? BENEFACTOR_IMAGE_GAMEPLAY
                                            : (g_credits_active ? BENEFACTOR_IMAGE_CREDITS
                                                                : BENEFACTOR_IMAGE_TITLE));

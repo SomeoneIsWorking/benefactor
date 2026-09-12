@@ -4,7 +4,12 @@
 #include "engine/hw_private.h"
 
 #include "port/port.h"
+#include "port/wait_idiom.h"
 #include "runtime/guest_runtime.h"
+
+static int s_gameplay_frame_start_pending = 0;
+
+void hw_begin_gameplay_frame_sequence(void) { s_gameplay_frame_start_pending = 1; }
 
 /* The two halves of the guest's own vertical-blank poll, as host waits. The
  * guest spins on VPOSR bit 8 — first until the beam has come DOWN past line
@@ -48,6 +53,20 @@ void hw_beam_wait_scanline(uint8_t line) {
         return;
     const uint64_t per_frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
     const uint64_t into = rt_get_guest_cycles() % per_frame;
+
+    /* A new gameplay coroutine starts by drawing a transition card. Its first
+     * main-loop poll is the title's display-frame handoff: it cannot share the
+     * card's already-presented frame even when the cycle-derived beam has not
+     * reached line 59 yet. Consume this boundary once per gameplay entry; all
+     * later scanline polls retain ordinary beam timing. */
+    if (s_gameplay_frame_start_pending && line == PC_GAMEPLAY_MAIN_LOOP_SCANLINE &&
+        g_hw_vblank_yield) {
+        s_gameplay_frame_start_pending = 0;
+        rt_add_guest_cycles(per_frame - into);
+        (void)g_hw_vblank_yield();
+        return;
+    }
+
     const uint64_t target = (uint64_t)line * BEAM_CYCLES_PER_LINE;
     if (into < target) {
         rt_add_guest_cycles(target - into);

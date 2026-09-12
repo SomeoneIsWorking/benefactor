@@ -53,6 +53,11 @@ typedef struct {
     uint8_t scanline;
 } PcWaitIdiom;
 
+/* The retail gameplay main loop's VHPOSR poll. The level-setup card uses a
+ * different target ($3A), so only this title-owned poll can close the card to
+ * gameplay display-frame handoff. */
+#define PC_GAMEPLAY_MAIN_LOOP_SCANLINE 0x3Bu
+
 /* `btst #0,$3(a6)` or `$5(a6)` — bit 8 of VPOSR ($DFF004). */
 #define PC_WAIT_OP_VPOSR_0 0x082Eu
 #define PC_WAIT_OP_VPOSR_1 0x0000u

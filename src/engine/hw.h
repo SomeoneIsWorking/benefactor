@@ -193,6 +193,9 @@ void hw_vblank_wait(void);
 void hw_beam_wait_below(void);
 void hw_beam_wait_above(void);
 void hw_beam_wait_scanline(uint8_t line);
+/* Mark the next gameplay coroutine's first main-loop scanline poll as the
+ * display-frame handoff after its transition card. */
+void hw_begin_gameplay_frame_sequence(void);
 
 /* Beam-boundary accounting: frames the guest's cycle-derived beam crossed, how
  * many were presented, and how many were declined because the caller was not
