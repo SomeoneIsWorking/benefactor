@@ -556,15 +556,15 @@ static void wsbuild_capture(M68KCtx *ctx, int blind) {
 }
 void native_build_red(M68KCtx *ctx) {
     wsbuild_capture(ctx, 0);
-    rt_call(ctx, ctx->image, 0x0057B19Eu);
+    rt_continue_original(ctx, ctx->image);
 }
 void native_build_blind(M68KCtx *ctx) {
     wsbuild_capture(ctx, 1);
-    rt_call(ctx, ctx->image, 0x0057B856u);
+    rt_continue_original(ctx, ctx->image);
 }
 void native_build_clear(M68KCtx *ctx) {
     s_wsbuild_n = 0;
-    rt_call(ctx, ctx->image, 0x0057B07Cu);
+    rt_continue_original(ctx, ctx->image);
 }
 
 void native_char_capture(M68KCtx *ctx) {
@@ -597,7 +597,7 @@ void native_char_capture(M68KCtx *ctx) {
                          "x=%d y=%d (screenX=%d) w=%d h=%d data=%06X mask=%06X rs=%d", worldX,
                          worldY, worldX - log_cam, w, h, data, mask, rowstride);
 
-    rt_call(ctx, ctx->image, 0x0057D3F4u);
+    rt_continue_original(ctx, ctx->image);
 }
 
 /* ROPES — the engine builds a per-frame line-segment list ($57DCAE driver) by walking a
@@ -628,7 +628,7 @@ void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1) {
 void native_wsrope_build(M68KCtx *ctx) /* $57DCAE — driver; reset before the emit chain */
 {
     s_wsrope_n = 0;
-    rt_call(ctx, ctx->image, 0x0057DCAEu);
+    rt_continue_original(ctx, ctx->image);
 }
 /* ANIMATED PAGE PATCHES (water surface line etc.) — the object-list walker's
  * "multi-tile" path $57D81C (reached from $57D7BC via `bmi` when the object record's
@@ -681,7 +681,7 @@ void native_anim_patch(M68KCtx *ctx) /* $57D81C — capture pre-cull, then deleg
         uint32_t src = a2 + (uint32_t)(int16_t)MR16(sp);
         s_wswater[s_wswater_n++] = (WsWater){wx, (int16_t)(off / 46u), (int16_t)(off % 46u), src};
     }
-    rt_call(ctx, ctx->image, 0x0057D81Cu);
+    rt_continue_original(ctx, ctx->image);
 }
 
 void native_wsrope_seg(M68KCtx *ctx) /* $57DCD4 — shared clip/emit entry, PRE-cull */
@@ -689,7 +689,7 @@ void native_wsrope_seg(M68KCtx *ctx) /* $57DCD4 — shared clip/emit entry, PRE-
     if (s_wsrope_n < WS_ROPE_MAX)
         s_wsrope[s_wsrope_n++] = (WsRope){(int16_t)ctx->D[0], (int16_t)ctx->D[1],
                                           (int16_t)ctx->D[2], (int16_t)ctx->D[3]};
-    rt_call(ctx, ctx->image, 0x0057DCD4u);
+    rt_continue_original(ctx, ctx->image);
 }
 
 /* Object anim+draw dispatcher $59AC38 (one of the per-object-type handlers the
@@ -715,7 +715,7 @@ void native_obj_anim_59AC38(M68KCtx *ctx) {
     uint32_t a3 = (uint32_t)(int16_t)MR16(ctx->A[5] - 0xF22u); /* $59AC52 movea.w (sign-ext) */
     uint16_t gate = MR16(a3);                                  /* $59AC56 cmp.w (a3),d2 */
     if (gate == d2) {
-        rt_call(ctx, ctx->image, 0x0059AC38u);
+        rt_continue_original(ctx, ctx->image);
         return;
     }
 
@@ -1079,7 +1079,7 @@ void native_objdraw_capture(M68KCtx *ctx) {
                          "x=%d y=%d (screenX=%d) w=%d h=%d src=%06X mod=%08X", worldX, worldY,
                          worldX - log_cam, w, h, src, mod);
 
-    rt_call(ctx, ctx->image, 0x0057D8D0u);
+    rt_continue_original(ctx, ctx->image);
 }
 
 /* ── Native PLAYER capture for widescreen ($57A666) ──────────────────────────
@@ -1162,7 +1162,7 @@ void native_player_capture(M68KCtx *ctx) {
                                  1,
                                  black};
 
-    rt_call(ctx, ctx->image, 0x0057A666u);
+    rt_continue_original(ctx, ctx->image);
 }
 
 /* ── Native GET READY / GAME OVER BANNER capture for widescreen ($578974) ──────
@@ -1270,7 +1270,7 @@ void native_banner_capture(M68KCtx *ctx) /* $578974 — box */
     s_banner_active = 1;
     s_banner_fresh = 1;  /* latch objwalk# at next present  */
     s_banner_ttl = 1200; /* ~20s cap; cleared earlier on resume */
-    rt_call(ctx, ctx->image, 0x00578974u);
+    rt_continue_original(ctx, ctx->image);
 }
 
 void native_telanim_capture(M68KCtx *ctx) /* $578B94 — teleport animation */
@@ -1279,23 +1279,25 @@ void native_telanim_capture(M68KCtx *ctx) /* $578B94 — teleport animation */
     s_tel_src = (uint32_t)(uint16_t)MR16(a1) + 0xC2D6u;
     s_tel_rel = (banner_cam_tile(ctx) + 16) * 2 + (int)(uint16_t)MR16(0x5A1DCAu);
     s_tel_active = 1;
-    rt_call(ctx, ctx->image, 0x00578B94u);
+    rt_continue_original(ctx, ctx->image);
 }
 
 /* GET READY ($578860, string a5-$6584) and GAME OVER ($57889C, string a5-$6542):
  * the string is `[posword][ASCII...]`; the engine adds posword to the text dst. */
-static void banner_text_capture(M68KCtx *ctx, uint32_t strbase, uint32_t guest_address) {
+static void banner_text_capture(M68KCtx *ctx, uint32_t strbase) {
     uint16_t pos = MR16(strbase); /* position word prefix            */
     s_txt_str = strbase + 2;
     s_txt_rel = banner_cam_tile(ctx) * 2 + (int)(uint16_t)MR16(0x5A1DEEu) + (int)pos;
     s_txt_active = 1;
-    rt_call(ctx, ctx->image, guest_address);
+    rt_continue_original(ctx, ctx->image);
 }
 void native_getready_capture(M68KCtx *ctx) {
-    banner_text_capture(ctx, GP_A5 - 0x6584u, 0x00578860u);
+    /* Each banner has a separate guest entry, but shares the text capture contract. */
+    banner_text_capture(ctx, GP_A5 - 0x6584u);
 }
 void native_gameover_text_capture(M68KCtx *ctx) {
-    banner_text_capture(ctx, GP_A5 - 0x6542u, 0x0057889Cu);
+    /* This entry uses the game-over string, not the level-start string. */
+    banner_text_capture(ctx, GP_A5 - 0x6542u);
 }
 
 /* LEVEL COMPLETE banner text ($5788DE, string a5-$64FC = $578916): vanilla
@@ -1328,5 +1330,5 @@ void native_levelcomplete_text_capture(M68KCtx *ctx) {
      * by $57901E from $20) — so the level just won is $20 - 1. Verified live:
      * winning level 3 reads $20 == 4 here. */
     pc_profile_mark_completed((int)((g_mem[0x20] << 8) | g_mem[0x21]) - 1);
-    banner_text_capture(ctx, GP_A5 - 0x64FCu, 0x005788DEu);
+    banner_text_capture(ctx, GP_A5 - 0x64FCu);
 }

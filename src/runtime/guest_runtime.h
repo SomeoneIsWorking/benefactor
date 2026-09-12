@@ -88,6 +88,9 @@ void rt_activate_image(M68KCtx *ctx, BenefactorImageKind image_kind);
  * a native call to another address creates its own guest subroutine frame
  * and dispatches that address's override if present. */
 void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
+/* A tail-entered observer that has finished its native capture resumes the
+ * original guest instruction in the outer interpreter run. */
+void rt_continue_original(M68KCtx *ctx, BenefactorImageIdentity image);
 void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address);
 /* Complete a native replacement entered through a guest JSR.  Native code
