@@ -178,7 +178,7 @@ def check(root: Path) -> tuple[list[Finding], int]:
                     Finding(path, _line_number(text, match.start()), "getenv outside config owner")
                 )
 
-    excluded_tree_names = {".git", ".venv", "build", "scratch", "vendor"}
+    excluded_tree_names = {".git", ".venv", "build", "dependencies", "scratch", "vendor"}
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue

@@ -59,6 +59,19 @@ class SourcePolicyTests(unittest.TestCase):
         findings, _ = check(ROOT)
         self.assertEqual([], findings)
 
+    def test_excludes_checked_out_dependencies_but_scans_first_party_tools(self) -> None:
+        temporary, root = self._fixture()
+        with temporary:
+            (root / "dependencies/SDL3").mkdir(parents=True)
+            (root / "dependencies/SDL3/clean.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            findings, count = check(root)
+            self.assertEqual([], findings)
+            self.assertEqual(1, count)
+
+            (root / "tools/clean.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            findings, _ = check(root)
+            self.assertIn("non-launcher shell tooling is forbidden", {f.message for f in findings})
+
     def test_rejects_static_and_diagnostic_emulator_product_paths(self) -> None:
         temporary, root = self._fixture()
         with temporary:
