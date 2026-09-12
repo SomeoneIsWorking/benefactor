@@ -339,6 +339,12 @@ before dispatching a committed selection to the WASM bridge. The locked source
 launcher also exposes `./run.sh --browse` through a native Tk file picker and
 validates the same set before building or launching the product.
 
+The browser runtime is one-shot. Its chooser now allows another try only when
+disk validation fails before committing to the guest filesystem; once native
+startup is attempted, it requires a page reload to change disks or retry a
+failed start. A five-case Node regression gate exercises the shipping picker
+script's success, failure, and overlapping-selection paths (issue 0020).
+
 The packaged SDL3 desktop setup has a native multi-file dialog and verifies
 the exact disk set before persisting it. ZIP imports now publish through two
 fixed install slots: a focused synthetic-file test confirms that failed

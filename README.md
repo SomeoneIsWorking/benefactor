@@ -73,6 +73,10 @@ kick40068.A1200        6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab
 The intended standalone product does not require Kickstart, WHDLoad, PUAE, or
 Ghidra.
 
+In the browser version, choose all three disk files together or one ZIP
+containing them. Validation errors can be corrected in the same page; reload
+the page to choose different disks after the game starts or startup fails.
+
 ## Build and run status
 
 `./run.sh` is the fresh-clone interface and delegates to a locked Python

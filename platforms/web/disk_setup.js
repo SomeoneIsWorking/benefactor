@@ -17,6 +17,7 @@
   const input = document.getElementById("disk-files");
   const status = document.getElementById("disk-status");
   let lastValid = null;
+  let phase = "awaiting-disks";
 
   function readU16(view, offset) {
     return view.getUint16(offset, true);
@@ -184,11 +185,17 @@
   function fail(message) {
     status.textContent = message;
     input.value = "";
+    input.disabled = false;
+    phase = "awaiting-disks";
   }
 
   async function select(files) {
+    if (phase !== "awaiting-disks") return;
+    phase = "validating";
+    input.disabled = true;
+    let selected;
     try {
-      const selected = await readSelected(files);
+      selected = await readSelected(files);
       for (const [name, expected] of Object.entries(EXPECTED)) {
         const bytes = selected[name];
         if (bytes.byteLength !== expected.size) {
@@ -198,11 +205,16 @@
           throw new Error(`${name} does not match the supported disk identity`);
         }
       }
+    } catch (error) {
+      fail(error instanceof Error ? error.message : "The browser could not read the selected disks");
+      return;
+    }
 
-      // Commit only after all three pass. The native Emscripten bridge owns the bytes.
-      lastValid = selected;
-      status.textContent = "Disk set verified. Starting Benefactor…";
-      window.dispatchEvent(new CustomEvent("benefactor-disks-validated", { detail: selected }));
+    // The native entry is one-shot. A failed start may have changed native state,
+    // so only pre-commit validation failures can return to disk selection.
+    phase = "starting";
+    status.textContent = "Disk set verified. Starting Benefactor…";
+    try {
       for (const [name, bytes] of Object.entries(selected)) {
         Module.FS.writeFile(`/${name}`, bytes);
       }
@@ -210,8 +222,15 @@
         throw new Error("Benefactor could not start from the verified disk set");
       }
     } catch (error) {
-      fail(error instanceof Error ? error.message : "The browser could not read the selected disks");
+      phase = "failed";
+      const message = error instanceof Error ? error.message : "Benefactor could not start";
+      status.textContent = `${message}. Reload the page to try again.`;
+      return;
     }
+    lastValid = selected;
+    phase = "running";
+    status.textContent = "Disk set verified. Reload the page to change disks.";
+    window.dispatchEvent(new CustomEvent("benefactor-disks-validated", { detail: selected }));
   }
 
   input.addEventListener("change", () => select(input.files));
