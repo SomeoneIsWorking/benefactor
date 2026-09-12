@@ -28,7 +28,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: e9fe2251ff060ad65f6fb6bf7d1f9f5b56806c56
+          ref: 8050b197e14e9e4c583d255c80d958d8c859b4fa
           path: shared/amigaport
           persist-credentials: false
       - name: Check out pinned SDL3 headers
