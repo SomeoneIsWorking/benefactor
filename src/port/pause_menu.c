@@ -36,6 +36,7 @@
 
 #include "common/game_state.h" /* g_state + g_gameplay_active / g_credits_active /
                            * g_enter_gameplay / g_gameplay_entry macros */
+#include "common/log.h"
 #include "engine/hw.h"
 #include "port/config.h"
 #include "port/input.h"
@@ -643,6 +644,7 @@ void pc_pause_input_select(void) {
 void pc_pause_escape(void) {
     if (!s_paused)
         return;
+    benefactor_log_write(BENEFACTOR_LOG_INFO, "menu", "pause menu closed by escape");
     if (s_capture) {
         s_capture = 0;
         return;
@@ -737,6 +739,7 @@ void pc_pause_tick(void) {
         return;
     int act = s_pending_action;
     s_pending_action = ACT_NONE;
+    benefactor_log_write(BENEFACTOR_LOG_INFO, "menu", "deferred menu action %d", act);
     switch (act) {
     case ACT_RESUME:
         s_paused = 0;
