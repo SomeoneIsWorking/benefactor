@@ -84,30 +84,6 @@ if(MINGW AND LUCENT_BUILD_ZIP)
 endif()
 add_subdirectory("${BENEFACTOR_LUCENT_DIR}" "${CMAKE_BINARY_DIR}/lucent")
 
-# setup-ui — the shared browser-based first-run setup host. Same checkout
-# convention: shared/setup-ui, overridable for CI.
-set(BENEFACTOR_SETUP_UI_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/../shared/setup-ui")
-if(DEFINED ENV{BENEFACTOR_SETUP_UI_DIR} AND NOT "$ENV{BENEFACTOR_SETUP_UI_DIR}" STREQUAL "")
-    set(BENEFACTOR_SETUP_UI_DEFAULT "$ENV{BENEFACTOR_SETUP_UI_DIR}")
-endif()
-if(ANDROID)
-    # The Android dependency prefix ships FreeType for the shared SDL3 prefix;
-    # hand its paths to RmlUi's dependency probe.
-    set(FREETYPE_DIR "${BENEFACTOR_SDL3_PREFIX}/lib/cmake/freetype" CACHE PATH "" FORCE)
-    list(APPEND CMAKE_PREFIX_PATH "${BENEFACTOR_SDL3_PREFIX}")
-endif()
-set(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DEFAULT}"
-    CACHE PATH "Path to the setup-ui library")
-get_filename_component(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DIR}"
-    ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-if(NOT IS_DIRECTORY "${BENEFACTOR_SETUP_UI_DIR}")
-    message(FATAL_ERROR
-        "Benefactor requires shared/setup-ui at ${BENEFACTOR_SETUP_UI_DIR}; "
-        "provide -DBENEFACTOR_SETUP_UI_DIR=<checkout>")
-endif()
-set(SETUP_UI_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}" CACHE PATH "" FORCE)
-add_subdirectory("${BENEFACTOR_SETUP_UI_DIR}" "${CMAKE_BINARY_DIR}/setup-ui")
-
 if(ANDROID)
     set(BENEFACTOR_SDL3_PREFIX "" CACHE PATH "Shared Android-port SDL3 prefix")
     if(NOT IS_DIRECTORY "${BENEFACTOR_SDL3_PREFIX}")
@@ -142,6 +118,46 @@ else()
         endif()
     endif()
 endif()
+
+# setup-ui needs the SDL3 target this build selected, so it is added after
+# the SDL3 block above.
+# setup-ui — the shared in-app first-run setup screen. The browser build keeps
+# its own in-page picker (platforms/web/disk_setup.js), so only the Android and
+# desktop products carry this dependency. A local checkout sits beside this
+# repository; CI checks the shared tree out inside it, so both are candidates.
+if(NOT BENEFACTOR_WEB)
+    set(BENEFACTOR_SETUP_UI_CANDIDATES
+        "$ENV{BENEFACTOR_SETUP_UI_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../shared/setup-ui"
+        "${CMAKE_CURRENT_SOURCE_DIR}/shared/setup-ui")
+    set(BENEFACTOR_SETUP_UI_DEFAULT "")
+    foreach(candidate IN LISTS BENEFACTOR_SETUP_UI_CANDIDATES)
+        if(NOT "${candidate}" STREQUAL "" AND IS_DIRECTORY "${candidate}")
+            set(BENEFACTOR_SETUP_UI_DEFAULT "${candidate}")
+            break()
+        endif()
+    endforeach()
+    if(ANDROID)
+        # The Android dependency prefix ships FreeType for the shared SDL3
+        # prefix; hand its paths to RmlUi's dependency probe.
+        set(FREETYPE_DIR "${BENEFACTOR_SDL3_PREFIX}/lib/cmake/freetype" CACHE PATH "" FORCE)
+        list(APPEND CMAKE_PREFIX_PATH "${BENEFACTOR_SDL3_PREFIX}")
+    endif()
+    set(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DEFAULT}"
+        CACHE PATH "Path to the setup-ui library")
+    get_filename_component(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DIR}"
+        ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(NOT IS_DIRECTORY "${BENEFACTOR_SETUP_UI_DIR}")
+        message(FATAL_ERROR
+            "Benefactor requires shared/setup-ui; tried "
+            "${BENEFACTOR_SETUP_UI_CANDIDATES}. "
+            "Provide -DBENEFACTOR_SETUP_UI_DIR=<checkout> (and set "
+            "SETUP_UI_RMLUI_DIR to an RmlUi checkout).")
+    endif()
+    set(SETUP_UI_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}" CACHE PATH "" FORCE)
+    add_subdirectory("${BENEFACTOR_SETUP_UI_DIR}" "${CMAKE_BINARY_DIR}/setup-ui")
+endif()
+
 
 find_package(Threads REQUIRED)
 
@@ -245,13 +261,12 @@ target_include_directories(${BENEFACTOR_PRODUCT_TARGET} PRIVATE src)
 target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE
     amigaport::amigaport
     lucent::lucent
-    setup_ui::setup_ui
     ${BENEFACTOR_SDL_TARGET}
     Threads::Threads)
 if(NOT BENEFACTOR_WEB)
     # Desktop and Android both accept a ZIP install archive through the shared
-    # setup host; the web build uses its own in-page picker.
-    target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE lucent::zip)
+    # setup screen, which the browser build does not carry.
+    target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE setup_ui::setup_ui lucent::zip)
 endif()
 if(NOT WIN32 AND NOT BENEFACTOR_WEB)
     target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE m)

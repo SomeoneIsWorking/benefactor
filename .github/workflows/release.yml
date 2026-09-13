@@ -16,6 +16,9 @@ permissions:
 
 env:
   BENEFACTOR_LUCENT_DIR: ${{ github.workspace }}/dependencies/lucent
+  # setup-ui's CMake resolves RmlUi from this path, like the other pinned
+  # dependency checkouts.
+  SETUP_UI_RMLUI_DIR: ${{ github.workspace }}/dependencies/RmlUi
 
 jobs:
   windows:
@@ -55,6 +58,22 @@ jobs:
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
           ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
+          persist-credentials: false
+      - name: Check out pinned shared setup screen
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/setup-ui
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          path: shared/setup-ui
+          persist-credentials: false
+      - name: Check out pinned RmlUi
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: mikke89/RmlUi
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: ba95ffe8bfb6370efb2cdcca927eaad4710c5413
+          path: dependencies/RmlUi
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -119,6 +138,22 @@ jobs:
           ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
           persist-credentials: false
+      - name: Check out pinned shared setup screen
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/setup-ui
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          path: shared/setup-ui
+          persist-credentials: false
+      - name: Check out pinned RmlUi
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: mikke89/RmlUi
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: ba95ffe8bfb6370efb2cdcca927eaad4710c5413
+          path: dependencies/RmlUi
+          persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -172,6 +207,22 @@ jobs:
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
           ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
+          persist-credentials: false
+      - name: Check out pinned shared setup screen
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/setup-ui
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          path: shared/setup-ui
+          persist-credentials: false
+      - name: Check out pinned RmlUi
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: mikke89/RmlUi
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: ba95ffe8bfb6370efb2cdcca927eaad4710c5413
+          path: dependencies/RmlUi
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -253,6 +304,22 @@ jobs:
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
           ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
           path: dependencies/lucent
+          persist-credentials: false
+      - name: Check out pinned shared setup screen
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: SomeoneIsWorking/setup-ui
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          path: shared/setup-ui
+          persist-credentials: false
+      - name: Check out pinned RmlUi
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: mikke89/RmlUi
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: ba95ffe8bfb6370efb2cdcca927eaad4710c5413
+          path: dependencies/RmlUi
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from tools.launcher import runtime_blocker
+from tools.paths import setup_ui_dir
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,7 +110,7 @@ def configure_native(ndk: Path, profile, lucent: Path) -> Path:
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DBENEFACTOR_SDL3_PREFIX={profile.prefix}",
             f"-DBENEFACTOR_LUCENT_DIR={lucent}",
-            f"-DBENEFACTOR_SETUP_UI_DIR={ROOT.parent / 'shared' / 'setup-ui'}",
+            f"-DBENEFACTOR_SETUP_UI_DIR={setup_ui_dir()}",
             # The Android toolchain confines package discovery to the
             # sysroot; the shared dependency prefix (SDL3, FreeType) is a
             # legitimate additional root for this product.
