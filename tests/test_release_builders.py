@@ -13,14 +13,15 @@ from tools.release_common import ensure_disk_free
 
 
 class DiskInputParser(HTMLParser):
+    """Collects every <input> the shipped page declares, if any."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.attributes: dict[str, str | None] | None = None
+        self.inputs: list[dict[str, str | None]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = dict(attrs)
-        if tag == "input" and attributes.get("id") == "disk-files":
-            self.attributes = attributes
+        if tag == "input":
+            self.inputs.append(dict(attrs))
 
 
 class ReleaseBuilderTests(unittest.TestCase):
@@ -39,14 +40,22 @@ class ReleaseBuilderTests(unittest.TestCase):
             check_windows_imports.unbundled_imports("not a PE import table", set())
 
     def test_web_picker_has_no_filter_for_numeric_disk_suffixes(self) -> None:
-        page = (Path(__file__).parents[1] / "platforms" / "web" / "index.html").read_text()
+        root = Path(__file__).parents[1] / "platforms" / "web"
+        page = (root / "index.html").read_text()
+        # The page declares no file input at all: the chooser belongs to the
+        # picker bridge, which opens it when the product asks for disks.
         parser = DiskInputParser()
         parser.feed(page)
-        self.assertIsNotNone(parser.attributes)
-        self.assertNotIn("accept", parser.attributes)
-        self.assertIn("multiple", parser.attributes)
+        self.assertEqual(parser.inputs, [])
         self.assertIn("image-rendering: pixelated", page)
         self.assertIn('<canvas id="canvas"', page)
+
+        # Numeric-suffix Disk.1..3 files must not be MIME-filtered, and the set
+        # has to arrive in one pick, so the input stays unrestricted and multiple.
+        picker = (root / "disk_setup.js").read_text()
+        self.assertIn('input.accept = ""', picker)
+        self.assertIn("input.multiple = true", picker)
+        self.assertIn('input.type = "file"', picker)
 
     def test_web_package_bootstraps_isolation_before_emscripten(self) -> None:
         root = Path(__file__).parents[1] / "platforms" / "web"

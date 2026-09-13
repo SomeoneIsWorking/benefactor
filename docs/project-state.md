@@ -54,8 +54,8 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S027 | macOS CI produces an Apple Silicon `.app` from the native/interpreter product | verified | Hosted release run `34704766306`, macOS job `103582713792`, built and uploaded the CMake bundle with current pinned shared runtime, SDL3, and Lucent inputs. | G004 |
 | S028 | Linux CI produces an asset-free x86-64 AppImage | verified | Hosted release run `34704766306`, Linux job `103582713702`, built and uploaded the disk-free AppImage after verifying the pinned appimagetool. | G003, G004 |
 | S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34704766306`, Android job `103582713838`, assembled an arm64-v8a APK with a CI-only ephemeral key. Manual signing-verification run `34694150527` passed Android job `103554610317` using the existing persistent release secrets and checking against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
-| S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34708373281` built the asset-free pthread-capable package from `4f41501`; Pages run `34708732681` deployed it from Pages commit `3d415f4`. A fresh WebLua session at the live route reported secure context, cross-origin isolation, and an active service worker, accepted the authenticated three-disk ZIP, created the SDL canvas, and continued rendering past frame 500. | G004 |
-| S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030; desktop now uses the same in-app setup screen and accepts one ZIP as well as the three images, but no desktop run has exercised the ZIP path end to end | G004 |
+| S030 | WASM builds and deploys the same product boundary to GitHub Pages | partial | Source run `34708373281` built the asset-free pthread-capable package from `4f41501`; Pages run `34708732681` deployed it from Pages commit `3d415f4`. A fresh WebLua session at the live route reported secure context, cross-origin isolation, and an active service worker, created the SDL canvas, and continued rendering past frame 500. The browser product now renders the shared in-canvas setup screen and runs the same staged-set validator as desktop and Android; that package boots from a local headless-Chrome ZIP import but has not been re-deployed to the live route | G004 |
+| S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030; desktop and browser now render the same in-app setup screen over the same staged-set resolver, and a headless-Chrome run imported a `benefactor-disks.zip` through the screen, published an identity-checked set, and booted the game. No desktop run has exercised the ZIP path end to end, and no browser run has exercised a multi-file selection (the browser chooser is one document picker whose multi-file result the bridge already covers by test) | G004 |
 | S032 | A version tag publishes one GitHub Release with all four native packages | partial | S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs; no tag has exercised publication | G004 |
 
 ## Capability details
@@ -321,9 +321,10 @@ Android device performance and gameplay evidence are not yet available.
 
 ### S030 — WASM Pages delivery
 
-Evidence: `CMakeLists.txt` owns a real `benefactor_web` Emscripten target. Its
-browser entry mounts the three validated disk files into the production disk
-path before calling `pc_init_from_disk`; `tools/build_wasm.py` requires real
+Evidence: `CMakeLists.txt` owns a real `benefactor_web` Emscripten target.
+`src/platform/web_setup.cpp` steps the shared setup flow on the browser's
+animation frame, takes the page's picker result, and only after the set is
+published calls `pc_init_from_disk`; `tools/build_wasm.py` requires real
 JS/WASM outputs. The source workflow uploads the package as a normal CI
 artifact and the sibling `pages` repository owns publication. Source run
 `34708373281` built the pthread-capable package from `4f41501`; Pages run
@@ -331,13 +332,22 @@ artifact and the sibling `pages` repository owns publication. Source run
 
 The live WebLua session reported secure context, `crossOriginIsolated=true`,
 an active service worker, no failed network requests, and the SDL-owned canvas
-at `704x564` with `image-rendering: pixelated`. It accepted a ZIP containing
-the authenticated Disk.1-Disk.3 files and rendered a live frame capture after
-frame 500. Issues 0024 and 0025 cover the pthread/isolation and SDL canvas
-contracts that were required to reach this evidence.
+at `704x564` with `image-rendering: pixelated`; it rendered a live frame
+capture after frame 500. Issues 0024 and 0025 cover the pthread/isolation and
+SDL canvas contracts that were required to reach that evidence.
+
+A later headless-Chrome session at the local package drove the new in-canvas
+screen: the setup context reported `crossOriginIsolated=true`, the screen drew
+with the embedded Liberation Sans face, a real pointer click on Choose files
+opened the page's chooser, and a `benefactor-disks.zip` import published
+`disk-set-a` with a selection record and continued rendering past frame 900.
+That run also produced the fix in `lucent::content::sha256_file`: its 64 KB
+read buffer lived on the caller's stack, which a 64 KB browser worker stack
+cannot hold, so identity validation aborted the page instead of hashing.
 
 The remaining browser gap belongs to S023's title-wide conformance and
-performance evidence, not the WASM build/deployment boundary.
+performance evidence, and to re-deploying this package to the live route; it is
+not the WASM build boundary.
 
 ### S031 — Cross-platform disk browse
 
@@ -346,15 +356,22 @@ before promotion. The browser package omits the HTML `accept` attribute so
 numeric-suffix `Disk.1`, `Disk.2`, and `Disk.3` files are not MIME-filtered; it accepts
 those three files directly or one bounded ZIP containing them at any folder
 depth, then validates names, archive safety, byte sizes, and SHA-256 identities
-before dispatching a committed selection to the WASM bridge. The locked source
-launcher also exposes `./run.sh --browse` through a native Tk file picker and
-validates the same set before building or launching the product.
+before publishing a committed set. The locked source launcher also exposes
+`./run.sh --browse` through a native Tk file picker and validates the same set
+before building or launching the product; that remains a maintainer path, while
+the player-facing first run uses the shared in-app setup screen.
 
-The browser runtime is one-shot. Its chooser now allows another try only when
-disk validation fails before committing to the guest filesystem; once native
-startup is attempted, it requires a page reload to change disks or retry a
-failed start. A five-case Node regression gate exercises the shipping picker
-script's success, failure, and overlapping-selection paths (issue 0020).
+The browser's own half is one job only: `platforms/web/disk_setup.js` opens a
+single unrestricted multi-file chooser, writes the chosen documents into the
+module's filesystem under a directory the native side names, and answers the
+native pick once per change or cancellation. It decides nothing about identity
+or archives — that is the same `validate_staged_disks` resolver the desktop and
+Android products use. Picks are answered in order, so a second choice can never
+mix its documents into the first answer. An eight-case Node gate exercises the
+shipping script's ordering, byte budget, cancellation, late-choice-after-
+dismissal, failed-write, missing-filesystem, and status paths; it found two real
+defects, both fixed: a failed delivery left the native pick unanswered, and an
+absent `Module.FS` crashed instead of being reported.
 
 The packaged SDL3 desktop setup has a native multi-file dialog and verifies
 the exact disk set before persisting it. ZIP imports now publish through two

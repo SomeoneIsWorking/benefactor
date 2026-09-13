@@ -125,9 +125,9 @@ touch_ui::Geometry window_geometry(SDL_Window *window) {
         safe.w = static_cast<int>(static_cast<float>(window_safe.w) * scale_x);
         safe.h = static_cast<int>(static_cast<float>(window_safe.h) * scale_y);
     }
-    geometry.safe = touch_ui::Rect{static_cast<float>(safe.x), static_cast<float>(safe.y),
-                                   static_cast<float>(safe.x + safe.w),
-                                   static_cast<float>(safe.y + safe.h)};
+    geometry.safe =
+        touch_ui::Rect{static_cast<float>(safe.x), static_cast<float>(safe.y),
+                       static_cast<float>(safe.x + safe.w), static_cast<float>(safe.y + safe.h)};
     return geometry;
 }
 
@@ -163,7 +163,7 @@ extern "C" void touch_controls_present(SDL_Renderer *renderer, SDL_Window *windo
         g_geometry_reported = true;
         benefactor_log_write(BENEFACTOR_LOG_INFO, "input",
                              "touch controls at %dx%d (scale %.2f pt, %zu controls)",
-                             geometry.output_width, geometry.output_height,
-                             geometry.display_scale, controls.layout().visuals.size());
+                             geometry.output_width, geometry.output_height, geometry.display_scale,
+                             controls.layout().visuals.size());
     }
 }

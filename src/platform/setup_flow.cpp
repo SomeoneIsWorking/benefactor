@@ -9,6 +9,7 @@
 
 #include "setup_ui/setup_ui.h"
 
+#include <memory>
 #include <mutex>
 #include <utility>
 
@@ -36,6 +37,191 @@ setup_ui::Config setup_config() {
 
 } // namespace
 
+struct SetupFlow::Impl {
+    SetupFlowOptions options;
+    DiskSelectionStore store;
+    setup_ui::Session session;
+    setup_ui::View view;
+    std::array<std::filesystem::path, 3> disks;
+    std::string error;
+    std::mutex pending_mutex;
+    std::vector<std::filesystem::path> pending;
+    bool picker_active = false;
+    bool opened = false;
+    bool finished = false;
+    bool accepted = false;
+
+    explicit Impl(SetupFlowOptions flow_options)
+        : options(std::move(flow_options)), store(options.store_root),
+          /* The validator captures the store this flow publishes through, so
+           * the accepted set is committed by the same owner that judged it. */
+          session(setup_config(), session_options(options.staging_root),
+                  [this](const std::vector<setup_ui::StagedFile> &files) {
+                      return validate_staged_disks(&store, files);
+                  }),
+          view(session, view_options()) {}
+
+    static setup_ui::SessionOptions session_options(const std::filesystem::path &staging) {
+        setup_ui::SessionOptions settings;
+        settings.staging_root = staging;
+        settings.max_file_bytes = kMaxDiskBytes;
+        return settings;
+    }
+
+    setup_ui::ViewOptions view_options() const {
+        setup_ui::ViewOptions screen;
+        screen.window_title = "Benefactor setup";
+        screen.font_path = options.font_path;
+        return screen;
+    }
+
+    /* Publish the accepted set and stop the screen. */
+    void finish_accepted() {
+        std::string read_error;
+        if (!committed_disks(options.store_root, disks, read_error)) {
+            error = read_error;
+            finished = true;
+            return;
+        }
+        accepted = true;
+        finished = true;
+    }
+};
+
+SetupFlow::SetupFlow(SetupFlowOptions options)
+    : impl_(std::make_unique<Impl>(std::move(options))) {}
+
+SetupFlow::~SetupFlow() { impl_->view.close(); }
+
+bool SetupFlow::open() {
+    if (!impl_->options.request_selection) {
+        impl_->error = "the platform does not provide a file picker";
+        impl_->finished = true;
+        return false;
+    }
+    // A process killed with the screen open (Android force-stop, a crash) never
+    // runs the session destructor, so its staging directory is pruned here.
+    setup_ui::Session::discard_stale_staging(impl_->options.staging_root);
+    if (!impl_->view.open()) {
+        impl_->error = impl_->view.last_error();
+        impl_->finished = true;
+        return false;
+    }
+    impl_->opened = true;
+    return true;
+}
+
+bool SetupFlow::step() {
+    if (impl_->finished) {
+        return false;
+    }
+    for (const setup_ui::Request &request : impl_->view.poll()) {
+        switch (request.kind) {
+        case setup_ui::RequestKind::Browse: {
+            std::lock_guard lock(impl_->pending_mutex);
+            if (impl_->picker_active) {
+                break;
+            }
+            impl_->picker_active = true;
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "setup",
+                                 "asking the platform for the disk images");
+            // The picker answers through this flow's own deliver(), which is
+            // thread-safe: a platform picker may complete on another thread.
+            const SetupDeliver answer = [this](const std::vector<std::filesystem::path> &paths) {
+                SetupFlow::deliver(paths);
+            };
+            impl_->options.request_selection(answer);
+            break;
+        }
+        case setup_ui::RequestKind::Start:
+            if (impl_->session.status() == setup_ui::Status::Accepted) {
+                impl_->view.finish();
+            }
+            impl_->session.validate_if_ready();
+            break;
+        case setup_ui::RequestKind::Cancel:
+            impl_->error = "setup was dismissed before a disk set was provided";
+            impl_->view.finish();
+            break;
+        }
+    }
+
+    std::vector<std::filesystem::path> chosen;
+    {
+        std::lock_guard lock(impl_->pending_mutex);
+        if (!impl_->pending.empty() || impl_->picker_active) {
+            chosen.swap(impl_->pending);
+            impl_->picker_active = false;
+        }
+    }
+    if (!chosen.empty()) {
+        std::string selection_error;
+        const std::size_t added = impl_->session.add_selected(chosen, selection_error);
+        if (added == 0) {
+            benefactor_log_write(BENEFACTOR_LOG_ERROR, "setup", "%s", selection_error.c_str());
+        } else if (!selection_error.empty()) {
+            /* An incomplete set is the normal next step, not a failure. */
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "setup", "%s", selection_error.c_str());
+        }
+        if (!selection_error.empty()) {
+            impl_->error = selection_error;
+        }
+    }
+
+    impl_->session.validate_if_ready();
+    if (impl_->session.status() == setup_ui::Status::Accepted) {
+        // Keep the accepted screen visible for one more frame so the player
+        // sees the result before the game starts.
+        impl_->view.frame();
+        impl_->view.finish();
+        impl_->finish_accepted();
+        return false;
+    }
+    impl_->view.frame();
+    if (!impl_->view.running()) {
+        impl_->finished = true;
+        if (impl_->error.empty()) {
+            impl_->error = "no disk set was provided";
+        }
+    }
+    return !impl_->finished;
+}
+
+bool SetupFlow::accepted() const { return impl_->accepted; }
+
+const std::array<std::filesystem::path, 3> &SetupFlow::disks() const { return impl_->disks; }
+
+const std::string &SetupFlow::error() const { return impl_->error; }
+
+void SetupFlow::deliver(const std::vector<std::filesystem::path> &paths) {
+    std::lock_guard lock(impl_->pending_mutex);
+    impl_->pending = paths;
+}
+
+SetupFlowResult run_setup_flow(const SetupRequestSelection &request_selection,
+                               const std::filesystem::path &staging_root,
+                               const std::filesystem::path &store_root) {
+    SetupFlowResult result;
+    SetupFlowOptions options;
+    options.request_selection = request_selection;
+    options.staging_root = staging_root;
+    options.store_root = store_root;
+    SetupFlow flow(std::move(options));
+    if (!flow.open()) {
+        result.error = flow.error();
+        return result;
+    }
+    while (flow.step()) {
+    }
+    if (flow.accepted()) {
+        result.ok = true;
+        result.disks = flow.disks();
+        return result;
+    }
+    result.error = flow.error();
+    return result;
+}
+
 bool committed_disks(const std::filesystem::path &store_root,
                      std::array<std::filesystem::path, 3> &disks, std::string &error) {
     DiskSelectionStore store(store_root);
@@ -48,124 +234,6 @@ bool committed_disks(const std::filesystem::path &store_root,
     }
     disks = installed;
     return true;
-}
-
-SetupFlowResult run_setup_flow(const SetupRequestSelection &request_selection,
-                               const std::filesystem::path &staging_root,
-                               const std::filesystem::path &store_root) {
-    SetupFlowResult result;
-    if (!request_selection) {
-        result.error = "the platform does not provide a file picker";
-        return result;
-    }
-
-    // A process killed with the screen open (Android force-stop, a crash) never
-    // runs the session destructor, so its staging directory is pruned here.
-    setup_ui::Session::discard_stale_staging(staging_root);
-
-    DiskSelectionStore store(store_root);
-    setup_ui::SessionOptions session_options;
-    session_options.staging_root = staging_root;
-    session_options.max_file_bytes = kMaxDiskBytes;
-    setup_ui::Session session(setup_config(), session_options,
-                              [&store](const std::vector<setup_ui::StagedFile> &files) {
-                                  return validate_staged_disks(&store, files);
-                              });
-
-    setup_ui::ViewOptions view_options;
-    view_options.window_title = "Benefactor setup";
-    setup_ui::View view(session, view_options);
-    if (!view.open()) {
-        result.error = view.last_error();
-        return result;
-    }
-
-    // The picker may finish on another thread (Android delivers its Activity
-    // result outside the SDL thread); selections are queued and applied by the
-    // loop below, which owns the session.
-    std::mutex pending_mutex;
-    std::vector<std::filesystem::path> pending;
-    bool picker_active = false;
-    const SetupDeliver deliver = [&](const std::vector<std::filesystem::path> &paths) {
-        std::lock_guard lock(pending_mutex);
-        pending = paths;
-    };
-
-    std::string last_error;
-    while (view.running()) {
-        for (const setup_ui::Request &request : view.poll()) {
-            switch (request.kind) {
-            case setup_ui::RequestKind::Browse: {
-                std::lock_guard lock(pending_mutex);
-                if (picker_active) {
-                    break;
-                }
-                picker_active = true;
-                benefactor_log_write(BENEFACTOR_LOG_INFO, "setup",
-                                     "asking the platform for the disk images");
-                request_selection(deliver);
-                break;
-            }
-            case setup_ui::RequestKind::Start:
-                if (session.status() == setup_ui::Status::Accepted) {
-                    view.finish();
-                }
-                session.validate_if_ready();
-                break;
-            case setup_ui::RequestKind::Cancel:
-                result.error = "setup was dismissed before a disk set was provided";
-                view.finish();
-                break;
-            }
-        }
-
-        std::vector<std::filesystem::path> chosen;
-        {
-            std::lock_guard lock(pending_mutex);
-            if (!pending.empty() || picker_active) {
-                chosen.swap(pending);
-                picker_active = false;
-            }
-        }
-        if (!chosen.empty()) {
-            std::string selection_error;
-            const std::size_t added = session.add_selected(chosen, selection_error);
-            if (added == 0) {
-                benefactor_log_write(BENEFACTOR_LOG_ERROR, "setup", "%s", selection_error.c_str());
-            } else if (!selection_error.empty()) {
-                /* An incomplete set is the normal next step, not a failure. */
-                benefactor_log_write(BENEFACTOR_LOG_INFO, "setup", "%s", selection_error.c_str());
-            }
-            if (!selection_error.empty()) {
-                last_error = selection_error;
-            }
-        }
-
-        session.validate_if_ready();
-        if (session.status() == setup_ui::Status::Accepted) {
-            // Keep the accepted screen visible for one more frame so the
-            // player sees the result before the game starts.
-            view.frame();
-            view.finish();
-            break;
-        }
-        view.frame();
-    }
-    view.close();
-
-    if (session.status() == setup_ui::Status::Accepted) {
-        std::string read_error;
-        if (!committed_disks(store_root, result.disks, read_error)) {
-            result.error = read_error;
-            return result;
-        }
-        result.ok = true;
-        return result;
-    }
-    if (result.error.empty()) {
-        result.error = last_error.empty() ? "no disk set was provided" : last_error;
-    }
-    return result;
 }
 
 } // namespace benefactor::platform
