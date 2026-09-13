@@ -56,7 +56,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S029 | Android CI produces a signed arm64-v8a release APK | partial | Hosted release run `34704766306`, Android job `103582713838`, assembled an arm64-v8a APK with a CI-only ephemeral key. Manual signing-verification run `34694150527` passed Android job `103554610317` using the existing persistent release secrets and checking against the v0.1.0 public signer fingerprint; a hosted tagged build, device performance, and gameplay evidence remain open. | G003, G004 |
 | S030 | WASM builds and deploys the same product boundary to GitHub Pages | verified | Source run `34708373281` built the asset-free pthread-capable package from `4f41501`; Pages run `34708732681` deployed it from Pages commit `3d415f4`. A fresh WebLua session at the live route reported secure context, cross-origin isolation, and an active service worker, accepted the authenticated three-disk ZIP, created the SDL canvas, and continued rendering past frame 500. | G004 |
 | S031 | Desktop and browser first-run setup browse for and validate the three player disks | partial | S004, S026-S030 | G004 |
-| S032 | A qualified version tag publishes one GitHub Release with all four native packages | partial | S023, S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs and an explicit state gate; no qualified tag has exercised publication | G004 |
+| S032 | A version tag publishes one GitHub Release with all four native packages | partial | S026-S031; the tag-only publisher stages Windows ZIP, macOS `.app` ZIP, AppImage, and signed APK after all five CI jobs; no tag has exercised publication | G004 |
 
 ## Capability details
 
@@ -374,14 +374,15 @@ Gap: packaged desktop first-run/reselection UX and Android device evidence
 remain unverified; the live browser file-dialog UI itself is still host-owned
 and is not substituted by the validator.
 
-### S032 — Qualified GitHub Release
+### S032 — Tagged GitHub Release
 
-The tag-only `tools.publish_release` gate requires the core gameplay, player
-setup, signing, and platform state items to be verified. It refuses a branch
+The tag-only `tools.publish_release` refuses a branch
 run or incomplete package set, inspects the downloaded ZIP/APK entries for
 unsafe or player-owned paths, and stages SHA-256 checksums for the four native
 packages. The macOS package is a ZIP containing `Benefactor.app` with its
 executable mode preserved. Focused positive and negative tests pass.
 
-Gap: no tagged workflow has passed the release gate; S023, S029, and S031
-remain unverified, so a new GitHub Release must not publish yet.
+The state-qualification gate was removed at the operator's direction: releases
+are no longer blocked by conformance state items. Publication still requires a
+pushed tag and a complete, inspected package set. Gap: no tag has exercised
+publication end to end.
