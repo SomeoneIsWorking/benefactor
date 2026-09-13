@@ -71,7 +71,7 @@ struct SetupFlow::Impl {
     setup_ui::ViewOptions view_options() const {
         setup_ui::ViewOptions screen;
         screen.window_title = "Benefactor setup";
-        screen.font_path = options.font_path;
+        screen.font_path = options.font_path.string();
         return screen;
     }
 

@@ -7,6 +7,7 @@
  * mechanism. */
 #include "port/touch_controls.h"
 
+#include "port/config.h"
 #include "port/input.h"
 
 #include "common/log.h"
@@ -17,9 +18,9 @@
 
 #include <memory>
 
-extern "C" void hw_handle_key(int sym, int down);
-extern "C" void hw_touch_controls_changed(void);
-extern "C" int pc_modern_touch(void);
+extern "C" {
+#include "engine/hw.h"
+}
 
 namespace {
 
@@ -60,35 +61,64 @@ touch_ui::Config controls_config() {
     return config;
 }
 
-void apply_action(std::uint32_t action, bool down) {
-    switch (action) {
+/* The gameplay action a control stands for, or -1 for the pause button, which
+ * is the pause menu's own key edge rather than a held logical action. */
+int action_for(std::uint32_t control) {
+    switch (control) {
     case kUp:
-        pc_input_touch_action(PI_UP, down);
-        break;
+        return PI_UP;
     case kDown:
-        pc_input_touch_action(PI_DOWN, down);
-        break;
+        return PI_DOWN;
     case kLeft:
-        pc_input_touch_action(PI_LEFT, down);
-        break;
+        return PI_LEFT;
     case kRight:
-        pc_input_touch_action(PI_RIGHT, down);
-        break;
+        return PI_RIGHT;
     case kFire:
-        pc_input_touch_action(PI_FIRE, down);
-        break;
+        return PI_FIRE;
     case kInteract:
-        pc_input_touch_action(PI_INTERACT, down);
-        break;
-    case kPause:
-        /* Pause is the pause menu's own key edge, not a held logical action. */
-        if (down) {
+        return PI_INTERACT;
+    default:
+        return -1;
+    }
+}
+
+/* The pause menu is a key-driven overlay: it reads navigation through its own
+ * entry points, not through the gameplay action state, so a touch has to arrive
+ * as the intent the keyboard and the pad deliver. */
+int navigation_for(std::uint32_t control) {
+    switch (control) {
+    case kUp:
+        return HW_NAV_UP;
+    case kDown:
+        return HW_NAV_DOWN;
+    case kLeft:
+        return HW_NAV_LEFT;
+    case kRight:
+        return HW_NAV_RIGHT;
+    case kFire:
+    case kInteract:
+        return HW_NAV_SELECT;
+    default:
+        return -1;
+    }
+}
+
+void apply_action(std::uint32_t control, bool down) {
+    const int action = action_for(control);
+    if (action < 0) {
+        if (control == kPause && down) {
             hw_handle_key(SDLK_ESCAPE, 1);
         }
         return;
-    default:
+    }
+    const int navigation = navigation_for(control);
+    if (down && navigation >= 0 && hw_overlay_navigate(navigation, 1)) {
         return;
     }
+    /* A release always clears the held action, even while an overlay is up: a
+     * press that began before the menu opened would otherwise stay latched and
+     * move the player the moment the menu closes. */
+    pc_input_touch_action(action, down ? 1 : 0);
     hw_touch_controls_changed();
 }
 

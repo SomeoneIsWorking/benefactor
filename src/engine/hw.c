@@ -827,6 +827,61 @@ static void hw_pad_close(SDL_JoystickID id) {
 
 /* Route one digital pad code (button or axis-direction edge) — the controller
  * twin of hw_handle_key: pause menu navigation, bindings capture, or gameplay. */
+static int pad_navigation(int code) {
+    switch (code) {
+    case SDL_GAMEPAD_BUTTON_DPAD_UP:
+    case PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 0):
+        return HW_NAV_UP;
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
+    case PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 1):
+        return HW_NAV_DOWN;
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
+    case PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 0):
+        return HW_NAV_LEFT;
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:
+    case PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 1):
+        return HW_NAV_RIGHT;
+    case SDL_GAMEPAD_BUTTON_SOUTH:
+        return HW_NAV_SELECT;
+    case SDL_GAMEPAD_BUTTON_EAST:
+        return HW_NAV_CANCEL;
+    default:
+        return -1;
+    }
+}
+
+int hw_overlay_navigate(int intent, int down) {
+    if (!pc_pause_active())
+        return 0;
+    /* Releases are consumed: the menu advances on the press edge and holds no
+     * state that a release would clear. */
+    if (!down)
+        return 1;
+    switch (intent) {
+    case HW_NAV_UP:
+        pc_pause_input_up();
+        break;
+    case HW_NAV_DOWN:
+        pc_pause_input_down();
+        break;
+    case HW_NAV_LEFT:
+        pc_pause_input_left();
+        break;
+    case HW_NAV_RIGHT:
+        pc_pause_input_right();
+        break;
+    case HW_NAV_SELECT:
+        pc_pause_input_select();
+        break;
+    case HW_NAV_CANCEL:
+        pc_pause_escape();
+        break;
+    default:
+        break;
+    }
+    return 1;
+}
+
 static void hw_handle_pad_code(int code, int down) {
 
     if (pc_pause_capture_active()) {
@@ -860,22 +915,7 @@ static void hw_handle_pad_code(int code, int down) {
             apply_bound_input();
             return;
         }
-        if (code == SDL_GAMEPAD_BUTTON_DPAD_UP ||
-            code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 0))
-            pc_pause_input_up();
-        else if (code == SDL_GAMEPAD_BUTTON_DPAD_DOWN ||
-                 code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTY, 1))
-            pc_pause_input_down();
-        else if (code == SDL_GAMEPAD_BUTTON_DPAD_LEFT ||
-                 code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 0))
-            pc_pause_input_left();
-        else if (code == SDL_GAMEPAD_BUTTON_DPAD_RIGHT ||
-                 code == PI_PAD_AXIS_CODE(SDL_GAMEPAD_AXIS_LEFTX, 1))
-            pc_pause_input_right();
-        else if (code == SDL_GAMEPAD_BUTTON_SOUTH)
-            pc_pause_input_select();
-        else if (code == SDL_GAMEPAD_BUTTON_EAST)
-            pc_pause_escape();
+        hw_overlay_navigate(pad_navigation(code), down);
         return;
     }
     pc_input_load();
