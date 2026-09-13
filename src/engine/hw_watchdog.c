@@ -73,6 +73,10 @@ static VOID CALLBACK hw_watchdog_timer_callback(PVOID context, BOOLEAN timer_fir
 #endif
 
 void hw_watchdog_arm(const char *what, int seconds) {
+#if defined(BENEFACTOR_ANDROID) || defined(__ANDROID__)
+    if (seconds > 0 && seconds < 30)
+        seconds = 30;
+#endif
 #ifdef _WIN32
     if (s_wd_timer != NULL) {
         DeleteTimerQueueTimer(NULL, s_wd_timer, INVALID_HANDLE_VALUE);

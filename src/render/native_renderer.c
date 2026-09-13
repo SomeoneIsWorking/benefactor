@@ -729,6 +729,11 @@ static void scene_load_palrows(void) {
 #define WS_GFXTAB 0x005A539Eu
 #define WS_GAMEPLAY_COP1LC 0x003484u
 
+/* Pixel decoder reads delayed chip snapshot for parity, but presentation
+ * ownership differs: live copper may switch while snapshot holds gameplay.
+ * Use live display owner so transition UI is not replaced by stale gameplay. */
+static int native_live_gameplay_active(void) { return hw_get_cop1lc() == WS_GAMEPLAY_COP1LC; }
+
 /* Per-object draw params captured at the engine's $57D8D0 choke point (before its
  * 352px camera-clip) — the faithful, camera-independent source of every gameplay
  * object. See src/port/overrides/gameplay.c / instructions/widescreen-plan.md "Phase 4". */
@@ -1471,7 +1476,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
      * the engine-aligned WS_CMP compare path. */
     int freecam = pc_freecam_active();
     int wide = (margin > 0) || (margin < 0 && freecam);
-    if ((margin < 0 && !freecam) || s_cur_cop1lc != WS_GAMEPLAY_COP1LC)
+    if ((margin < 0 && !freecam) || !native_live_gameplay_active())
         return; /* gameplay only */
     const uint8_t *M = g_mem;
     EngineView ev;
@@ -1649,7 +1654,7 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
  * (turbo jitter) and framing drift vs vanilla. We keep the engine's pixels verbatim
  * and project the player light with the engine-aligned mapping that matches s_fb. */
 void native_render_effects_43(uint32_t *out, int ow) {
-    if (s_cur_cop1lc != WS_GAMEPLAY_COP1LC)
+    if (!native_live_gameplay_active())
         return;
 
     int pf_top = -1;

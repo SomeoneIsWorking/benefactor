@@ -15,6 +15,7 @@
 #ifdef BENEFACTOR_ANDROID
 #include "platform/android_bridge.h"
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 #endif
 
 /* Headless Vulkan self-test (no window/disks): render a gradient through the

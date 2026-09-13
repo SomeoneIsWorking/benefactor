@@ -8,7 +8,6 @@ import base64
 import binascii
 import importlib.util
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +16,7 @@ from pathlib import Path
 from tools.launcher import runtime_blocker
 
 ROOT = Path(__file__).resolve().parents[1]
+
 BUILD = ROOT / "build" / "android"
 ABI = "arm64-v8a"
 MIN_API = 21
@@ -34,14 +34,17 @@ def run(command: list[str], *, cwd: Path = ROOT, environment: dict[str, str] | N
     subprocess.run(command, cwd=cwd, env=environment, check=True)
 
 
-def required_directory(variable: str) -> Path:
-    value = os.environ.get(variable)
-    if not value:
-        refuse(f"{variable} must name its source checkout")
-    directory = Path(value).expanduser().resolve()
-    if not directory.is_dir():
-        refuse(f"{variable} is not a directory: {directory}")
-    return directory
+def resolve_lucent_dir() -> Path:
+    value = os.environ.get("BENEFACTOR_LUCENT_DIR")
+    if value:
+        candidate = Path(value).expanduser().resolve()
+        if not candidate.is_dir():
+            refuse(f"BENEFACTOR_LUCENT_DIR is not a directory: {candidate}")
+        return candidate
+    candidate = (ROOT.parent / "lucent").resolve()
+    if candidate.is_dir():
+        return candidate
+    refuse("BENEFACTOR_LUCENT_DIR must name its source checkout")
 
 
 def android_sdk() -> Path:
@@ -82,34 +85,9 @@ def shared_android_port_tool():
 
 
 def required_jdk() -> Path:
-    value = os.environ.get("BENEFACTOR_JAVA_HOME") or os.environ.get("JAVA_HOME")
-    if not value:
-        refuse("BENEFACTOR_JAVA_HOME or JAVA_HOME must name a JDK 26 installation")
-    home = Path(value).expanduser().resolve()
-    java = home / "bin" / "java"
-    javac = home / "bin" / "javac"
-    if not java.is_file() or not javac.is_file():
-        refuse(f"BENEFACTOR_JAVA_HOME must contain bin/java and bin/javac: {home}")
-
-    def major_version(executable: Path) -> int | None:
-        result = subprocess.run(
-            [str(executable), "-version"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
-        match = re.search(r"(?:version )?\"?(\d+)(?:[._]|\")", result.stdout)
-        return int(match.group(1)) if result.returncode == 0 and match else None
-
-    java_major = major_version(java)
-    javac_major = major_version(javac)
-    if java_major != 26 or javac_major != 26:
-        refuse(
-            "BENEFACTOR_JAVA_HOME must provide matching JDK 26 java/javac "
-            f"(found {java_major}/{javac_major})"
-        )
-    return home
+    if "BENEFACTOR_JAVA_HOME" in os.environ and "JAVA_HOME" not in os.environ:
+        os.environ["JAVA_HOME"] = os.environ["BENEFACTOR_JAVA_HOME"]
+    return shared_android_port_tool().select_java_home(minimum=17, maximum=26)
 
 
 def configure_native(ndk: Path, profile, lucent: Path) -> Path:
@@ -288,7 +266,7 @@ def main() -> int:
     sdk = android_sdk()
     ndk = android_ndk(sdk)
     jdk = required_jdk()
-    lucent = required_directory("BENEFACTOR_LUCENT_DIR")
+    lucent = resolve_lucent_dir()
     android_port = shared_android_port_tool()
     profile = android_port.load_android_port_profile(
         ROOT / "platforms/android/android-port-profile.json"
