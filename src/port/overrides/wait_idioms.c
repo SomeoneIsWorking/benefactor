@@ -12,6 +12,7 @@
 #include "port/wait_idiom.h"
 
 #include "common/log.h"
+#include "engine/hw.h"
 #include "port/port_internal.h"
 
 /* One body for every kind: which loop this is gets asked again at run time,
@@ -41,6 +42,18 @@ static void native_wait_idiom(M68KCtx *ctx) {
         /* Synchronous blitter: BBUSY is never set, so the guest's loop would
          * fall through on its first test. Nothing to wait for. */
         break;
+    case PC_WAIT_FIRE:
+        /* The player's joystick, which this port latches once per frame. Yield
+         * one frame per test until the button is down (or up, for the loops
+         * that wait for a release), then let the guest's own `tst`/`bmi` pair
+         * decide: it sets the flags and takes the branch, so the wait ends by
+         * executing the guest's instructions, not by jumping over them. */
+        hw_wait_fire(found.wait_pressed);
+        benefactor_log_write(BENEFACTOR_LOG_TRACE, "wait",
+                             "$%06X kind=%u frame=%d->%d resume=$%06X (guest poll resumes)", at,
+                             (unsigned)found.kind, frame_before, hw_get_frame_num(), found.resume);
+        rt_continue_original(ctx, ctx->image);
+        return;
     case PC_WAIT_NONE:
     default:
         /* The bytes changed under us — a screen was loaded over them. Let the
@@ -65,7 +78,7 @@ void pc_register_wait_idioms(uint32_t image_mask, uint32_t low, uint32_t high) {
     if ((scanned & image_mask) == image_mask)
         return;
     scanned |= image_mask;
-    unsigned frames = 0, halves = 0, blits = 0, scanlines = 0;
+    unsigned frames = 0, halves = 0, blits = 0, scanlines = 0, fires = 0;
     for (uint32_t at = low; at + 6u <= high; at += 2u) {
         const PcWaitIdiom found = pc_wait_idiom_at(g_mem, (uint32_t)RT_MEM_SIZE, at);
         if (found.kind == PC_WAIT_NONE)
@@ -80,12 +93,14 @@ void pc_register_wait_idioms(uint32_t image_mask, uint32_t low, uint32_t high) {
             scanlines++;
         } else if (found.kind == PC_WAIT_BLITTER) {
             blits++;
+        } else if (found.kind == PC_WAIT_FIRE) {
+            fires++;
         } else {
             halves++;
         }
     }
     benefactor_log_write(BENEFACTOR_LOG_INFO, "override",
                          "[waits] image mask %u, $%06X-$%06X: %u frame waits, %u scanlines, "
-                         "%u beam halves, %u blitter waits now native\n",
-                         image_mask, low, high, frames, scanlines, halves, blits);
+                         "%u beam halves, %u blitter waits, %u fire waits now native\n",
+                         image_mask, low, high, frames, scanlines, halves, blits, fires);
 }
