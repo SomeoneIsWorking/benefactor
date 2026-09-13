@@ -109,6 +109,11 @@ def configure_native(ndk: Path, profile, lucent: Path) -> Path:
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DBENEFACTOR_SDL3_PREFIX={profile.prefix}",
             f"-DBENEFACTOR_LUCENT_DIR={lucent}",
+            f"-DBENEFACTOR_SETUP_UI_DIR={ROOT.parent / 'shared' / 'setup-ui'}",
+            # The Android toolchain confines package discovery to the
+            # sysroot; the shared dependency prefix (SDL3, FreeType) is a
+            # legitimate additional root for this product.
+            f"-DCMAKE_FIND_ROOT_PATH={profile.prefix}",
             "-DVulkan_FOUND=FALSE",
         ]
     )

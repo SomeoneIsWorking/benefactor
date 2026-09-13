@@ -1,21 +1,32 @@
 package io.github.someoneisworking.benefactor;
 
-import android.app.AlertDialog;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
+
+import java.io.File;
 
 import io.github.someoneisworking.android.AndroidActivity;
 import io.github.someoneisworking.android.AndroidDocumentImport;
 
-/** Title-owned disk setup policy over Android-port's bounded SAF importer. */
+/**
+ * Title-owned activity. The setup screen itself is drawn in-app by the shared
+ * setup-ui host; this class only supplies Android's own document picker and
+ * hands the chosen disk images back to native code. No browser and no system
+ * message box are involved in setup.
+ */
 public final class BenefactorActivity extends AndroidActivity {
     private static final int REQUEST_DISK_DIRECTORY = 4101;
     private static final AndroidDocumentImport.Limits IMPORT_LIMITS =
             new AndroidDocumentImport.Limits(128, 16L * 1024L * 1024L, 64 * 1024);
-    private AndroidDocumentImport importer;
-    private AndroidDocumentImport.Result pendingImport;
 
-    private static native void nativeDiskDirectoryResult(String directory, String error);
+    private AndroidDocumentImport importer;
+    private AndroidDocumentImport.Result staged;
+    private boolean importPending;
+
+    private static native void nativeDiskSelectionResult(String stagingDirectory,
+            String[] documentNames, String error);
+
+    private static native void nativeDiskSelectionProgress(double fraction);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -26,56 +37,92 @@ public final class BenefactorActivity extends AndroidActivity {
 
     @Override
     protected void onDestroy() {
-        if (importer != null) importer.cancel();
-        nativeDiskDirectoryResult(null, "The Android activity closed before disk setup completed.");
+        if (importer != null) {
+            importer.cancel();
+        }
+        if (importPending) {
+            importPending = false;
+            nativeDiskSelectionResult(null, new String[0],
+                    "The activity closed during disk selection.");
+        }
         super.onDestroy();
     }
 
-    public void requestBenefactorDisks(String reason) {
-        runOnUiThread(() -> new AlertDialog.Builder(this)
-                .setTitle("Benefactor disks required")
-                .setMessage(reason)
-                .setNegativeButton("Cancel", (dialog, which) -> nativeDiskDirectoryResult(null, null))
-                .setPositiveButton("Browse", (dialog, which) -> importer.pickTree(REQUEST_DISK_DIRECTORY,
-                        new AndroidDocumentImport.Callback() {
-                            @Override public void onImported(AndroidDocumentImport.Result result) {
-                                try {
-                                    if (!hasDiskSet(result.stagingDirectory)) {
-                                        nativeDiskDirectoryResult(null,
-                                                "The folder must contain readable Disk.1, Disk.2, and Disk.3 files.");
-                                        return;
-                                    }
-                                    pendingImport = result;
-                                    nativeDiskDirectoryResult(result.stagingDirectory.getAbsolutePath(), null);
-                                } catch (RuntimeException error) {
-                                    nativeDiskDirectoryResult(null, "Android could not validate the disk set.");
-                                }
-                            }
-                            @Override public void onCancelled() { nativeDiskDirectoryResult(null, null); }
-                            @Override public void onFailed(String message) { nativeDiskDirectoryResult(null, message); }
-                        }))
-                .setCancelable(false)
-                .show());
+    /**
+     * Opens Android's own document picker so the player can select either the
+     * three original disk images or one ZIP containing them. Called from native
+     * code when the setup screen's choose control is pressed; the staged files
+     * are handed back and validated in-app.
+     */
+    public void pickBenefactorDisks() {
+        runOnUiThread(() -> {
+            if (importPending) {
+                return;
+            }
+            importPending = true;
+            releaseStagedImport();
+            importer.setProgressListener((entries, bytes, totalBytes, name) -> {
+                if (totalBytes > 0) {
+                    nativeDiskSelectionProgress(Math.min(1.0, (double) bytes / (double) totalBytes));
+                }
+            });
+            importer.pickDocuments(REQUEST_DISK_DIRECTORY, new AndroidDocumentImport.Callback() {
+                @Override
+                public void onImported(AndroidDocumentImport.Result result) {
+                    importPending = false;
+                    staged = result;
+                    nativeDiskSelectionProgress(1.0);
+                    // Report the facts: the private directory Android staged
+                    // into and the display names it staged there. Which of them
+                    // form a disk set is the title's decision, made natively.
+                    nativeDiskSelectionResult(result.stagingDirectory.getAbsolutePath(),
+                            result.documentNames.toArray(new String[0]), null);
+                }
+
+                @Override
+                public void onCancelled() {
+                    importPending = false;
+                    nativeDiskSelectionResult(null, new String[0], null);
+                }
+
+                @Override
+                public void onFailed(String message) {
+                    importPending = false;
+                    nativeDiskSelectionResult(null, new String[0], message);
+                }
+            });
+        });
     }
 
-    private static boolean hasDiskSet(java.io.File directory) {
-        for (int index = 1; index <= 3; ++index) {
-            java.io.File disk = new java.io.File(directory, "Disk." + index);
-            if (!disk.isFile() || !disk.canRead()) return false;
+    /**
+     * Called from native code once it holds its own copy of the selection: the
+     * staging directory Android's picker filled is then disposable, and keeping
+     * it would retain every selected file until the app is uninstalled.
+     */
+    public void releaseBenefactorStaging() {
+        runOnUiThread(this::releaseStagedImport);
+    }
+
+    private void releaseStagedImport() {
+        final AndroidDocumentImport.Result result = staged;
+        staged = null;
+        if (result == null || importer == null) {
+            return;
         }
-        return true;
+        try {
+            importer.discard(result);
+        } catch (java.io.IOException error) {
+            // The staged copy is a convenience; a failure to remove it must not
+            // change the setup result the player already sees.
+            android.util.Log.w("Benefactor", "could not release staged import: " + error.getMessage());
+        }
     }
 
-    /** Called after native validation, so a failed import never displaces the current installation. */
-    public String commitBenefactorDisks(String stagingPath) {
-        if (pendingImport == null || !pendingImport.stagingDirectory.getAbsolutePath().equals(stagingPath)
-                || !hasDiskSet(pendingImport.stagingDirectory)) return null;
-        try {
-            java.io.File installed = importer.promoteValidated(pendingImport, "benefactor-disks");
-            pendingImport = null;
-            return installed.getAbsolutePath();
-        } catch (java.io.IOException error) {
-            return null;
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (importer != null) {
+            importer.handleActivityResult(requestCode, resultCode, data);
         }
     }
 
@@ -87,9 +134,4 @@ public final class BenefactorActivity extends AndroidActivity {
         });
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (importer != null) importer.handleActivityResult(requestCode, resultCode, data);
-    }
 }

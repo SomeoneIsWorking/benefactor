@@ -157,6 +157,13 @@ def main() -> int:
     _compile_and_run_cpp_test(
         cpp_compiler, "guest-call-policy", ["tests/test_guest_call_policy.cpp"]
     )
+    # The picker report is the boundary between Android's staged documents and
+    # the title's disk-set validation, and needs no product objects.
+    _compile_and_run_cpp_test(
+        cpp_compiler,
+        "selection-report",
+        ["src/platform/selection_report.cpp", "tests/test_selection_report.cpp"],
+    )
     return 0
 
 

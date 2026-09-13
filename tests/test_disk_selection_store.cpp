@@ -37,6 +37,24 @@ int main(int argc, char **argv) {
     assert(!status);
     std::filesystem::create_directories(root);
 
+    // A first run has no data directory at all: the import preparation creates
+    // the store it owns rather than reporting an unavailable directory.
+    {
+        const std::filesystem::path fresh = root / "absent-store";
+        const DiskSelectionStore first_run(fresh);
+        std::string first_run_error;
+        assert(!first_run.create_import_directory(first_run_error).empty());
+        assert(first_run_error.empty());
+        assert(std::filesystem::is_directory(fresh / "disk-import"));
+        // An archive is extracted into a destination that must not exist yet,
+        // so the reservation returns the free name without creating it.
+        std::string reserve_error;
+        const auto reserved = first_run.reserve_import(reserve_error);
+        assert(reserved == fresh / "disk-import");
+        assert(reserve_error.empty());
+        assert(!std::filesystem::exists(reserved));
+    }
+
     const DiskSelectionStore store(root);
     std::string error;
     const auto original = paths_in(root / "disk-set-a");
@@ -45,7 +63,7 @@ int main(int argc, char **argv) {
     DiskSelectionStore::Paths loaded;
     assert(store.read(loaded) && loaded == original);
 
-    assert(store.prepare_import(error));
+    assert(!store.create_import_directory(error).empty());
     auto prepared = paths_in(store.import_directory() / "nested");
     write_disks(prepared, "new");
     std::filesystem::create_directory(root / "disk-selection.txt.new");
@@ -58,7 +76,7 @@ int main(int argc, char **argv) {
     std::filesystem::remove(root / "disk-selection.txt.new");
     error.clear();
 
-    assert(store.prepare_import(error));
+    assert(!store.create_import_directory(error).empty());
     prepared = paths_in(store.import_directory() / "nested");
     write_disks(prepared, "new");
     assert(store.publish_import(prepared, installed, error));
@@ -69,7 +87,7 @@ int main(int argc, char **argv) {
     assert(!std::filesystem::exists(store.import_directory()));
 
     error.clear();
-    assert(store.prepare_import(error));
+    assert(!store.create_import_directory(error).empty());
     prepared = paths_in(store.import_directory());
     write_disks(prepared, "unsafe");
     prepared[0] = original[0];
