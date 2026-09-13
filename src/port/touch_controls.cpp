@@ -34,7 +34,11 @@ constexpr std::uint32_t kInteract = 1U << 5;
 constexpr std::uint32_t kPause = 1U << 6;
 
 std::unique_ptr<touch_ui::Controls> g_controls;
-bool g_geometry_reported = false;
+/* The window's pixel size is not settled on the first frame — a rotating Android
+ * window reports the pre-rotation surface — so the layout is reported whenever it
+ * changes rather than once, which would describe a geometry nothing is drawn in. */
+int g_reported_width = 0;
+int g_reported_height = 0;
 
 /* A pad in hand hides the overlay until the player touches the screen again:
  * presence of a controller is not a reason to erase controls, using it is. */
@@ -103,7 +107,10 @@ int navigation_for(std::uint32_t control) {
     }
 }
 
-void apply_action(std::uint32_t control, bool down) {
+void apply_action(std::uint32_t actions, bool down) {
+    benefactor_log_write(BENEFACTOR_LOG_INFO, "input", "touch actions 0x%X %s", actions,
+                         down ? "pressed" : "released");
+    const std::uint32_t control = actions;
     const int action = action_for(control);
     if (action < 0) {
         if (control == kPause && down) {
@@ -172,7 +179,22 @@ extern "C" int touch_controls_handle_sdl_event(const SDL_Event *event) {
         event->type != SDL_EVENT_FINGER_UP && event->type != SDL_EVENT_FINGER_CANCELED) {
         return 0;
     }
-    return ensure_controls().handle_event(*event) ? 1 : 0;
+    /* Normalized finger coordinates and what they consumed: the one measurement
+     * that says whether a touch landed on a control or on the game. */
+    const char *phase = event->type == SDL_EVENT_FINGER_DOWN     ? "down"
+                        : event->type == SDL_EVENT_FINGER_MOTION ? "move"
+                        : event->type == SDL_EVENT_FINGER_UP     ? "up"
+                                                                 : "cancel";
+    const int consumed = ensure_controls().handle_event(*event) ? 1 : 0;
+    /* A press and a release are the events a device run has to account for; a
+     * drag is a stream, so it stays behind the debug level. */
+    const BenefactorLogLevel level =
+        event->type == SDL_EVENT_FINGER_MOTION ? BENEFACTOR_LOG_DEBUG : BENEFACTOR_LOG_INFO;
+    benefactor_log_write(level, "input", "finger %s id=%" SDL_PRIu64 " at (%.3f, %.3f) handled=%d",
+                         phase, static_cast<std::uint64_t>(event->tfinger.fingerID),
+                         static_cast<double>(event->tfinger.x),
+                         static_cast<double>(event->tfinger.y), consumed);
+    return consumed;
 }
 
 extern "C" void touch_controls_present(SDL_Renderer *renderer, SDL_Window *window) {
@@ -189,11 +211,22 @@ extern "C" void touch_controls_present(SDL_Renderer *renderer, SDL_Window *windo
     }
     controls.set_geometry(geometry);
     controls.present(renderer);
-    if (!g_geometry_reported) {
-        g_geometry_reported = true;
+    if (geometry.output_width != g_reported_width || geometry.output_height != g_reported_height) {
+        g_reported_width = geometry.output_width;
+        g_reported_height = geometry.output_height;
         benefactor_log_write(BENEFACTOR_LOG_INFO, "input",
-                             "touch controls at %dx%d (scale %.2f pt, %zu controls)",
+                             "touch controls at %dx%d (scale %.2f pt, %zu controls, unit %.0f)",
                              geometry.output_width, geometry.output_height, geometry.display_scale,
-                             controls.layout().visuals.size());
+                             controls.layout().visuals.size(),
+                             static_cast<double>(controls.layout().unit));
+        /* Where each control actually is, so a device run can be told apart
+         * from the layout it claims. */
+        for (const touch_ui::Visual &visual : controls.layout().visuals) {
+            benefactor_log_write(
+                BENEFACTOR_LOG_INFO, "input", "  control %u (%s) x %.0f..%.0f y %.0f..%.0f",
+                visual.id, visual.icon.c_str(), static_cast<double>(visual.bounds.left),
+                static_cast<double>(visual.bounds.right), static_cast<double>(visual.bounds.top),
+                static_cast<double>(visual.bounds.bottom));
+        }
     }
 }

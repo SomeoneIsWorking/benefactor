@@ -119,7 +119,8 @@ Response route_state() {
         formatted(
             "{\"frame\":%d,\"level\":%u,\"cop1lc\":\"%06X\","
             "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
-            "\"saveable\":%d,\"save_reason\":\"%s\",\"paused\":%d,\"press_left\":%d,"
+            "\"saveable\":%d,\"save_reason\":\"%s\",\"paused\":%d,\"script_paused\":%d,"
+            "\"press_left\":%d,"
             "\"instructions\":%llu,"
             "\"guest_cycles\":%llu,\"blit_cycles\":%llu,\"fps\":%d,"
             "\"audio\":{\"dmacon\":\"%04X\",\"intena\":\"%04X\",\"vol\":[%u,%u,%u,%u],\"per\":[%u,%"
@@ -136,8 +137,8 @@ Response route_state() {
             "\"yield\":{\"calls\":%u,\"refused\":%u,\"parks\":%u},\"title_draws\":%u,"
             "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u}}\n",
             hw_get_frame_num(), level, cop1lc, g_gameplay_active, g_overlay_active,
-            g_credits_active, saveable, why ? why : "", InputScript::instance().paused() ? 1 : 0,
-            InputScript::instance().press_frames_left(),
+            g_credits_active, saveable, why ? why : "", pc_pause_active() ? 1 : 0,
+            InputScript::instance().paused() ? 1 : 0, InputScript::instance().press_frames_left(),
             (unsigned long long)rt_get_executed_instructions(),
             (unsigned long long)rt_get_guest_cycles(), (unsigned long long)g_hw_blit_cycles,
             g_hw_perf.fps, s_regs[0x096 >> 1], hw_get_intena(), s_regs[0x0A8 >> 1],

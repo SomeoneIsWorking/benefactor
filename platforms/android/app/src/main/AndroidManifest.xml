@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The diagnostic control channel binds to localhost, and only when a launch
+         argument asks for it; Android requires this permission for any socket. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <application android:allowBackup="false" android:appCategory="game" android:hardwareAccelerated="true"

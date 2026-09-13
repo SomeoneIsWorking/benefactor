@@ -656,16 +656,23 @@ void hw_handle_key(int sym, int down) {
                  * paths because we're on the title screen, not in-game. */
                 if (g_level_select_visible) {
                     g_level_select_visible = 0;
+                    benefactor_log_write(BENEFACTOR_LOG_INFO, "input",
+                                         "escape dismissed the level-select panel");
                     return;
                 }
                 if (pc_pause_active()) {
                     pc_pause_escape();
+                    benefactor_log_write(BENEFACTOR_LOG_INFO, "input", "escape closed the menu");
                     return;
                 } /* back/resume */
                 if (g_gameplay_active) {
                     pc_pause_toggle();
+                    benefactor_log_write(BENEFACTOR_LOG_INFO, "input",
+                                         "escape opened the pause menu (gameplay)");
                     return;
                 }
+                benefactor_log_write(BENEFACTOR_LOG_INFO, "input",
+                                     "escape opened options (not in gameplay)");
                 /* Outside gameplay (title/menu/intro): ESC opens the OPTIONS
                  * page directly — quitting moved to its QUIT TO DESKTOP row. */
                 {
@@ -1061,6 +1068,14 @@ int hw_scene_render_enabled(void) {
  * the harness input_poll — so controller support works everywhere. Returns 1
  * if the event was consumed. */
 int hw_handle_sdl_event(const SDL_Event *ev) {
+    /* Which kinds of platform event this run has ever seen, once each: the first
+     * question a device that ignores input needs answered. */
+    static uint64_t s_types_seen = 0;
+    if (ev->type >= 0 && ev->type < 64 && (s_types_seen & (1ull << ev->type)) == 0) {
+        s_types_seen |= 1ull << ev->type;
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "input", "first SDL event type 0x%X",
+                             (unsigned)ev->type);
+    }
 #ifdef BENEFACTOR_ANDROID
     if (touch_controls_handle_sdl_event(ev))
         return 1;

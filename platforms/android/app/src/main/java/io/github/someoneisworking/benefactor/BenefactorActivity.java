@@ -1,9 +1,12 @@
 package io.github.someoneisworking.benefactor;
 
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 import io.github.someoneisworking.android.AndroidActivity;
 import io.github.someoneisworking.android.AndroidDocumentImport;
@@ -16,6 +19,17 @@ import io.github.someoneisworking.android.AndroidDocumentImport;
  */
 public final class BenefactorActivity extends AndroidActivity {
     private static final int REQUEST_DISK_DIRECTORY = 4101;
+
+    /* Launch options SDL passes to the native entry point as command-line
+     * arguments, mirroring the desktop launcher: an Android process has no
+     * command line and no environment of its own, so an explicit intent extra is
+     * the only way to reach them. Absent extras add no argument, so an ordinary
+     * launch behaves exactly as before. */
+    private static final String EXTRA_LEVEL = "benefactor.level";
+    private static final String EXTRA_LOAD = "benefactor.load";
+    /* The diagnostic control channel binds to localhost and only when asked for
+     * here, which is how a host drives a device run without a keyboard. */
+    private static final String EXTRA_HTTP = "benefactor.http";
     private static final AndroidDocumentImport.Limits IMPORT_LIMITS =
             new AndroidDocumentImport.Limits(128, 16L * 1024L * 1024L, 64 * 1024);
 
@@ -33,6 +47,28 @@ public final class BenefactorActivity extends AndroidActivity {
         super.onCreate(savedInstanceState);
         importer = new AndroidDocumentImport(this, IMPORT_LIMITS);
         importer.cleanStaleImports();
+    }
+
+    @Override
+    protected String[] getArguments() {
+        List<String> arguments = new ArrayList<>();
+        Intent intent = getIntent();
+        int level = intent.getIntExtra(EXTRA_LEVEL, 0);
+        if (level > 0) {
+            arguments.add("--level");
+            arguments.add(Integer.toString(level));
+        }
+        String load = intent.getStringExtra(EXTRA_LOAD);
+        if (load != null && !load.isEmpty()) {
+            arguments.add("--load");
+            arguments.add(load);
+        }
+        int http = intent.getIntExtra(EXTRA_HTTP, 0);
+        if (http > 0) {
+            arguments.add("--http");
+            arguments.add(Integer.toString(http));
+        }
+        return arguments.toArray(new String[0]);
     }
 
     @Override

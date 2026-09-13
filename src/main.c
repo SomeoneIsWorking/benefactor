@@ -1,6 +1,7 @@
 /* main.c – Native PC game entry point (single path: native disk boot) */
 #include "common/log.h"
 #include "engine/hw.h"
+#include "port/config.h"
 #include "port/control/control_server.h"
 #include "port/port.h"
 #ifndef BENEFACTOR_ANDROID
@@ -9,6 +10,7 @@
 #include "render/present_backend.h"
 #include <signal.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -63,6 +65,7 @@ int main(int argc, char **argv) {
     int direct_level = 0;
     const char *load_path = NULL;
     int headless = 0;
+    int http_port = 0;
 
     /* Accept "--disk Disk.1 [Disk.2] [Disk.3]" or just "Disk.1 [..]".
      * "--level N" skips intro/title/menu and starts directly at level N.
@@ -83,6 +86,10 @@ int main(int argc, char **argv) {
         }
         if (!strcmp(argv[i], "--headless")) {
             headless = 1;
+            continue;
+        }
+        if (!strcmp(argv[i], "--http") && i + 1 < argc) {
+            http_port = atoi(argv[++i]);
             continue;
         }
         if (nd < 4)
@@ -111,7 +118,8 @@ int main(int argc, char **argv) {
                              "  %s [--disk] Disk.1 [Disk.2] [Disk.3] [--level N] [--load path]\n"
                              "     N = 1..60: skip intro/title/menu and start directly at that "
                              "level.\n"
-                             "     --load: resume from a savestate immediately after init.\n",
+                             "     --load: resume from a savestate immediately after init.\n"
+                             "     --http N: open the diagnostic control channel on port N.\n",
                              argv[0]);
         return 1;
     }
@@ -141,7 +149,14 @@ int main(int argc, char **argv) {
         }
         benefactor_log_write(BENEFACTOR_LOG_INFO, "savestate", "resuming from %s", load_path);
     }
-    pc_control_server_start(); /* no-op unless BENEFACTOR_HTTP=<port> is set */
+    if (http_port > 0) {
+        /* The session layer, which is what the env var also feeds; --http is how
+         * a host without an environment to set (Android) reaches the channel. */
+        char port_text[8];
+        snprintf(port_text, sizeof port_text, "%d", http_port);
+        pc_cfg_set("http", port_text);
+    }
+    pc_control_server_start(); /* no-op unless BENEFACTOR_HTTP=<port> or --http N */
     pc_run();
     benefactor_log_write(BENEFACTOR_LOG_INFO, "app", "stopped");
     pc_fini();
