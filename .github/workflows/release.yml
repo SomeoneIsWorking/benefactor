@@ -336,7 +336,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/touch-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: ef4a3c26c86dc3d6c8bf0b8138efa3054c959ac8
+          ref: 029860440fd66ad9d811b5d20f1ffd242718f820
           path: shared/touch-ui
           persist-credentials: false
       - name: Check out pinned shared port art
