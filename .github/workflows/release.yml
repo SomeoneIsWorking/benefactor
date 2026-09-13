@@ -56,7 +56,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
+          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -135,7 +135,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
+          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -205,7 +205,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
+          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -302,7 +302,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
+          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared touch controls
@@ -393,7 +393,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 93275f46cd9e1efe25d21928bc575cf37de190d5
+          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen

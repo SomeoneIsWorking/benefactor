@@ -64,13 +64,24 @@ if(NOT IS_DIRECTORY "${BENEFACTOR_LUCENT_DIR}")
         "provide -DBENEFACTOR_LUCENT_DIR=<checkout>")
 endif()
 set(LUCENT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LUCENT_BUILD_ZIP ON CACHE BOOL "" FORCE)
 if(EMSCRIPTEN)
-    set(LUCENT_BUILD_ZIP OFF CACHE BOOL "" FORCE)
-else()
-    set(LUCENT_BUILD_ZIP ON CACHE BOOL "" FORCE)
-    if(MINGW)
-        set(ZLIB_USE_STATIC_LIBS ON)
+    # Emscripten provides zlib as a port, and the port is built on first use —
+    # which is after CMake's FindZLIB probe has already run. Compiling this one
+    # line makes the port exist so the probe finds the same zlib the browser
+    # build links, instead of a second copy built by hand.
+    set(BENEFACTOR_ZLIB_PORT_PROBE "${CMAKE_CURRENT_BINARY_DIR}/emscripten-zlib-port.c")
+    file(WRITE "${BENEFACTOR_ZLIB_PORT_PROBE}" "int benefactor_zlib_port_probe(void);\n")
+    execute_process(
+        COMMAND "${CMAKE_C_COMPILER}" -sUSE_ZLIB=1 -c "${BENEFACTOR_ZLIB_PORT_PROBE}"
+                -o "${BENEFACTOR_ZLIB_PORT_PROBE}.o"
+        RESULT_VARIABLE BENEFACTOR_ZLIB_PORT_RESULT
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT BENEFACTOR_ZLIB_PORT_RESULT EQUAL 0)
+        message(FATAL_ERROR "the Emscripten zlib port could not be prepared")
     endif()
+elseif(MINGW)
+    set(ZLIB_USE_STATIC_LIBS ON)
 endif()
 if(MINGW AND LUCENT_BUILD_ZIP)
     find_package(ZLIB REQUIRED)
@@ -121,42 +132,39 @@ endif()
 
 # setup-ui needs the SDL3 target this build selected, so it is added after
 # the SDL3 block above.
-# setup-ui — the shared in-app first-run setup screen. The browser build keeps
-# its own in-page picker (platforms/web/disk_setup.js), so only the Android and
-# desktop products carry this dependency. A local checkout sits beside this
-# repository; CI checks the shared tree out inside it, so both are candidates.
-if(NOT BENEFACTOR_WEB)
-    set(BENEFACTOR_SETUP_UI_CANDIDATES
-        "$ENV{BENEFACTOR_SETUP_UI_DIR}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../shared/setup-ui"
-        "${CMAKE_CURRENT_SOURCE_DIR}/shared/setup-ui")
-    set(BENEFACTOR_SETUP_UI_DEFAULT "")
-    foreach(candidate IN LISTS BENEFACTOR_SETUP_UI_CANDIDATES)
-        if(NOT "${candidate}" STREQUAL "" AND IS_DIRECTORY "${candidate}")
-            set(BENEFACTOR_SETUP_UI_DEFAULT "${candidate}")
-            break()
-        endif()
-    endforeach()
-    if(ANDROID)
-        # The Android dependency prefix ships FreeType for the shared SDL3
-        # prefix; hand its paths to RmlUi's dependency probe.
-        set(FREETYPE_DIR "${BENEFACTOR_SDL3_PREFIX}/lib/cmake/freetype" CACHE PATH "" FORCE)
-        list(APPEND CMAKE_PREFIX_PATH "${BENEFACTOR_SDL3_PREFIX}")
+# setup-ui — the shared in-app first-run setup screen, on every product including
+# the browser one. A local checkout sits beside this repository; CI checks the
+# shared tree out inside it, so both are candidates.
+set(BENEFACTOR_SETUP_UI_CANDIDATES
+    "$ENV{BENEFACTOR_SETUP_UI_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/setup-ui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/setup-ui")
+set(BENEFACTOR_SETUP_UI_DEFAULT "")
+foreach(candidate IN LISTS BENEFACTOR_SETUP_UI_CANDIDATES)
+    if(NOT "${candidate}" STREQUAL "" AND IS_DIRECTORY "${candidate}")
+        set(BENEFACTOR_SETUP_UI_DEFAULT "${candidate}")
+        break()
     endif()
-    set(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DEFAULT}"
-        CACHE PATH "Path to the setup-ui library")
-    get_filename_component(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DIR}"
-        ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    if(NOT IS_DIRECTORY "${BENEFACTOR_SETUP_UI_DIR}")
-        message(FATAL_ERROR
-            "Benefactor requires shared/setup-ui; tried "
-            "${BENEFACTOR_SETUP_UI_CANDIDATES}. "
-            "Provide -DBENEFACTOR_SETUP_UI_DIR=<checkout> (and set "
-            "SETUP_UI_RMLUI_DIR to an RmlUi checkout).")
-    endif()
-    set(SETUP_UI_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}" CACHE PATH "" FORCE)
-    add_subdirectory("${BENEFACTOR_SETUP_UI_DIR}" "${CMAKE_BINARY_DIR}/setup-ui")
+endforeach()
+if(ANDROID)
+    # The Android dependency prefix ships FreeType for the shared SDL3
+    # prefix; hand its paths to RmlUi's dependency probe.
+    set(FREETYPE_DIR "${BENEFACTOR_SDL3_PREFIX}/lib/cmake/freetype" CACHE PATH "" FORCE)
+    list(APPEND CMAKE_PREFIX_PATH "${BENEFACTOR_SDL3_PREFIX}")
 endif()
+set(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DEFAULT}"
+    CACHE PATH "Path to the setup-ui library")
+get_filename_component(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DIR}"
+    ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+if(NOT IS_DIRECTORY "${BENEFACTOR_SETUP_UI_DIR}")
+    message(FATAL_ERROR
+        "Benefactor requires shared/setup-ui; tried "
+        "${BENEFACTOR_SETUP_UI_CANDIDATES}. "
+        "Provide -DBENEFACTOR_SETUP_UI_DIR=<checkout> (and set "
+        "SETUP_UI_RMLUI_DIR to an RmlUi checkout).")
+endif()
+set(SETUP_UI_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}" CACHE PATH "" FORCE)
+add_subdirectory("${BENEFACTOR_SETUP_UI_DIR}" "${CMAKE_BINARY_DIR}/setup-ui")
 
 
 # touch-ui — the shared on-screen controls. The Android product is the only one
@@ -248,7 +256,13 @@ endif()
 
 if(BENEFACTOR_WEB)
     list(REMOVE_ITEM BENEFACTOR_SOURCES src/main.c)
-    list(APPEND BENEFACTOR_SOURCES src/platform/web_main.c)
+    list(APPEND BENEFACTOR_SOURCES
+        src/platform/disk_identity.cpp
+        src/platform/disk_selection_store.cpp
+        src/platform/selection_report.cpp
+        src/platform/setup_flow.cpp
+        src/platform/staged_disks.cpp
+        src/platform/web_setup.cpp)
 endif()
 
 if(BENEFACTOR_WEB)
@@ -286,11 +300,9 @@ target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE
     lucent::lucent
     ${BENEFACTOR_SDL_TARGET}
     Threads::Threads)
-if(NOT BENEFACTOR_WEB)
-    # Desktop and Android both accept a ZIP install archive through the shared
-    # setup screen, which the browser build does not carry.
-    target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE setup_ui::setup_ui lucent::zip)
-endif()
+# Every product shows the shared setup screen and accepts a ZIP install archive
+# through the same validator, the browser included.
+target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE setup_ui::setup_ui lucent::zip)
 if(NOT WIN32 AND NOT BENEFACTOR_WEB)
     target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE m)
 endif()
@@ -306,6 +318,17 @@ if(ANDROID)
     target_compile_definitions(benefactor-pc PRIVATE BENEFACTOR_ANDROID)
 endif()
 if(BENEFACTOR_WEB)
+    # The setup screen draws real text, and the browser has no system font: the
+    # face is embedded in the module's own filesystem.
+    set(BENEFACTOR_WEB_FONT
+        "${CMAKE_CURRENT_SOURCE_DIR}/platforms/web/fonts/LiberationSans-Regular.ttf")
+    if(NOT EXISTS "${BENEFACTOR_WEB_FONT}")
+        message(FATAL_ERROR "the browser product needs its setup font at ${BENEFACTOR_WEB_FONT}")
+    endif()
+    # Embedded, not preloaded: the package stays the two files the browser
+    # deployment publishes, with no separate data file to fetch and cache.
+    target_link_options(benefactor_web PRIVATE
+        "--embed-file=${BENEFACTOR_WEB_FONT}@/setup-font.ttf")
     target_compile_definitions(benefactor_web PRIVATE BENEFACTOR_WEB)
     target_link_options(benefactor_web PRIVATE
         -pthread
@@ -313,7 +336,7 @@ if(BENEFACTOR_WEB)
         "-sALLOW_MEMORY_GROWTH=1"
         "-sNO_EXIT_RUNTIME=1"
         "-sENVIRONMENT=web,worker"
-        "-sEXPORTED_FUNCTIONS=['_main','_benefactor_web_start']"
+        "-sEXPORTED_FUNCTIONS=['_main','_benefactor_web_pick_begin','_benefactor_web_pick_add','_benefactor_web_pick_end']"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','FS']")
 elseif(NOT MSVC)
     target_compile_options(${BENEFACTOR_PRODUCT_TARGET} PRIVATE -Wall -Wextra)

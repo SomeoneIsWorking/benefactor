@@ -1,133 +1,243 @@
+// The browser's chooser bridge: opening the picker, moving what the player
+// chose into the module's filesystem, and answering the native pick exactly
+// once. Identity and archives are the product's business and are checked from
+// the native side, so nothing here may judge a file.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
 const source = readFileSync(new URL("../platforms/web/disk_setup.js", import.meta.url), "utf8");
-const hashes = [...source.matchAll(/sha256: "([0-9a-f]{64})"/g)].map((match) => match[1]);
-assert.equal(hashes.length, 3, "the shipping picker must name three disk identities");
+const pickerSource = source.slice(source.indexOf("(() => {"));
+assert.ok(pickerSource.length > 0, "the shipping picker module must be readable");
 
-function fixture({ startResult = 0, failWriteAt = null } = {}) {
+function fixture({ failWriteAt = null } = {}) {
+  const calls = [];
   const writes = [];
-  const starts = [];
-  const events = [];
-  let onChange;
-  let digestIndex = 0;
+  const clicks = [];
+  let changeHandler = null;
+  let cancelHandler = null;
+  let status = "Select disks";
+  const statusElement = {
+    get textContent() {
+      return status;
+    },
+    set textContent(value) {
+      status = value;
+    },
+  };
   const input = {
-    disabled: false,
+    id: "",
+    type: "",
+    multiple: false,
+    accept: "",
+    style: {},
     files: [],
-    value: "",
+    value: "stale",
+    click() {
+      clicks.push(this.id);
+    },
     addEventListener(name, handler) {
-      assert.equal(name, "change");
-      onChange = handler;
-    },
-    async change(files) {
-      this.files = files;
-      return onChange();
-    },
-  };
-  const status = { textContent: "Select disks" };
-  const window = {
-    dispatchEvent(event) { events.push(event.type); },
-  };
-  const Module = {
-    FS: {
-      writeFile(name, bytes) {
-        if (name === failWriteAt) throw new Error("guest filesystem write failed");
-        writes.push([name, bytes.byteLength]);
-      },
-    },
-    ccall(name) {
-      starts.push(name);
-      return startResult;
+      if (name === "change") {
+        changeHandler = handler;
+      } else if (name === "cancel") {
+        cancelHandler = handler;
+      } else {
+        throw new Error(`unexpected listener ${name}`);
+      }
     },
   };
   const context = {
     document: {
-      getElementById(id) { return id === "disk-files" ? input : status; },
+      getElementById(id) {
+        assert.equal(id, "disk-status");
+        return statusElement;
+      },
+      createElement(tag) {
+        assert.equal(tag, "input");
+        return input;
+      },
+      body: { appendChild() {} },
     },
-    window,
-    Module,
-    CustomEvent: class {
-      constructor(type) { this.type = type; }
-    },
-    crypto: {
-      subtle: {
-    async digest() {
-          const hex = hashes[digestIndex++ % hashes.length];
-          return Uint8Array.from(hex.match(/../g), (byte) => parseInt(byte, 16)).buffer;
+    Module: {
+      FS: {
+        mkdirTree(name) {
+          writes.push(["mkdir", name]);
         },
+        writeFile(name, bytes) {
+          if (name === failWriteAt) {
+            throw new Error("guest filesystem write failed");
+          }
+          writes.push([name, bytes.byteLength]);
+        },
+      },
+      ccall(name, _returnType, signature, args) {
+        calls.push({ name, signature, args });
+        return null;
       },
     },
   };
-  vm.runInNewContext(source, context, { filename: "disk_setup.js" });
-  const files = [1, 2, 3].map((number) => ({
-    name: `Disk.${number}`,
-    async arrayBuffer() { return new Uint8Array(1003520).buffer; },
-  }));
-  return { input, status, window, writes, starts, events, files };
+  const globalObject = vm.runInNewContext("globalThis", context, { filename: "disk_setup.js" });
+  vm.runInNewContext(pickerSource, context, { filename: "disk_setup.js" });
+  return {
+    context,
+    globalObject,
+    input,
+    clicks,
+    calls,
+    writes,
+    get status() {
+      return status;
+    },
+    pick(directory) {
+      globalObject.benefactorWebPickFiles(directory);
+    },
+    async change(files) {
+      input.files = files;
+      await changeHandler();
+    },
+    async cancel() {
+      await cancelHandler();
+    },
+  };
 }
 
-test("a successful disk start is one-shot; reselection requires reload", async () => {
-  const { input, status, window, writes, starts, events, files } = fixture();
-  await input.change(files);
-  assert.equal(starts.length, 1);
-  assert.deepEqual(writes.map(([name]) => name), ["/Disk.1", "/Disk.2", "/Disk.3"]);
-  assert.deepEqual(events, ["benefactor-disks-validated"]);
-  assert.ok(window.benefactorDiskSelection.getLastValid());
+function diskFile(number, bytes = 1003520) {
+  return {
+    name: `Disk.${number}`,
+    size: bytes,
+    async arrayBuffer() {
+      return new Uint8Array(bytes).buffer;
+    },
+  };
+}
 
-  await input.change(files);
-  assert.equal(starts.length, 1);
-  assert.equal(writes.length, 3, "a running game must never get its disks replaced in place");
-  assert.equal(input.disabled, true);
-  assert.match(status.textContent, /reload/i);
+function names(calls) {
+  return calls.map((call) => call.name);
+}
+
+test("a pick stages every chosen file and answers the native side once", async () => {
+  const picker = fixture();
+  picker.pick("/benefactor-data/import");
+  // The chooser is created on demand and opened; nothing is answered before the
+  // player makes a choice, or the screen would resume with an empty set.
+  assert.deepEqual(picker.clicks, ["disk-files"]);
+  assert.equal(picker.input.type, "file");
+  assert.equal(picker.input.multiple, true);
+  assert.deepEqual(picker.calls, []);
+
+  await picker.change([diskFile(1), diskFile(2), diskFile(3)]);
+  assert.deepEqual(names(picker.calls), [
+    "benefactor_web_pick_begin",
+    "benefactor_web_pick_add",
+    "benefactor_web_pick_add",
+    "benefactor_web_pick_add",
+    "benefactor_web_pick_end",
+  ]);
+  // The argument arrays come from the page's own realm, so compare their text.
+  assert.deepEqual(
+    picker.calls.slice(1, 4).map((call) => call.args.join(",")),
+    ["Disk.1", "Disk.2", "Disk.3"],
+  );
+  // Document names cross as C strings; the directory never comes back from the
+  // page, so the native side owns the path it wrote to.
+  assert.deepEqual(picker.calls[1].signature.join(","), "string");
+  assert.deepEqual(picker.calls[0].signature.join(","), "");
+  assert.deepEqual(picker.writes, [
+    ["mkdir", "/benefactor-data/import"],
+    ["/benefactor-data/import/Disk.1", 1003520],
+    ["/benefactor-data/import/Disk.2", 1003520],
+    ["/benefactor-data/import/Disk.3", 1003520],
+  ]);
+  assert.equal(picker.input.value, "", "the chooser must forget its last value");
+  assert.equal(picker.status, "");
 });
 
-test("a failed native start cannot silently commit a disk set or retry partial state", async () => {
-  const { input, status, window, writes, starts, files } = fixture({ startResult: -1 });
-  await input.change(files);
-  assert.equal(starts.length, 1);
-  assert.equal(writes.length, 3);
-  assert.ok(!window.benefactorDiskSelection.getLastValid(), "a failed start must not publish a selection");
-  assert.equal(input.disabled, true);
-  assert.match(status.textContent, /reload/i);
-
-  await input.change(files);
-  assert.equal(starts.length, 1);
-  assert.equal(writes.length, 3);
+test("a reused chooser keeps answering later picks", async () => {
+  const picker = fixture();
+  picker.pick("/first");
+  await picker.change([diskFile(1)]);
+  picker.pick("/second");
+  assert.deepEqual(picker.clicks, ["disk-files", "disk-files"]);
+  await picker.change([diskFile(2)]);
+  assert.deepEqual(picker.writes.slice(2), [
+    ["mkdir", "/second"],
+    ["/second/Disk.2", 1003520],
+  ]);
+  assert.equal(names(picker.calls).filter((name) => name === "benefactor_web_pick_end").length, 2);
 });
 
-test("a disk validation failure leaves browsing available and never writes guest files", async () => {
-  const { input, status, writes, starts, files } = fixture();
-  await input.change(files.slice(0, 1));
-  assert.equal(input.disabled, false);
-  assert.match(status.textContent, /all three files are required/i);
-  assert.equal(writes.length, 0);
-  assert.equal(starts.length, 0);
+test("cancelling the chooser answers the native side with no files", async () => {
+  const picker = fixture();
+  picker.pick("/benefactor-data/import");
+  await picker.cancel();
+  assert.deepEqual(names(picker.calls), [
+    "benefactor_web_pick_begin",
+    "benefactor_web_pick_end",
+  ]);
+  assert.deepEqual(picker.writes, []);
+  assert.match(picker.status, /no files were chosen/i);
 });
 
-test("a partial guest filesystem write requires reload before another selection", async () => {
-  const { input, status, writes, starts, files } = fixture({ failWriteAt: "/Disk.2" });
-  await input.change(files);
-  assert.deepEqual(writes.map(([name]) => name), ["/Disk.1"]);
-  assert.equal(starts.length, 0);
-  assert.equal(input.disabled, true);
-  assert.match(status.textContent, /reload/i);
-  await input.change(files);
-  assert.equal(writes.length, 1);
+test("an empty change is a cancelled pick, and a later choice still counts", async () => {
+  const picker = fixture();
+  picker.pick("/benefactor-data/import");
+  await picker.change([]);
+  assert.deepEqual(names(picker.calls), [
+    "benefactor_web_pick_begin",
+    "benefactor_web_pick_end",
+  ]);
+  // A browser that cannot display the dialog reports the dismissal and then the
+  // selection, so the selection is what the product must act on.
+  await picker.change([diskFile(1)]);
+  assert.deepEqual(names(picker.calls).slice(2), [
+    "benefactor_web_pick_begin",
+    "benefactor_web_pick_add",
+    "benefactor_web_pick_end",
+  ]);
+  assert.deepEqual(picker.writes, [
+    ["mkdir", "/benefactor-data/import"],
+    ["/benefactor-data/import/Disk.1", 1003520],
+  ]);
 });
 
-test("a second selection during asynchronous validation cannot race the first", async () => {
-  const { input, writes, starts, files } = fixture();
-  let releaseRead;
-  files[0].arrayBuffer = () => new Promise((resolve) => {
-    releaseRead = () => resolve(new Uint8Array(1003520).buffer);
-  });
-  const first = input.change(files);
-  await input.change(files);
-  assert.equal(writes.length, 0);
-  releaseRead();
-  await first;
-  assert.equal(starts.length, 1);
-  assert.equal(writes.length, 3);
+test("files beyond the import budget are refused before the filesystem sees them", async () => {
+  const picker = fixture();
+  picker.pick("/benefactor-data/import");
+  await picker.change([diskFile(1, 1003520), diskFile(2, 100 * 1024 * 1024)]);
+  assert.deepEqual(names(picker.calls), [
+    "benefactor_web_pick_begin",
+    "benefactor_web_pick_end",
+  ]);
+  assert.deepEqual(picker.writes, []);
+  assert.match(picker.status, /larger than this setup accepts/i);
+});
+
+test("a failed filesystem write is reported and still answers the native side", async () => {
+  const picker = fixture({ failWriteAt: "/benefactor-data/import/Disk.2" });
+  picker.pick("/benefactor-data/import");
+  await picker.change([diskFile(1), diskFile(2)]);
+  assert.match(picker.status, /write failed/i);
+  assert.equal(names(picker.calls).at(-1), "benefactor_web_pick_end");
+});
+
+test("a pick with no module filesystem is refused, and the pick is still answered", async () => {
+  const picker = fixture();
+  delete picker.context.Module.FS;
+  picker.pick("/benefactor-data/import");
+  await picker.change([diskFile(1)]);
+  assert.match(picker.status, /could not open its own filesystem/i);
+  // The answer still ends: a pick that never answers would leave the screen
+  // waiting for a selection that has already been made.
+  assert.deepEqual(names(picker.calls), [
+    "benefactor_web_pick_begin",
+    "benefactor_web_pick_end",
+  ]);
+  assert.deepEqual(picker.writes, []);
+});
+
+test("the native status line reaches the page", () => {
+  const picker = fixture();
+  picker.globalObject.benefactorWebStatus("Still needed: Disk.2, Disk.3");
+  assert.equal(picker.status, "Still needed: Disk.2, Disk.3");
 });

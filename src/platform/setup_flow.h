@@ -10,6 +10,7 @@
 #include <array>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -22,15 +23,55 @@ namespace benefactor::platform {
 using SetupDeliver = std::function<void(const std::vector<std::filesystem::path> &)>;
 using SetupRequestSelection = std::function<void(SetupDeliver)>;
 
+/* Everything the flow needs from the host: its picker, where staged files and
+ * the published set live, and the font the screen draws with. An empty
+ * `font_path` selects the first usable system font; a host with no system font
+ * (the browser) ships one and names it. */
+struct SetupFlowOptions {
+    SetupRequestSelection request_selection;
+    std::filesystem::path staging_root;
+    std::filesystem::path store_root;
+    std::filesystem::path font_path;
+};
+
 struct SetupFlowResult {
     bool ok = false;
     std::array<std::filesystem::path, 3> disks;
     std::string error;
 };
 
-/* Runs the browser-free setup screen until the player provides a validated
- * disk set (ok), dismisses it, or the picker fails. `staging_root` is the
- * app-private directory the screen stages chosen files under. */
+/* The setup screen as a state machine: one step() per host frame. A host with
+ * its own loop that must keep running (the browser's) drives it that way; a
+ * host that can block (SDL desktop, Android) uses run_setup_flow() below. The
+ * policy is identical because there is one implementation of it. */
+class SetupFlow {
+  public:
+    explicit SetupFlow(SetupFlowOptions options);
+    ~SetupFlow();
+    SetupFlow(const SetupFlow &) = delete;
+    SetupFlow &operator=(const SetupFlow &) = delete;
+
+    /* Create the screen. False means it could not be shown; error() says why. */
+    bool open();
+
+    /* Run one iteration. Returns true while the screen is still up; false once
+     * the player accepted a set, dismissed the screen, or it failed. */
+    bool step();
+
+    [[nodiscard]] bool accepted() const;
+    [[nodiscard]] const std::array<std::filesystem::path, 3> &disks() const;
+    [[nodiscard]] const std::string &error() const;
+
+    /* Hand the platform picker's result to the flow (any thread; the paths are
+     * applied by step()). */
+    void deliver(const std::vector<std::filesystem::path> &paths);
+
+  private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+/* Blocking wrapper for a host whose loop the screen itself owns. */
 SetupFlowResult run_setup_flow(const SetupRequestSelection &request_selection,
                                const std::filesystem::path &staging_root,
                                const std::filesystem::path &store_root);
