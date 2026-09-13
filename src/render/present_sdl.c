@@ -73,11 +73,21 @@ static void sdl_draw_overlay(int content_w, int content_h) {
                                      SDL_LOGICAL_PRESENTATION_LETTERBOX);
 }
 
+/* The frame background belongs to the presenter: the area the game does not
+ * cover (letterbox bars, the window beside a 4:3 frame on a wide display) is
+ * black, not whatever colour the previous pass left the renderer set to. The
+ * touch overlay draws light glyphs through the same renderer, so an inherited
+ * clear colour showed up as pale bars around the playfield. */
+static void sdl_clear_frame(void) {
+    SDL_SetRenderDrawColor(s_renderer, 0, 0, 0, 255);
+    SDL_RenderClear(s_renderer);
+}
+
 static void sdl_present(const uint32_t *argb, int w, int h) {
     if (sdl_ensure_content(w, h) != 0)
         return;
     SDL_UpdateTexture(s_texture, NULL, argb, w * 4);
-    SDL_RenderClear(s_renderer);
+    sdl_clear_frame();
     SDL_RenderTexture(s_renderer, s_texture, NULL, NULL);
     sdl_draw_overlay(w, h);
     SDL_RenderPresent(s_renderer);
@@ -91,6 +101,7 @@ static void sdl_present_scene(const Scene *s, int y_lo, int y_hi, const uint32_t
                               int h, const PresentRect *rects, int nrects) {
     if (sdl_ensure_content(w, h) != 0)
         return;
+    sdl_clear_frame();
     if (scene_draw_sdl_window(s_renderer, s, y_lo, y_hi, base, w, h, &s_scene_cache) != 0) {
         /* SDL failure mid-frame: fall back to the plain blit so the user
          * still sees the (identical) composed frame. */
