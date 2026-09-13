@@ -94,14 +94,33 @@ void DiskSelectionStore::discard_import(std::string &error) const {
     discard_path(directory_ / "disk-import.lucent-stage", error);
 }
 
-bool DiskSelectionStore::prepare_import(std::string &error) const {
+std::filesystem::path DiskSelectionStore::reserve_import(std::string &error) const {
     std::error_code status;
-    if (!std::filesystem::is_directory(directory_, status) || status) {
+    /* The store owns its directory: the caller supplies the location, and a
+     * first run has no data directory yet. */
+    std::filesystem::create_directories(directory_, status);
+    if (status || !std::filesystem::is_directory(directory_)) {
         error = "The application data directory is unavailable";
-        return false;
+        return {};
     }
     discard_import(error);
-    return error.empty();
+    if (!error.empty())
+        return {};
+    return import_directory();
+}
+
+std::filesystem::path DiskSelectionStore::create_import_directory(std::string &error) const {
+    auto pending = reserve_import(error);
+    if (pending.empty())
+        return {};
+    std::error_code status;
+    std::filesystem::create_directories(pending, status);
+    if (status || !std::filesystem::is_directory(pending)) {
+        error = "The disk import area could not be created: " +
+                (status ? status.message() : std::string{"not a directory"});
+        return {};
+    }
+    return pending;
 }
 
 std::filesystem::path DiskSelectionStore::inactive_slot(std::string &error) const {

@@ -64,7 +64,7 @@ if(NOT IS_DIRECTORY "${BENEFACTOR_LUCENT_DIR}")
         "provide -DBENEFACTOR_LUCENT_DIR=<checkout>")
 endif()
 set(LUCENT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-if(ANDROID OR EMSCRIPTEN)
+if(EMSCRIPTEN)
     set(LUCENT_BUILD_ZIP OFF CACHE BOOL "" FORCE)
 else()
     set(LUCENT_BUILD_ZIP ON CACHE BOOL "" FORCE)
@@ -83,6 +83,30 @@ if(MINGW AND LUCENT_BUILD_ZIP)
     endif()
 endif()
 add_subdirectory("${BENEFACTOR_LUCENT_DIR}" "${CMAKE_BINARY_DIR}/lucent")
+
+# setup-ui — the shared browser-based first-run setup host. Same checkout
+# convention: shared/setup-ui, overridable for CI.
+set(BENEFACTOR_SETUP_UI_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/../shared/setup-ui")
+if(DEFINED ENV{BENEFACTOR_SETUP_UI_DIR} AND NOT "$ENV{BENEFACTOR_SETUP_UI_DIR}" STREQUAL "")
+    set(BENEFACTOR_SETUP_UI_DEFAULT "$ENV{BENEFACTOR_SETUP_UI_DIR}")
+endif()
+if(ANDROID)
+    # The Android dependency prefix ships FreeType for the shared SDL3 prefix;
+    # hand its paths to RmlUi's dependency probe.
+    set(FREETYPE_DIR "${BENEFACTOR_SDL3_PREFIX}/lib/cmake/freetype" CACHE PATH "" FORCE)
+    list(APPEND CMAKE_PREFIX_PATH "${BENEFACTOR_SDL3_PREFIX}")
+endif()
+set(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DEFAULT}"
+    CACHE PATH "Path to the setup-ui library")
+get_filename_component(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DIR}"
+    ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+if(NOT IS_DIRECTORY "${BENEFACTOR_SETUP_UI_DIR}")
+    message(FATAL_ERROR
+        "Benefactor requires shared/setup-ui at ${BENEFACTOR_SETUP_UI_DIR}; "
+        "provide -DBENEFACTOR_SETUP_UI_DIR=<checkout>")
+endif()
+set(SETUP_UI_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}" CACHE PATH "" FORCE)
+add_subdirectory("${BENEFACTOR_SETUP_UI_DIR}" "${CMAKE_BINARY_DIR}/setup-ui")
 
 if(ANDROID)
     set(BENEFACTOR_SDL3_PREFIX "" CACHE PATH "Shared Android-port SDL3 prefix")
@@ -177,7 +201,10 @@ set(BENEFACTOR_SOURCES
 if(NOT ANDROID AND NOT BENEFACTOR_WEB)
     list(APPEND BENEFACTOR_SOURCES
         src/platform/desktop_setup.cpp
-        src/platform/disk_selection_store.cpp)
+        src/platform/disk_identity.cpp
+        src/platform/disk_selection_store.cpp
+        src/platform/setup_flow.cpp
+        src/platform/staged_disks.cpp)
 endif()
 
 if(BENEFACTOR_WEB)
@@ -190,7 +217,12 @@ if(BENEFACTOR_WEB)
     set_target_properties(benefactor_web PROPERTIES OUTPUT_NAME benefactor)
 elseif(ANDROID)
     list(APPEND BENEFACTOR_SOURCES
-        src/platform/android_bridge.c
+        src/platform/android_setup.cpp
+        src/platform/disk_identity.cpp
+        src/platform/disk_selection_store.cpp
+        src/platform/selection_report.cpp
+        src/platform/setup_flow.cpp
+        src/platform/staged_disks.cpp
         src/port/touch_controls.cpp)
     add_library(benefactor-pc SHARED ${BENEFACTOR_SOURCES})
     set_target_properties(benefactor-pc PROPERTIES OUTPUT_NAME main)
@@ -213,9 +245,12 @@ target_include_directories(${BENEFACTOR_PRODUCT_TARGET} PRIVATE src)
 target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE
     amigaport::amigaport
     lucent::lucent
+    setup_ui::setup_ui
     ${BENEFACTOR_SDL_TARGET}
     Threads::Threads)
-if(NOT ANDROID AND NOT BENEFACTOR_WEB)
+if(NOT BENEFACTOR_WEB)
+    # Desktop and Android both accept a ZIP install archive through the shared
+    # setup host; the web build uses its own in-page picker.
     target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE lucent::zip)
 endif()
 if(NOT WIN32 AND NOT BENEFACTOR_WEB)
