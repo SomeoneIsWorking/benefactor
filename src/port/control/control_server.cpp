@@ -332,6 +332,7 @@ const char *const kPlayPage = R"PAGE(<!doctype html>
        <button data-go="/step?frames=1">step 1</button>
        <button data-go="/step?frames=25">step 25</button></div>
   <div><button data-go="/save">save</button><button data-go="/load">load</button></div>
+  <div><button data-go="/complete">level complete</button><button data-go="/gameover">game over</button></div>
   <pre id=cpu></pre>
  </div>
 </div>
@@ -419,6 +420,14 @@ Response dispatch(const Request &request) {
     if (path == "/gameover") {
         pc_debug_game_over();
         return Response::text(200, "OK", "death triggered\n");
+    }
+    if (path == "/complete") {
+        /* The keyboard's debug win key (L) has a channel twin for the same
+         * reason death does: the level-complete sequence is the transition a
+         * play-through must pass through, and it cannot be reached by button
+         * presses alone. */
+        pc_debug_complete_level();
+        return Response::text(200, "OK", "level complete triggered\n");
     }
     if (path == "/trace") {
         /* While the game is held at a breakpoint, serve the trace FROZEN at

@@ -24,6 +24,12 @@ static void put(uint32_t at, const char *bytes, uint32_t n) { memcpy(memory + at
 #define BEQ_BACK_8 "\x67\xF8"
 #define BNE_BACK_8 "\x66\xF8"
 #define BNE_BACK_6 "\x66\xFA"
+/* `tst.b $BFE001` — CIA-A PRA, the joystick fire button. Measured at $5772D6 in
+ * the decrunched level-1 gameplay image, whose loop body is the 8 bytes below
+ * (the level-complete banner's "press fire to continue"). */
+#define TST_CIA_A_PRA "\x4A\x39\x00\xBF\xE0\x01"
+#define BMI_BACK_8 "\x6B\xF8"
+#define BPL_BACK_8 "\x6A\xF8"
 
 int main(void) {
     /* The full frame wait: hold until the beam is past line 256, then hold
@@ -75,6 +81,23 @@ int main(void) {
     assert(found.kind == PC_WAIT_FRAME);
     assert(found.resume == 0x110);
 
+    /* The fire wait, with its real bytes: hold the frame until the player
+     * presses the button. `bmi` branches while the input bit reads high, i.e.
+     * while fire is up, so this one waits for a press. */
+    memset(memory, 0, sizeof memory);
+    put(0x100, TST_CIA_A_PRA BMI_BACK_8, 8);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_FIRE);
+    assert(found.resume == 0x108);
+    assert(found.wait_pressed == 1);
+
+    /* The other polarity waits for the player to let go. */
+    memset(memory, 0, sizeof memory);
+    put(0x100, TST_CIA_A_PRA BPL_BACK_8, 8);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_FIRE);
+    assert(found.wait_pressed == 0);
+
     /* NOT idioms. */
     memset(memory, 0, sizeof memory);
     found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
@@ -104,12 +127,46 @@ int main(void) {
     found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
     assert(found.kind == PC_WAIT_NONE);
 
+    /* A joystick read followed by a branch that is not a bodyless loop is not
+     * a fire wait: the input read itself is ordinary gameplay. */
+    memset(memory, 0, sizeof memory);
+    put(0x100, TST_CIA_A_PRA "\x6B\x08", 8); /* forward: the test is passed through */
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_NONE);
+
+    memset(memory, 0, sizeof memory);
+    put(0x100, TST_CIA_A_PRA "\x4E\x71" BMI_BACK_8, 10); /* a body between them */
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_NONE);
+
+    /* A conditional loop over a byte test that is not this register: the value
+     * is data, and waiting on it is not waiting for the player. */
+    memset(memory, 0, sizeof memory);
+    put(0x100, "\x4A\x39\x00\xDF\xF0\x00" BMI_BACK_8, 8);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_NONE);
+
+    /* `beq`/`bne` on the register byte would be testing whether the whole port
+     * read is zero, which is not a button state and not this idiom. */
+    memset(memory, 0, sizeof memory);
+    put(0x100, TST_CIA_A_PRA BEQ_BACK_8, 8);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, 0x100);
+    assert(found.kind == PC_WAIT_NONE);
+
     /* The end of memory is not a licence to read past it. */
     memset(memory, 0, sizeof memory);
     put(MEM_SIZE - 8, BTST_V8 BEQ_BACK_8, 8);
     found = pc_wait_idiom_at(memory, MEM_SIZE, MEM_SIZE - 8);
     assert(found.kind == PC_WAIT_BEAM_BELOW);
     found = pc_wait_idiom_at(memory, MEM_SIZE, MEM_SIZE - 4);
+    assert(found.kind == PC_WAIT_NONE);
+
+    /* The fire poll reads eight bytes and must not read past the end either. */
+    memset(memory, 0, sizeof memory);
+    put(MEM_SIZE - 8, TST_CIA_A_PRA BMI_BACK_8, 8);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, MEM_SIZE - 8);
+    assert(found.kind == PC_WAIT_FIRE);
+    found = pc_wait_idiom_at(memory, MEM_SIZE, MEM_SIZE - 6);
     assert(found.kind == PC_WAIT_NONE);
 
     return 0;
