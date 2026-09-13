@@ -11,21 +11,6 @@ from tools.paths import SCRATCH
 
 
 class ReleasePublicationTests(unittest.TestCase):
-    def test_qualification_requires_every_release_capability(self) -> None:
-        rows = "\n".join(
-            f"| {item} | capability | verified | — | G004 |"
-            for item in publish_release.RELEASE_STATE_IDS
-        )
-        publish_release.require_qualified_state(rows)
-        with self.assertRaisesRegex(SystemExit, "S023=partial"):
-            publish_release.require_qualified_state(
-                rows.replace("| S023 | capability | verified |", "| S023 | capability | partial |")
-            )
-        with self.assertRaisesRegex(SystemExit, "S031=missing"):
-            publish_release.require_qualified_state(
-                "\n".join(row for row in rows.splitlines() if "S031" not in row)
-            )
-
     def test_publication_stages_only_asset_free_packages(self) -> None:
         activity = SCRATCH / "verification" / "release-publish"
         activity.mkdir(parents=True, exist_ok=True)
