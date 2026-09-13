@@ -159,6 +159,29 @@ if(NOT BENEFACTOR_WEB)
 endif()
 
 
+# touch-ui — the shared on-screen controls. The Android product is the only one
+# that ships them today, so nothing else carries the dependency.
+if(ANDROID)
+    set(BENEFACTOR_TOUCH_UI_CANDIDATES
+        "$ENV{BENEFACTOR_TOUCH_UI_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../shared/touch-ui"
+        "${CMAKE_CURRENT_SOURCE_DIR}/shared/touch-ui")
+    set(BENEFACTOR_TOUCH_UI_DIR "")
+    foreach(candidate IN LISTS BENEFACTOR_TOUCH_UI_CANDIDATES)
+        if(NOT "${candidate}" STREQUAL "" AND IS_DIRECTORY "${candidate}")
+            set(BENEFACTOR_TOUCH_UI_DIR "${candidate}")
+            break()
+        endif()
+    endforeach()
+    if(NOT IS_DIRECTORY "${BENEFACTOR_TOUCH_UI_DIR}")
+        message(FATAL_ERROR
+            "Benefactor requires shared/touch-ui for the Android product; tried "
+            "${BENEFACTOR_TOUCH_UI_CANDIDATES}. Provide -DBENEFACTOR_TOUCH_UI_DIR=<checkout>.")
+    endif()
+    set(TOUCH_UI_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}" CACHE PATH "" FORCE)
+    add_subdirectory("${BENEFACTOR_TOUCH_UI_DIR}" "${CMAKE_BINARY_DIR}/touch-ui")
+endif()
+
 find_package(Threads REQUIRED)
 
 set(BENEFACTOR_SOURCES
@@ -279,7 +302,7 @@ if(MINGW)
     target_link_options(${BENEFACTOR_PRODUCT_TARGET} PRIVATE -static)
 endif()
 if(ANDROID)
-    target_link_libraries(benefactor-pc PRIVATE android log)
+    target_link_libraries(benefactor-pc PRIVATE touch_ui::touch_ui android log)
     target_compile_definitions(benefactor-pc PRIVATE BENEFACTOR_ANDROID)
 endif()
 if(BENEFACTOR_WEB)

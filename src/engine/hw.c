@@ -803,9 +803,6 @@ static void hw_pad_open(int device_index) {
     s_pads[s_npads] = gc;
     s_pad_ids[s_npads] = id;
     s_npads++;
-#ifdef BENEFACTOR_ANDROID
-    touch_controls_set_controller_connected(1);
-#endif
     benefactor_log_write(BENEFACTOR_LOG_INFO, "input", "controller connected: %s (%d total)",
                          SDL_GetGamepadName(gc), s_npads);
 }
@@ -823,9 +820,6 @@ static void hw_pad_close(SDL_JoystickID id) {
             pc_input_pad_clear();
             memset(s_axis_on, 0, sizeof s_axis_on);
             apply_bound_input();
-#ifdef BENEFACTOR_ANDROID
-            touch_controls_set_controller_connected(0);
-#endif
         }
         return;
     }
@@ -1138,6 +1132,12 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
 
         /* Pick the present (window-owning) backend — Vulkan when available, else SDL;
          * the same window serves every renderer (see hw_resolve_backend). */
+#ifdef BENEFACTOR_ANDROID
+        /* A touch is delivered as a finger event the controls can claim; the
+         * synthetic mouse click SDL derives from it by default would fire the
+         * player's weapon from the same tap. */
+        SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+#endif
         s_backend = hw_resolve_backend();
         if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) {
             const PresentBackend *sdl = present_backend_sdl();
@@ -1150,6 +1150,11 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
                 return -1;
         }
         HW_LOG("[render] present backend: %s\n", s_backend->name);
+#ifdef BENEFACTOR_ANDROID
+        /* The on-screen controls are drawn over the presented frame, in output
+         * pixels, by the backend that owns the renderer. */
+        present_backend_set_frame_overlay(touch_controls_present);
+#endif
         hw_fullscreen_refresh(); /* persisted "fullscreen" knob */
 
         hw_audio_open();
@@ -1312,10 +1317,6 @@ static int hw_present_body(void) {
         pc_hud_icons_overlay(s_out); /* fast-forward / free-cam status icons */
         pc_pause_menu_overlay(s_out);
         pc_toast_overlay(s_out);
-#ifdef BENEFACTOR_ANDROID
-        touch_controls_draw(s_out, s_hw_out_w, HW_DISPLAY_H);
-        hw_overlay_rect(0, 0, s_hw_out_w, HW_DISPLAY_H);
-#endif
         pc_overlay_set_dims(HW_DISPLAY_W, HW_DISPLAY_H); /* restore default */
     }
 

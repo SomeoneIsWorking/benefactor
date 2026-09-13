@@ -11,6 +11,7 @@
 static SDL_Window *s_window = NULL;
 static SDL_Renderer *s_renderer = NULL;
 static SDL_Texture *s_texture = NULL;
+static void (*s_frame_overlay)(SDL_Renderer *, SDL_Window *) = NULL;
 static int s_content_w = 0, s_content_h = 0;
 static SceneSdlCache s_scene_cache = {0}; /* persistent atlas/base for present_scene */
 
@@ -59,12 +60,26 @@ static int sdl_init(const char *title, int content_w, int content_h) {
     return sdl_ensure_content(content_w, content_h);
 }
 
+/* The overlay is drawn in output pixels, not in the game's logical units: the
+ * controls must be crisp at the display's resolution instead of inheriting the
+ * low-resolution frame's upscaling. Logical presentation is suspended for the
+ * overlay pass and restored for the next frame's game blit. */
+static void sdl_draw_overlay(int content_w, int content_h) {
+    if (s_frame_overlay == NULL)
+        return;
+    SDL_SetRenderLogicalPresentation(s_renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+    s_frame_overlay(s_renderer, s_window);
+    SDL_SetRenderLogicalPresentation(s_renderer, content_w, content_h,
+                                     SDL_LOGICAL_PRESENTATION_LETTERBOX);
+}
+
 static void sdl_present(const uint32_t *argb, int w, int h) {
     if (sdl_ensure_content(w, h) != 0)
         return;
     SDL_UpdateTexture(s_texture, NULL, argb, w * 4);
     SDL_RenderClear(s_renderer);
     SDL_RenderTexture(s_renderer, s_texture, NULL, NULL);
+    sdl_draw_overlay(w, h);
     SDL_RenderPresent(s_renderer);
 }
 
@@ -91,6 +106,7 @@ static void sdl_present_scene(const Scene *s, int y_lo, int y_hi, const uint32_t
         SDL_FRect frc = {(float)rc.x, (float)rc.y, (float)rc.w, (float)rc.h};
         SDL_RenderTexture(s_renderer, s_scene_cache.base, &frc, &frc);
     }
+    sdl_draw_overlay(w, h);
     SDL_RenderPresent(s_renderer);
 }
 
@@ -120,6 +136,10 @@ static const PresentBackend SDL_BACKEND = {
     sdl_shutdown};
 
 const PresentBackend *present_backend_sdl(void) { return &SDL_BACKEND; }
+
+void present_backend_set_frame_overlay(void (*overlay)(SDL_Renderer *, SDL_Window *)) {
+    s_frame_overlay = overlay;
+}
 
 const PresentBackend *present_backend_select(const char *name) {
 #ifdef BENEFACTOR_HAVE_VULKAN
