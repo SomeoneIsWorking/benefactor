@@ -92,6 +92,21 @@ int hw_joy_right(void);
 /* Single shared keyboard→input mapper (SDL keysym). Used by both the standalone
  * and the harness so there is one input path. */
 void hw_handle_key(int sym, int down);
+/* Navigation intents a non-key device can deliver to a key-driven overlay.
+ * Named constants rather than an enum: this header is C11 and shared with C++
+ * callers, and an enum here would be sized as an int (measured: clang-tidy
+ * performance-enum-size, which the project treats as an error). */
+#define HW_NAV_UP 0
+#define HW_NAV_DOWN 1
+#define HW_NAV_LEFT 2
+#define HW_NAV_RIGHT 3
+#define HW_NAV_SELECT 4
+#define HW_NAV_CANCEL 5
+/* The pause menu reads navigation through pc_pause_input_* instead of the
+ * gameplay action state, so a controller or a touch press has to be delivered
+ * as the same intent the keyboard sends. One statement of that mapping serves
+ * both device owners. 1 = an active overlay consumed the event. */
+int hw_overlay_navigate(int intent, int down);
 /* Called after Lucent-routed Android touch changes logical action state. */
 void hw_touch_controls_changed(void);
 /* Fire held on a device whose controls are VANILLA (not modern) — that fire

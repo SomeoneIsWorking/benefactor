@@ -88,6 +88,10 @@ issues before re-deriving an address, ABI, state transition, or failed approach.
   compilers. Format and lint first-party code, keep files cohesive, and do not
   grow a monolith.
 - Never use raw `rm`, `pkill`, or commit/package copyrighted game inputs.
+- A `std::filesystem::path` never converts to `std::string` on Windows, where its
+  `value_type` is `wchar_t`; the Linux verifier cannot see the difference. Call
+  `.string()` and, when a Windows job reports such a conversion error, syntax-check the
+  Windows-relevant sources with a Windows cross-compiler before pushing again.
 
 The adapter and product now build. CMake and `./run.sh` must refuse a missing
 `shared/amigaport` boundary by name; they must never launch a diagnostic
