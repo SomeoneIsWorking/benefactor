@@ -28,7 +28,7 @@ maintained 68000 interpreter without disturbing the existing native host owners.
 | S001 | The complete game boots, transitions among all runtime images, and plays all 60 levels through the intended product | partial | S005, S023 | G001, G002 |
 | S002 | Native pause/options apply and persist modern settings in game | partial | S005 | G002 |
 | S003 | Keyboard, hot-pluggable controllers, touch, rebinding, and alternate controls share logical actions | partial | S005; issue 0013 mapped the primary face button (`s_hop` / Pad A / Space under modern controls) to dismiss the level card into gameplay (`cop1lc = $003914`) and preserved real mouse clicks (`s_mouse_lmb_raw`) across bound input application | G002 |
-| S004 | Android provides no-terminal disk setup without packaged game assets | partial | S022, S023 | G003 |
+| S004 | Android provides no-terminal disk setup without packaged game assets | verified | S022; verified on the persistent `codex_shared_api35` emulator: the first-run dialog prompts for disks, SAF tree picker stages `Disk.1`-`Disk.3`, files are committed into private app storage, and subsequent launches boot directly into gameplay without prompting | G003 |
 | S005 | Native owners plus `shared/amigaport` execute every non-native 68000 path directly from authenticated runtime images | partial | S020; the local Clang/headless run loads Disk.1-Disk.3, reaches `$577000`, and now runs the complete retail `=SB=` level-data dispatcher through the interpreter after native ATN loads. It sustains mixed input in gameplay after the shared JSR subroutine-boundary fixes and the `$1E.w` gameplay-mode-word normalisation (issue 0006 — the attract and direct-to-gameplay hand-offs entered `$577000` with a stale mode word, tripping the demo-input branch). Both the attract path and `--level` + fire injection now reach the level-intro card and run in-level frames without an illegal-instruction exit. Issue 0007 closed the interpreter's boundary and timing gaps. Issue 0009 established clean cooperative frame handoffs by adding scanline wait and displaced blitter idiom recognition to `src/port/wait_idiom.h`, registering wait idioms for all overlays, and eliminating mid-instruction beam-yielding and boundary-holding compensatory hacks (`hw_boundary_hold`, `s_boundary_owed`, `hw_present_paused_frame`). Issue 0010 resolved subroutine original call boundaries across native overrides and restored classic jump/fall/walk physics and in-game savestates. Issue 0011 resolved scanline wait presentation and consolidated override calling into a single unified `rt_call` across host and interpreter dispatch; issue 0014 moved the JSR/BSR-versus-JMP/BRA boundary choice into the Benefactor title adapter. Issue 0012 resolved nested override host-exit propagation across `rt_call` frames, fixing a watchdog hang at PC `$00000622` (`cop1lc = $0000097E`) when selecting Continue / Play Game from the title menu. Issue 0013 isolated interrupt vectors ($6C, $78) across overlay boundaries, removed an invalid subroutine override on music branch $59C5B0, and unified level-card dismissal inputs across modern and vanilla schemes. Issue 0015 restored the complete retail level-data dispatcher and sample-bank integrity on level-1 entry. A headless Disk.1-Disk.3 run boots unaided through the attract sequence, enters level 1 on fire, and moves the player over 11,000+ frames with no runtime errors; a windowed run holds a steady 50 fps. Four-image, platform, and performance conformance remain open | G001 |
 | S006 | The working static recomp provides independent behavioral comparison for the shipping interpreter | partial | S005; `origin/oracle` and `tools/oracle_diff.py` reach level 1, and the title-owned first-gameplay frame handoff now closes the direct animation/SFX phase identified in issue 0016. The static product is separate from the shipping build; representative first-divergence coverage remains open | G001 |
 | S007 | Turbo, hyper, and hold-to-fast-forward change gameplay pace while audio remains at normal speed | partial | S005 | G002 |
@@ -92,12 +92,16 @@ Gap: re-exercise and verify the retained owner through S005's interpreter produc
 
 ### S004 — Packaged setup
 
-Android imports a validated three-disk set into private storage without
-packaging the disks through the shared `android-port` SAF importer. The retired
-AppImage shell setup flow is no longer a shipping implementation.
+Evidence: On the persistent `codex_shared_api35` Android emulator, the native/interpreter
+`arm64-v8a` APK launched into the disk-requirement dialog, presented the system SAF
+directory picker via `AndroidDocumentImport.pickTree`, accepted user-supplied `Disk.1`,
+`Disk.2`, and `Disk.3` files from `/sdcard/Download/benefactor-emulator-test`, validated and
+committed the set into private storage, and started gameplay in landscape mode with touch
+controls. Subsequent launches detect the committed disks and boot straight into the intro
+and title flow without re-prompting. The temporary emulator directory was cleared after
+verification under the shared lock.
 
-Gap: prove the Android path through the native/interpreter product and keep
-desktop setup in S031.
+Desktop setup is independently tracked under S031.
 
 ### S005 — Native/interpreter execution
 
