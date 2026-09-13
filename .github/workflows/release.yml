@@ -16,9 +16,11 @@ permissions:
 
 env:
   BENEFACTOR_LUCENT_DIR: ${{ github.workspace }}/dependencies/lucent
-  # setup-ui's CMake resolves RmlUi from this path, like the other pinned
-  # dependency checkouts.
+  # setup-ui resolves RmlUi, and the Freetype checkout it builds when the host
+  # has no font-engine package, from these paths — the same way the pinned
+  # dependency checkouts are named.
   SETUP_UI_RMLUI_DIR: ${{ github.workspace }}/dependencies/RmlUi
+  SETUP_UI_FREETYPE_DIR: ${{ github.workspace }}/dependencies/freetype
 
 jobs:
   windows:
@@ -64,7 +66,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -74,6 +76,14 @@ jobs:
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
           ref: ba95ffe8bfb6370efb2cdcca927eaad4710c5413
           path: dependencies/RmlUi
+          persist-credentials: false
+      - name: Check out pinned Freetype
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: freetype/freetype
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 42608f77f20749dd6ddc9e0536788eaad70ea4b5
+          path: dependencies/freetype
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -143,7 +153,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -153,6 +163,14 @@ jobs:
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
           ref: ba95ffe8bfb6370efb2cdcca927eaad4710c5413
           path: dependencies/RmlUi
+          persist-credentials: false
+      - name: Check out pinned Freetype
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: freetype/freetype
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 42608f77f20749dd6ddc9e0536788eaad70ea4b5
+          path: dependencies/freetype
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -213,7 +231,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -223,6 +241,14 @@ jobs:
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
           ref: ba95ffe8bfb6370efb2cdcca927eaad4710c5413
           path: dependencies/RmlUi
+          persist-credentials: false
+      - name: Check out pinned Freetype
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          repository: freetype/freetype
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          ref: 42608f77f20749dd6ddc9e0536788eaad70ea4b5
+          path: dependencies/freetype
           persist-credentials: false
       - name: Set up Python and uv
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -294,7 +320,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/android-port
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 9d6d96f57fe2add688f3efd4ee76c072edc342c2
+          ref: 6eac0754c316a252db06e77a873dc9882a6214ac
           path: shared/android-port
           persist-credentials: false
       - name: Check out pinned Lucent
@@ -326,7 +352,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -401,7 +427,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 56e6a2154a8238afd512bf329e9a740eb02253d6
+          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
