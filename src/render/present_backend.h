@@ -61,6 +61,14 @@ typedef struct PresentBackend {
  * Never returns NULL. */
 const PresentBackend *present_backend_select(const char *name);
 
+/* Install a callback that draws an in-game overlay over the presented frame —
+ * the on-screen touch controls — after the game image and before present. The
+ * SDL backend calls it in output pixels; a backend that cannot host an SDL
+ * renderer (Vulkan) has no overlay and never calls it, which is why the
+ * callback is registered through this seam rather than referenced from the
+ * presentation module. Pass NULL to remove it. */
+void present_backend_set_frame_overlay(void (*overlay)(SDL_Renderer *renderer, SDL_Window *window));
+
 /* Backend providers (defined in their respective .c files). */
 const PresentBackend *present_backend_sdl(void);
 #ifdef BENEFACTOR_HAVE_VULKAN
