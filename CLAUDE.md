@@ -80,6 +80,10 @@ show that fades and music advanced.
   `/mem`, and `/fb.ppm` inspect the held state. `/resume` continues, and
   `/step?frames=N` advances N frames. Keep the hold inside the game thread:
   returning a breakpoint exit to game flow would let it continue or shut down.
+- `/state`'s `level` is `$20.w`, the level the game has *requested*; the level whose
+  data is actually loaded is `$2E.w`, visible as the copper list changing
+  (`cop1lc`). Reading `level` as "the level being played" makes a normal transition
+  look wrong: it changes at the win increment, one card before the reload.
 - A hold is readable, not guessed: `/state` reports `script_paused:1` and a
   frozen `frame` while a breakpoint holds the game, and the log says
   `breakpoint $XXXXXX reached ... holding`. Clearing breakpoints does NOT
