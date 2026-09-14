@@ -50,6 +50,8 @@ The canonical inventory is `docs/project-state.md`. In summary:
 | Representative cross-host gameplay conformance and performance | missing |
 | Windows, macOS `.app`, Linux AppImage, Android APK, and WASM Pages releases | verified hosted asset-free matrix; Android publication signing and runtime gates remain open |
 | Android, browser, and source-launcher disk browse/setup | partial; extensionless disk files and one bounded disk ZIP are accepted, packaged desktop persistence and runtime handoff remain open |
+| One version identity shown in-game and used for the package and the release tag | verified; `version.txt` is the source, the pause panel shows it, and the publisher refuses a mismatched tag |
+| Release check with an in-game answer | partial; asks the release service once per launch with the host's own HTTP client and reports a newer release, this build current, or the exact failure — desktop and Android verified, browser run open |
 
 ## Player-supplied files
 

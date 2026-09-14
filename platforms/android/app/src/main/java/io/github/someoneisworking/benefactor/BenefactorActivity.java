@@ -4,7 +4,14 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,6 +48,9 @@ public final class BenefactorActivity extends AndroidActivity {
             String[] documentNames, String error);
 
     private static native void nativeDiskSelectionProgress(double fraction);
+
+    /* Latest release tag, or a reason the check could not run. */
+    private static native void nativeUpdateResult(String tag, String error);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,6 +92,83 @@ public final class BenefactorActivity extends AndroidActivity {
                     "The activity closed during disk selection.");
         }
         super.onDestroy();
+    }
+
+    /**
+     * Asks the release service for the latest version. Called from native code
+     * once per run when the update check is enabled, and given the address so
+     * that this side never holds a second copy of which service to ask. The
+     * request runs on its own thread because the native side must never block on
+     * the network, and the result is handed back through nativeUpdateResult.
+     */
+    public void checkForBenefactorUpdates(String url) {
+        Thread request = new Thread(() -> {
+            String tag = null;
+            String error = null;
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(url).openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(10000);
+                connection.setRequestProperty("Accept", "application/vnd.github+json");
+                connection.setRequestProperty("User-Agent", "benefactor-update-check");
+                int status = connection.getResponseCode();
+                if (status != 200) {
+                    error = "the release service refused the request";
+                } else {
+                    String body = readAll(connection.getInputStream());
+                    tag = releaseTag(body);
+                    if (tag == null) {
+                        error = "no release tag in the response";
+                    }
+                }
+            } catch (IOException | SecurityException failure) {
+                // A refused permission must not take the game down with it: the
+                // check reports that it could not run, which is what it is.
+                error = "the update check could not reach the network";
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+            nativeUpdateResult(tag, error);
+        }, "benefactor-update-check");
+        request.setDaemon(true);
+        request.start();
+    }
+
+    /* A release document is a few kilobytes. The bound is here so a server that
+       streams without end cannot be read into memory. */
+    private static final int MAX_RELEASE_BYTES = 65536;
+
+    private static String readAll(InputStream stream) throws IOException {
+        StringBuilder body = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null && body.length() < MAX_RELEASE_BYTES) {
+                body.append(line).append('\n');
+            }
+        }
+        return body.toString();
+    }
+
+    /* "tag_name" from a GitHub release document. Kept here, next to the request,
+     * as the browser-free half of the check; the comparison is native. */
+    private static String releaseTag(String json) {
+        int at = json.indexOf("\"tag_name\"");
+        if (at < 0) {
+            return null;
+        }
+        int open = json.indexOf('"', json.indexOf(':', at) + 1);
+        if (open < 0) {
+            return null;
+        }
+        int close = json.indexOf('"', open + 1);
+        if (close < 0) {
+            return null;
+        }
+        return json.substring(open + 1, close);
     }
 
     /**

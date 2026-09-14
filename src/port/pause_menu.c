@@ -37,10 +37,12 @@
 #include "common/game_state.h" /* g_state + g_gameplay_active / g_credits_active /
                            * g_enter_gameplay / g_gameplay_entry macros */
 #include "common/log.h"
+#include "common/version.h"
 #include "engine/hw.h"
 #include "port/config.h"
 #include "port/input.h"
 #include "port/overlay_ui.h"
+#include "port/update_check.h"
 #include <SDL3/SDL.h> /* SDLK_/SDL_GAMEPAD_ constants only */
 #include <stdint.h>
 #include <stdio.h>
@@ -77,7 +79,7 @@ enum { RR_RENDERER = 0, RR_ASPECT, RR_FULLSCREEN, RR_AMBIENT, RR_SHADOW, RR_BACK
 /* CONTROLS-page row ids (input/binding settings, grouped out of OPTIONS). */
 enum { CT_INTERACT = 0, CT_MODERN_KB, CT_MODERN_PAD, CT_BIND_KB, CT_BIND_PAD, CT_BACK };
 /* EXTRA-page row ids. */
-enum { EX_SKIP_INTRO = 0, EX_UNLOCK_ALL, EX_FALL_DMG, EX_BACK };
+enum { EX_SKIP_INTRO = 0, EX_UNLOCK_ALL, EX_FALL_DMG, EX_UPDATE, EX_BACK };
 
 /* Bindings capture: which device/action the next press is assigned to. */
 static int s_capture = 0, s_capture_dev = 0, s_capture_action = 0;
@@ -188,6 +190,7 @@ static int extra_rows(int *rows /* >= 14 */) {
     rows[n++] = EX_SKIP_INTRO;
     rows[n++] = EX_UNLOCK_ALL;
     rows[n++] = EX_FALL_DMG;
+    rows[n++] = EX_UPDATE;
     rows[n++] = EX_BACK;
     return n;
 }
@@ -425,6 +428,9 @@ static void extra_cycle(int row) {
     case EX_FALL_DMG:
         fall_dmg_set(fall_dmg_index() + 1);
         break;
+    case EX_UPDATE:
+        bool_knob_toggle("update_check");
+        break;
     default:
         break;
     }
@@ -638,17 +644,25 @@ void pc_pause_input_select(void) {
     }
 }
 
+/* Only the paths that really close the menu say so: backing out of a submenu
+ * leaves it open, and a log line that cannot be told from the other case is
+ * worse than none. */
+static void close_from_escape(void) {
+    benefactor_log_write(BENEFACTOR_LOG_INFO, "menu", "escape closed the pause menu");
+    s_pending_action = ACT_RESUME;
+}
+
 /* ESC / pad B: cancel capture, back out one page, or resume from the main page.
  * In title mode (opened via ESC/Start outside gameplay) OPTIONS is the root —
  * backing out of it closes the menu. */
 void pc_pause_escape(void) {
     if (!s_paused)
         return;
-    benefactor_log_write(BENEFACTOR_LOG_INFO, "menu", "pause menu closed by escape");
     if (s_capture) {
         s_capture = 0;
         return;
     }
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "menu", "escape stepped back from page %d", s_page);
     switch (s_page) {
     case PG_BIND_KB:
         enter_controls_at(CT_BIND_KB);
@@ -667,14 +681,14 @@ void pc_pause_escape(void) {
         break;
     case PG_OPTIONS:
         if (s_title_mode)
-            s_pending_action = ACT_RESUME;
+            close_from_escape();
         else {
             enter_page(PG_MAIN);
             s_cursor = OPT_OPTIONS;
         }
         break;
     default:
-        s_pending_action = ACT_RESUME;
+        close_from_escape();
         break;
     }
 }
@@ -760,6 +774,12 @@ void pc_pause_tick(void) {
 
 /* ── Overlay rendering ─────────────────────────────────────────────────── */
 
+/* The page's own drawing, then the one line that is not part of any page. */
+void pc_pause_menu_overlay(uint32_t *fb);
+
+/* Text width in pixels: the overlay font is a fixed 6px cell. */
+static int text_width(const char *text) { return (int)strlen(text) * 6; }
+
 static void draw_panel(uint32_t *fb, int px, int py, int pw, int ph, const char *title) {
     pc_fill_rect(fb, px, py, pw, ph, 0xFF101830);
     pc_fill_rect(fb, px, py, pw, 1, 0xFFFFD040);
@@ -767,6 +787,10 @@ static void draw_panel(uint32_t *fb, int px, int py, int pw, int ph, const char 
     pc_fill_rect(fb, px, py, 1, ph, 0xFFFFD040);
     pc_fill_rect(fb, px + pw - 1, py, 1, ph, 0xFFFFD040);
     pc_draw_text(fb, px + 8, py + 6, title, 1, 0xFFFFE070);
+    /* Which build this is, where a player reporting a problem will see it. */
+    char version[32];
+    snprintf(version, sizeof version, "v%s", pc_version());
+    pc_draw_text(fb, px + pw - 8 - text_width(version), py + 6, version, 1, 0xFF90A0D0);
 }
 
 static void draw_row(uint32_t *fb, int px, int y, int selected, const char *label,
@@ -804,9 +828,50 @@ static void draw_submenu_arrow(uint32_t *fb, int px, int pw, int y, int selected
     }
 }
 
-void pc_pause_menu_overlay(uint32_t *fb) {
-    if (!s_paused)
+/* The update check's state as one line under the panel. A check that could not
+ * run says so: "up to date" is a claim this port only makes when it has an
+ * answer, and the player can turn the check off, in which case there is no
+ * line at all. */
+static void draw_update_status(uint32_t *fb) {
+    if (!pc_cfg_bool("update_check", 1))
         return;
+    const char *line = pc_update_line();
+    if (line == NULL || line[0] == '\0')
+        return;
+    const int ow = pc_overlay_w(), oh = pc_overlay_h();
+    /* A failure carries its reason, which can be longer than the screen; the
+     * sentence is clipped to what fits rather than drawn off the edge. */
+    char clipped[64];
+    const int max_chars = (ow - 16) / 6;
+    snprintf(clipped, sizeof clipped, "%s", line);
+    if ((int)strlen(clipped) > max_chars) {
+        clipped[max_chars] = '\0';
+        if (max_chars >= 3) {
+            clipped[max_chars - 3] = '.';
+            clipped[max_chars - 2] = '.';
+            clipped[max_chars - 1] = '.';
+        }
+    }
+    line = clipped;
+    const int width = text_width(line);
+    const int x = (ow - width) / 2;
+    const int y = oh - 22;
+    pc_fill_rect(fb, x - 6, y - 4, width + 12, 15, 0xFF101830);
+    pc_fill_rect(fb, x - 6, y - 4, width + 12, 1, 0xFF35516A);
+    pc_fill_rect(fb, x - 6, y + 10, width + 12, 1, 0xFF35516A);
+    const PcUpdateState state = pc_update_state();
+    uint32_t colour = 0xFF90A0D0;
+    if (state == PC_UPDATE_AVAILABLE) {
+        colour = 0xFFFFD040;
+    } else if (state == PC_UPDATE_FAILED) {
+        colour = 0xFFE08080;
+    } else if (state == PC_UPDATE_CURRENT) {
+        colour = 0xFF80D090;
+    }
+    pc_draw_text(fb, x, y, line, 1, colour);
+}
+
+static void draw_pause_page(uint32_t *fb) {
 
     /* Dim the background by overlaying ~50%-black across the whole frame. Use the live
      * overlay target size (the wide output), so the dim spans the full widescreen view. */
@@ -1013,6 +1078,20 @@ void pc_pause_menu_overlay(uint32_t *fb) {
                 label = "FALL DAMAGE";
                 value = k_fall_dmg_labels[fall_dmg_index()];
                 break;
+            case EX_UPDATE: {
+                label = "UPDATE CHECK";
+                const PcUpdateState state = pc_update_state();
+                if (state == PC_UPDATE_AVAILABLE) {
+                    value = pc_update_latest();
+                } else if (state == PC_UPDATE_CHECKING) {
+                    value = "CHECKING";
+                } else if (state == PC_UPDATE_FAILED) {
+                    value = "FAILED";
+                } else {
+                    value = pc_cfg_bool("update_check", 1) ? "ON" : "OFF";
+                }
+                break;
+            }
             case EX_BACK:
                 label = "BACK";
                 break;
@@ -1048,4 +1127,11 @@ void pc_pause_menu_overlay(uint32_t *fb) {
                      value);
         }
     }
+}
+
+void pc_pause_menu_overlay(uint32_t *fb) {
+    if (!s_paused)
+        return;
+    draw_pause_page(fb);
+    draw_update_status(fb);
 }

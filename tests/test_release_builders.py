@@ -63,8 +63,10 @@ class ReleaseBuilderTests(unittest.TestCase):
         isolation = (root / "isolation.mjs").read_text()
         worker = (root / "service-worker.js").read_text()
         self.assertIn('import { prepareApplication } from "./isolation.mjs"', page)
-        self.assertIn('picker.src = "disk_setup.js"', page)
-        self.assertIn('runtime.src = "benefactor.js"', page)
+        # The page loads the two bridges to what only a browser can do — the file
+        # chooser and the update check's request — before the product module.
+        self.assertIn('for (const bridge of ["disk_setup.js", "release_check.js"])', page)
+        self.assertIn('await load("benefactor.js")', page)
         self.assertIn("Cross-Origin-Opener-Policy", worker)
         self.assertIn("Cross-Origin-Embedder-Policy", worker)
         self.assertIn("crossOriginIsolated", isolation)

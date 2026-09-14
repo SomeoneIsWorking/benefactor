@@ -15,6 +15,7 @@ from pathlib import Path
 
 from tools.launcher import runtime_blocker
 from tools.paths import setup_ui_dir
+from tools.product_version import read_version, version_code
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -297,6 +298,11 @@ def main() -> int:
     environment = dict(os.environ)
     environment["ANDROID_SDK_ROOT"] = str(sdk)
     environment["JAVA_HOME"] = str(jdk)
+    # The packager derives both from version.txt itself; passing them here keeps
+    # a caller's explicit override authoritative and the two in step.
+    version = read_version()
+    environment.setdefault("BENEFACTOR_ANDROID_VERSION_NAME", version)
+    environment.setdefault("BENEFACTOR_ANDROID_VERSION_CODE", str(version_code(version)))
     temporary_keystore = prepare_signing_environment(environment, jdk)
     try:
         task = ":app:assembleRelease" if args.release else ":app:assembleDebug"

@@ -49,25 +49,29 @@
     <script type="module">
       import { prepareApplication } from "./isolation.mjs";
 
+      function load(source) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = source;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error(`The browser could not load ${source}.`));
+          document.body.appendChild(script);
+        });
+      }
+
       async function loadApplication() {
         const status = document.getElementById("disk-status");
         try {
           if (!await prepareApplication()) {
             return;
           }
-          // The picker bridge installs the hooks the product calls; the product
-          // then draws its own setup screen into the canvas.
-          const picker = document.createElement("script");
-          picker.src = "disk_setup.js";
-          picker.onload = () => {
-            const runtime = document.createElement("script");
-            runtime.src = "benefactor.js";
-            document.body.appendChild(runtime);
-          };
-          picker.onerror = () => {
-            status.textContent = "The browser could not load the disk picker.";
-          };
-          document.body.appendChild(picker);
+          // These bridges install the hooks the product calls — the browser's
+          // file chooser and its network stack — and then the product draws its
+          // own setup screen into the canvas.
+          for (const bridge of ["disk_setup.js", "release_check.js"]) {
+            await load(bridge);
+          }
+          await load("benefactor.js");
         } catch (error) {
           status.textContent = error instanceof Error ? error.message : "Browser setup failed";
         }

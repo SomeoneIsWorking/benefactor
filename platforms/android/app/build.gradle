@@ -9,6 +9,22 @@ if (gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
     throw new GradleException('Release signing requires all BENEFACTOR_ANDROID_KEY_* and password variables.')
 }
 
+// The product version, from the repository's single source of truth. The source
+// tree has version.txt beside it; build_android.py, which assembles this project
+// into a build directory, passes the same number through the environment. The
+// release tag is checked against version.txt before publication.
+def benefactorVersionFile = new File(rootDir, '../../version.txt')
+def benefactorVersion = benefactorVersionFile.isFile()
+        ? benefactorVersionFile.text.trim()
+        : System.getenv('BENEFACTOR_ANDROID_VERSION_NAME')
+if (benefactorVersion == null || !(benefactorVersion ==~ /\d+\.\d+\.\d+/)) {
+    throw new GradleException("the product version must be MAJOR.MINOR.PATCH: " +
+            "version.txt is missing and BENEFACTOR_ANDROID_VERSION_NAME is '${benefactorVersion}'")
+}
+def benefactorVersionParts = benefactorVersion.tokenize('.').collect { it.toInteger() }
+def benefactorVersionCode = benefactorVersionParts[0] * 10000 +
+        benefactorVersionParts[1] * 100 + benefactorVersionParts[2]
+
 android {
     namespace = 'io.github.someoneisworking.benefactor'
     compileSdk = 35
@@ -18,8 +34,8 @@ android {
         applicationId = 'io.github.someoneisworking.benefactor'
         minSdk = 21
         targetSdk = 35
-        versionCode = (System.getenv('BENEFACTOR_ANDROID_VERSION_CODE') ?: '1').toInteger()
-        versionName = System.getenv('BENEFACTOR_ANDROID_VERSION_NAME') ?: '0.1.0'
+        versionCode = (System.getenv('BENEFACTOR_ANDROID_VERSION_CODE') ?: benefactorVersionCode).toInteger()
+        versionName = benefactorVersion
     }
     signingConfigs {
         release {

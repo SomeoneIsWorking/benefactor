@@ -2,6 +2,15 @@ cmake_minimum_required(VERSION 3.24)
 
 project(benefactor-port LANGUAGES C CXX)
 
+# One version for every product surface. The release tag is checked against this
+# file (tools/publish_release.py), Android's versionName is derived from it, and
+# the pause menu prints it, so a release cannot ship two different numbers.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" BENEFACTOR_VERSION_RAW)
+string(STRIP "${BENEFACTOR_VERSION_RAW}" BENEFACTOR_VERSION)
+if(NOT BENEFACTOR_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "version.txt must hold a MAJOR.MINOR.PATCH version, got '${BENEFACTOR_VERSION}'")
+endif()
+
 if(MINGW)
     # GitHub's MinGW environment can inherit MSVC-style linker flags from its
     # toolchain setup. GNU ld treats those as input paths, so remove them at
@@ -202,6 +211,7 @@ set(BENEFACTOR_SOURCES
     src/engine/hw_audio.c
     src/engine/hw_blitter.c
     src/engine/hw_testrun.c
+    src/common/version.c
     src/engine/hw_watchdog.c
     src/engine/overlay_load.c
     src/port/config.c
@@ -213,6 +223,8 @@ set(BENEFACTOR_SOURCES
     src/port/guest_profile.cpp
     src/port/game_loop.c
     src/port/savestate.c
+    src/port/update_check.cpp
+    src/platform/update_transport.cpp
     src/port/guest_vectors.c
     src/port/level_layout.c
     src/port/guest_trace.c
@@ -262,7 +274,8 @@ if(BENEFACTOR_WEB)
         src/platform/selection_report.cpp
         src/platform/setup_flow.cpp
         src/platform/staged_disks.cpp
-        src/platform/web_setup.cpp)
+        src/platform/web_setup.cpp
+        src/platform/web_update.cpp)
 endif()
 
 if(BENEFACTOR_WEB)
@@ -276,7 +289,8 @@ elseif(ANDROID)
         src/platform/selection_report.cpp
         src/platform/setup_flow.cpp
         src/platform/staged_disks.cpp
-        src/port/touch_controls.cpp)
+        src/port/touch_controls.cpp
+        src/platform/android_update.cpp)
     add_library(benefactor-pc SHARED ${BENEFACTOR_SOURCES})
     set_target_properties(benefactor-pc PROPERTIES OUTPUT_NAME main)
 else()
@@ -295,6 +309,8 @@ else()
 endif()
 
 target_include_directories(${BENEFACTOR_PRODUCT_TARGET} PRIVATE src)
+target_compile_definitions(${BENEFACTOR_PRODUCT_TARGET} PRIVATE
+    BENEFACTOR_VERSION="${BENEFACTOR_VERSION}")
 target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE
     amigaport::amigaport
     lucent::lucent
@@ -307,7 +323,23 @@ if(NOT WIN32 AND NOT BENEFACTOR_WEB)
     target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE m)
 endif()
 if(WIN32)
-    target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE ws2_32)
+    # ws2_32 for the socket helpers, winhttp for the platform's own HTTP client.
+    target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE ws2_32 winhttp)
+    # The Windows HTTP transport is the one owner no other host's build can
+    # exercise, so it ships with a runnable check for this platform's CI to run
+    # natively. It is not part of the package.
+    add_executable(benefactor-winhttp-transport
+        tests/winhttp_transport.cpp
+        src/common/log.c
+        src/platform/winhttp_update.cpp
+        src/port/update_check.cpp)
+    target_include_directories(benefactor-winhttp-transport PRIVATE src)
+    target_compile_definitions(benefactor-winhttp-transport PRIVATE
+        BENEFACTOR_VERSION="${BENEFACTOR_VERSION}")
+    target_link_libraries(benefactor-winhttp-transport PRIVATE lucent::lucent winhttp)
+    if(MINGW)
+        target_link_options(benefactor-winhttp-transport PRIVATE -static)
+    endif()
 endif()
 if(MINGW)
     # The Windows ZIP ships one executable, without a MinGW runtime prefix.
@@ -336,10 +368,28 @@ if(BENEFACTOR_WEB)
         "-sALLOW_MEMORY_GROWTH=1"
         "-sNO_EXIT_RUNTIME=1"
         "-sENVIRONMENT=web,worker"
-        "-sEXPORTED_FUNCTIONS=['_main','_benefactor_web_pick_begin','_benefactor_web_pick_add','_benefactor_web_pick_end']"
+        "-sEXPORTED_FUNCTIONS=['_main','_benefactor_web_pick_begin','_benefactor_web_pick_add','_benefactor_web_pick_end','_benefactor_web_update_result']"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','FS']")
 elseif(NOT MSVC)
     target_compile_options(${BENEFACTOR_PRODUCT_TARGET} PRIVATE -Wall -Wextra)
+endif()
+
+if(NOT ANDROID AND NOT BENEFACTOR_WEB)
+    # The desktop update check uses the host's own HTTP client. Windows uses
+    # WinHTTP, so its package stays one executable with nothing to bundle;
+    # elsewhere it is libcurl when the platform provides one, and a build without
+    # it reports that the check could not run rather than claiming this build is
+    # current.
+    if(WIN32)
+        target_sources(${BENEFACTOR_PRODUCT_TARGET} PRIVATE src/platform/winhttp_update.cpp)
+    else()
+        target_sources(${BENEFACTOR_PRODUCT_TARGET} PRIVATE src/platform/curl_update.cpp)
+        find_package(CURL QUIET)
+        if(CURL_FOUND)
+            target_compile_definitions(${BENEFACTOR_PRODUCT_TARGET} PRIVATE BENEFACTOR_HAVE_CURL=1)
+            target_link_libraries(${BENEFACTOR_PRODUCT_TARGET} PRIVATE CURL::libcurl)
+        endif()
+    endif()
 endif()
 
 if(NOT ANDROID AND NOT BENEFACTOR_WEB)

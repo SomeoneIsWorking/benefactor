@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <lucent/http.h>
 
@@ -25,6 +26,7 @@ extern "C" {
 #include "port/input.h"
 #include "port/overlay_ui.h"
 #include "port/port.h"
+#include "port/update_check.h"
 #include "runtime/guest_runtime.h"
 }
 
@@ -42,16 +44,21 @@ using lucent::http::Response;
 
 /* One query parameter, decoded. Absent and malformed both give `fallback`, so
  * a route never acts on a half-parsed value. */
+/* One query field, decoded. A route that takes text — a failure reason, a tag —
+ * has to be able to receive a sentence, so the escapes are decoded here rather
+ * than left for each caller. Lucent's bounded form decoder owns the rules; a
+ * malformed query reads as a missing field, as every other unreadable argument
+ * does. */
 std::string parameter(const Request &request, std::string_view name) {
-    const std::string_view query = request.query();
-    std::size_t at = 0;
-    while (at < query.size()) {
-        const std::size_t end = std::min(query.find('&', at), query.size());
-        const std::string_view field = query.substr(at, end - at);
-        const std::size_t equals = field.find('=');
-        if (equals != std::string_view::npos && field.substr(0, equals) == name)
-            return std::string(field.substr(equals + 1));
-        at = end + 1;
+    std::vector<lucent::http::FormField> fields;
+    std::string error;
+    if (!lucent::http::parse_form_urlencoded(request.query(), fields, error)) {
+        return {};
+    }
+    for (const auto &field : fields) {
+        if (field.name == name) {
+            return field.value;
+        }
     }
     return {};
 }
@@ -120,7 +127,7 @@ Response route_state() {
             "{\"frame\":%d,\"level\":%u,\"cop1lc\":\"%06X\","
             "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
             "\"saveable\":%d,\"save_reason\":\"%s\",\"paused\":%d,\"script_paused\":%d,"
-            "\"press_left\":%d,"
+            "\"freecam\":%d,\"press_left\":%d,"
             "\"instructions\":%llu,"
             "\"guest_cycles\":%llu,\"blit_cycles\":%llu,\"fps\":%d,"
             "\"audio\":{\"dmacon\":\"%04X\",\"intena\":\"%04X\",\"vol\":[%u,%u,%u,%u],\"per\":[%u,%"
@@ -138,7 +145,8 @@ Response route_state() {
             "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u}}\n",
             hw_get_frame_num(), level, cop1lc, g_gameplay_active, g_overlay_active,
             g_credits_active, saveable, why ? why : "", pc_pause_active() ? 1 : 0,
-            InputScript::instance().paused() ? 1 : 0, InputScript::instance().press_frames_left(),
+            InputScript::instance().paused() ? 1 : 0, pc_freecam_active() ? 1 : 0,
+            InputScript::instance().press_frames_left(),
             (unsigned long long)rt_get_executed_instructions(),
             (unsigned long long)rt_get_guest_cycles(), (unsigned long long)g_hw_blit_cycles,
             g_hw_perf.fps, s_regs[0x096 >> 1], hw_get_intena(), s_regs[0x0A8 >> 1],
@@ -429,6 +437,22 @@ Response dispatch(const Request &request) {
          * presses alone. */
         pc_debug_complete_level();
         return Response::text(200, "OK", "level complete triggered\n");
+    }
+    if (path == "/update") {
+        /* Report an update-check result by hand, so the states a release has not
+         * produced yet can still be seen and driven: an available release, a
+         * failure with a reason, and what the pause menu draws for each. The
+         * result goes through the same report the hosts use, so what this shows
+         * is what a real check produces. */
+        const std::string tag = parameter(request, "tag");
+        const std::string error = parameter(request, "error");
+        if (tag.empty() && error.empty()) {
+            return Response::text(400, "Bad Request",
+                                  "usage: /update?tag=v1.2.3 or /update?error=reason\n");
+        }
+        pc_update_report(tag.empty() ? nullptr : tag.c_str(),
+                         error.empty() ? nullptr : error.c_str());
+        return Response::text(200, "OK", "update result reported\n");
     }
     if (path == "/trace") {
         /* While the game is held at a breakpoint, serve the trace FROZEN at

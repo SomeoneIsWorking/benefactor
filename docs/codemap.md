@@ -58,6 +58,9 @@ below describe ownership without asserting implementation state.
 | Rendering | Faithful/native scene construction, Vulkan/SDL presentation, effects, engine-view boundary | `src/render/` | `native_renderer.h`, `present_backend.h` | `instructions/rendering-overhaul-plan.md` |
 | Input and actions | Keyboard/controller action mapping and device lifecycle | `src/port/input.c`, `src/port/input.h` | logical action API | `AGENTS.md` |
 | Host UI | Pause, options, level selector, HUD, and touch presentation; edits config but does not own it | `src/port/pause_menu.c`, `src/port/level_select_ui.c`, `src/port/hud_icons.c`, `src/port/touch_controls.cpp` | port UI calls | `README.md` |
+| Release version identity | One version string for the whole product: the build's banner, the pause panel, the Android package, and the tag a release is published under | `version.txt` (source of truth), `src/common/version.{h,c}`, `CMakeLists.txt`, `platforms/android/app/build.gradle`, `tools/publish_release.py` | `pc_version`, `read_version` | `README.md` |
+| Update check policy | What "a newer release exists" means: parse and compare the release tag, name every state, and expose the one line the UI draws. Never performs I/O | `src/port/update_check.{h,cpp}` | `pc_update_report`, `pc_update_tick`, `pc_update_state`, `pc_update_line`, `pc_update_release_url` | `docs/project-state.md` |
+| Update-check hosts | One launch-time start path that honours the player's setting, plus each host's own HTTP client behind it: libcurl, WinHTTP, the Android activity's request, or the page's fetch | `src/platform/update_transport.{h,cpp}`, `src/platform/curl_update.cpp`, `src/platform/winhttp_update.cpp`, `src/platform/android_update.cpp`, `src/platform/web_update.cpp` | `platform_update_check_start`, `platform_update_check_begin` | `docs/project-state.md` |
 | Platform integration | Android JNI/activity handoff and package metadata | `src/platform/`, `platforms/` | platform bridge | `README.md` |
 | Setup screen flow | Drive the shared in-app setup screen, apply the platform's picker result, and turn an accepted set into the disks the product boots with; the same state machine is stepped once per frame by the browser host | `src/platform/setup_flow.{h,cpp}` | `benefactor::platform::run_setup_flow`, `benefactor::platform::SetupFlow::{open,step,deliver}`, `committed_disks` | `docs/project-state.md` |
 | Browser setup host | Own the WASM entry: step the shared setup flow on the browser's animation frame, answer one pick from the page's chooser bridge, then hand the accepted disks to the runtime | `src/platform/web_setup.cpp` | `benefactor_web_pick_begin`, `benefactor_web_pick_add`, `benefactor_web_pick_end`, `benefactorWebPickFiles` | `docs/project-state.md` |
@@ -89,6 +92,8 @@ below describe ownership without asserting implementation state.
 | Persistent option or environment/CLI precedence | typed configuration owner |
 | Project-local recurring scratch path or harness artifact | project path owner plus `src/harness/artifacts.c` |
 | Settings presentation for an existing option | host UI owner |
+| What a release tag means, or which service publishes releases | update-check policy owner |
+| Fetching a release tag with a new host's HTTP client | that host's update transport, behind `platform_update_check_begin` |
 | Diagnostic output routing | Lucent-backed logging owner |
 | Repeatable runtime scenario or differential comparison | `src/harness/` and its driving tools |
 | Binary-derived fact or native replacement grounding | `docs/re-frontier.md` or one issue according to consumer |
@@ -103,7 +108,7 @@ benefactor/
 │   ├── engine/       memory, disk/image, OCS/CIA, blitter, audio
 │   ├── port/         lifecycle, input, UI, configuration, native overrides
 │   ├── render/       scene construction and SDL/Vulkan presentation
-│   ├── platform/     Android/platform bridge
+│   ├── platform/     Android/platform bridge, first-run setup, update-check hosts
 │   ├── common/       shared public value contracts
 │   └── harness/      PUAE differential and interactive diagnostics
 ├── platforms/        package/platform composition

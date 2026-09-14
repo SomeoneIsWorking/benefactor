@@ -15,6 +15,7 @@
 #include "port/overlay_ui.h"
 #include "port/port.h"
 #include "port/port_internal.h"
+#include "port/update_check.h"
 #include "runtime/guest_runtime.h"
 #include <pthread.h>
 #include <setjmp.h>
@@ -202,6 +203,8 @@ int g_pc_restart_reinit = 0;
  *                   parks, then present (SDL must be on main) + deliver IRQ.
  *
  * s_turn: 1 = the game thread runs, 0 = the main thread runs (game parked). */
+/* The update state the log has already reported, so a transition is logged once. */
+static PcUpdateState s_update_logged = PC_UPDATE_IDLE;
 static uint32_t s_game_entry = 0x003000u; /* address the game thread runs from */
 static int s_game_resume = 0;             /* 1 = re-enter via rt_resume (savestate load) */
 /* s_game_done lives on g_state (macro): set when the game flow returns from rt_call */
@@ -392,6 +395,17 @@ int pc_step(void) {
      * is parked, so it's safe to stop/respawn the game thread if needed. */
     {
         pc_pause_tick();
+    }
+    /* Adopt an update check that finished on its own thread. This is the only
+     * place its result becomes visible, so the state the UI reads is written by
+     * the thread that reads it. Transitions are logged once, from that same
+     * thread, so the log and the pause menu can never disagree. */
+    pc_update_tick();
+    if (pc_update_state() != s_update_logged) {
+        s_update_logged = pc_update_state();
+        const char *update_line = pc_update_line();
+        if (update_line != NULL && update_line[0] != '\0')
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "update", "%s", update_line);
     }
     pc_credits_skip_tick();
 
