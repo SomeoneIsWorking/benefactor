@@ -31,9 +31,9 @@ sets), pressing fire at each prompt like a player:
 * Direct entry (`--level 1`): the breakpoint trace shows `$20.w` 1 → 2 at the win
   increment, the card's compare seeing 2 ≠ 1, the level data reload, and
   `$2E.w` = 2 afterwards; the game then runs level 2.
-* Title entry through the level-select panel: the override applied `$20.w` once at
-  the `$150` hand-off, and successive completions advanced the index
-  30 → 31 → 32 → 33 with no replay.
+* Title entry (no `--level`): successive completions advanced the index with no
+  replay. The index was NOT 1 — a later probe measured 27, 30, and 33 on three
+  runs, and the cause of those numbers is a probe artifact, established below.
 
 Sending the win flag *before* the level's start card has been dismissed does replay
 the level, because the flag is consumed while the game is still on the card — that
@@ -47,9 +47,31 @@ copper list (`cop1lc` `003914` → `003484`) while `level` stays `1`, which is t
 level's own geometry, not a replay. Nothing in that path re-runs level 1. Third
 entry tested with the same result, so the route matters and is still unknown.
 
+## The high level indices were the probe typing a password
+
+Re-run one press at a time through the title (`scratch/probe_title_entry.py`),
+reading `/state` and `$20.w` after each press:
+
+* No presses at all: stays on the title, `$20.w` = 0.
+* Three presses: still on the title/password screen, `$20.w` = 0.
+* The fourth press: gameplay at `level = 33`, `$20.w = 33`.
+
+Nothing on the host writes that value. `pc_set_start_level` is called only by the
+`--level` option and the harness; `g_pc_start_level` stays 0 without it, and the
+`$150` hand-off only touches `$20.w` when it is greater than zero. A minimal config
+holding just `skip_intro` reproduces level 33, so no OPTIONS knob is involved
+either: the *guest's* title code set it, which is what the password screen does
+while it is live. Blind fire presses are password characters, and the differing
+numbers across runs (27, 30, 33) are differing typed strings.
+
+So none of the high indices were evidence about progression, and no host path
+pre-advances the level. The transition itself was already shown correct at
+arbitrary indices.
+
 ## Open questions
 
-Which route the reported session took (title CONTINUE, level select, a restored
+Which level the reported session's level card showed when it started, and which
+route it took (title CONTINUE, level select, a restored
 savestate, or the level card), and whether `$20.w` had already been advanced. A
 savestate or in-game Load restores an older `$20.w`, which would produce exactly
 one replay followed by correct progress. Needs the reproduction's entry route
