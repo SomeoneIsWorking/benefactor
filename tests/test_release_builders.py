@@ -35,6 +35,14 @@ class ReleaseBuilderTests(unittest.TestCase):
         imports = "DLL Name: KERNEL32.dll\nDLL Name: SDL3.dll\n"
         self.assertEqual(check_windows_imports.unbundled_imports(imports, {"SDL3.dll"}), [])
 
+    def test_windows_import_check_accepts_the_update_component(self) -> None:
+        # The update check links WinHTTP, which every supported Windows ships.
+        # It is not bundled because it must not be: a stale copy beside the
+        # executable would replace the OS component.
+        imports = "DLL Name: KERNEL32.dll\nDLL Name: WINHTTP.dll\n"
+        self.assertEqual(check_windows_imports.unbundled_imports(imports, set()), [])
+        self.assertIn("winhttp.dll", check_windows_imports.SYSTEM_DLLS)
+
     def test_windows_import_check_refuses_empty_inspection(self) -> None:
         with self.assertRaisesRegex(ValueError, "did not report any"):
             check_windows_imports.unbundled_imports("not a PE import table", set())

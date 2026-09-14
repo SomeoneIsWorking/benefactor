@@ -19,10 +19,16 @@ SYSTEM_DLLS = frozenset(
         "shell32.dll",
         "user32.dll",
         "version.dll",
+        "winhttp.dll",
         "winmm.dll",
         "ws2_32.dll",
     }
 )
+#: DLLs that ship with Windows and are therefore allowed above. `winhttp.dll` is
+#: here because the update check asks it directly instead of parsing a URL in the
+#: port; it has been a system component since Windows 2000, so the package still
+#: runs on a stock machine. A DLL that a player would have to install never
+#: belongs in this set.
 
 
 def unbundled_imports(import_table: str, packaged_dlls: set[str]) -> list[str]:
