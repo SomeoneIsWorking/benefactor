@@ -18,8 +18,13 @@ build input for this tree.
 
 ## Current focus
 
-S005 is the current focus: establish `shared/amigaport` and integrate its
-maintained 68000 interpreter without disturbing the existing native host owners.
+S001 and S005 are the current focus, with S023 as their gate: `shared/amigaport` is
+established and its interpreter already executes the retail game from the player's
+disks, so what remains is coverage rather than integration — driving the complete
+game through every level and recording where the native/interpreter path diverges
+or stalls, then holding that play through the conformance and performance gate.
+Issue 0028's reported level-progression freeze lives here and is still waiting on
+the reporter's entry route, but the general sweep does not need it.
 
 ## Capability inventory
 
