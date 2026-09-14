@@ -56,9 +56,16 @@ reading `/state` and `$20.w` after each press:
 * Three presses: still on the title/password screen, `$20.w` = 0.
 * The fourth press: gameplay at `level = 33`, `$20.w = 33`.
 
-Nothing on the host writes that value. `pc_set_start_level` is called only by the
-`--level` option and the harness; `g_pc_start_level` stays 0 without it, and the
-`$150` hand-off only touches `$20.w` when it is greater than zero. A minimal config
+Nothing on the host writes that value *in this run*. `pc_set_start_level` is
+called only by the `--level` option and the harness; `g_pc_start_level` stays 0
+without either, and the `$150` hand-off only touches `$20.w` when it is greater
+than zero.
+
+A harness-driven probe is the other way a high index appears, and it must not be
+mistaken for the guest: the earlier `probe_natural.py 1` runs logged
+`[level-select] start level := 30 (applied at $150 hand-off)`, so their 30 and 33
+were the *probe's own* override. Anyone reading a surprising level from a probe
+should grep its log for `level-select` before concluding anything about the game. A minimal config
 holding just `skip_intro` reproduces level 33, so no OPTIONS knob is involved
 either: the *guest's* title code set it, which is what the password screen does
 while it is live. Blind fire presses are password characters, and the differing
