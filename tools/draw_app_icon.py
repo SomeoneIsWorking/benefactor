@@ -68,13 +68,15 @@ PLATE_TOP = 382.0
 PLATE_BOTTOM = 410.0
 PLATE_RADIUS = 14.0
 
-# Android's adaptive canvas is 108 units and the launcher may crop the outer 18,
-# so the safe middle is 72 and the mark is sized to stay inside it.
+# Android's adaptive canvas is 108 units, and the tightest mask a launcher may
+# apply is the circle of diameter 66 that it guarantees is visible. The mark is
+# fitted inside that circle, one unit short of it, so a renderer's antialiased
+# edge cannot cross the boundary. The pre-26 tile carries no launcher mask, so
+# its mark is fitted to the tile instead.
 ANDROID_CANVAS = 108.0
-#: The mark has to survive the tightest mask a launcher may apply, which is a
-#: 66-unit circle in the middle of the 108-unit canvas.
-ANDROID_SAFE = 62.0
-ANDROID_LEGACY_SAFE = 74.0
+ANDROID_SAFE_DIAMETER = 66.0
+ANDROID_FIT_MARGIN = 1.0
+ANDROID_LEGACY_DIAMETER = 92.0
 
 ICNS_TYPES = {
     b"ic11": 32,  # 16x16@2x
@@ -254,9 +256,21 @@ def rounded_rect(x: float, y: float, width: float, height: float, radius: float)
     )
 
 
-def mark_scale(safe: float) -> float:
+def fit_height(diameter: float) -> float:
+    """The tallest the mark can stand and still fit a circle of `diameter`.
+
+    Fitting the mark's bounding box means fitting its corners, which are what
+    sits furthest from the centre.
+    """
+    left, top, right, bottom = mark_extent()
+    aspect = (right - left) / (bottom - top)
+    return diameter / math.sqrt(1 + aspect * aspect)
+
+
+def mark_scale(fit: float) -> float:
+    """The scale that draws the mark `fit` units tall."""
     _, top, _, bottom = mark_extent()
-    return safe / (bottom - top)
+    return fit / (bottom - top)
 
 
 def android_background() -> str:
@@ -267,7 +281,7 @@ def android_background() -> str:
 
 
 def android_foreground() -> str:
-    scale = mark_scale(ANDROID_SAFE)
+    scale = mark_scale(fit_height(ANDROID_SAFE_DIAMETER - ANDROID_FIT_MARGIN))
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
     body = "\n".join(
         [
@@ -279,7 +293,7 @@ def android_foreground() -> str:
 
 
 def android_monochrome() -> str:
-    scale = mark_scale(ANDROID_SAFE)
+    scale = mark_scale(fit_height(ANDROID_SAFE_DIAMETER - ANDROID_FIT_MARGIN))
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
     body = "\n".join(
         [
@@ -292,7 +306,7 @@ def android_monochrome() -> str:
 
 def android_legacy() -> str:
     """API 21-25 has no launcher mask, so the icon brings its own tile."""
-    scale = mark_scale(ANDROID_LEGACY_SAFE)
+    scale = mark_scale(fit_height(ANDROID_LEGACY_DIAMETER))
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
     radius = CORNER_FRACTION * ANDROID_CANVAS
     tile = rounded_rect(0, 0, ANDROID_CANVAS, ANDROID_CANVAS, radius)
