@@ -74,6 +74,20 @@ issues before re-deriving an address, ABI, state transition, or failed approach.
   filters belong to the same owner. One configuration owner reads environment, JSON, and
   test-session overrides through typed accessors; other modules never call
   `getenv`.
+- `version.txt` is the product's single version. The CMake build, the Android
+  package, and `tools/publish_release.py` all read it, so the banner, the pause
+  panel, the package metadata, and the tag a release is published under can
+  never disagree.
+- The release check splits at one seam: `src/port/update_check.*` owns what an
+  answer means (including that a check which could not run is never "up to
+  date"), and each host fetches it with its own HTTP client behind
+  `platform_update_check_begin`: libcurl, WinHTTP, the Android activity, or the
+  page's `fetch`. Windows uses the platform client so its package stays one
+  executable with no runtime library to bundle. Nothing but those transports
+  performs network I/O.
+- JavaScript inside an Emscripten `EM_ASM` block is stringified token by token,
+  so a C++ triple operator such as `!==` reaches the page as `!= =` and fails the
+  link. Use the two-character form (`!=`, `==`) inside those blocks.
 - `tools/source_policy.py` scans every retained first-party product and test
   source, not merely CMake-selected files. It prevents retired static paths,
   interfaces, and vocabulary; direct product coupling to the diagnostic PUAE

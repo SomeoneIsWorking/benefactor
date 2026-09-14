@@ -1,6 +1,8 @@
 /* main.c – Native PC game entry point (single path: native disk boot) */
 #include "common/log.h"
+#include "common/version.h"
 #include "engine/hw.h"
+#include "platform/update_transport.h"
 #include "port/config.h"
 #include "port/control/control_server.h"
 #include "port/port.h"
@@ -131,6 +133,7 @@ int main(int argc, char **argv) {
     if (headless) {
         hw_request_headless();
     }
+    benefactor_log_write(BENEFACTOR_LOG_INFO, "app", "Benefactor %s", pc_version());
     int init_rc = direct_level > 0 ? pc_init_to_gameplay(disks, nd, direct_level)
                                    : pc_init_from_disk(disks, nd);
     if (init_rc < 0) {
@@ -157,6 +160,9 @@ int main(int argc, char **argv) {
         pc_cfg_set("http", port_text);
     }
     pc_control_server_start(); /* no-op unless BENEFACTOR_HTTP=<port> or --http N */
+    /* The update check runs once per launch, in the background; its result
+     * reaches the pause menu. */
+    platform_update_check_start();
     pc_run();
     benefactor_log_write(BENEFACTOR_LOG_INFO, "app", "stopped");
     pc_fini();

@@ -13,6 +13,7 @@
 #include "platform/selection_report.h"
 #include "platform/setup_flow.h"
 
+#include "platform/update_transport.h"
 #include "port/port.h"
 
 #include <emscripten/emscripten.h>
@@ -56,6 +57,9 @@ void start_game() {
         return;
     }
     g_game_started = true;
+    /* Once, in the background: the page fetches the latest release and the
+     * product's own rule decides what its tag means. */
+    platform_update_check_start();
 }
 
 /* Asked by the flow when the player presses Choose files. The picker reports

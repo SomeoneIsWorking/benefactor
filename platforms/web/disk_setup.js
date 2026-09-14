@@ -142,4 +142,5 @@
   globalThis.benefactorWebStatus = (message) => {
     status(message);
   };
+
 })();

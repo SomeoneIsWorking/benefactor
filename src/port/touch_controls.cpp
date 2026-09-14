@@ -9,6 +9,7 @@
 
 #include "port/config.h"
 #include "port/input.h"
+#include "port/overlay_ui.h"
 
 #include "common/log.h"
 
@@ -32,6 +33,8 @@ constexpr std::uint32_t kRight = 1U << 3;
 constexpr std::uint32_t kFire = 1U << 4;
 constexpr std::uint32_t kInteract = 1U << 5;
 constexpr std::uint32_t kPause = 1U << 6;
+constexpr std::uint32_t kTurbo = 1U << 7;
+constexpr std::uint32_t kCamera = 1U << 8;
 
 std::unique_ptr<touch_ui::Controls> g_controls;
 /* The window's pixel size is not settled on the first frame — a rotating Android
@@ -61,6 +64,10 @@ touch_ui::Config controls_config() {
         {5, touch_ui::Placement::action_primary, "attack", true, kFire},
         {6, touch_ui::Placement::action_secondary, "use", true, kInteract},
         {7, touch_ui::Placement::top_right, "pause", true, kPause},
+        /* Turbo is held like a pedal, in the third action slot beside the thumb;
+         * the camera is a toggle, in the corner a thumb would cover. */
+        {8, touch_ui::Placement::action_tertiary, "turbo", true, kTurbo},
+        {9, touch_ui::Placement::top_left, "camera", true, kCamera},
     };
     return config;
 }
@@ -81,6 +88,10 @@ int action_for(std::uint32_t control) {
         return PI_FIRE;
     case kInteract:
         return PI_INTERACT;
+    case kTurbo:
+        return PI_FFWD; /* the same hold-to-fast-forward every other device uses */
+    case kCamera:
+        return PI_FREECAM; /* an edge on the binding: the toggle owns its state */
     default:
         return -1;
     }
@@ -202,9 +213,21 @@ extern "C" void touch_controls_present(SDL_Renderer *renderer, SDL_Window *windo
         return;
     }
     touch_ui::Controls &controls = ensure_controls();
-    // The interact action exists only under modern touch controls; the classic
-    // scheme reaches those objects with fire, exactly as the pad does.
-    controls.set_unavailable_actions(pc_modern_touch() ? 0U : kInteract);
+    /* Which controls the current screen has a use for.
+     *
+     * The interact action exists only under modern touch controls; the classic
+     * scheme reaches those objects with fire, exactly as the pad does.
+     *
+     * While the pause menu is open the menu consumes the D-pad, the action
+     * control, and the pause control, and nothing else. The gameplay-only
+     * controls are withdrawn rather than left covering the panel: on a narrow
+     * screen the turbo and camera discs sit over its rows, and a menu whose
+     * values cannot be read is worse than a missing button. */
+    std::uint32_t unavailable = pc_modern_touch() ? 0U : kInteract;
+    if (pc_pause_active()) {
+        unavailable |= kTurbo | kCamera | kInteract;
+    }
+    controls.set_unavailable_actions(unavailable);
     const touch_ui::Geometry geometry = window_geometry(window);
     if (geometry.output_width <= 0 || geometry.output_height <= 0) {
         return;

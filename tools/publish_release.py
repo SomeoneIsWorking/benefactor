@@ -12,6 +12,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from tools.paths import ROOT
+from tools.product_version import release_tag
 from tools.release_common import ensure_disk_free
 
 PACKAGE_NAMES = (
@@ -117,6 +118,12 @@ def main() -> int:
     args = parser.parse_args()
     if re.fullmatch(r"v\d+\.\d+\.\d+", args.tag) is None:
         raise SystemExit("release: tag must be a stable vMAJOR.MINOR.PATCH version")
+    expected_tag = release_tag()
+    if args.tag != expected_tag:
+        raise SystemExit(
+            f"release: tag {args.tag} does not match version.txt ({expected_tag}); "
+            "bump version.txt, commit it, and tag that commit"
+        )
     if os.environ.get("GITHUB_REF") != f"refs/tags/{args.tag}":
         raise SystemExit("release: publication requires the matching pushed tag ref")
     if not os.environ.get("GH_TOKEN"):

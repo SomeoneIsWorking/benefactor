@@ -41,10 +41,16 @@ def main() -> int:
         if not source.is_file():
             raise SystemExit(f"wasm: required build output is missing: {source}")
         shutil.copy2(source, output / name)
-    shutil.copy2(ROOT / "platforms/web/index.html", output / "index.html")
-    shutil.copy2(ROOT / "platforms/web/disk_setup.js", output / "disk_setup.js")
-    shutil.copy2(ROOT / "platforms/web/isolation.mjs", output / "isolation.mjs")
-    shutil.copy2(ROOT / "platforms/web/service-worker.js", output / "service-worker.js")
+    # The page and its two bridges to what only a browser can do: the file
+    # chooser and the network stack the update check uses.
+    for name in (
+        "index.html",
+        "disk_setup.js",
+        "release_check.js",
+        "isolation.mjs",
+        "service-worker.js",
+    ):
+        shutil.copy2(ROOT / "platforms/web" / name, output / name)
     ensure_disk_free(output, "wasm")
     print(f"wasm: staged {output}")
     return 0

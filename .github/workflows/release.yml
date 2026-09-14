@@ -58,7 +58,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
+          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -101,6 +101,8 @@ jobs:
           "CMAKE_PREFIX_PATH=C:\msys64\mingw64" >> $env:GITHUB_ENV
       - name: Build Windows package
         run: uv run --frozen python -m tools.build_desktop --platform windows --output build/release/Benefactor-windows-x86_64.zip
+      - name: Verify the Windows update transport
+        run: uv run --frozen python -m tools.check_windows_update_transport
       - name: Verify Windows runtime imports
         run: uv run --frozen python -m tools.check_windows_imports --objdump C:/msys64/mingw64/bin/objdump.exe build/windows/install/bin/benefactor-pc.exe
       - name: Upload Windows package
@@ -145,7 +147,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
+          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -223,7 +225,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
+          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -328,7 +330,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
+          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared touch controls
@@ -419,7 +421,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 5dd1900e0bca1c4a8e867a5c633c2b83ba7919ae
+          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen

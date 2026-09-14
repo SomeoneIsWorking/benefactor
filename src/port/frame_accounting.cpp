@@ -78,13 +78,17 @@ void pc_note_frame_phase(void) {
         return;
     }
     last = cop1lc;
-    benefactor_log_write(BENEFACTOR_LOG_INFO, "phase", "frame=%d cop1lc=%06X", hw_get_frame_num(),
+    /* Screen-change diagnostics, not progress: the attract sequence alternates
+     * two copper lists every frame, and at info level that is a two-line-per-
+     * frame flood that buries everything else a host writes — including, on the
+     * browser, the only readout there is. Raise log_level to debug to see them. */
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "phase", "frame=%d cop1lc=%06X", hw_get_frame_num(),
                          cop1lc);
     /* One screen's hot loop must not be read as the next screen's. Report the
      * screen that is ending before clearing it. */
     char hot[512];
     if (pc_profile_report(hot, (int)sizeof hot) > 0) {
-        benefactor_log_write(BENEFACTOR_LOG_INFO, "hot", "%s", hot);
+        benefactor_log_write(BENEFACTOR_LOG_DEBUG, "hot", "%s", hot);
     }
     pc_profile_reset();
 }

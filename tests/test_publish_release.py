@@ -52,12 +52,27 @@ class ReleasePublicationTests(unittest.TestCase):
             for name in all_names:
                 (activity / name).unlink(missing_ok=True)
 
-    def test_branch_run_cannot_publish(self) -> None:
+    def test_tag_must_match_the_version_file(self) -> None:
+        version = (publish_release.ROOT / "version.txt").read_text(encoding="utf-8").strip()
         with (
             mock.patch.object(
                 sys,
                 "argv",
-                ["publish_release.py", "--tag", "v1.0.0", "--artifacts", "build/release"],
+                ["publish_release.py", "--tag", "v9.9.9", "--artifacts", "build/release"],
+            ),
+            mock.patch.dict("os.environ", {"GITHUB_REF": "refs/tags/v9.9.9", "GH_TOKEN": "test"}),
+            self.assertRaisesRegex(SystemExit, "does not match version.txt"),
+        ):
+            publish_release.main()
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+
+    def test_branch_run_cannot_publish(self) -> None:
+        version = (publish_release.ROOT / "version.txt").read_text(encoding="utf-8").strip()
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                ["publish_release.py", "--tag", f"v{version}", "--artifacts", "build/release"],
             ),
             mock.patch.dict("os.environ", {"GITHUB_REF": "refs/heads/main", "GH_TOKEN": "test"}),
             self.assertRaisesRegex(SystemExit, "matching pushed tag"),

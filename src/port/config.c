@@ -163,6 +163,7 @@ static const struct {
                 "per-sprite GPU renderer; benren only)"},
     {"fx_ambient", "GPU effect (Hardware): ambient darkness vignette (bool)"},
     {"fx_shadow", "GPU effect (Hardware): drop shadow behind characters (bool)"},
+    {"update_check", "ask the release service for the latest version once a launch (bool)"},
 };
 int pc_cfg_count(void) { return (int)(sizeof s_cfg_decl / sizeof s_cfg_decl[0]); }
 const char *pc_cfg_key(int i) { return (i >= 0 && i < pc_cfg_count()) ? s_cfg_decl[i].key : NULL; }

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from tools.paths import ROOT, SCRATCH, amigaport_dir
+from tools.product_version import read_version
 
 PYTHON_PATHS = ("bootstrap.py", "tools", "tests")
 C_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".m", ".mm"}
@@ -51,6 +52,90 @@ _INSTALLED_BY = {
 }
 
 
+def _lucent_root() -> Path:
+    """The lucent checkout this build uses, named when it is missing."""
+    configured = os.environ.get("BENEFACTOR_LUCENT_DIR")
+    candidates = ([Path(configured).expanduser().resolve()] if configured else []) + [
+        ROOT.parent / "lucent"
+    ]
+    for candidate in candidates:
+        if (candidate / "include" / "lucent" / "version.h").is_file():
+            return candidate
+    tried = ", ".join(str(candidate) for candidate in candidates)
+    raise SystemExit(f"verify needs the lucent checkout (include/lucent/version.h); tried {tried}")
+
+
+def lucent_include_dir() -> Path:
+    return _lucent_root() / "include"
+
+
+def lucent_version_source() -> str:
+    """lucent's version translation unit, which is self-contained."""
+    return str(_lucent_root() / "src" / "version.cpp")
+
+
+def _run_optional_winhttp_transport() -> None:
+    """Run the Windows update transport here when this host can build and run it."""
+    cross_compiler = shutil.which("i686-w64-mingw32-g++")
+    wine = shutil.which("wine")
+    missing = [
+        name
+        for name, found in (
+            ("i686-w64-mingw32-g++", cross_compiler),
+            ("i686-w64-mingw32-gcc", shutil.which("i686-w64-mingw32-gcc")),
+            ("wine", wine),
+        )
+        if found is None
+    ]
+    if missing:
+        print(
+            f"winhttp transport: not run (missing {', '.join(missing)}); "
+            "the Windows CI job runs the same check natively"
+        )
+        return
+    executable = ROOT / "build" / "verification" / "winhttp-transport.exe"
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    log_object = ROOT / "build" / "verification" / "log-mingw.o"
+    # The C translation unit is compiled by the C compiler, as the build system
+    # does, and only the C++ ones by the C++ compiler.
+    _run(
+        [
+            shutil.which("i686-w64-mingw32-gcc") or str(cross_compiler),
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Isrc",
+            "-c",
+            "src/common/log.c",
+            "-o",
+            str(log_object),
+        ]
+    )
+    _run(
+        [
+            str(cross_compiler),
+            "-std=c++20",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-static",
+            "-Isrc",
+            f"-I{lucent_include_dir()}",
+            f'-DBENEFACTOR_VERSION="{read_version()}"',
+            "src/platform/winhttp_update.cpp",
+            "src/port/update_check.cpp",
+            "tests/winhttp_transport.cpp",
+            lucent_version_source(),
+            str(log_object),
+            "-lwinhttp",
+            "-o",
+            str(executable),
+        ]
+    )
+    _run([str(wine), str(executable)], environment=dict(os.environ, WINEDEBUG="-all"))
+
+
 def _require(tool: str) -> str:
     """`tool` if it is on PATH; otherwise exit saying which one and how to get it."""
     found = shutil.which(tool)
@@ -60,8 +145,13 @@ def _require(tool: str) -> str:
     raise SystemExit(f"verify needs {tool}, which is not on PATH — {remedy}")
 
 
-def _run(arguments: list[str], cwd: Path = ROOT) -> None:
-    subprocess.run(arguments, cwd=cwd, check=True)
+def _run(
+    arguments: list[str],
+    cwd: Path = ROOT,
+    environment: dict[str, str] | None = None,
+) -> None:
+    print("$", shlex.join(str(argument) for argument in arguments), flush=True)
+    subprocess.run(arguments, cwd=cwd, check=True, env=environment)
 
 
 def _compile_and_run_c_test(compiler: list[str], name: str, sources: list[str]) -> None:
@@ -83,7 +173,12 @@ def _compile_and_run_c_test(compiler: list[str], name: str, sources: list[str]) 
     _run([str(executable)])
 
 
-def _compile_and_run_cpp_test(compiler: list[str], name: str, sources: list[str]) -> None:
+def _compile_and_run_cpp_test(
+    compiler: list[str],
+    name: str,
+    sources: list[str],
+    includes: tuple[str, ...] = (),
+) -> None:
     executable = ROOT / "build" / "verification" / name
     executable.parent.mkdir(parents=True, exist_ok=True)
     _run(
@@ -94,6 +189,7 @@ def _compile_and_run_cpp_test(compiler: list[str], name: str, sources: list[str]
             "-Wextra",
             "-Werror",
             "-Isrc",
+            *(f"-I{include}" for include in includes),
             *sources,
             "-o",
             str(executable),
@@ -110,7 +206,14 @@ def main() -> int:
     _run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"])
     for tool in EXTERNAL_TOOLS:
         _require(tool)
-    _run(["node", "--test", "tests/web_disk_setup.test.mjs"])
+    _run(
+        [
+            "node",
+            "--test",
+            "tests/web_disk_setup.test.mjs",
+            "tests/web_release_check.test.mjs",
+        ]
+    )
     sdl_source = os.environ.get("BENEFACTOR_SDL3_DIR")
     sdl_include_args: list[str] = []
     if sdl_source:
@@ -163,6 +266,22 @@ def main() -> int:
         cpp_compiler,
         "selection-report",
         ["src/platform/selection_report.cpp", "tests/test_selection_report.cpp"],
+    )
+    # The Windows transport is invisible to every other platform's build, and a
+    # compile is not enough for it: the URL form it needs and the API's buffer
+    # rules only fail when it runs. Where a Windows cross-compiler and Wine are
+    # both present, run it against the real service; otherwise say it did not run
+    # here rather than reporting it as passing — the Windows CI job runs the same
+    # check natively.
+    _run_optional_winhttp_transport()
+    # The update check's rule is that a check which could not run never looks
+    # like "up to date". It reads a version (lucent) and keeps state, so it needs
+    # no product objects beyond its own translation unit.
+    _compile_and_run_cpp_test(
+        cpp_compiler,
+        "update-policy",
+        ["src/port/update_check.cpp", "tests/test_update_policy.cpp", lucent_version_source()],
+        includes=(str(lucent_include_dir()),),
     )
     return 0
 

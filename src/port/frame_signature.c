@@ -57,7 +57,10 @@ void pc_note_frame_signature(void) {
     const uint32_t pal = palette_hash();
     const uint32_t dma = (uint32_t)(s_dmacon & 0x020Fu);
 
-    /* One emitted line per change: the stream IS the melody and the fade. */
+    /* One emitted line per change — and while music plays, that is every frame,
+     * because the stream IS the melody and the fade. It is a differential
+     * diagnostic, so it belongs below the level a host logs by default: at info
+     * it buries the host's own output, which in a browser is its only readout. */
     static uint32_t last_pal = 0xFFFFFFFFu, last_dma = 0xFFFFFFFFu;
     static uint32_t last_lc[4], last_per[4], last_vol[4];
     int same = (pal == last_pal) && (dma == last_dma);
@@ -73,7 +76,7 @@ void pc_note_frame_signature(void) {
         last_vol[c] = vol[c];
     }
 
-    benefactor_log_write(BENEFACTOR_LOG_INFO, "sig",
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "sig",
                          "frame=%d pal=%08X alc=%06X,%06X,%06X,%06X "
                          "aper=%u,%u,%u,%u avol=%u,%u,%u,%u adma=%03X",
                          hw_get_frame_num(), pal, lc[0], lc[1], lc[2], lc[3], per[0], per[1],
