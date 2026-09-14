@@ -47,9 +47,21 @@ def alpha_at(path: Path, x: int, y: int) -> float:
     return float(run_magick(str(path), "-format", f"%[fx:p{{{x},{y}}}.a]", "info:"))
 
 
+SOLID = "50%"
+"""Alpha above which a pixel is the drawn shape rather than its antialiased edge.
+
+Renderers disagree about how far an edge feathers — and ImageMagick 6's SVG
+delegate rasterises at the file's intrinsic size and resizes afterwards, which
+spreads the edge over several pixels. Measuring what is *drawn* rather than where
+the fuzz ends is what makes this check mean the same thing on both.
+"""
+
+
 def drawn_ink_box(path: Path) -> tuple[int, int, int, int]:
-    """The bounding box of the non-transparent pixels, as x, y, width, height."""
-    box = run_magick(str(path), "-format", "%@", "info:")
+    """The bounding box of the drawn pixels, as x, y, width, height."""
+    box = run_magick(
+        str(path), "-channel", "A", "-threshold", SOLID, "+channel", "-format", "%@", "info:"
+    )
     match = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", box)
     if match is None:
         raise AssertionError(f"ImageMagick reported no ink box for {path}: {box!r}")
@@ -240,8 +252,7 @@ class AppIconRasterTest(unittest.TestCase):
         frame = self.preview(
             "drawable/ic_launcher_foreground.xml", int(draw_app_icon.ANDROID_CANVAS * 4)
         )
-        # An antialiased edge bleeds into the neighbouring pixel, so one raster
-        # pixel of the measurement is not the drawing.
+        # A drawn edge still lands somewhere inside its boundary pixel.
         allowed = draw_app_icon.ANDROID_SAFE_DIAMETER / 2 + 1 / 4
         reached = self.worst_radius(frame)
         self.assertLessEqual(
