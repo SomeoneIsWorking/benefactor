@@ -8,6 +8,7 @@ manager draw it at 16 px, so measuring the SVG text alone would prove nothing.
 
 from __future__ import annotations
 
+import math
 import plistlib
 import re
 import shutil
@@ -223,30 +224,68 @@ class AppIconRasterTest(unittest.TestCase):
             "the mark measurement passes on a tile with no mark on it",
         )
 
-    def test_the_mark_fits_inside_the_safe_zone_a_launcher_may_crop_to(self) -> None:
-        size = int(draw_app_icon.ANDROID_CANVAS * 4)
-        frame = self.preview("drawable/ic_launcher_foreground.xml", size)
+    def worst_radius(self, frame: Path) -> float:
+        """How far the drawn mark reaches from the canvas centre, in canvas units."""
+        size = frame.read_bytes() and int(draw_app_icon.ANDROID_CANVAS * 4)
         x, y, width, height = drawn_ink_box(frame)
         scale = size / draw_app_icon.ANDROID_CANVAS
-        left = (draw_app_icon.ANDROID_CANVAS - draw_app_icon.ANDROID_SAFE) / 2
-        right = left + draw_app_icon.ANDROID_SAFE
-        # An antialiased edge bleeds into the neighbouring pixel, so the measured
-        # box is up to one raster pixel wider than the drawn one on each side.
-        bleed = 1.0 / scale
-        self.assertGreaterEqual(x / scale, left - bleed, "the mark starts outside the safe zone")
-        self.assertLessEqual(
-            (x + width) / scale, right + bleed, "the mark ends outside the safe zone"
+        centre = draw_app_icon.ANDROID_CANVAS / 2
+        corners = ((x, y), (x + width, y), (x, y + height), (x + width, y + height))
+        return max(
+            math.hypot(corner_x / scale - centre, corner_y / scale - centre)
+            for corner_x, corner_y in corners
         )
-        self.assertGreaterEqual(y / scale, left - bleed, "the mark starts above the safe zone")
+
+    def test_the_mark_fits_inside_the_circle_a_launcher_may_crop_to(self) -> None:
+        frame = self.preview(
+            "drawable/ic_launcher_foreground.xml", int(draw_app_icon.ANDROID_CANVAS * 4)
+        )
+        # An antialiased edge bleeds into the neighbouring pixel, so one raster
+        # pixel of the measurement is not the drawing.
+        allowed = draw_app_icon.ANDROID_SAFE_DIAMETER / 2 + 1 / 4
+        reached = self.worst_radius(frame)
         self.assertLessEqual(
-            (y + height) / scale, right + bleed, "the mark ends below the safe zone"
+            reached, allowed, f"the mark reaches {reached:.2f} of the {allowed:.2f} it may"
+        )
+
+    def test_the_circle_measurement_would_fail_for_an_oversized_mark(self) -> None:
+        """The negative control: the same measurement on a mark that must not fit."""
+        size = int(draw_app_icon.ANDROID_CANVAS * 4)
+        scale = draw_app_icon.mark_scale(
+            draw_app_icon.fit_height(
+                draw_app_icon.ANDROID_SAFE_DIAMETER - draw_app_icon.ANDROID_FIT_MARGIN
+            )
+        )
+        grown = scale * 1.3
+        dx, dy = draw_app_icon.centre_mark(grown, draw_app_icon.ANDROID_CANVAS)
+        svg = self.temporary / "oversized.svg"
+        body = draw_app_icon.letter_path(grown, dx, dy)
+        svg.write_text(
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{draw_app_icon.ANDROID_CANVAS}"'
+            f' height="{draw_app_icon.ANDROID_CANVAS}" viewBox="0 0 {draw_app_icon.ANDROID_CANVAS}'
+            f' {draw_app_icon.ANDROID_CANVAS}"><path fill="{draw_app_icon.GOLD}"'
+            f' fill-rule="evenodd" d="{body}"/></svg>',
+            encoding="utf-8",
+        )
+        frame = draw_app_icon.rasterise(
+            svg, size, self.temporary / "oversized.png", viewport=draw_app_icon.ANDROID_CANVAS
+        )
+        allowed = draw_app_icon.ANDROID_SAFE_DIAMETER / 2 + 1 / 4
+        self.assertGreater(
+            self.worst_radius(frame),
+            allowed,
+            "the circle measurement passes for a mark drawn beyond the mask",
         )
 
     def test_the_monochrome_layer_keeps_the_counters_open(self) -> None:
         """A themed icon must show the launcher's surface through the counters."""
         size = 432
         frame = self.preview("drawable/ic_launcher_monochrome.xml", size)
-        scale = draw_app_icon.mark_scale(draw_app_icon.ANDROID_SAFE)
+        scale = draw_app_icon.mark_scale(
+            draw_app_icon.fit_height(
+                draw_app_icon.ANDROID_SAFE_DIAMETER - draw_app_icon.ANDROID_FIT_MARGIN
+            )
+        )
         dx, dy = draw_app_icon.centre_mark(scale, draw_app_icon.ANDROID_CANVAS)
         sample = size / draw_app_icon.ANDROID_CANVAS
         middle = (draw_app_icon.LETTER_TOP + draw_app_icon.LETTER_MID_TOP) / 2
