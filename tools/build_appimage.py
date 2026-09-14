@@ -21,6 +21,12 @@ def refuse(message: str) -> None:
     raise SystemExit(f"appimage: {message}")
 
 
+DESKTOP_NAME = "io.github.SomeoneIsWorking.benefactor"
+DESKTOP_FILE = ROOT / f"platforms/freedesktop/{DESKTOP_NAME}.desktop"
+#: The one authored icon; every other platform's form is generated from it.
+ICON_SVG = ROOT / "platforms/icons/benefactor.svg"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, default=ROOT / "build/linux")
@@ -52,13 +58,11 @@ def main() -> int:
         environment=environment,
     )
     (appdir / "AppRun").symlink_to("usr/bin/benefactor-pc")
-    shutil.copy2(
-        ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.desktop",
-        appdir / "io.github.SomeoneIsWorking.benefactor.desktop",
-    )
-    icon = ROOT / "platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.svg"
-    shutil.copy2(icon, appdir / ".DirIcon")
-    shutil.copy2(icon, appdir / icon.name)
+    shutil.copy2(DESKTOP_FILE, appdir / DESKTOP_FILE.name)
+    # appimagetool looks for an icon named after the desktop entry's Icon key, so
+    # the generated artwork is staged under that name rather than its own.
+    shutil.copy2(ICON_SVG, appdir / ".DirIcon")
+    shutil.copy2(ICON_SVG, appdir / f"{DESKTOP_NAME}.svg")
     ensure_disk_free(appdir, "appimage")
     if args.stage_only:
         print(f"appimage: staged {appdir}")

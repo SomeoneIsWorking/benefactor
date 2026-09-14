@@ -23,8 +23,11 @@ owner or the image-qualified `shared/amigaport` interpreter boundary.
   four individually outlined, arrow-marked directional buttons plus Fire, Interact, and Pause;
   Interact is hidden and inactive unless modern controls are enabled, leaving vanilla touch with
   Fire only. The matching reusable direction-button glyphs are in
-  `shared/port-assets/sets/touch-controls`. Android uses the vector launcher icon at
-  `platforms/android/app/src/main/res/drawable/ic_benefactor.xml`.
+  `shared/port-assets/sets/touch-controls`. Android's launcher icon is one mark authored in
+  `platforms/icons/benefactor.svg` and emitted by `tools/draw_app_icon.py` into the adaptive layers
+  (`mipmap-anydpi-v26` over `drawable/ic_launcher_{background,foreground,monochrome}`) and the
+  filled tile `mipmap-anydpi` the pre-26 releases draw; the same generator writes the Windows `.ico`
+  and `.rc`, the macOS `.icns`, the AppImage SVG, and the browser favicon.
 - The disk-free AppImage and ARM64 release-signed APK are published as GitHub release `v0.1.0`.
   No release contains or uploads game inputs. The named-device
   correctness/performance matrix remains required before calling the Android release qualified.
