@@ -39,6 +39,14 @@ Sending the win flag *before* the level's start card has been dismissed does rep
 the level, because the flag is consumed while the game is still on the card — that
 is an artifact of the probe, not of the transition.
 
+## Also negative: reporting a completion and then playing on
+
+A probe that reports `/complete` and then taps fire for a while (a headless
+`--level 1` run) advances `$2E.w` from its idle `0xFF00` to `1` and reloads the
+copper list (`cop1lc` `003914` → `003484`) while `level` stays `1`, which is the
+level's own geometry, not a replay. Nothing in that path re-runs level 1. Third
+entry tested with the same result, so the route matters and is still unknown.
+
 ## Open questions
 
 Which route the reported session took (title CONTINUE, level select, a restored
