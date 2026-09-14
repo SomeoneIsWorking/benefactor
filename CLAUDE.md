@@ -80,6 +80,11 @@ show that fades and music advanced.
   `/mem`, and `/fb.ppm` inspect the held state. `/resume` continues, and
   `/step?frames=N` advances N frames. Keep the hold inside the game thread:
   returning a breakpoint exit to game flow would let it continue or shut down.
+- A hold is readable, not guessed: `/state` reports `script_paused:1` and a
+  frozen `frame` while a breakpoint holds the game, and the log says
+  `breakpoint $XXXXXX reached ... holding`. Clearing breakpoints does NOT
+  release the hold — `/resume` does. Measured: three separate probes pressed
+  fire for a minute against a held game and reported a frozen frame counter.
 - A breakpoint that lands inside a recognised wait idiom (`$577130` and its
   siblings in `src/port/wait_idiom.h`) re-hits the same address on every
   `/step`: the idiom's whole job is to park there until the watched condition
