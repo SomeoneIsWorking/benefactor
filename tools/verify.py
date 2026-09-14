@@ -51,6 +51,10 @@ _INSTALLED_BY = {
     "node": "brew install node",
 }
 
+#: A rasteriser is what lets the app icon be checked as a player meets it — at
+#: launcher sizes, not as SVG text. Either ImageMagick 7 or 6's `convert` will do.
+RASTERISERS = ("magick", "convert")
+
 
 def _lucent_root() -> Path:
     """The lucent checkout this build uses, named when it is missing."""
@@ -203,6 +207,12 @@ def _compile_and_run_cpp_test(
 def main() -> int:
     _run([sys.executable, "-m", "ruff", "format", "--check", *PYTHON_PATHS])
     _run([sys.executable, "-m", "ruff", "check", *PYTHON_PATHS])
+    if not any(shutil.which(tool) for tool in RASTERISERS):
+        raise SystemExit(
+            "verify needs ImageMagick (`magick` or `convert`) to rasterise the app icon "
+            "at the sizes it ships in — sudo dnf install ImageMagick librsvg2-tools, or "
+            "sudo apt install imagemagick librsvg2-bin"
+        )
     _run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"])
     for tool in EXTERNAL_TOOLS:
         _require(tool)

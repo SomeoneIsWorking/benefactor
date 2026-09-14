@@ -66,6 +66,6 @@ jobs:
           # unrelated to the packages we need.
           grep -rlZ 'dl.google.com/linux/chrome' /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0r rm -f
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang clang-tidy
+          sudo apt-get install --no-install-recommends -y clang clang-tidy imagemagick librsvg2-bin
       - name: Run retained-source verifier
         run: uv run --frozen python -m tools.verify

@@ -298,7 +298,23 @@ else()
     if(APPLE)
         set_target_properties(benefactor-pc PROPERTIES
             MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_ICON_FILE Benefactor.icns
             OUTPUT_NAME Benefactor)
+        # A bundle shows the icon named by CFBundleIconFile, and only if the file
+        # is actually inside Resources; both halves are needed.
+        target_sources(benefactor-pc PRIVATE platforms/macos/Benefactor.icns)
+        set_source_files_properties(platforms/macos/Benefactor.icns PROPERTIES
+            MACOSX_PACKAGE_LOCATION Resources)
+    endif()
+    if(WIN32)
+        # The icon a Windows build carries is an executable resource, compiled
+        # from the .rc the icon tool writes beside the .ico it names — which is
+        # why that directory, and only the resource, needs to be on windres'
+        # include path.
+        enable_language(RC)
+        set_source_files_properties(platforms/windows/benefactor.rc PROPERTIES
+            INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/platforms/windows)
+        target_sources(benefactor-pc PRIVATE platforms/windows/benefactor.rc)
     endif()
 endif()
 
@@ -399,8 +415,9 @@ if(NOT ANDROID AND NOT BENEFACTOR_WEB)
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-    install(FILES platforms/freedesktop/io.github.SomeoneIsWorking.benefactor.svg
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+    install(FILES platforms/icons/benefactor.svg
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
+        RENAME io.github.SomeoneIsWorking.benefactor.svg)
 endif()
 
 add_custom_target(benefactor_product DEPENDS ${BENEFACTOR_PRODUCT_TARGET})

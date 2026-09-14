@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import plistlib
+import shutil
 import sys
 import unittest
 import zipfile
@@ -8,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from tools import build_desktop, build_wasm, check_windows_imports
-from tools.paths import SCRATCH
+from tools.paths import ROOT, SCRATCH
 from tools.release_common import ensure_disk_free
 
 
@@ -95,16 +97,26 @@ class ReleaseBuilderTests(unittest.TestCase):
 
     def test_macos_archive_preserves_app_path_and_executable_mode(self) -> None:
         build = SCRATCH / "verification" / "macos-archive" / "build"
-        executable = build / "install" / "Benefactor.app" / "Contents" / "MacOS" / "Benefactor"
+        contents = build / "install" / "Benefactor.app" / "Contents"
+        executable = contents / "MacOS" / "Benefactor"
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_bytes(b"synthetic executable")
         executable.chmod(0o755)
+        # A bundle is only packageable with the icon it names, so the fixture is
+        # a complete one: the real artwork in Resources, named by Info.plist.
+        resources = contents / "Resources"
+        resources.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "platforms/macos/Benefactor.icns", resources / "Benefactor.icns")
+        (contents / "Info.plist").write_bytes(
+            plistlib.dumps({"CFBundleIconFile": "Benefactor.icns"})
+        )
         archive_path = build.parent / "Benefactor-macos-arm64.zip"
         build_desktop.package_macos(build, archive_path)
         with zipfile.ZipFile(archive_path) as archive:
             member = archive.getinfo("Benefactor.app/Contents/MacOS/Benefactor")
             self.assertEqual(archive.read(member), b"synthetic executable")
             self.assertEqual((member.external_attr >> 16) & 0o111, 0o111)
+            self.assertIn("Benefactor.app/Contents/Resources/Benefactor.icns", archive.namelist())
         archive_path.unlink()
         executable.unlink()
 

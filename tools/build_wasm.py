@@ -45,6 +45,7 @@ def main() -> int:
     # chooser and the network stack the update check uses.
     for name in (
         "index.html",
+        "icon.svg",
         "disk_setup.js",
         "release_check.js",
         "isolation.mjs",
