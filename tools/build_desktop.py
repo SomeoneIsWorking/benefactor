@@ -30,6 +30,10 @@ def check_windows_icon(executable: Path) -> None:
             f"desktop: {executable.name} carries no icon resource; the build did not "
             f"compile {WINDOWS_ICON.relative_to(ROOT)}"
         )
+    print(
+        f"desktop: {executable.name} carries the {WINDOWS_ICON_FRAME}x{WINDOWS_ICON_FRAME} "
+        f"frame of the {len(draw_app_icon.ico_frames(WINDOWS_ICON))}-size icon"
+    )
 
 
 def check_macos_icon(app: Path) -> None:
@@ -43,6 +47,10 @@ def check_macos_icon(app: Path) -> None:
             f"desktop: {app.name} names {info.get('CFBundleIconFile')!r} as its icon, "
             f"not {MACOS_ICON_NAME}"
         )
+    print(
+        f"desktop: {app.name} carries {MACOS_ICON_NAME} "
+        f"({resources.stat().st_size} B) and names it in its Info.plist"
+    )
 
 
 def package_windows(build: Path, output: Path) -> None:
