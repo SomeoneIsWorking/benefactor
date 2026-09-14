@@ -98,6 +98,12 @@ issues before re-deriving an address, ABI, state transition, or failed approach.
 - Project automation is modular Python. `run.sh` is the only shell exception and
   remains a slim `uv run --frozen` launcher. Builds live in `build/`; disposable
   diagnostics use bounded stable paths under `scratch/`.
+- `tools/build_wasm.py` copies the static page files (`index.html`,
+  `disk_setup.js`, `isolation.mjs`, `service-worker.js`) into its output with their source
+  mtimes while the emscripten outputs (`benefactor.js`, `benefactor.wasm`) get fresh ones, so
+  differing timestamps in `build/release/web` do NOT mean a half-finished package. Compare
+  hashes against the CI artifact instead; measured: the local `benefactor.js` and the shipped
+  one are byte-identical (`48bf4daa…`) while the static files keep older mtimes.
 - Use Clang for agent C/C++ verification without rejecting other supported user
   compilers. Format and lint first-party code, keep files cohesive, and do not
   grow a monolith.
