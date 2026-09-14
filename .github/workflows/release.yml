@@ -322,7 +322,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/android-port
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 6eac0754c316a252db06e77a873dc9882a6214ac
+          ref: fcdb9e849766d06e095d62c53e2ccea6c8bdda60
           path: shared/android-port
           persist-credentials: false
       - name: Check out pinned Lucent
@@ -338,7 +338,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/touch-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 029860440fd66ad9d811b5d20f1ffd242718f820
+          ref: be758197648944f03625e2516299445b09427645
           path: shared/touch-ui
           persist-credentials: false
       - name: Check out pinned shared port art
@@ -346,7 +346,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/port-assets
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: b48abae76227a2f1fe17cc7d9abd60cc85d45e09
+          ref: 991514cb8a40a570d3ee11d2b35eca088aacb13b
           path: shared/port-assets
           persist-credentials: false
       - name: Check out pinned shared setup screen
