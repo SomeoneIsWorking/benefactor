@@ -80,6 +80,14 @@ show that fades and music advanced.
   `/mem`, and `/fb.ppm` inspect the held state. `/resume` continues, and
   `/step?frames=N` advances N frames. Keep the hold inside the game thread:
   returning a breakpoint exit to game flow would let it continue or shut down.
+- A breakpoint that lands inside a recognised wait idiom (`$577130` and its
+  siblings in `src/port/wait_idiom.h`) re-hits the same address on every
+  `/step`: the idiom's whole job is to park there until the watched condition
+  changes, so single-stepping it never leaves. Use `/resume`, and set the
+  breakpoint at the *instruction after* the loop rather than inside it. A probe
+  that appears frozen on one PC is reporting the wait, not a hang. The control
+  route `/update?tag=…|error=…` reports an update-check result by hand so its
+  panel renderings can be driven without waiting for a release.
 - `BENEFACTOR_HTTP=<port>` enables the Lucent-backed control server in
   `src/port/control/`. Its `/` page is interactive; `/state`, `/cpu`, `/mem`,
   `/poke`, `/hold`, `/press?fire=1&frames=4`, `/pause`, `/resume`,
