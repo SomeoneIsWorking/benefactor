@@ -49,8 +49,7 @@ entry tested with the same result, so the route matters and is still unknown.
 
 ## The high level indices were the probe typing a password
 
-Re-run one press at a time through the title (`scratch/probe_title_entry.py`),
-reading `/state` and `$20.w` after each press:
+Re-run one press at a time through the title — a headless launch with `--http`, no `--level`, pressing fire once and reading `/state` plus `$20.w` after each press — which any session can repeat from the control-channel route list:
 
 * No presses at all: stays on the title, `$20.w` = 0.
 * Three presses: still on the title/password screen, `$20.w` = 0.
