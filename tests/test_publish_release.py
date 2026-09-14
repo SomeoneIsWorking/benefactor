@@ -6,7 +6,7 @@ import unittest
 import zipfile
 from unittest import mock
 
-from tools import publish_release
+from tools import pinned_revisions, publish_release
 from tools.paths import SCRATCH
 
 
@@ -65,6 +65,32 @@ class ReleasePublicationTests(unittest.TestCase):
         ):
             publish_release.main()
         self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+
+    def test_every_pin_is_read_from_the_workflow(self) -> None:
+        # The workflow is the one list of pins; a second hand-kept list drifts.
+        pins = pinned_revisions.pinned_revisions(publish_release.ROOT / pinned_revisions.WORKFLOW)
+        self.assertGreaterEqual(len(pins), 5)
+        for pin in pins:
+            self.assertRegex(pin.revision, r"^[0-9a-f]{40}$")
+            self.assertIn("/", pin.repository)
+
+    def test_an_unpushed_pin_refuses_publication(self) -> None:
+        # The failure this gate exists for: a revision that only exists locally.
+        unpushed = pinned_revisions.Pin("SomeoneIsWorking/lucent", "0" * 40)
+        with mock.patch.object(pinned_revisions, "revision_exists", return_value=False) as exists:
+            missing = pinned_revisions.missing_revisions((unpushed,))
+        exists.assert_called_once()
+        self.assertEqual(missing, (unpushed,))
+        with (
+            mock.patch.object(pinned_revisions, "revision_exists", return_value=False),
+            mock.patch.object(
+                sys,
+                "argv",
+                ["pinned_revisions.py"],
+            ),
+            self.assertRaisesRegex(SystemExit, "not on the remote"),
+        ):
+            pinned_revisions.main()
 
     def test_branch_run_cannot_publish(self) -> None:
         version = (publish_release.ROOT / "version.txt").read_text(encoding="utf-8").strip()

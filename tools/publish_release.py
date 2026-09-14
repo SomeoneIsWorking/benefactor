@@ -12,6 +12,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from tools.paths import ROOT
+from tools.pinned_revisions import require_pinned_revisions
 from tools.product_version import release_tag
 from tools.release_common import ensure_disk_free
 
@@ -143,6 +144,9 @@ def main() -> int:
     ).stdout.strip()
     if head != event_commit:
         raise SystemExit("release: checked-out commit does not match the workflow commit")
+    # A pin naming an unpushed commit builds here and fails in CI, so refuse
+    # before the release exists rather than after the packages are attached.
+    require_pinned_revisions()
     assets = stage_assets(args.artifacts.resolve())
     subprocess.run(release_command(args.tag, assets), cwd=ROOT, check=True)
     return 0
