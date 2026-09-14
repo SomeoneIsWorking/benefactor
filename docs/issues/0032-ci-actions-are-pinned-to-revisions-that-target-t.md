@@ -16,6 +16,7 @@ forced onto Node.js 24:
 
 - `actions/checkout@11d5960a326750d5838078e36cf38b85af677262` (7 uses in `release.yml`)
 - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`
+- `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093` (`release.yml:478`, in the publish job — named by the warning only on the tag run, because the publish job runs there)
 - `actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97` (not named in the notice)
 
 Latest releases at the time of writing: checkout `v7.0.1`, upload-artifact `v7.0.1`
