@@ -23,10 +23,10 @@ from tools.paths import ROOT
 
 ANDROID_CHROME = "{http://schemas.android.com/apk/res/android}"
 LAUNCHER_SIZES = (16, 32, 48)
-MIN_WARM_FRACTION = 0.04
-"""Share of the icon that must read as the gold mark at launcher sizes.
+MIN_MARK_FRACTION = 0.02
+"""Share of the icon that must read as the key gold at launcher sizes.
 
-Measured on this artwork with `--sheet`: 0.184 at 16 px, 0.165 at 32 px, 0.159 at
+Measured on this artwork with `--sheet`: 0.062 at 16 px, 0.055 at 32 px, 0.061 at
 48 px. The bar sits far below that because the property being defended is "the
 mark is there", not "the mark is exactly this big".
 """
@@ -217,7 +217,7 @@ class AppIconRasterTest(unittest.TestCase):
             with self.subTest(size=size):
                 self.assertGreaterEqual(
                     fraction,
-                    MIN_WARM_FRACTION,
+                    MIN_MARK_FRACTION,
                     f"only {fraction:.3f} of the {size} px icon reads as the mark",
                 )
 
@@ -226,13 +226,13 @@ class AppIconRasterTest(unittest.TestCase):
         bare = self.temporary / "bare.svg"
         bare.write_text(
             '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">'
-            f'<rect width="512" height="512" fill="{draw_app_icon.NAVY}"/></svg>',
+            f'<rect width="512" height="512" fill="{draw_app_icon.CAVE}"/></svg>',
             encoding="utf-8",
         )
         frame = draw_app_icon.rasterise(bare, 48, self.temporary / "bare.png")
         self.assertLess(
             draw_app_icon.mark_fraction(frame),
-            MIN_WARM_FRACTION,
+            MIN_MARK_FRACTION,
             "the mark measurement passes on a tile with no mark on it",
         )
 
@@ -270,7 +270,7 @@ class AppIconRasterTest(unittest.TestCase):
         grown = scale * 1.3
         dx, dy = draw_app_icon.centre_mark(grown, draw_app_icon.ANDROID_CANVAS)
         svg = self.temporary / "oversized.svg"
-        body = draw_app_icon.letter_path(grown, dx, dy)
+        body = draw_app_icon.key_path(grown, dx, dy)
         svg.write_text(
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{draw_app_icon.ANDROID_CANVAS}"'
             f' height="{draw_app_icon.ANDROID_CANVAS}" viewBox="0 0 {draw_app_icon.ANDROID_CANVAS}'
@@ -288,8 +288,8 @@ class AppIconRasterTest(unittest.TestCase):
             "the circle measurement passes for a mark drawn beyond the mask",
         )
 
-    def test_the_monochrome_layer_keeps_the_counters_open(self) -> None:
-        """A themed icon must show the launcher's surface through the counters."""
+    def test_the_monochrome_layer_keeps_the_bow_hole_open(self) -> None:
+        """A themed icon must show the launcher's surface through the bow's hole."""
         size = 432
         frame = self.preview("drawable/ic_launcher_monochrome.xml", size)
         scale = draw_app_icon.mark_scale(
@@ -299,15 +299,17 @@ class AppIconRasterTest(unittest.TestCase):
         )
         dx, dy = draw_app_icon.centre_mark(scale, draw_app_icon.ANDROID_CANVAS)
         sample = size / draw_app_icon.ANDROID_CANVAS
-        middle = (draw_app_icon.LETTER_TOP + draw_app_icon.LETTER_MID_TOP) / 2
-        in_counter = draw_app_icon.scaled(
-            draw_app_icon.COUNTER_LEFT + draw_app_icon.COUNTER_RADIUS / 2, scale, dx
+        in_hole = draw_app_icon.scaled(draw_app_icon.KEY_CENTRE_X, scale, dx)
+        in_stem = draw_app_icon.scaled(draw_app_icon.KEY_CENTRE_X, scale, dx)
+        hole_row = round(
+            float(draw_app_icon.scaled(draw_app_icon.KEY_BOW_CENTRE_Y, scale, dy)) * sample
         )
-        in_stem = draw_app_icon.scaled(draw_app_icon.LETTER_LEFT + 28, scale, dx)
-        row = round(float(draw_app_icon.scaled(middle, scale, dy)) * sample)
-        counter = (round(float(in_counter) * sample), row)
-        stem = (round(float(in_stem) * sample), row)
-        self.assertEqual(alpha_at(frame, *counter), 0.0, "the counter is filled, not cut out")
+        stem_row = round(
+            float(draw_app_icon.scaled(draw_app_icon.KEY_BOTTOM - 30, scale, dy)) * sample
+        )
+        hole = (round(float(in_hole) * sample), hole_row)
+        stem = (round(float(in_stem) * sample), stem_row)
+        self.assertEqual(alpha_at(frame, *hole), 0.0, "the bow's hole is filled, not cut out")
         self.assertEqual(alpha_at(frame, *stem), 1.0, "the stem is missing where it should be")
 
 

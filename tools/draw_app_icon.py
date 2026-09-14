@@ -39,11 +39,12 @@ from tools.paths import ROOT
 
 ANDROID_NAMESPACE = "{http://schemas.android.com/apk/res/android}"
 
-# The port's own palette: the pause panel's navy, its gold rule, and the cyan it
-# already uses for the touch controls. Flat fills, because an icon is read at 16 px.
-NAVY = "#16233a"
-GOLD = "#f5cf69"
-CYAN = "#6dc4d8"
+# Sampled from the game's own frames: the amber of the key that opens the cells,
+# the cave's deep brown, and the teal line where the water surface runs beneath
+# the cave. Flat fills, because an icon is read at 16 px.
+CAVE = "#33210b"
+GOLD = "#f5b52a"
+TEAL = "#2fa89e"
 WHITE = "#ffffff"
 
 CANVAS = 512
@@ -52,21 +53,23 @@ CORNER_FRACTION = 0.219
 MARK_SCALE = 1.08
 """How much of the tile the mark fills; tuned by looking, not by arithmetic."""
 
-#: The mark's coordinate system: a "B" over the platform it stands on. The letter
-#: identifies the app; the bar says platformer and matches the port's accent.
-LETTER_LEFT = 161.0
-LETTER_STEM_RIGHT = 217.0
-LETTER_TOP = 108.0
-LETTER_MID_TOP = 224.0
-LETTER_MID_BOTTOM = 248.0
-LETTER_BOTTOM = 364.0
-LETTER_BOWL_FLAT = 261.0
-LETTER_JOIN_RIGHT = 253.0
-COUNTER_LEFT = 237.0
-COUNTER_RADIUS = 32.0
-PLATE_TOP = 382.0
-PLATE_BOTTOM = 410.0
-PLATE_RADIUS = 14.0
+#: The mark's coordinate system: the game's key hanging above the water line.
+#: The bow is a ring with its hole cut out, the stem hangs from the bow's outer
+#: arc, and the teeth sit on the stem's right side near the foot, as the game's
+#: sprite does. The bar underneath is the water surface.
+KEY_CENTRE_X = 256.0
+KEY_BOW_CENTRE_Y = 168.0
+KEY_BOW_RADIUS = 58.0
+KEY_HOLE_RADIUS = 28.0
+KEY_STEM_HALF = 24.0
+KEY_BOTTOM = 364.0
+KEY_TOOTH_TOP_REACH = 32.0
+KEY_TOOTH_TOP_Y = 298.0
+KEY_TOOTH_BOTTOM_REACH = 24.0
+KEY_TOOTH_BOTTOM_Y = 346.0
+WATERLINE_TOP = 384.0
+WATERLINE_BOTTOM = 410.0
+WATERLINE_RADIUS = 13.0
 
 # Android's adaptive canvas is 108 units, and the tightest mask a launcher may
 # apply is the circle of diameter 66 that it guarantees is visible. The mark is
@@ -97,9 +100,6 @@ WINDOWS_RC = ROOT / "platforms/windows/benefactor.rc"
 WINDOWS_ICO = ROOT / "platforms/windows/benefactor.ico"
 MACOS_ICNS = ROOT / "platforms/macos/Benefactor.icns"
 
-MIN_ICON_INK = 0.12
-"""Fraction of a rasterised icon that must be non-transparent at 16 px."""
-
 
 def scaled(value: float, scale: float, offset: float) -> str:
     text = f"{value * scale + offset:.2f}".rstrip("0").rstrip(".")
@@ -119,81 +119,70 @@ def _radius(value: float, scale: float) -> str:
     return plain(value * scale)
 
 
-def letter_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
-    """The "B" as one path: stem, two bowls, joining bar, and two counters.
+def key_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
+    """The key as one path: the bow's ring, the hanging stem, and its teeth.
 
-    No subpath overlaps another except along shared edges, so
-    `fill-rule="evenodd"` cuts the counters out instead of filling them — which
-    is what lets this same path serve as Android's monochrome layer, where the
-    counters have to be transparent rather than painted.
+    The stem hangs from the bow's outer arc rather than from a straight edge, so
+    the two shapes share their boundary without overlapping — which, with
+    `fill-rule="evenodd"`, is what lets the bow's hole be a cut-out rather than a
+    painted patch. That is what makes this same path work as Android's
+    monochrome layer, where the hole has to be transparent.
     """
-    bowl_radius = (LETTER_MID_TOP - LETTER_TOP) / 2
-    stem_radius = 18.0
-    # The stem, rounded on its outer corners only: the inner ones are where the
-    # bowls attach, and the contours have to meet there without a seam.
-    stem_block = (
-        f"M{_point(LETTER_LEFT + stem_radius, LETTER_TOP, scale, dx, dy)} "
-        f"L{_point(LETTER_STEM_RIGHT, LETTER_TOP, scale, dx, dy)} "
-        f"L{_point(LETTER_STEM_RIGHT, LETTER_BOTTOM, scale, dx, dy)} "
-        f"L{_point(LETTER_LEFT + stem_radius, LETTER_BOTTOM, scale, dx, dy)} "
-        f"A{_radius(stem_radius, scale)} {_radius(stem_radius, scale)} 0 0 1 "
-        f"{_point(LETTER_LEFT, LETTER_BOTTOM - stem_radius, scale, dx, dy)} "
-        f"L{_point(LETTER_LEFT, LETTER_TOP + stem_radius, scale, dx, dy)} "
-        f"A{_radius(stem_radius, scale)} {_radius(stem_radius, scale)} 0 0 1 "
-        f"{_point(LETTER_LEFT + stem_radius, LETTER_TOP, scale, dx, dy)} Z"
+    cx = KEY_CENTRE_X
+    cy = KEY_BOW_CENTRE_Y
+    bow = KEY_BOW_RADIUS
+    half = KEY_STEM_HALF
+    junction = cy + math.sqrt(bow * bow - half * half)
+    stem_right = cx + half
+    stem_left = cx - half
+    outline = (
+        f"M{_point(cx, cy - bow, scale, dx, dy)} "
+        f"A{_radius(bow, scale)} {_radius(bow, scale)} 0 0 1 "
+        f"{_point(stem_right, junction, scale, dx, dy)} "
+        f"L{_point(stem_right, KEY_TOOTH_TOP_Y, scale, dx, dy)} "
+        f"L{_point(stem_right + KEY_TOOTH_TOP_REACH, KEY_TOOTH_TOP_Y, scale, dx, dy)} "
+        f"L{_point(stem_right + KEY_TOOTH_TOP_REACH, KEY_TOOTH_TOP_Y + 34, scale, dx, dy)} "
+        f"L{_point(stem_right, KEY_TOOTH_TOP_Y + 34, scale, dx, dy)} "
+        f"L{_point(stem_right, KEY_TOOTH_BOTTOM_Y, scale, dx, dy)} "
+        f"L{_point(stem_right + KEY_TOOTH_BOTTOM_REACH, KEY_TOOTH_BOTTOM_Y, scale, dx, dy)} "
+        f"L{_point(stem_right + KEY_TOOTH_BOTTOM_REACH, KEY_BOTTOM, scale, dx, dy)} "
+        f"L{_point(stem_left, KEY_BOTTOM, scale, dx, dy)} "
+        f"L{_point(stem_left, junction, scale, dx, dy)} "
+        f"A{_radius(bow, scale)} {_radius(bow, scale)} 0 0 1 "
+        f"{_point(cx, cy - bow, scale, dx, dy)} Z"
     )
-    top_bowl = (
-        f"M{_point(LETTER_STEM_RIGHT, LETTER_TOP, scale, dx, dy)} "
-        f"L{_point(LETTER_BOWL_FLAT, LETTER_TOP, scale, dx, dy)} "
-        f"A{_radius(bowl_radius, scale)} {_radius(bowl_radius, scale)} 0 0 1 "
-        f"{_point(LETTER_BOWL_FLAT, LETTER_MID_TOP, scale, dx, dy)} "
-        f"L{_point(LETTER_STEM_RIGHT, LETTER_MID_TOP, scale, dx, dy)} Z"
+    hole = (
+        f"M{_point(cx - KEY_HOLE_RADIUS, cy, scale, dx, dy)} "
+        f"A{_radius(KEY_HOLE_RADIUS, scale)} {_radius(KEY_HOLE_RADIUS, scale)} 0 0 1 "
+        f"{_point(cx + KEY_HOLE_RADIUS, cy, scale, dx, dy)} "
+        f"A{_radius(KEY_HOLE_RADIUS, scale)} {_radius(KEY_HOLE_RADIUS, scale)} 0 0 1 "
+        f"{_point(cx - KEY_HOLE_RADIUS, cy, scale, dx, dy)} Z"
     )
-    join = (
-        f"M{_point(LETTER_STEM_RIGHT, LETTER_MID_TOP, scale, dx, dy)} "
-        f"L{_point(LETTER_JOIN_RIGHT, LETTER_MID_TOP, scale, dx, dy)} "
-        f"L{_point(LETTER_JOIN_RIGHT, LETTER_MID_BOTTOM, scale, dx, dy)} "
-        f"L{_point(LETTER_STEM_RIGHT, LETTER_MID_BOTTOM, scale, dx, dy)} Z"
-    )
-    bottom_bowl = (
-        f"M{_point(LETTER_STEM_RIGHT, LETTER_MID_BOTTOM, scale, dx, dy)} "
-        f"L{_point(LETTER_BOWL_FLAT, LETTER_MID_BOTTOM, scale, dx, dy)} "
-        f"A{_radius(bowl_radius, scale)} {_radius(bowl_radius, scale)} 0 0 1 "
-        f"{_point(LETTER_BOWL_FLAT, LETTER_BOTTOM, scale, dx, dy)} "
-        f"L{_point(LETTER_STEM_RIGHT, LETTER_BOTTOM, scale, dx, dy)} Z"
-    )
-    counters = " ".join(
-        f"M{_point(COUNTER_LEFT, centre - COUNTER_RADIUS, scale, dx, dy)} "
-        f"A{_radius(COUNTER_RADIUS, scale)} {_radius(COUNTER_RADIUS, scale)} 0 0 1 "
-        f"{_point(COUNTER_LEFT, centre + COUNTER_RADIUS, scale, dx, dy)} Z"
-        for centre in (
-            (LETTER_TOP + LETTER_MID_TOP) / 2,
-            (LETTER_MID_BOTTOM + LETTER_BOTTOM) / 2,
-        )
-    )
-    return " ".join([stem_block, top_bowl, join, bottom_bowl, counters])
+    return f"{outline} {hole}"
 
 
-def plate_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
-    """The platform bar alone, so it can carry its own colour."""
-    right = mark_right()
-    radius = _radius(PLATE_RADIUS, scale)
+def waterline_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
+    """The water line alone, so it can carry its own colour."""
+    left, _, right, _ = mark_extent()
+    radius = _radius(WATERLINE_RADIUS, scale)
     return (
-        f"M{_point(LETTER_LEFT + PLATE_RADIUS, PLATE_TOP, scale, dx, dy)} "
-        f"L{_point(right - PLATE_RADIUS, PLATE_TOP, scale, dx, dy)} "
-        f"A{radius} {radius} 0 0 1 {_point(right - PLATE_RADIUS, PLATE_BOTTOM, scale, dx, dy)} "
-        f"L{_point(LETTER_LEFT + PLATE_RADIUS, PLATE_BOTTOM, scale, dx, dy)} "
+        f"M{_point(left + WATERLINE_RADIUS, WATERLINE_TOP, scale, dx, dy)} "
+        f"L{_point(right - WATERLINE_RADIUS, WATERLINE_TOP, scale, dx, dy)} "
         f"A{radius} {radius} 0 0 1 "
-        f"{_point(LETTER_LEFT + PLATE_RADIUS, PLATE_TOP, scale, dx, dy)} Z"
+        f"{_point(right - WATERLINE_RADIUS, WATERLINE_BOTTOM, scale, dx, dy)} "
+        f"L{_point(left + WATERLINE_RADIUS, WATERLINE_BOTTOM, scale, dx, dy)} "
+        f"A{radius} {radius} 0 0 1 "
+        f"{_point(left + WATERLINE_RADIUS, WATERLINE_TOP, scale, dx, dy)} Z"
     )
-
-
-def mark_right() -> float:
-    return LETTER_BOWL_FLAT + (LETTER_MID_TOP - LETTER_TOP) / 2
 
 
 def mark_extent() -> tuple[float, float, float, float]:
-    return (LETTER_LEFT, LETTER_TOP, mark_right(), PLATE_BOTTOM)
+    left = KEY_CENTRE_X - KEY_BOW_RADIUS
+    right = max(
+        KEY_CENTRE_X + KEY_BOW_RADIUS,
+        KEY_CENTRE_X + KEY_STEM_HALF + KEY_TOOTH_TOP_REACH,
+    )
+    return (left, KEY_BOW_CENTRE_Y - KEY_BOW_RADIUS, right, WATERLINE_BOTTOM)
 
 
 def centre_mark(scale: float, canvas: float) -> tuple[float, float]:
@@ -211,9 +200,9 @@ def master_svg() -> str:
         [
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}" height="{CANVAS}"'
             f' viewBox="0 0 {CANVAS} {CANVAS}">',
-            f'  <rect width="{CANVAS}" height="{CANVAS}" rx="{radius}" fill="{NAVY}"/>',
-            f'  <path fill="{GOLD}" fill-rule="evenodd" d="{letter_path(MARK_SCALE, dx, dy)}"/>',
-            f'  <path fill="{CYAN}" d="{plate_path(MARK_SCALE, dx, dy)}"/>',
+            f'  <rect width="{CANVAS}" height="{CANVAS}" rx="{radius}" fill="{CAVE}"/>',
+            f'  <path fill="{GOLD}" fill-rule="evenodd" d="{key_path(MARK_SCALE, dx, dy)}"/>',
+            f'  <path fill="{TEAL}" d="{waterline_path(MARK_SCALE, dx, dy)}"/>',
             "</svg>",
             "",
         ]
@@ -276,7 +265,7 @@ def mark_scale(fit: float) -> float:
 def android_background() -> str:
     side = plain(ANDROID_CANVAS)
     return android_vector(
-        path_element(f"M0,0h{side}v{side}h-{side}z", NAVY),
+        path_element(f"M0,0h{side}v{side}h-{side}z", CAVE),
     )
 
 
@@ -285,8 +274,8 @@ def android_foreground() -> str:
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
     body = "\n".join(
         [
-            path_element(letter_path(scale, dx, dy), GOLD, "evenOdd"),
-            path_element(plate_path(scale, dx, dy), CYAN),
+            path_element(key_path(scale, dx, dy), GOLD, "evenOdd"),
+            path_element(waterline_path(scale, dx, dy), TEAL),
         ]
     )
     return android_vector(body)
@@ -297,8 +286,8 @@ def android_monochrome() -> str:
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
     body = "\n".join(
         [
-            path_element(letter_path(scale, dx, dy), WHITE, "evenOdd"),
-            path_element(plate_path(scale, dx, dy), WHITE),
+            path_element(key_path(scale, dx, dy), WHITE, "evenOdd"),
+            path_element(waterline_path(scale, dx, dy), WHITE),
         ]
     )
     return android_vector(body)
@@ -312,9 +301,9 @@ def android_legacy() -> str:
     tile = rounded_rect(0, 0, ANDROID_CANVAS, ANDROID_CANVAS, radius)
     body = "\n".join(
         [
-            path_element(tile, NAVY),
-            path_element(letter_path(scale, dx, dy), GOLD, "evenOdd"),
-            path_element(plate_path(scale, dx, dy), CYAN),
+            path_element(tile, CAVE),
+            path_element(key_path(scale, dx, dy), GOLD, "evenOdd"),
+            path_element(waterline_path(scale, dx, dy), TEAL),
         ]
     )
     return android_vector(body)
@@ -549,13 +538,15 @@ def ink_fraction(path: Path) -> float:
 
 
 def mark_fraction(path: Path) -> float:
-    """Share of an icon's pixels that read as the mark rather than its tile.
+    """Share of an icon's pixels that read as the gold mark rather than its tile.
 
-    The mark is warm (red above blue) and the tile behind it is cold, which
-    separates one from the other without depending on exact colours — the one
-    thing that has to survive antialiasing at 16 px. `--sheet` prints it and the
-    retained-source test asserts it, so both measure the icon the same way.
+    Measured as the share within reach of the key gold, because the tile is warm
+    too — the game's cave is brown — so warmth alone cannot separate the mark
+    from the tile. `--sheet` prints this and the retained-source test asserts it,
+    so both measure the icon the same way.
     """
+    red, green, blue = (int(GOLD[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    distance = f"(abs(r-{red:.3f})+abs(g-{green:.3f})+abs(b-{blue:.3f}))"
     result = subprocess.run(
         [
             rasteriser(),
@@ -563,7 +554,7 @@ def mark_fraction(path: Path) -> float:
             "-alpha",
             "remove",
             "-fx",
-            "(r > b) ? 1 : 0",
+            f"{distance} < 0.35 ? 1 : 0",
             "-format",
             "%[fx:mean]",
             "info:",
