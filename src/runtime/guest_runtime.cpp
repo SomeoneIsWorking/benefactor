@@ -329,12 +329,49 @@ class Runtime final {
         });
     }
 
+    /* The native override frames the CALLING thread is inside.
+     *
+     * Every entry points into that thread's own C stack: the `bool` an override
+     * sets to continue or to hand off to the host, and the entry the call
+     * policy recorded on the way in. One process-wide stack of those was wrong
+     * twice over.
+     *
+     * An interrupt override runs on the host thread while the game thread is
+     * parked inside an override of its own, so `back()` was the parked frame
+     * once the interrupt's own frame popped, and a hand-off would set the
+     * parked override's flag instead of its own.
+     *
+     * Worse, the game thread can be torn down while it is inside an override:
+     * the level picker parks in `for (;;) hw_vblank_wait()`, and EXIT TO MAIN
+     * MENU stops that thread where it stands. The frames outlived the stack
+     * they pointed at, and the next run wrote through one of them. That is the
+     * crash on entering a level, leaving to the menu, and entering again — a
+     * wild store, no message, nothing in any log.
+     *
+     * Held per thread, a frame cannot outlive its stack and cannot be reached
+     * from another one. */
+    struct NativeFrames {
+        std::vector<bool *> continuations;
+        std::vector<bool *> host_exits;
+        std::vector<benefactor::runtime::NativeEntry> entries;
+    };
+
+    static NativeFrames &frames() noexcept {
+        static thread_local NativeFrames only;
+        return only;
+    }
+
+    /* Whether this thread is inside a native override at all. */
+    [[nodiscard]] static bool inside_native() noexcept {
+        return !frames().host_exits.empty();
+    }
+
     amigaport::ExecutionExit execute(std::uint32_t address) {
         last_call_address.store(address, std::memory_order_relaxed);
         record_call(address);
         auto boundary = amigaport::CallBoundary::GuestSubroutine;
-        if (!native_frames.empty()) {
-            const auto nested = call_policy.nested_boundary(native_frames.back(), address);
+        if (!frames().entries.empty()) {
+            const auto nested = call_policy.nested_boundary(frames().entries.back(), address);
             if (nested == benefactor::runtime::GuestCallBoundary::TailTransfer) {
                 boundary = amigaport::CallBoundary::TailTransfer;
             } else if (nested == benefactor::runtime::GuestCallBoundary::HostSubroutine) {
@@ -388,30 +425,30 @@ class Runtime final {
     }
 
     void exit_to_host() {
-        if (native_host_exits.empty()) {
+        if (frames().host_exits.empty()) {
             throw std::logic_error("host exit requested outside an override");
         }
-        *native_host_exits.back() = true;
+        *frames().host_exits.back() = true;
     }
 
     void continue_from_native(std::uint32_t address) {
         if ((address & 1u) != 0u || address >= bytes.size()) {
             throw std::invalid_argument("native continuation target is not a valid guest PC");
         }
-        if (native_continuations.empty()) {
+        if (frames().continuations.empty()) {
             throw std::logic_error("native continuation requested outside an override");
         }
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
-        *native_continuations.back() = true;
+        *frames().continuations.back() = true;
     }
 
     void continue_original() {
-        if (native_continuations.empty()) {
+        if (frames().continuations.empty()) {
             throw std::logic_error("original continuation requested outside an override");
         }
         const amigaport::ExecutionExit result = executor.continue_original();
-        *native_continuations.back() = result.continue_execution;
+        *frames().continuations.back() = result.continue_execution;
     }
 
     amigaport::MemoryRead<std::uint8_t> read8(std::uint32_t address) {
@@ -438,9 +475,6 @@ class Runtime final {
     RuntimeLogger logger;
     amigaport::Executor executor;
     std::vector<Registration> registrations;
-    std::vector<bool *> native_continuations;
-    std::vector<bool *> native_host_exits;
-    std::vector<benefactor::runtime::NativeEntry> native_frames;
     benefactor::runtime::GuestCallPolicy call_policy;
     std::atomic<std::uint32_t> last_call_address{};
     std::atomic<std::uint32_t> last_pc{};
@@ -468,22 +502,22 @@ class Runtime final {
                        replaces_subroutine = registration.replaces_subroutine](auto &) {
                 M68KCtx context{};
                 bind(&context);
-                native_frames.push_back(call_policy.observe_entry(executor, address));
+                frames().entries.push_back(call_policy.observe_entry(executor, address));
                 bool continue_execution = false;
                 bool exit_to_host = false;
-                native_continuations.push_back(&continue_execution);
-                native_host_exits.push_back(&exit_to_host);
+                frames().continuations.push_back(&continue_execution);
+                frames().host_exits.push_back(&exit_to_host);
                 try {
                     function(&context);
                 } catch (...) {
-                    native_continuations.pop_back();
-                    native_host_exits.pop_back();
-                    native_frames.pop_back();
+                    frames().continuations.pop_back();
+                    frames().host_exits.pop_back();
+                    frames().entries.pop_back();
                     throw;
                 }
-                native_continuations.pop_back();
-                native_host_exits.pop_back();
-                native_frames.pop_back();
+                frames().continuations.pop_back();
+                frames().host_exits.pop_back();
+                frames().entries.pop_back();
                 /* Complete the replaced subroutine's RTS only when the body left the
                  * boundary untouched. A path that called the original, jumped, or
                  * exited to the host has already moved the PC and consumed whatever
@@ -688,7 +722,7 @@ void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     }
     const auto exit = runtime().execute(address);
     log_exit("execute", address, exit);
-    if (exit.hand_off_to_host && !runtime().native_host_exits.empty()) {
+    if (exit.hand_off_to_host && Runtime::inside_native()) {
         runtime().exit_to_host();
     }
 }
