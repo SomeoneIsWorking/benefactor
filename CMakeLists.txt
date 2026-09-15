@@ -266,6 +266,7 @@ set(BENEFACTOR_SOURCES
     src/port/overrides/wait_idioms.c
     src/port/overrides/render.c
     src/port/pause_menu.c
+    src/port/pause_menu_draw.c
     src/port/profile.c
     src/port/project_paths.c
     src/render/engine_view.c
