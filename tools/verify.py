@@ -10,7 +10,7 @@ from pathlib import Path
 from tools.harness_tools import harness_tool
 from tools.paths import ROOT, SCRATCH, amigaport_dir
 from tools.product_version import read_version
-from tools.shared_checkouts import TREES
+from tools.shared_checkouts import TREES, vendored_subtrees
 
 PYTHON_PATHS = ("bootstrap.py", "tools", "tests")
 C_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".m", ".mm"}
@@ -269,6 +269,15 @@ def _run_cpp_policy() -> None:
             flush=True,
         )
         return
+    #: The shared trees are consumed, and a checkout of one inside this
+    #: repository is still not this repository's code. Without this the scan
+    #: reads the compile database, finds RmlUi and lucent under the root, and
+    #: reports their function-local statics as ownership violations — on CI,
+    #: which always checks them out inside, and on any host without them
+    #: beside it. Only paths the resolver may fill are named.
+    excluded = []
+    for subtree in vendored_subtrees():
+        excluded.extend(["--exclude", str(subtree)])
     _run(
         [
             sys.executable,
@@ -279,6 +288,7 @@ def _run_cpp_policy() -> None:
             str(database),
             "--accept",
             str(ROOT / ACCEPTED_OWNERSHIP),
+            *excluded,
         ]
     )
 

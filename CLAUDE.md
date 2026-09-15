@@ -138,7 +138,11 @@ compile commands, and it says so rather than passing when there is none. The
 sites the C boundary still holds are named with their reasons in
 `tools/cpp_ownership_accepted.txt` — anything not on that list fails, and a
 listed site that stops occurring fails too, so the list shrinks as C modules
-move to C++ instead of quietly outliving them.
+move to C++ instead of quietly outliving them. The shared checkouts are
+consumed, not owned, so the scan is told to skip every path inside the
+repository that `tools/shared_checkouts.py` may have put one at — otherwise the
+CI layout, which checks them out under `shared/` and `dependencies/`, fails the
+gate on RmlUi's and lucent's own code.
 
 `./run.sh` is the player launcher, and it resolves the shared trees first:
 `tools/shared_checkouts.py` reads the revisions `.github/workflows/release.yml`
