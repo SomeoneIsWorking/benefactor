@@ -496,20 +496,17 @@ static void hw_perf_fps_tick(void) {
     }
 }
 
+/* At fast-forward the mixer still wants one frame of samples per real PAL
+ * frame. What stood here was a whole-millisecond clock with a period
+ * accumulated by `+= 20` and a hidden static of its own — the same defect the
+ * pacer rewrite took out of the main loop and out of the display sample. It is
+ * the pacer's cadence now, derived from a frame index like every other period
+ * in the port. */
 int hw_audio_frame_due(void) {
     if (hw_speed_eff_pct() == 100) {
         return 1;
     }
-    static uint64_t s_next_ms = 0;
-    uint64_t now = SDL_GetTicks();
-    if (s_next_ms == 0 || now > s_next_ms + 200) {
-        s_next_ms = now; /* (re)sync */
-    }
-    if (now < s_next_ms) {
-        return 0;
-    }
-    s_next_ms += 20;
-    return 1;
+    return pc_pace_audio_frame_due();
 }
 
 /* Harness owns the SDL event queue (its input_poll is the sole reader). When

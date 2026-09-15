@@ -240,6 +240,45 @@ void a_host_that_stalled_does_not_show_the_frames_it_missed_as_a_burst() {
     assert(pacer.display_frame_due());
 }
 
+void the_audio_and_display_samples_do_not_consume_each_other() {
+    /* Both run at PAL and both are asked once per produced frame, but either
+     * may be skipped on its own. If they shared a counter, whichever was asked
+     * first would take the other's turn and the song would play at half rate
+     * through a fast-forward. */
+    FakeHost host;
+    FramePacer pacer(host);
+    assert(pacer.display_frame_due());
+    assert(pacer.audio_frame_due());
+
+    host.advance(kPal / 5); /* four more produced frames at 500% */
+    assert(!pacer.display_frame_due());
+    assert(!pacer.audio_frame_due());
+
+    host.advance(kPal - kPal / 5);
+    assert(pacer.display_frame_due());
+    assert(pacer.audio_frame_due());
+
+    /* And a frame the display skipped is still a frame the audio can take. */
+    host.advance(kPal);
+    assert(pacer.audio_frame_due());
+    assert(pacer.display_frame_due());
+}
+
+void the_audio_cadence_does_not_drift_over_a_long_fast_forward() {
+    FakeHost host;
+    FramePacer pacer(host);
+    int fed = 0;
+    /* Five minutes of guest frames at 500%: the mixer should have been handed
+     * one frame of samples per real PAL frame, no more. */
+    for (std::uint64_t frame = 0; frame < 5ULL * 60ULL * 50ULL * 5ULL; ++frame) {
+        if (pacer.audio_frame_due()) {
+            fed++;
+        }
+        host.advance(kPal / 5);
+    }
+    assert(fed == 5 * 60 * 50);
+}
+
 void the_measurement_can_be_started_again_without_disturbing_the_pacing() {
     FakeHost host;
     FramePacer pacer(host);
@@ -267,6 +306,8 @@ int main() {
     fast_forward_shows_one_frame_per_pal_frame_and_skips_the_rest();
     the_display_cadence_does_not_drift_over_a_long_fast_forward();
     a_host_that_stalled_does_not_show_the_frames_it_missed_as_a_burst();
+    the_audio_and_display_samples_do_not_consume_each_other();
+    the_audio_cadence_does_not_drift_over_a_long_fast_forward();
     the_measurement_can_be_started_again_without_disturbing_the_pacing();
     return 0;
 }

@@ -64,6 +64,10 @@ int pc_pace_display_frame_due(void) {
     return pacer().display_frame_due() ? 1 : 0;
 }
 
+int pc_pace_audio_frame_due(void) {
+    return pacer().audio_frame_due() ? 1 : 0;
+}
+
 void pc_pace_report(PcPacingReport *out) {
     if (out == nullptr) {
         return;
