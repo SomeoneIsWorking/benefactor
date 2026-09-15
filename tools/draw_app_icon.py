@@ -347,6 +347,11 @@ def ico_frame_bytes(path: Path, size: int) -> bytes:
 
 def icns_frames(path: Path) -> list[tuple[str, int]]:
     """Read an .icns back, reporting each chunk's kind and the size of its PNG."""
+    return [(kind, size) for kind, size, _payload in icns_payloads(path)]
+
+
+def icns_payloads(path: Path) -> list[tuple[str, int, bytes]]:
+    """Every chunk of an .icns: its kind, the size of its PNG, and the PNG."""
     data = path.read_bytes()
     if data[:4] != b"icns":
         raise SystemExit(f"app icon: {path.name} does not start with an icns header")
@@ -364,7 +369,7 @@ def icns_frames(path: Path) -> list[tuple[str, int]]:
         width, height = struct.unpack_from(">II", data, offset + 24)
         if width != height:
             raise SystemExit(f"app icon: {path.name} chunk {kind!r} is {width}x{height}")
-        frames.append((kind.decode("latin-1"), width))
+        frames.append((kind.decode("latin-1"), width, data[offset + 8 : offset + size]))
         offset += size
     return frames
 
@@ -459,6 +464,45 @@ def check_bitmaps() -> list[str]:
     return problems
 
 
+def check_containers() -> list[str]:
+    """Compare what the desktop containers actually hold against the artwork.
+
+    The frame counts and sizes are structure, and structure was all this
+    checked: an .icns full of last year's drawing at exactly the right eight
+    sizes passed. These are the two files a desktop launcher reads, so they are
+    the two where being stale is least visible and most worth catching.
+    """
+    problems = []
+    with tempfile.TemporaryDirectory() as directory:
+        temporary = Path(directory)
+        fresh = {}
+
+        def artwork(size: int) -> Path:
+            if size not in fresh:
+                fresh[size] = render(TILE, size, temporary / f"fresh-{size}.png")
+            return fresh[size]
+
+        for index, frame in enumerate(ico_frames(WINDOWS_ICO)):
+            held = temporary / f"ico-{index}.png"
+            _magick(f"{WINDOWS_ICO}[{index}]", str(held))
+            apart = difference(held, artwork(frame.width))
+            if apart > MAX_BITMAP_DIFFERENCE:
+                problems.append(
+                    f"benefactor.ico's {frame.width}x{frame.width} frame differs "
+                    f"from the artwork by {apart:.3f}"
+                )
+        for kind, size, payload in icns_payloads(MACOS_ICNS):
+            held = temporary / f"icns-{kind}.png"
+            held.write_bytes(payload)
+            apart = difference(held, artwork(size))
+            if apart > MAX_BITMAP_DIFFERENCE:
+                problems.append(
+                    f"Benefactor.icns chunk {kind} ({size}x{size}) differs "
+                    f"from the artwork by {apart:.3f}"
+                )
+    return problems
+
+
 def check() -> int:
     problems = []
     if not MARK.is_file():
@@ -472,6 +516,8 @@ def check() -> int:
     bitmaps = "not checked"
     if shutil.which("magick") or shutil.which("convert"):
         problems += check_bitmaps()
+        if WINDOWS_ICO.is_file() and MACOS_ICNS.is_file():
+            problems += check_containers()
         bitmaps = f"{len(bitmap_outputs())} bitmap(s) match the artwork"
     else:
         print(
@@ -499,8 +545,8 @@ def check() -> int:
         return 1
     print(
         f"app icon: {len(text_outputs())} authored form(s) current; {bitmaps}; "
-        f"benefactor.ico holds {len(ICO_SIZES)} sizes; "
-        f"Benefactor.icns holds {len(ICNS_TYPES)} PNG chunks"
+        f"every frame of benefactor.ico ({len(ICO_SIZES)}) and of "
+        f"Benefactor.icns ({len(ICNS_TYPES)}) matches it too"
     )
     return 0
 

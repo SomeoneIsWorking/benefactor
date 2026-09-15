@@ -240,6 +240,39 @@ class AppIconRasterTest(unittest.TestCase):
             "the staleness check would pass a bitmap that is not the artwork",
         )
 
+    def test_an_icns_holding_the_wrong_picture_is_caught(self) -> None:
+        """The negative control for the containers.
+
+        Structure was all `--check` looked at here, so an .icns carrying the
+        previous drawing at exactly the right eight sizes passed while the Dock
+        drew the previous drawing. The frames are compared to the artwork now,
+        and this proves the comparison can fail.
+        """
+        payloads = draw_app_icon.icns_payloads(draw_app_icon.MACOS_ICNS)
+        self.assertTrue(payloads, "the icns holds no frames to compare")
+        kind, size, payload = next((k, s, b) for k, s, b in payloads if s >= 128)
+
+        held = self.temporary / f"{kind}.png"
+        held.write_bytes(payload)
+        fresh = draw_app_icon.render(draw_app_icon.TILE, size, self.temporary / "icns-fresh.png")
+        self.assertLessEqual(
+            draw_app_icon.difference(held, fresh),
+            draw_app_icon.MAX_BITMAP_DIFFERENCE,
+            "the shipped macOS icon is not the authored artwork",
+        )
+
+        other = self.temporary / "other.png"
+        subprocess.run(
+            [str(rasteriser()), "-size", f"{size}x{size}", "xc:#524531", str(other)],
+            check=True,
+            capture_output=True,
+        )
+        self.assertGreater(
+            draw_app_icon.difference(other, fresh),
+            draw_app_icon.MAX_BITMAP_DIFFERENCE,
+            "the container check would pass a frame that is not the artwork",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
