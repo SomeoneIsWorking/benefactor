@@ -25,6 +25,7 @@
 #include "engine/hw_private.h" /* BlitRec — for the `blits` REPL dump */
 #include "harness/harness_internal.h"
 #include "harness/puae_state.h"
+#include "port/frame_accounting.h"
 #include "port/port.h"
 #include "render/native_renderer.h" /* scene accessors — for `scenesdl` */
 #include "render/scene_sdl.h"       /* scene_sdl_selftest */
@@ -2569,8 +2570,8 @@ int main(int argc, char **argv) {
             } else {
                 g_mute_music = !g_mute_music;
             }
-            benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[mute] music %s (hw frame=%d)\n",
-                                 g_mute_music ? "OFF (muted)" : "ON", hw_get_frame_num());
+            benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[mute] music %s (hw frame=%u)\n",
+                                 g_mute_music ? "OFF (muted)" : "ON", pc_game_frame_num());
         } else if (!strcmp(cmd, "state")) {
             FrameState p, c;
             puae_snap_state(&p);

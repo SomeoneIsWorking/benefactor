@@ -13,6 +13,7 @@
 
 #include "common/log.h"
 #include "engine/hw.h"
+#include "port/frame_accounting.h"
 #include "port/port_internal.h"
 
 /* One body for every kind: which loop this is gets asked again at run time,
@@ -21,7 +22,7 @@
 static void native_wait_idiom(M68KCtx *ctx) {
     const uint32_t at = rt_get_pc();
     const PcWaitIdiom found = pc_wait_idiom_at(g_mem, (uint32_t)RT_MEM_SIZE, at);
-    const int frame_before = hw_get_frame_num();
+    const uint32_t frame_before = pc_game_frame_num();
     switch (found.kind) {
     case PC_WAIT_FRAME:
         /* The whole point: the guest is asking for the next frame, so say so to
@@ -50,8 +51,8 @@ static void native_wait_idiom(M68KCtx *ctx) {
          * executing the guest's instructions, not by jumping over them. */
         hw_wait_fire(found.wait_pressed);
         benefactor_log_write(BENEFACTOR_LOG_TRACE, "wait",
-                             "$%06X kind=%u frame=%d->%d resume=$%06X (guest poll resumes)", at,
-                             (unsigned)found.kind, frame_before, hw_get_frame_num(), found.resume);
+                             "$%06X kind=%u frame=%u->%u resume=$%06X (guest poll resumes)", at,
+                             (unsigned)found.kind, frame_before, pc_game_frame_num(), found.resume);
         rt_continue_original(ctx, ctx->image);
         return;
     case PC_WAIT_NONE:
@@ -60,8 +61,8 @@ static void native_wait_idiom(M68KCtx *ctx) {
          * guest run its own code rather than guessing what it now means. */
         return;
     }
-    benefactor_log_write(BENEFACTOR_LOG_TRACE, "wait", "$%06X kind=%u frame=%d->%d resume=$%06X",
-                         at, (unsigned)found.kind, frame_before, hw_get_frame_num(), found.resume);
+    benefactor_log_write(BENEFACTOR_LOG_TRACE, "wait", "$%06X kind=%u frame=%u->%u resume=$%06X",
+                         at, (unsigned)found.kind, frame_before, pc_game_frame_num(), found.resume);
     rt_jump(ctx, ctx->image, found.resume);
 }
 

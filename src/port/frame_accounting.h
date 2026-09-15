@@ -99,6 +99,46 @@ class OwnerAccount final {
     Counter deliveries_{};
 };
 
+/* "The frame number" was one integer with three meanings, and the three do not
+ * move together: at fast-forward the display shows a tenth of what the guest
+ * plays, and before the frame loop exists nothing is shown at all. So a script
+ * that says "press fire on frame 7300" and a timeline that says "the card
+ * appeared on frame 7300" were talking about different amounts of game.
+ *
+ *   presented  frames the player actually saw. What the reference product is
+ *              compared against, and what a screen-change timeline counts.
+ *   game       frames the guest produced, shown or not. A fast-forward frame
+ *              that was skipped still happened, so scripted input and "how
+ *              many frames did that wait cost" count these.
+ *   beam       guest beam-frame boundaries crossed — `g_hw_beam_crossed` in
+ *              engine/hw.h, derived from consumed guest cycles, so it moves
+ *              during the boot loader, when there is no frame loop yet and
+ *              neither of the other two has counted anything.
+ *
+ * Every presented frame is also a game frame; the difference between the two
+ * is exactly the frames fast-forward skipped. */
+class FrameCounts final {
+  public:
+    void presented() noexcept {
+        bump(presented_);
+        bump(game_);
+    }
+    /* Produced but deliberately not shown — the fast-forward display sample. */
+    void skipped() noexcept {
+        bump(game_);
+    }
+    [[nodiscard]] std::uint32_t presented_count() const noexcept {
+        return load(presented_);
+    }
+    [[nodiscard]] std::uint32_t game_count() const noexcept {
+        return load(game_);
+    }
+
+  private:
+    Counter presented_{};
+    Counter game_{};
+};
+
 /* How many per-frame waits were reached, refused (not the game flow, so
  * unparkable) and actually parked. */
 class WaitAccount final {
@@ -159,6 +199,12 @@ class FrameAccounting final {
     [[nodiscard]] const WaitAccount &waits() const noexcept {
         return waits_;
     }
+    [[nodiscard]] FrameCounts &frames() noexcept {
+        return frames_;
+    }
+    [[nodiscard]] const FrameCounts &frames() const noexcept {
+        return frames_;
+    }
 
     [[nodiscard]] std::uint64_t frame_cycles() const noexcept {
         return frame_cycles_;
@@ -212,6 +258,7 @@ class FrameAccounting final {
     OwnerAccount level3_{};
     OwnerAccount level6_{};
     WaitAccount waits_{};
+    FrameCounts frames_{};
     std::uint64_t frame_cycles_{};
     std::uint64_t present_cycles_{};
     Counter running_{PC_OWNER_FLOW};
@@ -245,6 +292,14 @@ void pc_note_wait_refused(void);
 void pc_note_wait_parked(void);
 void pc_note_title_draw(void);
 
+/* The two frame counts, written by the display path in engine/hw.c and read by
+ * everything that used to ask hw.c for "the frame number". See FrameCounts for
+ * which of them a given caller wants. */
+void pc_count_presented_frame(void);
+void pc_count_skipped_frame(void);
+uint32_t pc_presented_frame_num(void);
+uint32_t pc_game_frame_num(void);
+
 /* Everything the watchdog and /state report, in one read. Signal-safe. */
 typedef struct {
     uint64_t flow, flow_peak;
@@ -252,6 +307,7 @@ typedef struct {
     uint64_t irq6, irq6_peak;
     uint64_t frame, present;
     uint64_t iteration, iteration_peak;
+    uint32_t frames_presented, frames_game;
     uint32_t irq3_deliveries, irq6_deliveries;
     uint32_t waits_reached, waits_refused, waits_parked;
     uint32_t title_draws;

@@ -41,6 +41,11 @@ void FramePacer::rebase(Nanoseconds at) noexcept {
     frames_ = 0;
 }
 
+void FramePacer::rebase_display(Nanoseconds at) noexcept {
+    display_epoch_ = at;
+    display_frames_ = 0;
+}
+
 void FramePacer::set_speed_percent(unsigned percent) noexcept {
     /* 0% is not a speed, and the caller asking for it means a configuration
      * value got here unvalidated. Refusing it here keeps the divide safe. */
@@ -117,6 +122,34 @@ Nanoseconds FramePacer::wait() noexcept {
     }
 
     return period;
+}
+
+bool FramePacer::display_frame_due() noexcept {
+    const Nanoseconds now = host_.now();
+    if (!display_started_) {
+        display_started_ = true;
+        rebase_display(now);
+        return true;
+    }
+
+    /* 100, not `percent_`: the display rate is PAL whatever the guest is doing.
+     * The offset is derived from the frame index for the same reason `wait()`
+     * derives its deadline that way — a cadence accumulated frame by frame
+     * drifts, and this one has to hold for as long as fast-forward is held. */
+    const Nanoseconds due = display_epoch_ + offset_of(display_frames_ + 1, 100);
+    if (now < due) {
+        return false;
+    }
+    display_frames_++;
+
+    /* A frame missed cannot be shown afterwards, so a host that fell a stall
+     * behind starts the cadence again here instead of presenting the backlog as
+     * a burst. Rebasing on the hour also keeps the frame index far below where
+     * `offset_of`'s multiply would overflow. */
+    if (now > due + kStallLimit || display_frames_ >= kRebaseEvery) {
+        rebase_display(now);
+    }
+    return true;
 }
 
 PacingReport FramePacer::report() const noexcept {

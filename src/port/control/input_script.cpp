@@ -1,6 +1,7 @@
 #include "port/control/input_script.h"
 
 #include "common/log.h"
+#include "port/frame_accounting.h"
 
 extern "C" {
 #include "engine/hw.h"
@@ -72,8 +73,8 @@ void InputScript::frame() {
     if (step_left_ > 0 && --step_left_ == 0) {
         step_left_ = -1;
         paused_ = true;
-        benefactor_log_write(BENEFACTOR_LOG_INFO, "control", "stepped to frame %d; holding",
-                             hw_get_frame_num());
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "control", "stepped to frame %u; holding",
+                             pc_presented_frame_num());
     }
 }
 

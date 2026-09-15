@@ -44,7 +44,7 @@ int Debugger::capacity() const {
 void Debugger::reached(std::uint32_t address, std::uint32_t program_counter) {
     last_ = Stop{.address = address,
                  .program_counter = program_counter,
-                 .frame = hw_get_frame_num(),
+                 .frame = (int)pc_presented_frame_num(),
                  .guest_cycles = rt_get_guest_cycles(),
                  .valid = true};
     /* Freeze how it got here BEFORE anything else runs. See Stop::trace. */

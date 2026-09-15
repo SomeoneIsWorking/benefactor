@@ -170,6 +170,76 @@ void the_report_counts_frames_on_target_and_names_the_worst() {
     assert(report.shortest <= kPal);
 }
 
+void every_frame_is_shown_at_ordinary_speed() {
+    /* Nothing is skipped when the guest is running at PAL: a frame takes a
+     * frame, so the display deadline is always the one that just came due. */
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.wait(); /* starts the clock */
+    for (int i = 0; i < 10; i++) {
+        assert(pacer.display_frame_due());
+        pacer.wait();
+    }
+}
+
+void fast_forward_shows_one_frame_per_pal_frame_and_skips_the_rest() {
+    /* Hold-to-fast-forward is 500%, so the guest produces five frames in the
+     * time the display gets one. The old rule compared whole milliseconds
+     * against a constant 16, which is neither PAL nor the host's refresh; this
+     * asserts the exact cadence instead. */
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(500);
+    pacer.wait(); /* starts the clock */
+
+    int shown = 0;
+    constexpr int frames = 50; /* ten PAL frames' worth of guest time */
+    for (int i = 0; i < frames; i++) {
+        if (pacer.display_frame_due()) {
+            shown++;
+        }
+        pacer.wait();
+    }
+    assert(shown == frames / 5);
+}
+
+void the_display_cadence_does_not_drift_over_a_long_fast_forward() {
+    /* The whole reason the deadline is derived from an index: a cadence that
+     * adds a period per frame accumulates its rounding, and fast-forward is
+     * held for minutes at a time. A second of guest time at 500% is 250 frames
+     * and must still be exactly 50 shown ones, not 49 or 51. */
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(500);
+    pacer.wait();
+
+    int shown = 0;
+    for (int i = 0; i < 250 * 60; i++) {
+        if (pacer.display_frame_due()) {
+            shown++;
+        }
+        pacer.wait();
+    }
+    assert(shown == 50 * 60);
+}
+
+void a_host_that_stalled_does_not_show_the_frames_it_missed_as_a_burst() {
+    FakeHost host;
+    FramePacer pacer(host);
+    assert(pacer.display_frame_due()); /* the first frame of the run */
+
+    host.advance(NS_PER_SECOND); /* a second gone: a disk load, or a suspend */
+    assert(pacer.display_frame_due());
+
+    /* The fifty frames it missed cannot be shown after the fact, so the cadence
+     * starts again from the frame just shown: the next one is a whole PAL frame
+     * away, not a backlog presented as fast as the loop can go. */
+    host.advance(kPal - 1);
+    assert(!pacer.display_frame_due());
+    host.advance(1);
+    assert(pacer.display_frame_due());
+}
+
 void the_measurement_can_be_started_again_without_disturbing_the_pacing() {
     FakeHost host;
     FramePacer pacer(host);
@@ -193,6 +263,10 @@ int main() {
     a_speed_change_does_not_produce_a_short_frame_at_the_seam();
     the_speed_is_a_speed_and_zero_is_refused();
     the_report_counts_frames_on_target_and_names_the_worst();
+    every_frame_is_shown_at_ordinary_speed();
+    fast_forward_shows_one_frame_per_pal_frame_and_skips_the_rest();
+    the_display_cadence_does_not_drift_over_a_long_fast_forward();
+    a_host_that_stalled_does_not_show_the_frames_it_missed_as_a_burst();
     the_measurement_can_be_started_again_without_disturbing_the_pacing();
     return 0;
 }

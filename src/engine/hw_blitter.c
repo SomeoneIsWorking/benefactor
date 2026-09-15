@@ -18,6 +18,7 @@
 #include "engine/hw_private.h"
 #include "harness/trace.h"
 #include "port/config.h"
+#include "port/frame_accounting.h"
 #include "runtime/guest_runtime.h"
 #include <stdio.h>
 #ifdef HARNESS_BUILD
@@ -629,7 +630,7 @@ void hw_do_blit(void) {
         fprintf(s_trace_log,
                 "%d %d $%06X $%06X $%06X $%04X $%04X $%04X $%04X $%04X "
                 "%d %d %d %d $%04X $%04X->$%04X\n",
-                serial, hw_get_frame_num(), _bplptr_from(_BLTDPTH, _BLTDPTL),
+                serial, (int)pc_game_frame_num(), _bplptr_from(_BLTDPTH, _BLTDPTL),
                 _bplptr_from(_BLTAPTH, _BLTAPTL), _bplptr_from(_BLTCPTH, _BLTCPTL), bltcon0,
                 bltcon1, bltsize, afwm, alwm, (int)amod, (int)bmod, (int)cmod, (int)dmod,
                 prev_a_at_x0, watch_before, watch_after_val);

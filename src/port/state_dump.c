@@ -8,6 +8,7 @@
 #include "common/log.h"
 #include "engine/hw.h"
 #include "port/config.h"
+#include "port/frame_accounting.h"
 #include "runtime/guest_runtime.h"
 
 #define STATE_DUMP_MAX_OFFSETS 8
@@ -67,8 +68,8 @@ static void state_dump_write(int offset) {
     /* Say the frame as well as the offset: the two products disagree about
      * frame numbers, and the whole point is that these two dumps are the same
      * MOMENT despite that. */
-    benefactor_log_write(BENEFACTOR_LOG_INFO, "state", "dump: offset=%+d frame=%d bytes=%zu -> %s",
-                         offset, hw_get_frame_num(), written, path);
+    benefactor_log_write(BENEFACTOR_LOG_INFO, "state", "dump: offset=%+d frame=%u bytes=%zu -> %s",
+                         offset, pc_presented_frame_num(), written, path);
 }
 
 void pc_note_state_dump(void) {
@@ -78,7 +79,7 @@ void pc_note_state_dump(void) {
     if (!s_dump.enabled || g_mem == NULL) {
         return;
     }
-    const int frame = hw_get_frame_num();
+    const int frame = (int)pc_presented_frame_num();
     if (s_dump.anchor < 0) {
         if ((hw_get_cop1lc() & 0xFFFFFFu) != s_dump.screen) {
             return;

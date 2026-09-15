@@ -290,7 +290,6 @@ static void hw_compose_output(void) {
 
 /* Beam counter (simulated at 50 Hz) */
 static int s_scanline = 0;
-static int s_frame_num = 0;
 
 /* Sampled on EVERY custom-chip access: a guest loop that syncs on something
  * other than the beam (the intro crawl waits on the blitter) would otherwise
@@ -349,19 +348,18 @@ static void hw_step_register_beam(int at_beam_read) {
     }
     s_beam_frame = frame;
     g_hw_beam_crossed++;
+    /* Before the frame loop exists (the boot loader runs under the interpreter
+     * during bring-up) nothing lands these boundaries, and nothing is shown.
+     * They used to bump the frame number here as a stand-in, which is how one
+     * integer came to mean a shown frame, a produced frame and a beam boundary
+     * depending on when it was read. g_hw_beam_crossed above already counts
+     * every crossing and this counts the unlanded ones; the frames that were
+     * produced and the frames that were shown are counted by the display path,
+     * in port/frame_accounting.h. */
     if (!g_hw_vblank_yield) {
-        s_frame_num++;
         g_hw_beam_taken++;
     }
 }
-
-int hw_get_frame_num(void) {
-    return s_frame_num;
-}
-
-/* Frame timing */
-static uint64_t s_frame_start_ns = 0;
-#define FRAME_NS 20000000ULL /* 50 Hz = 20 ms */
 
 /* Watchdog / engine state */
 static int s_frame_watchdog_limit = 0; /* 0 = disabled */
@@ -1342,7 +1340,6 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
         s_palette[i] = amiga_to_argb((uint16_t)(i * 0x111));
     }
 
-    s_frame_start_ns = (uint64_t)SDL_GetTicks() * 1000000ULL;
     return 0;
 }
 
@@ -1402,8 +1399,8 @@ static int hw_present_body(void) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_EVENT_QUIT) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "app",
-                                     "SDL asked the app to quit (event $%X) at frame %d", ev.type,
-                                     s_frame_num);
+                                     "SDL asked the app to quit (event $%X) at frame %u", ev.type,
+                                     pc_game_frame_num());
                 s_in_present_frame = 0;
                 return 1;
             }
@@ -1450,17 +1447,14 @@ static int hw_present_body(void) {
      * harness paths (frame hooks/headless compare) never speed up, so their
      * captures are untouched. */
     if (hw_speed_eff_pct() >= 200 && !s_headless && !g_harness_frame_hook && !s_ext_input) {
-        static uint64_t s_last_present_ms = 0;
-        uint64_t now = SDL_GetTicks();
-        if (now - s_last_present_ms < 16) {
+        if (!pc_pace_display_frame_due()) {
             hw_blit_capture_reset();
-            s_frame_num++;
+            pc_count_skipped_frame(); /* produced, not shown: a GAME frame only */
             s_in_present_frame = 0;
             hw_perf_fps_tick(); /* skipped frames count toward the fps readout */
             hw_pace_frame();    /* skipped frames still pace — FF is 5x, not unbounded */
             return 0;
         }
-        s_last_present_ms = now;
     }
 
     /* Free-cam pan: ticked here (not in pc_step) so the camera keeps moving
@@ -1550,7 +1544,7 @@ static int hw_present_body(void) {
 
     /* The scripted, unattended run: frame dumps, timed input, memory dumps and
      * the frame limit. Diagnostics, not display — engine/hw_testrun.c. */
-    hw_testrun_capture(s_frame_num, s_out, s_hw_out_w, HW_DISPLAY_H);
+    hw_testrun_capture((int)pc_presented_frame_num(), s_out, s_hw_out_w, HW_DISPLAY_H);
     pc_control_frame(); /* releases a timed press, counts down a step */
     pc_note_frame_phase();
     pc_note_state_dump();
@@ -1558,8 +1552,10 @@ static int hw_present_body(void) {
     /* Last: everything this frame did has landed, so this is the state the
      * reference product is held against, frame for frame (port/lockstep.h). */
     pc_lockstep_frame();
-    s_frame_num++;
-    hw_testrun_script(s_frame_num);
+    pc_count_presented_frame();
+    /* Scripted input is indexed by GAME frames, so a BENEFACTOR_PRESSES
+     * timeline means the same amount of game at 100% and at fast-forward. */
+    hw_testrun_script((int)pc_game_frame_num());
 
     if (s_frame_watchdog_limit > 0 && ++s_frame_watchdog_count >= s_frame_watchdog_limit) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "test", "reached frame limit %d",
@@ -2241,10 +2237,10 @@ void hw_write16(uint32_t addr, uint16_t v) {
                     reported_cra = (uint8_t)v;
                     benefactor_log_write(
                         BENEFACTOR_LOG_DEBUG, "ciab",
-                        "timer A cra=$%02X latch=%u -> %.2f per PAL frame (frame %d)",
+                        "timer A cra=$%02X latch=%u -> %.2f per PAL frame (frame %u)",
                         (unsigned)reported_cra, (unsigned)reported_latch,
                         reported_latch ? 709379.0 / 50.0 / (double)reported_latch : 0.0,
-                        hw_get_frame_num());
+                        pc_game_frame_num());
                 }
             }
             break;
@@ -2300,8 +2296,8 @@ void hw_write16(uint32_t addr, uint16_t v) {
         if ((reg == COP1LCL || reg == COP1LCH) && previous != v && pc_cfg_bool("copper_trace", 0)) {
             const uint32_t list = ((uint32_t)s_regs[COP1LCH >> 1] << 16) | s_regs[COP1LCL >> 1];
             benefactor_log_write(BENEFACTOR_LOG_DEBUG, "copper",
-                                 "COP1LC=$%06X frame %d from pc $%06X owner %u", list & 0xFFFFFFu,
-                                 hw_get_frame_num(), rt_get_pc(), (uint32_t)pc_running_owner());
+                                 "COP1LC=$%06X frame %u from pc $%06X owner %u", list & 0xFFFFFFu,
+                                 pc_game_frame_num(), rt_get_pc(), (uint32_t)pc_running_owner());
         }
 
         switch (reg) {
@@ -2323,8 +2319,8 @@ void hw_write16(uint32_t addr, uint16_t v) {
             }
             if (v & 0x000F) {
                 benefactor_log_write(
-                    BENEFACTOR_LOG_TRACE, "audio", "frame=%d DMACON %s aud=$%X (active aud=$%X)",
-                    hw_get_frame_num(), (v & 0x8000) ? "SET" : "CLR", v & 0xF, s_dmacon & 0xF);
+                    BENEFACTOR_LOG_TRACE, "audio", "frame=%u DMACON %s aud=$%X (active aud=$%X)",
+                    pc_game_frame_num(), (v & 0x8000) ? "SET" : "CLR", v & 0xF, s_dmacon & 0xF);
             }
             /* sfx_trace: on audio-channel DMA ENABLE, record which sample (AUDxLC),
              * length, period — one line per "note/SFX on" so we can diff PC vs
@@ -2339,8 +2335,8 @@ void hw_write16(uint32_t addr, uint16_t v) {
                         if (v & (1u << ch)) {
                             int b = (AUD0LCH + ch * 0x10) >> 1;
                             uint32_t lc = ((uint32_t)s_regs[b] << 16) | s_regs[b + 1];
-                            fprintf(sf, "f=%d ch%d LC=%06X LEN=%04X PER=%04X VOL=%02X fn=%06X\n",
-                                    hw_get_frame_num(), ch, lc & 0xFFFFFF, s_regs[b + 2],
+                            fprintf(sf, "f=%u ch%d LC=%06X LEN=%04X PER=%04X VOL=%02X fn=%06X\n",
+                                    pc_game_frame_num(), ch, lc & 0xFFFFFF, s_regs[b + 2],
                                     s_regs[b + 3], s_regs[b + 4] & 0x7F,
                                     (unsigned)rt_get_active_call_address());
                             fflush(sf);
@@ -2557,8 +2553,8 @@ void hw_write16(uint32_t addr, uint16_t v) {
                 const int channel = (reg - AUD0LCH) / 0x10;
                 const int which = ((reg - AUD0LCH) % 0x10) >> 1;
                 benefactor_log_write(BENEFACTOR_LOG_DEBUG, "audio",
-                                     "frame %d ch%d %s $%04X -> $%04X from pc $%06X owner %u",
-                                     hw_get_frame_num(), channel, which < 5 ? kName[which] : "?",
+                                     "frame %u ch%d %s $%04X -> $%04X from pc $%06X owner %u",
+                                     pc_game_frame_num(), channel, which < 5 ? kName[which] : "?",
                                      previous, v, rt_get_pc(), (uint32_t)pc_running_owner());
             }
             break;
