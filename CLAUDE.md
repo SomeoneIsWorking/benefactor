@@ -97,8 +97,15 @@ show that fades and music advanced.
   that appears frozen on one PC is reporting the wait, not a hang. The control
   route `/update?tag=…|error=…` reports an update-check result by hand so its
   panel renderings can be driven without waiting for a release.
-- `BENEFACTOR_HTTP=<port>` enables the Lucent-backed control server in
-  `src/port/control/`. Its `/` page is interactive; `/state`, `/cpu`, `/mem`,
+- `./run.sh` opens the control channel itself, on 8613 or the next free port
+  above it, and records it in `build/control-port`; `uv run --frozen python -m
+  tools.control_port` prints the URL of the game running now. A live report is
+  the only chance to look at what is being reported, so the channel is open by
+  default rather than needing a restart. `BENEFACTOR_HTTP=<port>` names a
+  different port and `BENEFACTOR_HTTP=0` (or `off`) closes the channel; a
+  `--http N` passed through `run.sh` decides it directly. Any other launch of
+  the binary needs `BENEFACTOR_HTTP` or `--http` to enable the Lucent-backed
+  control server in `src/port/control/`. Its `/` page is interactive; `/state`, `/cpu`, `/mem`,
   `/poke`, `/hold`, `/press?fire=1&frames=4`, `/pause`, `/resume`,
   `/step?frames=N`, `/fb.ppm`, `/trace`, `/recent`, `/save`, and `/load`
   expose live control and inspection. Its server thread can accept `/resume`
