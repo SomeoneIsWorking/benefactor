@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.harness_tools import harness_tool
 from tools.paths import ROOT, SCRATCH, amigaport_dir
 from tools.product_version import read_version
 
@@ -222,6 +223,25 @@ def _run(
     subprocess.run(arguments, cwd=cwd, check=True, env=environment)
 
 
+def _run_cpp_policy() -> None:
+    """The shared ownership gate: does this project's clang policy say what it must.
+
+    `re-harness` owns the rule — braces on every body, no disabled defaults, and
+    warnings as errors — and this is the project end of it. The gate is skipped
+    on a host without that checkout, and says so by name: a check nobody can see
+    failing is worse than one that is absent.
+    """
+    tool = harness_tool("cpp_policy.py")
+    if tool is None:
+        print(
+            "cpp policy: not run (no re-harness checkout beside this one; set "
+            "RE_HARNESS_DIR); the shared clang policy was NOT checked",
+            flush=True,
+        )
+        return
+    _run([sys.executable, str(tool), "--audit-config", "."])
+
+
 def _compile_and_run_c_test(compiler: list[str], name: str, sources: list[str]) -> None:
     executable = ROOT / "build" / "verification" / name
     executable.parent.mkdir(parents=True, exist_ok=True)
@@ -289,6 +309,7 @@ def main() -> int:
         ]
     )
     sdl_include_args = _sdl_include_args()
+    _run_cpp_policy()
     _run(["clang-format", "--dry-run", "--Werror", *C_FORMAT_PATHS])
     _run(["clang-tidy", *C_TIDY_PATHS, "--", "-std=c11", "-Isrc", *sdl_include_args])
     shared_include = amigaport_dir() / "include"
