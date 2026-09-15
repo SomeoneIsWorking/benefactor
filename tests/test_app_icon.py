@@ -1,14 +1,15 @@
-"""The app icon is checked as a player meets it, and every platform's copy exists.
+"""The app icon is the authored picture, and every platform's copy is that picture.
 
-Two things are being protected. The first is that one authored mark reaches all
-four platforms: each packaging path names a file, and that file is there. The
-second is that the mark is still legible after rasterising — a launcher and a file
-manager draw it at 16 px, so measuring the SVG text alone would prove nothing.
+Two things are being protected. The first is that one authored image reaches all
+four platforms: each packaging path names a file, and that file is there and
+carries the artwork rather than something a generator invented. The second is
+that the picture survives being scaled down — a launcher and a file manager draw
+it at 16 px, so checking the SVG text alone would prove nothing.
 """
 
 from __future__ import annotations
 
-import math
+import base64
 import plistlib
 import re
 import shutil
@@ -23,50 +24,20 @@ from tools.paths import ROOT
 
 ANDROID_CHROME = "{http://schemas.android.com/apk/res/android}"
 LAUNCHER_SIZES = (16, 32, 48)
-MIN_MARK_FRACTION = 0.02
-"""Share of the icon that must read as the hero rather than as his tile.
 
-Measured on this artwork with `--sheet`: 0.340 at 16 px, 0.294 at 32 px, 0.292 at
-48 px. The bar sits far below that because the property being defended is "the
-mark is there", not "the mark is exactly this big".
+MIN_DETAIL = 0.03
+"""How much the icon must still vary across itself once it has been scaled down.
+
+A photograph reduced to a launcher size still changes from pixel to pixel; a
+picture that has been lost — replaced by a flat tile, or rendered as nothing —
+does not. Measured on this artwork with `--sheet`: 0.111 at 16 px, rising to
+0.150 at 128 px. The bar sits far below that, because the property being
+defended is "the picture is there", not "the picture is exactly this busy".
 """
 
 
 def rasteriser() -> str | None:
     return shutil.which("magick") or shutil.which("convert")
-
-
-def run_magick(*arguments: str) -> str:
-    result = subprocess.run(
-        [str(rasteriser()), *arguments], check=True, capture_output=True, text=True
-    )
-    return result.stdout.strip()
-
-
-def alpha_at(path: Path, x: int, y: int) -> float:
-    return float(run_magick(str(path), "-format", f"%[fx:p{{{x},{y}}}.a]", "info:"))
-
-
-SOLID = "50%"
-"""Alpha above which a pixel is the drawn shape rather than its antialiased edge.
-
-Renderers disagree about how far an edge feathers — and ImageMagick 6's SVG
-delegate rasterises at the file's intrinsic size and resizes afterwards, which
-spreads the edge over several pixels. Measuring what is *drawn* rather than where
-the fuzz ends is what makes this check mean the same thing on both.
-"""
-
-
-def drawn_ink_box(path: Path) -> tuple[int, int, int, int]:
-    """The bounding box of the drawn pixels, as x, y, width, height."""
-    box = run_magick(
-        str(path), "-channel", "A", "-threshold", SOLID, "+channel", "-format", "%@", "info:"
-    )
-    match = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", box)
-    if match is None:
-        raise AssertionError(f"ImageMagick reported no ink box for {path}: {box!r}")
-    width, height, x, y = (int(value) for value in match.groups())
-    return x, y, width, height
 
 
 class AppIconFormsTest(unittest.TestCase):
@@ -82,41 +53,69 @@ class AppIconFormsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("authored form(s) current", result.stdout)
 
-    def test_android_declares_an_adaptive_and_a_filled_launcher_icon(self) -> None:
+    def test_the_svg_carries_the_authored_image_itself(self) -> None:
+        """ "Directly" means the bytes: the SVG holds the PNG, not a copy of it."""
+        for relative in ("platforms/icons/benefactor.svg", "platforms/web/icon.svg"):
+            svg = (ROOT / relative).read_text(encoding="utf-8")
+            payload = re.search(r"base64,([A-Za-z0-9+/=]+)", svg)
+            self.assertIsNotNone(payload, f"{relative} embeds no image")
+            self.assertEqual(
+                base64.b64decode(payload.group(1)),
+                draw_app_icon.MARK.read_bytes(),
+                f"{relative} carries something other than the authored mark",
+            )
+
+    def test_android_ships_a_launcher_bitmap_for_every_density(self) -> None:
         manifest = ElementTree.parse(
             ROOT / "platforms/android/app/src/main/AndroidManifest.xml"
         ).getroot()
         application = manifest.find("application")
         self.assertEqual(application.get(f"{ANDROID_CHROME}icon"), "@mipmap/ic_launcher")
         self.assertEqual(application.get(f"{ANDROID_CHROME}roundIcon"), "@mipmap/ic_launcher_round")
-        # From API 26 a launcher composites the icon from layers; the releases
-        # before that draw whatever mipmap-anydpi holds, so both must exist.
-        for qualifier in ("mipmap-anydpi", "mipmap-anydpi-v26"):
-            for name in ("ic_launcher", "ic_launcher_round"):
-                resource = draw_app_icon.ANDROID_ROOT / qualifier / f"{name}.xml"
+        for density in draw_app_icon.ANDROID_DENSITIES:
+            for name in ("ic_launcher", "ic_launcher_round", "ic_launcher_background"):
+                resource = draw_app_icon.ANDROID_ROOT / f"mipmap-{density}/{name}.png"
                 self.assertTrue(resource.is_file(), f"{resource.relative_to(ROOT)} is missing")
 
-    def test_the_adaptive_icon_references_drawables_that_exist(self) -> None:
-        adaptive = ElementTree.parse(
-            draw_app_icon.ANDROID_ROOT / "mipmap-anydpi-v26/ic_launcher.xml"
-        ).getroot()
-        layers = {child.tag: child.get(f"{ANDROID_CHROME}drawable") for child in adaptive}
-        self.assertEqual(
-            layers,
-            {
-                "background": "@drawable/ic_launcher_background",
-                "foreground": "@drawable/ic_launcher_foreground",
-                # Without a monochrome layer a themed launcher tints a copy of the
-                # foreground, counters and all.
-                "monochrome": "@drawable/ic_launcher_monochrome",
-            },
-        )
-        for drawable in layers.values():
-            resource = draw_app_icon.ANDROID_ROOT / "drawable" / f"{drawable.split('/', 1)[1]}.xml"
-            self.assertTrue(resource.is_file(), f"{resource.relative_to(ROOT)} is missing")
+    def test_no_anydpi_resource_shadows_the_density_bitmaps(self) -> None:
+        """`anydpi` outranks every density qualifier, so a leftover one wins.
+
+        The icon used to be a VectorDrawable in `mipmap-anydpi`, which is exactly
+        the folder a pre-26 launcher prefers over the bitmaps this now ships. A
+        file left there would hide the picture on those releases and nowhere
+        else, which is the kind of thing nobody notices for a year.
+        """
+        stale = list((draw_app_icon.ANDROID_ROOT / "mipmap-anydpi").glob("*"))
+        self.assertEqual(stale, [], f"mipmap-anydpi still holds {[p.name for p in stale]}")
+
+    def test_the_adaptive_icon_references_layers_that_exist(self) -> None:
+        for name in ("ic_launcher", "ic_launcher_round"):
+            adaptive = ElementTree.parse(
+                draw_app_icon.ANDROID_ROOT / f"mipmap-anydpi-v26/{name}.xml"
+            ).getroot()
+            layers = {child.tag: child.get(f"{ANDROID_CHROME}drawable") for child in adaptive}
+            self.assertEqual(
+                layers,
+                {
+                    "background": "@mipmap/ic_launcher_background",
+                    # The picture is the background layer, because that is the
+                    # layer a launcher's mask crops. There is no monochrome
+                    # layer: a themed launcher only themes an icon that offers
+                    # one, and a photograph has no honest one-colour form.
+                    "foreground": "@drawable/ic_launcher_foreground",
+                },
+            )
+        foreground = draw_app_icon.ANDROID_ROOT / "drawable/ic_launcher_foreground.xml"
+        self.assertTrue(foreground.is_file(), f"{foreground.relative_to(ROOT)} is missing")
+
+    def test_every_committed_bitmap_is_square_and_the_size_it_claims(self) -> None:
+        for path, bitmap in draw_app_icon.bitmap_outputs().items():
+            with self.subTest(path=str(path.relative_to(ROOT))):
+                self.assertEqual(draw_app_icon.png_size(path), (bitmap.size, bitmap.size))
 
     def test_the_desktop_windows_macos_and_web_paths_name_the_generated_icon(self) -> None:
         for relative in (
+            "platforms/icons/benefactor-mark.png",
             "platforms/icons/benefactor.svg",
             "platforms/windows/benefactor.ico",
             "platforms/windows/benefactor.rc",
@@ -187,134 +186,58 @@ class AppIconFormsTest(unittest.TestCase):
 
 
 class AppIconRasterTest(unittest.TestCase):
-    """Both halves of "authored once": it rasterises, and it rasterises at size."""
+    """The picture is still a picture after it has been scaled to a launcher."""
 
     def setUp(self) -> None:
         if not rasteriser():
             self.skipTest(
                 "ImageMagick's `magick`/`convert` is not on PATH, so the icon cannot be "
-                "rasterised at launcher sizes here"
+                "rendered at launcher sizes here"
             )
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.temporary = Path(directory.name)
 
-    def preview(self, relative: str, size: int) -> Path:
-        """Rasterise a committed Android layer, so the shipped numbers are measured."""
-        svg = draw_app_icon.vector_preview_svg(
-            [draw_app_icon.ANDROID_ROOT / relative], self.temporary / "preview.svg"
-        )
-        return draw_app_icon.rasterise(
-            svg, size, self.temporary / f"preview-{size}.png", viewport=draw_app_icon.ANDROID_CANVAS
-        )
-
-    def test_the_hero_is_present_at_every_launcher_size(self) -> None:
+    def test_the_picture_survives_every_launcher_size(self) -> None:
         for size in LAUNCHER_SIZES:
-            frame = draw_app_icon.rasterise(
-                draw_app_icon.ICON_SVG, size, self.temporary / f"icon-{size}.png"
+            frame = draw_app_icon.render(
+                draw_app_icon.TILE, size, self.temporary / f"icon-{size}.png"
             )
-            fraction = draw_app_icon.mark_fraction(frame)
+            varies = draw_app_icon.detail(frame)
             with self.subTest(size=size):
                 self.assertGreaterEqual(
-                    fraction,
-                    MIN_MARK_FRACTION,
-                    f"only {fraction:.3f} of the {size} px icon reads as the mark",
+                    varies,
+                    MIN_DETAIL,
+                    f"the {size} px icon varies by only {varies:.3f}: the picture is gone",
                 )
 
-    def test_the_measurement_would_fail_without_the_mark(self) -> None:
-        """The negative control: the identical measurement on a bare tile."""
-        bare = self.temporary / "bare.svg"
-        bare.write_text(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">'
-            f'<rect width="512" height="512" fill="{draw_app_icon.CAVE}"/></svg>',
-            encoding="utf-8",
+    def test_the_measurement_would_fail_on_a_flat_tile(self) -> None:
+        """The negative control: the identical measurement on a picture-free tile."""
+        flat = self.temporary / "flat.png"
+        subprocess.run(
+            [str(rasteriser()), "-size", "48x48", "xc:#524531", str(flat)],
+            check=True,
+            capture_output=True,
         )
-        frame = draw_app_icon.rasterise(bare, 48, self.temporary / "bare.png")
         self.assertLess(
-            draw_app_icon.mark_fraction(frame),
-            MIN_MARK_FRACTION,
-            "the mark measurement passes on a tile with no mark on it",
+            draw_app_icon.detail(flat),
+            MIN_DETAIL,
+            "the measurement passes on a tile with no picture on it",
         )
 
-    def worst_radius(self, frame: Path) -> float:
-        """How far the drawn mark reaches from the canvas centre, in canvas units."""
-        size = frame.read_bytes() and int(draw_app_icon.ANDROID_CANVAS * 4)
-        x, y, width, height = drawn_ink_box(frame)
-        scale = size / draw_app_icon.ANDROID_CANVAS
-        centre = draw_app_icon.ANDROID_CANVAS / 2
-        corners = ((x, y), (x + width, y), (x, y + height), (x + width, y + height))
-        return max(
-            math.hypot(corner_x / scale - centre, corner_y / scale - centre)
-            for corner_x, corner_y in corners
+    def test_a_committed_bitmap_that_went_stale_is_caught(self) -> None:
+        """The negative control for `--check`: a different picture must not pass."""
+        stale = self.temporary / "stale.png"
+        subprocess.run(
+            [str(rasteriser()), "-size", "192x192", "xc:#524531", str(stale)],
+            check=True,
+            capture_output=True,
         )
-
-    def test_the_mark_fits_inside_the_circle_a_launcher_may_crop_to(self) -> None:
-        frame = self.preview(
-            "drawable/ic_launcher_foreground.xml", int(draw_app_icon.ANDROID_CANVAS * 4)
-        )
-        # A drawn edge still lands somewhere inside its boundary pixel.
-        allowed = draw_app_icon.ANDROID_SAFE_DIAMETER / 2 + 1 / 4
-        reached = self.worst_radius(frame)
-        self.assertLessEqual(
-            reached, allowed, f"the mark reaches {reached:.2f} of the {allowed:.2f} it may"
-        )
-
-    def test_the_circle_measurement_would_fail_for_an_oversized_mark(self) -> None:
-        """The negative control: the same measurement on a mark that must not fit."""
-        size = int(draw_app_icon.ANDROID_CANVAS * 4)
-        scale = draw_app_icon.mark_scale(
-            draw_app_icon.fit_height(
-                draw_app_icon.ANDROID_SAFE_DIAMETER - draw_app_icon.ANDROID_FIT_MARGIN
-            )
-        )
-        grown = scale * 1.3
-        dx, dy = draw_app_icon.centre_mark(grown, draw_app_icon.ANDROID_CANVAS)
-        svg = self.temporary / "oversized.svg"
-        body = draw_app_icon.hero_path(grown, dx, dy)
-        svg.write_text(
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{draw_app_icon.ANDROID_CANVAS}"'
-            f' height="{draw_app_icon.ANDROID_CANVAS}" viewBox="0 0 {draw_app_icon.ANDROID_CANVAS}'
-            f' {draw_app_icon.ANDROID_CANVAS}"><path fill="{draw_app_icon.WHITE}"'
-            f' d="{body}"/></svg>',
-            encoding="utf-8",
-        )
-        frame = draw_app_icon.rasterise(
-            svg, size, self.temporary / "oversized.png", viewport=draw_app_icon.ANDROID_CANVAS
-        )
-        allowed = draw_app_icon.ANDROID_SAFE_DIAMETER / 2 + 1 / 4
+        fresh = draw_app_icon.render(draw_app_icon.TILE, 192, self.temporary / "fresh.png")
         self.assertGreater(
-            self.worst_radius(frame),
-            allowed,
-            "the circle measurement passes for a mark drawn beyond the mask",
-        )
-
-    def test_the_monochrome_layer_keeps_the_notch_at_the_hero_s_side_open(self) -> None:
-        """A themed icon must show the launcher's surface where the sprite does."""
-        size = 432
-        frame = self.preview("drawable/ic_launcher_monochrome.xml", size)
-        scale = draw_app_icon.mark_scale(
-            draw_app_icon.fit_height(
-                draw_app_icon.ANDROID_SAFE_DIAMETER - draw_app_icon.ANDROID_FIT_MARGIN
-            )
-        )
-        dx, dy = draw_app_icon.centre_mark(scale, draw_app_icon.ANDROID_CANVAS)
-        sample = size / draw_app_icon.ANDROID_CANVAS
-
-        def at(column: float, row: float) -> tuple[int, int]:
-            """The middle of one sprite pixel, in pixels of the rasterised layer."""
-            return (
-                round(float(draw_app_icon.scaled(column + 0.5, scale, dx)) * sample),
-                round(float(draw_app_icon.scaled(row + 0.5, scale, dy)) * sample),
-            )
-
-        # The sky pixel at his left side, between his raised arm and his body,
-        # and the body pixel immediately right of it.
-        self.assertEqual(
-            draw_app_icon.HERO_SPRITE[4][0], ".", "the sprite no longer has that notch"
-        )
-        self.assertEqual(alpha_at(frame, *at(0, 4)), 0.0, "the notch at his side is filled in")
-        self.assertEqual(
-            alpha_at(frame, *at(1, 4)), 1.0, "his side is missing where it should be drawn"
+            draw_app_icon.difference(stale, fresh),
+            draw_app_icon.MAX_BITMAP_DIFFERENCE,
+            "the staleness check would pass a bitmap that is not the artwork",
         )
 
 

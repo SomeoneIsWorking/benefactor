@@ -5,9 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
-    <!-- The launcher icon is an adaptive icon from API 26 on, where the launcher
-         supplies the mask, background, and themed tint; mipmap-anydpi carries the
-         filled tile those older releases draw directly. -->
+    <!-- The launcher icon is a picture, so it is bitmaps: one per density, and
+         from API 26 an adaptive icon that puts the same picture on the background
+         layer for the launcher to mask. Nothing may sit in mipmap-anydpi, which
+         would outrank every density folder and hide them on the older releases. -->
     <application android:allowBackup="false" android:appCategory="game" android:hardwareAccelerated="true"
                  android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
                  android:label="Benefactor" android:theme="@style/BenefactorTheme">

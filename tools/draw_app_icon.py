@@ -1,22 +1,37 @@
 #!/usr/bin/env python3
-"""Author Benefactor's app icon once and emit every platform's form of it.
+"""Fit one authored image to every platform's form of the app icon.
 
-The checked-in SVG in `platforms/icons/` is the artwork; this file is what draws
-it, so one change lands everywhere instead of leaving four platforms with four
-different marks. It writes:
+`platforms/icons/benefactor-mark.png` is the artwork — a frame of the game
+itself, used as it is rather than redrawn — and this file is what fits it to
+each platform, so one change lands everywhere instead of leaving four platforms
+with four different marks.
 
-    platforms/icons/benefactor.svg                        desktop raster source
-    platforms/web/icon.svg                                browser tab icon
-    platforms/android/.../drawable/ic_launcher_*.xml      adaptive layers + monochrome
-    platforms/android/.../mipmap-anydpi/ic_launcher*.xml  filled tile for API 21-25
-    platforms/android/.../mipmap-anydpi-v26/ic_launcher*.xml  adaptive icon
-    platforms/windows/benefactor.rc                       icon resource statement
-    platforms/windows/benefactor.ico                      multi-size Windows icon
-    platforms/macos/Benefactor.icns                       macOS bundle icon
+The mark is a bitmap, and that decides the shape of everything below. Nothing
+here draws: every output is the same image cropped square, scaled, and masked.
+The desktop and web forms carry it inside an SVG, which is a wrapper around the
+authored PNG rather than a drawing of it. Android cannot use that at all — a
+VectorDrawable holds no raster — so its launcher icon is density bitmaps, and
+its adaptive icon puts the image on the background layer, which is the layer a
+launcher's mask is meant to crop. It writes:
 
-Only the vector text is authored here. The binary containers are rasterised from
-the SVG with ImageMagick, and `--check` both re-derives the text and reads the
-containers back, so a stale or truncated icon cannot pass as current.
+    platforms/icons/benefactor.svg                            desktop icon
+    platforms/web/icon.svg                                    browser tab icon
+    platforms/android/.../mipmap-<density>/ic_launcher.png        launcher tile
+    platforms/android/.../mipmap-<density>/ic_launcher_round.png  round launcher tile
+    platforms/android/.../mipmap-<density>/ic_launcher_background.png  adaptive layer
+    platforms/android/.../drawable/ic_launcher_foreground.xml  empty adaptive layer
+    platforms/android/.../mipmap-anydpi-v26/ic_launcher*.xml   adaptive icon
+    platforms/windows/benefactor.rc                           icon resource statement
+    platforms/windows/benefactor.ico                          multi-size Windows icon
+    platforms/macos/Benefactor.icns                           macOS bundle icon
+
+`--check` re-derives the text forms and compares them exactly, re-renders every
+bitmap and compares it to the committed one, and reads the two binary containers
+back, so a stale or truncated icon cannot pass as current. The bitmap comparison
+allows a small difference rather than demanding identical bytes: ImageMagick's
+resampling is not identical across versions, and the check runs on three
+operating systems. A stale icon is a different picture, not a rounding
+difference, so the bar catches it either way.
 
     python3 -m tools.draw_app_icon --write
     python3 -m tools.draw_app_icon --check
@@ -25,7 +40,7 @@ containers back, so a stale or truncated icon cannot pass as current.
 from __future__ import annotations
 
 import argparse
-import math
+import base64
 import shutil
 import struct
 import subprocess
@@ -33,71 +48,38 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from xml.etree import ElementTree
 
 from tools.paths import ROOT
 
-ANDROID_NAMESPACE = "{http://schemas.android.com/apk/res/android}"
-
-# Every colour here is read off the frame named below rather than picked: the
-# lit brown of the cave wall the game paints behind him for the tile, and for
-# the hero his outline, the dark of his hair, his boot, two tones of skin, and
-# three reds. Flat fills, because an icon is read at 16 px.
-CAVE = "#524531"
-WHITE = "#ffffff"
-
-#: The hero as the game itself draws him, read pixel for pixel off
-#: `screenshots/gameplay-minniat.png` at x276-281, y66-74, where he stands
-#: against open sky with nothing in front of him. One letter per pixel, a dot
-#: for the sky behind him.
-HERO_SPRITE = (
-    "..##..",
-    ".#dd#.",
-    "#bsdd#",
-    "#slhd#",
-    ".#rsr#",
-    "#rlhr#",
-    "#rmRd#",
-    "#dRm#.",
-    "#lss#.",
-)
-
-HERO_INK = {
-    "#": "#210000",
-    "d": "#211010",
-    "b": "#522000",
-    "s": "#ad6521",
-    "l": "#bd7531",
-    "h": "#734510",
-    "r": "#8c0000",
-    "m": "#bd0000",
-    "R": "#ff1000",
-}
-
-SPRITE_WIDTH = float(len(HERO_SPRITE[0]))
-SPRITE_HEIGHT = float(len(HERO_SPRITE))
-
-#: Every pixel is its own rectangle, and two rectangles sharing an edge
-#: rasterise with a seam of whatever is behind them showing through. Each one
-#: reaches this far past its right and bottom edge to close that seam; the
-#: reach is clipped at the sprite's own edge, so the mark still measures 6 by 9.
-SPRITE_OVERLAP = 0.02
+MARK = ROOT / "platforms/icons/benefactor-mark.png"
 
 CANVAS = 512
 CORNER_FRACTION = 0.219
+"""How far the tile's corners are rounded, as a share of its side.
 
-MARK_FILL = 0.7
-"""How tall the hero stands on his tile, as a share of it; tuned by looking."""
+The proportion Apple and the Android reference squircle both sit near; the
+image itself is square-cropped and full-bleed, so this rounding is the only
+shaping the icon gets.
+"""
 
-# Android's adaptive canvas is 108 units, and the tightest mask a launcher may
-# apply is the circle of diameter 66 that it guarantees is visible. The mark is
-# fitted inside that circle, one unit short of it, so a renderer's antialiased
-# edge cannot cross the boundary. The pre-26 tile carries no launcher mask, so
-# its mark is fitted to the tile instead.
+#: The mask a form's corners get. `TILE` is the rounded square every desktop
+#: platform draws, `ROUND` the circle Android's round launcher icon wants, and
+#: `FULL` no mask at all — the adaptive background layer, which a launcher masks
+#: itself and which must therefore reach every edge.
+TILE, ROUND, FULL = "tile", "round", "full"
+
+ANDROID_ROOT = ROOT / "platforms/android/app/src/main/res"
+
+#: Android sizes an icon in density-independent pixels and expects one bitmap
+#: per density bucket. A launcher icon is 48dp; an adaptive layer is 108dp.
+ANDROID_DENSITIES = {"mdpi": 1.0, "hdpi": 1.5, "xhdpi": 2.0, "xxhdpi": 3.0, "xxxhdpi": 4.0}
+ANDROID_LAUNCHER_DP = 48
 ANDROID_CANVAS = 108.0
-ANDROID_SAFE_DIAMETER = 66.0
-ANDROID_FIT_MARGIN = 1.0
-ANDROID_LEGACY_DIAMETER = 92.0
+
+#: The adaptive layer a launcher guarantees is visible: the central 72 of 108dp,
+#: two thirds of each side. Everything outside it is parallax and crop, so the
+#: image is composed to survive being cut back to it.
+ANDROID_SAFE_DP = 72.0
 
 ICNS_TYPES = {
     b"ic11": 32,  # 16x16@2x
@@ -111,17 +93,20 @@ ICNS_TYPES = {
 }
 ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 
-ANDROID_ROOT = ROOT / "platforms/android/app/src/main/res"
 ICON_SVG = ROOT / "platforms/icons/benefactor.svg"
 WEB_SVG = ROOT / "platforms/web/icon.svg"
 WINDOWS_RC = ROOT / "platforms/windows/benefactor.rc"
 WINDOWS_ICO = ROOT / "platforms/windows/benefactor.ico"
 MACOS_ICNS = ROOT / "platforms/macos/Benefactor.icns"
 
+MAX_BITMAP_DIFFERENCE = 0.02
+"""How far a committed bitmap may sit from a fresh render, as root-mean-square.
 
-def scaled(value: float, scale: float, offset: float) -> str:
-    text = f"{value * scale + offset:.2f}".rstrip("0").rstrip(".")
-    return text if text not in ("", "-0") else "0"
+Two ImageMagick versions resample slightly differently, so demanding identical
+bytes would make the check fail on a host rather than on a stale icon. Two
+percent is far below any real change to the artwork and far above the difference
+between two renderers' filters.
+"""
 
 
 def plain(value: float) -> str:
@@ -129,112 +114,114 @@ def plain(value: float) -> str:
     return text if text not in ("", "-0") else "0"
 
 
-def _point(x: float, y: float, scale: float, dx: float, dy: float) -> str:
-    return f"{scaled(x, scale, dx)} {scaled(y, scale, dy)}"
-
-
-def _polygon(corners: tuple[tuple[float, float], ...], scale: float, dx: float, dy: float) -> str:
-    first, *rest = corners
-    lines = " ".join(f"L{_point(x, y, scale, dx, dy)}" for x, y in rest)
-    return f"M{_point(*first, scale, dx, dy)} {lines} Z"
-
-
-def _pixel_rect(
-    x: float, y: float, width: float, height: float, scale: float, dx: float, dy: float
-) -> str:
-    return _polygon(
-        ((x, y), (x + width, y), (x + width, y + height), (x, y + height)), scale, dx, dy
-    )
-
-
-def sprite_runs(letters: str) -> list[tuple[float, float, float, float]]:
-    """The sprite's pixels of the given letters, merged into horizontal runs.
-
-    One rectangle per run rather than per pixel: the same shape in a fraction of
-    the path data, which matters because these paths are also Android vector
-    resources parsed at every launch.
-    """
-    runs: list[tuple[float, float, float, float]] = []
-    for row, line in enumerate(HERO_SPRITE):
-        column = 0
-        while column < len(line):
-            if line[column] not in letters:
-                column += 1
-                continue
-            start = column
-            while column < len(line) and line[column] in letters:
-                column += 1
-            width = min(column - start + SPRITE_OVERLAP, SPRITE_WIDTH - start)
-            height = min(1 + SPRITE_OVERLAP, SPRITE_HEIGHT - row)
-            runs.append((float(start), float(row), width, height))
-    return runs
-
-
-def sprite_paths(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> list[tuple[str, str]]:
-    """The hero as one path per colour, in the order his colours first appear."""
-    order: list[str] = []
-    for line in HERO_SPRITE:
-        for letter in line:
-            if letter in HERO_INK and letter not in order:
-                order.append(letter)
-    return [
-        (
-            HERO_INK[letter],
-            " ".join(
-                _pixel_rect(x, y, width, height, scale, dx, dy)
-                for x, y, width, height in sprite_runs(letter)
-            ),
+def rasteriser() -> str:
+    found = shutil.which("magick") or shutil.which("convert")
+    if not found:
+        raise SystemExit(
+            "app icon: ImageMagick's `magick` (or `convert`) is required to fit the icon "
+            "to the sizes it ships in, and it is not on PATH"
         )
-        for letter in order
-    ]
+    return found
 
 
-def hero_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
-    """Everything the hero covers, as one shape, whatever colour it is drawn in.
+def _magick(*arguments: str) -> str:
+    result = subprocess.run([rasteriser(), *arguments], check=True, capture_output=True, text=True)
+    return result.stdout.strip()
 
-    Android's themed icon gets a single colour, so it gets this: his outline,
-    and with it the notch at his side where the sky shows between his arm and
-    his body, which is what the launcher's own surface comes through.
+
+def mask_shape(shape: str, size: int) -> str | None:
+    """The ImageMagick drawing that keeps a form's own pixels, or None for all."""
+    if shape == FULL:
+        return None
+    if shape == ROUND:
+        half = size / 2
+        return f"circle {half},{half} {half},0"
+    radius = size * CORNER_FRACTION
+    return f"roundrectangle 0,0 {size},{size} {plain(radius)},{plain(radius)}"
+
+
+def render(shape: str, size: int, destination: Path) -> Path:
+    """The mark, cropped square about its centre, at `size` px, masked by `shape`.
+
+    The mask is drawn four times too large and scaled down, because ImageMagick
+    draws an aliased edge: at 16 px a jagged corner is the whole difference
+    between a tile and a staircase. The image itself is enlarged with a point
+    filter — it is a frame of a 1994 game, and smoothing its pixels into each
+    other on a 1024 px macOS layer would lose the thing being shown.
     """
-    return " ".join(
-        _pixel_rect(x, y, width, height, scale, dx, dy)
-        for x, y, width, height in sprite_runs("".join(HERO_INK))
-    )
-
-
-def mark_extent() -> tuple[float, float, float, float]:
-    """What the mark occupies: the sprite's own box, in pixels of the sprite."""
-    return (0.0, 0.0, SPRITE_WIDTH, SPRITE_HEIGHT)
-
-
-def centre_mark(scale: float, canvas: float) -> tuple[float, float]:
-    left, top, right, bottom = mark_extent()
-    return (
-        (canvas - (right - left) * scale) / 2 - left * scale,
-        (canvas - (bottom - top) * scale) / 2 - top * scale,
-    )
+    filtering = ["-filter", "point"] if size > min(png_size(MARK)) else []
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shape_drawing = mask_shape(shape, size * 4)
+    arguments = [
+        str(MARK),
+        *filtering,
+        "-resize",
+        f"{size}x{size}^",
+        "-gravity",
+        "center",
+        "-extent",
+        f"{size}x{size}",
+    ]
+    if shape_drawing is not None:
+        arguments += [
+            "(",
+            "-size",
+            f"{size * 4}x{size * 4}",
+            "xc:none",
+            "-fill",
+            "white",
+            "-draw",
+            shape_drawing,
+            "-resize",
+            f"{size}x{size}",
+            ")",
+            "-alpha",
+            "set",
+            "-compose",
+            "DstIn",
+            "-composite",
+        ]
+    _magick(*arguments, "-strip", str(destination))
+    return destination
 
 
 def master_svg() -> str:
+    """The desktop and web icon: the authored PNG, clipped to the tile.
+
+    An SVG here is a container, not a drawing. Every consumer of this file — a
+    browser tab, a freedesktop icon theme, an AppImage — renders raster content
+    inside SVG, and wrapping the bitmap keeps one file serving every size
+    instead of a directory of them.
+    """
     radius = plain(CORNER_FRACTION * CANVAS)
-    scale = mark_scale(CANVAS * MARK_FILL)
-    dx, dy = centre_mark(scale, CANVAS)
+    payload = base64.b64encode(MARK.read_bytes()).decode("ascii")
     return "\n".join(
         [
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}" height="{CANVAS}"'
-            f' viewBox="0 0 {CANVAS} {CANVAS}">',
-            f'  <rect width="{CANVAS}" height="{CANVAS}" rx="{radius}" fill="{CAVE}"/>',
-            *(
-                f'  <path fill="{colour}" d="{body}"/>'
-                for colour, body in sprite_paths(scale, dx, dy)
-            ),
+            f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
+            f' width="{CANVAS}" height="{CANVAS}" viewBox="0 0 {CANVAS} {CANVAS}">',
+            "  <defs>",
+            '    <clipPath id="tile">',
+            f'      <rect width="{CANVAS}" height="{CANVAS}" rx="{radius}"/>',
+            "    </clipPath>",
+            "  </defs>",
+            f'  <image clip-path="url(#tile)" width="{CANVAS}" height="{CANVAS}"',
+            '      preserveAspectRatio="xMidYMid slice" image-rendering="pixelated"',
+            f'      xlink:href="data:image/png;base64,{payload}"/>',
             "</svg>",
             "",
         ]
     )
 
 
-def android_vector(body: str) -> str:
+def android_foreground() -> str:
+    """An empty foreground layer: the picture is the background layer.
+
+    An adaptive icon needs both layers declared, and a photographic mark cannot
+    be split into a background and a thing standing on it. Putting it on the
+    background is what makes a launcher's mask crop the picture rather than
+    float it; the foreground is then a layer with nothing in it, which is
+    declared rather than omitted because a missing drawable is a build failure.
+    """
     size = plain(ANDROID_CANVAS)
     return "\n".join(
         [
@@ -244,93 +231,28 @@ def android_vector(body: str) -> str:
             f'    android:height="{size}dp"',
             f'    android:viewportWidth="{size}"',
             f'    android:viewportHeight="{size}">',
-            body,
+            f'    <path android:fillColor="#00000000" '
+            f'android:pathData="M0,0h{size}v{size}h-{size}z" />',
             "</vector>",
             "",
         ]
     )
 
 
-def path_element(d: str, color: str, fill_type: str | None = None) -> str:
-    fill = f' android:fillType="{fill_type}"' if fill_type else ""
-    return f'    <path android:fillColor="{color}"{fill} android:pathData="{d}" />'
-
-
-def rounded_rect(x: float, y: float, width: float, height: float, radius: float) -> str:
-    return (
-        f"M{plain(x + radius)},{plain(y)}"
-        f"h{plain(width - 2 * radius)}"
-        f"a{plain(radius)},{plain(radius)} 0 0 1 {plain(radius)},{plain(radius)}"
-        f"v{plain(height - 2 * radius)}"
-        f"a{plain(radius)},{plain(radius)} 0 0 1 -{plain(radius)},{plain(radius)}"
-        f"h-{plain(width - 2 * radius)}"
-        f"a{plain(radius)},{plain(radius)} 0 0 1 -{plain(radius)},-{plain(radius)}"
-        f"v-{plain(height - 2 * radius)}"
-        f"a{plain(radius)},{plain(radius)} 0 0 1 {plain(radius)},-{plain(radius)}z"
-    )
-
-
-def fit_height(diameter: float) -> float:
-    """The tallest the mark can stand and still fit a circle of `diameter`.
-
-    Fitting the mark's bounding box means fitting its corners, which are what
-    sits furthest from the centre.
-    """
-    left, top, right, bottom = mark_extent()
-    aspect = (right - left) / (bottom - top)
-    return diameter / math.sqrt(1 + aspect * aspect)
-
-
-def mark_scale(fit: float) -> float:
-    """The scale that draws the mark `fit` units tall."""
-    _, top, _, bottom = mark_extent()
-    return fit / (bottom - top)
-
-
-def android_background() -> str:
-    side = plain(ANDROID_CANVAS)
-    return android_vector(
-        path_element(f"M0,0h{side}v{side}h-{side}z", CAVE),
-    )
-
-
-def android_foreground() -> str:
-    scale = mark_scale(fit_height(ANDROID_SAFE_DIAMETER - ANDROID_FIT_MARGIN))
-    dx, dy = centre_mark(scale, ANDROID_CANVAS)
-    body = "\n".join(path_element(body, colour) for colour, body in sprite_paths(scale, dx, dy))
-    return android_vector(body)
-
-
-def android_monochrome() -> str:
-    scale = mark_scale(fit_height(ANDROID_SAFE_DIAMETER - ANDROID_FIT_MARGIN))
-    dx, dy = centre_mark(scale, ANDROID_CANVAS)
-    body = path_element(hero_path(scale, dx, dy), WHITE)
-    return android_vector(body)
-
-
-def android_legacy() -> str:
-    """API 21-25 has no launcher mask, so the icon brings its own tile."""
-    scale = mark_scale(fit_height(ANDROID_LEGACY_DIAMETER))
-    dx, dy = centre_mark(scale, ANDROID_CANVAS)
-    radius = CORNER_FRACTION * ANDROID_CANVAS
-    tile = rounded_rect(0, 0, ANDROID_CANVAS, ANDROID_CANVAS, radius)
-    body = "\n".join(
-        [
-            path_element(tile, CAVE),
-            *(path_element(body, colour) for colour, body in sprite_paths(scale, dx, dy)),
-        ]
-    )
-    return android_vector(body)
-
-
 def android_adaptive() -> str:
+    """No monochrome layer, so a themed launcher draws the picture instead.
+
+    A themed icon is one flat shape in the system's tint. There is no honest
+    one-colour reduction of a photograph, and a launcher only themes an icon
+    that offers the layer — leaving it out means a themed home screen shows this
+    icon as it is, which is the better of the two available outcomes.
+    """
     return "\n".join(
         [
             '<?xml version="1.0" encoding="utf-8"?>',
             '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">',
-            '    <background android:drawable="@drawable/ic_launcher_background" />',
+            '    <background android:drawable="@mipmap/ic_launcher_background" />',
             '    <foreground android:drawable="@drawable/ic_launcher_foreground" />',
-            '    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />',
             "</adaptive-icon>",
             "",
         ]
@@ -354,51 +276,31 @@ def text_outputs() -> dict[Path, str]:
         ICON_SVG: master_svg(),
         WEB_SVG: master_svg(),
         WINDOWS_RC: windows_rc(),
-        ANDROID_ROOT / "drawable/ic_launcher_background.xml": android_background(),
         ANDROID_ROOT / "drawable/ic_launcher_foreground.xml": android_foreground(),
-        ANDROID_ROOT / "drawable/ic_launcher_monochrome.xml": android_monochrome(),
-        ANDROID_ROOT / "mipmap-anydpi/ic_launcher.xml": android_legacy(),
-        ANDROID_ROOT / "mipmap-anydpi/ic_launcher_round.xml": android_legacy(),
         ANDROID_ROOT / "mipmap-anydpi-v26/ic_launcher.xml": android_adaptive(),
         ANDROID_ROOT / "mipmap-anydpi-v26/ic_launcher_round.xml": android_adaptive(),
     }
 
 
-def rasteriser() -> str:
-    found = shutil.which("magick") or shutil.which("convert")
-    if not found:
-        raise SystemExit(
-            "app icon: ImageMagick's `magick` (or `convert`) is required to rasterise "
-            "the icon at the sizes it ships in, and it is not on PATH"
-        )
-    return found
+@dataclass(frozen=True)
+class Bitmap:
+    """One committed PNG: how big it is and what shape its corners are."""
+
+    size: int
+    shape: str
 
 
-def rasterise(source: Path, size: int, destination: Path, viewport: float = CANVAS) -> Path:
-    """Rasterise an SVG at `size` px, rendering at that size rather than above it.
-
-    ImageMagick rasterises an SVG at its intrinsic size and resizes afterwards,
-    so a 1024 px macOS layer would be a blurred 512 px one. Setting the density
-    first makes the renderer draw at the size being asked for; the resize that
-    follows only ever downsamples.
-    """
-    density = max(1, math.ceil(96 * size / viewport))
-    subprocess.run(
-        [
-            rasteriser(),
-            "-background",
-            "none",
-            "-density",
-            str(density),
-            str(source),
-            "-resize",
-            f"{size}x{size}",
-            str(destination),
-        ],
-        check=True,
-        capture_output=True,
-    )
-    return destination
+def bitmap_outputs() -> dict[Path, Bitmap]:
+    """Every PNG that ships, so `--write` and `--check` cannot disagree."""
+    outputs: dict[Path, Bitmap] = {}
+    for density, factor in ANDROID_DENSITIES.items():
+        folder = ANDROID_ROOT / f"mipmap-{density}"
+        launcher = round(ANDROID_LAUNCHER_DP * factor)
+        layer = round(ANDROID_CANVAS * factor)
+        outputs[folder / "ic_launcher.png"] = Bitmap(launcher, TILE)
+        outputs[folder / "ic_launcher_round.png"] = Bitmap(launcher, ROUND)
+        outputs[folder / "ic_launcher_background.png"] = Bitmap(layer, FULL)
+    return outputs
 
 
 @dataclass(frozen=True)
@@ -467,30 +369,26 @@ def icns_frames(path: Path) -> list[tuple[str, int]]:
     return frames
 
 
-def write_ico(source: Path, destination: Path) -> None:
+def write_ico(destination: Path) -> None:
     """A multi-size .ico: Windows picks the entry that fits the surface."""
     with tempfile.TemporaryDirectory() as directory:
         temporary = Path(directory)
-        frames = [rasterise(source, size, temporary / f"{size}.png") for size in ICO_SIZES]
+        frames = [render(TILE, size, temporary / f"{size}.png") for size in ICO_SIZES]
         destination.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            [rasteriser(), *[str(frame) for frame in frames], str(destination)],
-            check=True,
-            capture_output=True,
-        )
+        _magick(*[str(frame) for frame in frames], str(destination))
     sizes = [(frame.width, frame.height) for frame in ico_frames(destination)]
     if sizes != [(size, size) for size in ICO_SIZES]:
         raise SystemExit(f"app icon: wrote {sizes} into {destination.name}")
 
 
-def write_icns(source: Path, destination: Path) -> None:
+def write_icns(destination: Path) -> None:
     """A PNG-based .icns, written directly so any host can produce one."""
     chunks, cache = [], {}
     with tempfile.TemporaryDirectory() as directory:
         temporary = Path(directory)
         for kind, size in ICNS_TYPES.items():
             if size not in cache:
-                cache[size] = rasterise(source, size, temporary / f"{size}.png").read_bytes()
+                cache[size] = render(TILE, size, temporary / f"{size}.png").read_bytes()
             payload = cache[size]
             chunks.append(kind + struct.pack(">I", len(payload) + 8) + payload)
     body = b"".join(chunks)
@@ -498,14 +396,89 @@ def write_icns(source: Path, destination: Path) -> None:
     destination.write_bytes(b"icns" + struct.pack(">I", len(body) + 8) + body)
 
 
+def png_size(path: Path) -> tuple[int, int]:
+    """A PNG's own dimensions, read from the file rather than from a renderer."""
+    header = path.read_bytes()[:24]
+    if header[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(f"app icon: {path.name} is not a PNG")
+    return struct.unpack_from(">II", header, 16)
+
+
+def comparer() -> list[str]:
+    """ImageMagick's comparison, however this host spells it.
+
+    Version 7 puts it behind `magick compare`; version 6 ships it as its own
+    `compare` binary and its `convert` does not answer to the name.
+    """
+    seven = shutil.which("magick")
+    if seven:
+        return [seven, "compare"]
+    six = shutil.which("compare")
+    if not six:
+        raise SystemExit(
+            "app icon: ImageMagick's `compare` is required to check a committed bitmap "
+            "against the artwork, and it is not on PATH"
+        )
+    return [six]
+
+
+def difference(first: Path, second: Path) -> float:
+    """Root-mean-square distance between two images, 0 for identical ones."""
+    result = subprocess.run(
+        [*comparer(), "-metric", "RMSE", str(first), str(second), "null:"],
+        capture_output=True,
+        text=True,
+    )
+    reported = (result.stderr or result.stdout).strip()
+    try:
+        return float(reported.split("(")[1].split(")")[0])
+    except (IndexError, ValueError) as error:
+        raise SystemExit(f"app icon: could not compare {first.name}: {reported}") from error
+
+
+def check_bitmaps() -> list[str]:
+    """Re-render every committed PNG and report the ones that have gone stale."""
+    problems = []
+    with tempfile.TemporaryDirectory() as directory:
+        temporary = Path(directory)
+        for path, bitmap in bitmap_outputs().items():
+            relative = path.relative_to(ROOT)
+            if not path.is_file():
+                problems.append(f"{relative} is missing")
+                continue
+            if png_size(path) != (bitmap.size, bitmap.size):
+                width, height = png_size(path)
+                problems.append(
+                    f"{relative} is {width}x{height}, wanted {bitmap.size}x{bitmap.size}"
+                )
+                continue
+            fresh = render(bitmap.shape, bitmap.size, temporary / path.name)
+            apart = difference(path, fresh)
+            if apart > MAX_BITMAP_DIFFERENCE:
+                problems.append(f"{relative} differs from the artwork by {apart:.3f}")
+    return problems
+
+
 def check() -> int:
     problems = []
+    if not MARK.is_file():
+        problems.append(f"{MARK.relative_to(ROOT)} is missing, so there is no icon to fit")
     for path, expected in text_outputs().items():
         relative = path.relative_to(ROOT)
         if not path.is_file():
             problems.append(f"{relative} is missing")
         elif path.read_text(encoding="utf-8") != expected:
             problems.append(f"{relative} differs from the generator")
+    bitmaps = "not checked"
+    if shutil.which("magick") or shutil.which("convert"):
+        problems += check_bitmaps()
+        bitmaps = f"{len(bitmap_outputs())} bitmap(s) match the artwork"
+    else:
+        print(
+            "app icon: ImageMagick is not on PATH, so the committed bitmaps were NOT "
+            "checked against the artwork; only the authored text forms were",
+            file=sys.stderr,
+        )
     if WINDOWS_ICO.is_file():
         sizes = [(frame.width, frame.height) for frame in ico_frames(WINDOWS_ICO)]
         if sizes != [(size, size) for size in ICO_SIZES]:
@@ -525,69 +498,30 @@ def check() -> int:
         print(f"app icon: {len(problems)} problem(s); run --write to regenerate", file=sys.stderr)
         return 1
     print(
-        f"app icon: {len(text_outputs())} authored form(s) current; "
+        f"app icon: {len(text_outputs())} authored form(s) current; {bitmaps}; "
         f"benefactor.ico holds {len(ICO_SIZES)} sizes; "
         f"Benefactor.icns holds {len(ICNS_TYPES)} PNG chunks"
     )
     return 0
 
 
-def ink_fraction(path: Path) -> float:
-    """Share of an image's pixels that are not transparent."""
-    result = subprocess.run(
-        [
-            rasteriser(),
-            str(path),
-            "-alpha",
-            "extract",
-            "-format",
-            "%[fx:mean]",
-            "info:",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return float(result.stdout.strip())
+def detail(path: Path) -> float:
+    """How much the image varies across itself, as a standard deviation of 0 to 1.
 
-
-def mark_fraction(path: Path) -> float:
-    """Share of an icon's pixels that read as the hero rather than as his tile.
-
-    He is nine colours and the tile is one, so the measurement is distance from
-    the tile: a pixel far enough from the cave's brown is him. The tile's rounded
-    corners are transparent, and they are flattened onto the tile's own colour
-    rather than onto white, so a corner does not count as the hero. `--sheet`
-    prints this and the retained-source test asserts it, so both measure it the
-    same way.
+    A picture that has survived being scaled down to a launcher size still varies
+    from pixel to pixel; one that has been reduced to a flat square does not. It
+    is the cheapest measurement that tells those two apart, and the legibility
+    sheet and the test that guards it both read it from here.
     """
-    red, green, blue = (int(CAVE[i : i + 2], 16) / 255 for i in (1, 3, 5))
-    distance = f"(abs(r-{red:.3f})+abs(g-{green:.3f})+abs(b-{blue:.3f}))"
-    result = subprocess.run(
-        [
-            rasteriser(),
-            str(path),
-            "-background",
-            CAVE,
-            "-alpha",
-            "remove",
-            "-fx",
-            f"{distance} > 0.2 ? 1 : 0",
-            "-format",
-            "%[fx:mean]",
-            "info:",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    return float(
+        _magick(str(path), "-colorspace", "gray", "-format", "%[fx:standard_deviation]", "info:")
     )
-    return float(result.stdout.strip())
 
 
 def write_legibility_sheet(destination: Path) -> list[tuple[int, float]]:
-    """Rasterise the shipping sizes over light, dark, and mid backgrounds.
+    """Render the shipping sizes over light, dark, and mid backgrounds.
 
-    Art is checked as a player meets it: rasterised, at the size it ships, on the
+    Art is checked as a player meets it: at the size it ships, on the
     backgrounds a launcher or a file manager might put behind it.
     """
     measured = []
@@ -595,211 +529,102 @@ def write_legibility_sheet(destination: Path) -> list[tuple[int, float]]:
         temporary = Path(directory)
         rows = []
         for size in (16, 24, 32, 48, 64, 128):
-            frame = rasterise(ICON_SVG, size, temporary / f"icon-{size}.png")
-            measured.append((size, mark_fraction(frame)))
+            frame = render(TILE, size, temporary / f"icon-{size}.png")
+            measured.append((size, detail(frame)))
             row = []
             for background in ("#ffffff", "#7f7f7f", "#101010"):
                 cell = temporary / f"cell-{size}-{background.lstrip('#')}.png"
-                subprocess.run(
-                    [
-                        rasteriser(),
-                        "-size",
-                        f"{size * 2}x{size * 2}",
-                        f"xc:{background}",
-                        str(frame),
-                        "-gravity",
-                        "center",
-                        "-composite",
-                        str(cell),
-                    ],
-                    check=True,
-                    capture_output=True,
+                _magick(
+                    "-size",
+                    f"{size * 2}x{size * 2}",
+                    f"xc:{background}",
+                    str(frame),
+                    "-gravity",
+                    "center",
+                    "-composite",
+                    str(cell),
                 )
                 row.append(str(cell))
             rows.append(temporary / f"row-{size}.png")
-            subprocess.run(
-                [rasteriser(), *row, "+append", str(rows[-1])],
-                check=True,
-                capture_output=True,
-            )
+            _magick(*row, "+append", str(rows[-1]))
         destination.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            [
-                rasteriser(),
-                *[str(row) for row in rows],
-                "-background",
-                "#2b2b2b",
-                "-append",
-                "-filter",
-                "point",
-                "-resize",
-                "50%",
-                str(destination),
-            ],
-            check=True,
-            capture_output=True,
+        _magick(
+            *[str(row) for row in rows],
+            "-background",
+            "#2b2b2b",
+            "-append",
+            "-filter",
+            "point",
+            "-resize",
+            "50%",
+            str(destination),
         )
     return measured
 
 
 def android_preview(destination: Path) -> None:
-    """Draw the committed Android resources the way a launcher composes them.
+    """Draw the committed adaptive layer the way a launcher composes it.
 
-    The vector XML is parsed back out of the files that ship, so this shows the
-    shipped numbers rather than the numbers this module meant to write, and the
-    circle and squircle cells show what an adaptive mask crops away.
+    The background bitmap that ships is the one read, so this shows what a phone
+    would show. A launcher keeps the central 72 of the layer's 108dp and masks
+    that square to its own shape, so the circle and squircle cells crop first and
+    mask second, which is the order that shows what is actually lost.
     """
+    source = ANDROID_ROOT / "mipmap-xxxhdpi/ic_launcher_background.png"
+    side = png_size(source)[0]
+    visible = round(side * ANDROID_SAFE_DP / ANDROID_CANVAS)
+    inset = (side - visible) // 2
     with tempfile.TemporaryDirectory() as directory:
         temporary = Path(directory)
-        side = int(ANDROID_CANVAS * 4)
-        cells = []
-        combined = vector_preview_svg(
-            [
-                ANDROID_ROOT / "drawable/ic_launcher_background.xml",
-                ANDROID_ROOT / "drawable/ic_launcher_foreground.xml",
-            ],
-            temporary / "adaptive.svg",
-        )
-        raster = rasterise(combined, side, temporary / "adaptive.png", viewport=ANDROID_CANVAS)
-        for name, shape in (
-            ("adaptive", None),
-            (
-                "circle",
-                f"circle {side // 2},{side // 2} {side // 2},{side // 2 + side // 2 - 1}",
-            ),
-            (
-                "squircle",
-                f"roundrectangle 0,0 {side - 1},{side - 1} "
-                f"{int(side * CORNER_FRACTION)},{int(side * CORNER_FRACTION)}",
-            ),
-        ):
-            cell = temporary / f"cell-{name}.png"
-            if shape is None:
-                shutil.copy2(raster, cell)
-            else:
-                mask = temporary / f"mask-{name}.png"
-                subprocess.run(
-                    [
-                        rasteriser(),
-                        "-background",
-                        "none",
-                        "-size",
-                        f"{side}x{side}",
-                        "xc:none",
-                        "-fill",
-                        "white",
-                        "-draw",
-                        shape,
-                        str(mask),
-                    ],
-                    check=True,
-                    capture_output=True,
-                )
-                subprocess.run(
-                    [
-                        rasteriser(),
-                        str(raster),
-                        str(mask),
-                        "-compose",
-                        "DstIn",
-                        "-composite",
-                        str(cell),
-                    ],
-                    check=True,
-                    capture_output=True,
-                )
-            cells.append(str(cell))
-        # Themed icons are tinted by the system, so the monochrome layer is drawn
-        # the way a launcher draws it: the stored shape in the theme's tint, over a
-        # themed surface. The counters must let that surface through.
-        themed = temporary / "cell-monochrome.png"
-        tinted = rasterise(
-            vector_preview_svg(
-                [ANDROID_ROOT / "drawable/ic_launcher_monochrome.xml"],
-                temporary / "monochrome.svg",
-                fill="#a8c7fa",
-            ),
-            side,
-            temporary / "monochrome.png",
-            viewport=ANDROID_CANVAS,
-        )
-        subprocess.run(
-            [
-                rasteriser(),
-                "-size",
-                f"{side}x{side}",
-                "xc:#1c1b1f",
-                str(tinted),
-                "-composite",
-                str(themed),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        cells.append(str(themed))
-        cells.append(
-            str(
-                rasterise(
-                    vector_preview_svg(
-                        [ANDROID_ROOT / "mipmap-anydpi/ic_launcher.xml"],
-                        temporary / "legacy.svg",
-                    ),
-                    side,
-                    temporary / "cell-legacy.png",
-                    viewport=ANDROID_CANVAS,
-                )
+        cells = [str(source)]
+        for shape in (ROUND, TILE):
+            cropped = temporary / f"crop-{shape}.png"
+            _magick(
+                str(source),
+                "-crop",
+                f"{visible}x{visible}+{inset}+{inset}",
+                "+repage",
+                str(cropped),
             )
-        )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            [
-                rasteriser(),
-                *cells,
-                "-background",
-                "#2b2b2b",
+            mask = temporary / f"mask-{shape}.png"
+            _magick(
+                "-size",
+                f"{visible * 4}x{visible * 4}",
+                "xc:none",
+                "-fill",
+                "white",
+                "-draw",
+                str(mask_shape(shape, visible * 4)),
                 "-resize",
-                "25%",
-                "+append",
-                str(destination),
-            ],
-            check=True,
-            capture_output=True,
+                f"{visible}x{visible}",
+                str(mask),
+            )
+            cell = temporary / f"cell-{shape}.png"
+            _magick(
+                str(cropped),
+                str(mask),
+                "-alpha",
+                "set",
+                "-compose",
+                "DstIn",
+                "-composite",
+                str(cell),
+            )
+            cells.append(str(cell))
+        cells.append(str(ANDROID_ROOT / "mipmap-xxxhdpi/ic_launcher.png"))
+        cells.append(str(ANDROID_ROOT / "mipmap-xxxhdpi/ic_launcher_round.png"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _magick(
+            *cells,
+            "-background",
+            "#2b2b2b",
+            "-gravity",
+            "center",
+            "-resize",
+            "25%",
+            "+append",
+            str(destination),
         )
-
-
-def vector_preview_svg(sources: list[Path], destination: Path, fill: str | None = None) -> Path:
-    """Turn committed VectorDrawables into a single SVG ImageMagick can rasterise.
-
-    `fill` substitutes every path's colour, which is how a themed layer is drawn:
-    one shape, whatever tint the system chose.
-    """
-    parts = []
-    size = None
-    for source in sources:
-        root = ElementTree.parse(source).getroot()
-        size = size or (
-            root.get(f"{ANDROID_NAMESPACE}viewportWidth"),
-            root.get(f"{ANDROID_NAMESPACE}viewportHeight"),
-        )
-        for child in root.findall("path"):
-            colour = fill or child.get(f"{ANDROID_NAMESPACE}fillColor")
-            rule = ' fill-rule="evenodd"' if child.get(f"{ANDROID_NAMESPACE}fillType") else ""
-            path = child.get(f"{ANDROID_NAMESPACE}pathData")
-            parts.append(f'  <path fill="{colour}"{rule} d="{path}"/>')
-    width, height = size
-    destination.write_text(
-        "\n".join(
-            [
-                f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"'
-                f' viewBox="0 0 {width} {height}">',
-                *parts,
-                "</svg>",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    return destination
 
 
 def main() -> int:
@@ -811,29 +636,32 @@ def main() -> int:
         "--sheet",
         type=Path,
         metavar="PATH",
-        help="rasterise a legibility sheet over light, dark, and mid backgrounds",
+        help="render a legibility sheet over light, dark, and mid backgrounds",
     )
     group.add_argument(
         "--android-preview",
         type=Path,
         metavar="PATH",
-        help="rasterise the committed Android layers as a launcher composes them",
+        help="render the committed Android layer as a launcher masks it",
     )
     args = parser.parse_args()
     if args.write:
         for path, content in text_outputs().items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
-        write_ico(ICON_SVG, WINDOWS_ICO)
-        write_icns(ICON_SVG, MACOS_ICNS)
+        for path, bitmap in bitmap_outputs().items():
+            render(bitmap.shape, bitmap.size, path)
+        write_ico(WINDOWS_ICO)
+        write_icns(MACOS_ICNS)
         print(
-            f"app icon: wrote {len(text_outputs())} authored form(s), benefactor.ico "
+            f"app icon: wrote {len(text_outputs())} authored form(s), "
+            f"{len(bitmap_outputs())} bitmap(s), benefactor.ico "
             f"({len(ICO_SIZES)} sizes), and Benefactor.icns ({len(ICNS_TYPES)} chunks)"
         )
         return 0
     if args.sheet is not None:
-        for size, mark in write_legibility_sheet(args.sheet.resolve()):
-            print(f"app icon: {size:>4} px carries the mark over {mark:.3f} of its square")
+        for size, varies in write_legibility_sheet(args.sheet.resolve()):
+            print(f"app icon: {size:>4} px keeps {varies:.3f} of the picture's variation")
         print(f"app icon: sheet written to {args.sheet}")
         return 0
     if args.android_preview is not None:
