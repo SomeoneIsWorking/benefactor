@@ -80,6 +80,13 @@ show that fades and music advanced.
   `/mem`, and `/fb.ppm` inspect the held state. `/resume` continues, and
   `/step?frames=N` advances N frames. Keep the hold inside the game thread:
   returning a breakpoint exit to game flow would let it continue or shut down.
+- `/state`'s `frame` is the frames SHOWN. The `frames` object beside it splits
+  the three counts that used to be one integer: `presented` (shown), `game`
+  (produced by the guest, shown or not) and `beam` (guest beam-frame boundaries,
+  the only one that moves during bring-up). Fast-forward samples the display at
+  PAL and skips the rest, so `game` runs ahead of `presented` — and
+  `BENEFACTOR_PRESSES` is indexed by `game`, so a press timeline means the same
+  amount of game at any speed. `src/port/frame_accounting.h` owns both counts.
 - `/state`'s `level` is `$20.w`, the level the game has *requested*; the level whose
   data is actually loaded is `$2E.w`, visible as the copper list changing
   (`cop1lc`). Reading `level` as "the level being played" makes a normal transition

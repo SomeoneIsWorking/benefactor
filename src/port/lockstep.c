@@ -4,6 +4,7 @@
 #include "common/log.h"
 #include "engine/hw.h"
 #include "port/config.h"
+#include "port/frame_accounting.h"
 #include "port/lockstep_digest.h"
 #include "runtime/guest_runtime.h"
 
@@ -44,7 +45,7 @@ static void lockstep_load(void) {
 }
 
 static void lockstep_gather(LockstepFrame *state) {
-    state->frame = hw_get_frame_num();
+    state->frame = (int)pc_presented_frame_num();
     state->cop1lc = hw_get_cop1lc() & 0xFFFFFFu;
     state->palette = lockstep_palette_hash(g_mem, state->cop1lc);
     for (unsigned channel = 0; channel < 4u; channel++) {

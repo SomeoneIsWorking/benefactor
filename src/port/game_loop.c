@@ -889,15 +889,20 @@ int pc_step_threaded(void) {
         g_harness_prerender_hook();
     }
     pc_set_frame_cycles(rt_get_guest_cycles() - frame_cycles_before);
-    /* Did this iteration actually SHOW a frame? hw_present_frame declines a beam
-     * frame it has already shown, and says so only by leaving the frame counter
-     * alone. The per-frame interrupts below are delivered once per DISPLAYED
-     * frame, so an iteration that showed none must deliver none — otherwise the
-     * music player gets a tick for a frame nobody saw. Measured: the intro's
-     * volume ramp reached full a frame early (60 -> 64 in one frame against the
-     * reference's 60 -> 63), and its tick counter ran one step ahead for the
-     * whole run, from a single extra delivery on frame 34 (tools/lockstep.py). */
-    const int frame_before_present = hw_get_frame_num();
+    /* Did this iteration actually PRODUCE a frame? A present that was declined
+     * as re-entrant says so only by leaving the frame counts alone. The
+     * per-frame interrupts below are delivered once per frame, so an iteration
+     * that produced none must deliver none — otherwise the music player gets a
+     * tick for a frame that never happened. Measured: the intro's volume ramp
+     * reached full a frame early (60 -> 64 in one frame against the reference's
+     * 60 -> 63), and its tick counter ran one step ahead for the whole run,
+     * from a single extra delivery on frame 34 (tools/lockstep.py).
+     *
+     * GAME frames, not presented ones: at fast-forward the display is sampled
+     * and most frames are never shown, and the guest still owes each of them a
+     * vblank — asking about presented frames here would stop the music and the
+     * game logic dead the moment fast-forward was held. */
+    const uint32_t frames_before = pc_game_frame_num();
     {
         const uint64_t before = rt_get_guest_cycles();
         const int stop = hw_present_frame();
@@ -906,7 +911,7 @@ int pc_step_threaded(void) {
             return 1;
         }
     }
-    const int presented = hw_get_frame_num() != frame_before_present;
+    const int advanced = pc_game_frame_num() != frames_before;
     if (g_harness_frame_hook) {
         g_harness_frame_hook();
     }
@@ -918,7 +923,7 @@ int pc_step_threaded(void) {
         if (s_game_done) {
             return 1;
         }
-        if (presented) {
+        if (advanced) {
             coro_deliver_timer_irq(); /* level-3 vblank ISR (music via pc_music_tick) */
         }
     }

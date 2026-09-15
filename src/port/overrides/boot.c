@@ -3,6 +3,7 @@
 #include "engine/gameplay_handoff.h" /* $150 loader-body low-memory init */
 #include "engine/hw.h"
 #include "engine/overlay_load.h" /* shared pure overlay loaders */
+#include "port/frame_accounting.h"
 #include "port/overlay_ui.h"
 #include "port/port.h"
 #include "port/port_internal.h"
@@ -88,7 +89,7 @@ void native_boot_anim_iterator(M68KCtx *ctx) {
      * outer passes of (delay + 1) frames each. If the frames do not actually
      * pass, every colour step lands in one displayed frame and the fade is
      * gone — so the tail of this function reports asked-for against paid. */
-    const int frame_before = hw_get_frame_num();
+    const uint32_t frame_before = pc_game_frame_num();
 
     for (uint16_t pass = 0; pass < outer; pass++) {
         /* $74B2-$74C2: wait (delay+1) vblank frames before stepping the palette. */
@@ -114,8 +115,8 @@ void native_boot_anim_iterator(M68KCtx *ctx) {
     }
 
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "boot-anim",
-                         "palette animation done: %d frames for %u passes of %u (wanted %u)",
-                         hw_get_frame_num() - frame_before, outer, delay + 1u,
+                         "palette animation done: %u frames for %u passes of %u (wanted %u)",
+                         pc_game_frame_num() - frame_before, outer, delay + 1u,
                          outer * (delay + 1u));
 
     ctx->A[4] = a4; /* matches $74AA: a4 past outer_count */

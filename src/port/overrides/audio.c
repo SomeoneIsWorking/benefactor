@@ -7,6 +7,7 @@
  * Stage 1 (this file, so far): the SFX TRIGGER ($58656E). Faithful 1:1 translation.
  */
 #include "engine/hw.h"
+#include "port/frame_accounting.h"
 #include "port/port_internal.h"
 
 /* For confirming the override actually fires during gameplay (gpl bank). */
@@ -40,15 +41,15 @@ void native_sfx_trigger(M68KCtx *ctx) {
         if (new_pri < cur_pri || /* lower → keep / tie+quieter → keep */
             (new_pri == cur_pri && MR16(src + 6) < MR16(cur + 6))) {
             benefactor_log_write(BENEFACTOR_LOG_TRACE, "audio",
-                                 "[native-sfx] f%d #%lu a3=$%06X pri=%u vol=%u "
+                                 "[native-sfx] f%u #%lu a3=$%06X pri=%u vol=%u "
                                  "REJECTED (active pri=%u)\n",
-                                 hw_get_frame_num(), g_native_sfx_trigger_hits, (unsigned)src,
+                                 pc_game_frame_num(), g_native_sfx_trigger_hits, (unsigned)src,
                                  (unsigned)new_pri, (unsigned)MR16(src + 6), (unsigned)cur_pri);
             return;
         }
     }
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "audio",
-                         "[native-sfx] f%d #%lu a3=$%06X pri=%u vol=%u PLAY", hw_get_frame_num(),
+                         "[native-sfx] f%u #%lu a3=$%06X pri=%u vol=%u PLAY", pc_game_frame_num(),
                          g_native_sfx_trigger_hits, (unsigned)src, (unsigned)MR16(src + 0x10),
                          (unsigned)MR16(src + 6));
 

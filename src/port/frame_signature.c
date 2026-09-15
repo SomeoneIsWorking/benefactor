@@ -5,6 +5,7 @@
 #include "common/game_state.h"
 #include "common/log.h"
 #include "engine/hw.h"
+#include "port/frame_accounting.h"
 #include "runtime/guest_runtime.h"
 
 /* AUD0..AUD3 base offsets in the custom-chip register file. */
@@ -83,8 +84,8 @@ void pc_note_frame_signature(void) {
     }
 
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "sig",
-                         "frame=%d pal=%08X alc=%06X,%06X,%06X,%06X "
+                         "frame=%u pal=%08X alc=%06X,%06X,%06X,%06X "
                          "aper=%u,%u,%u,%u avol=%u,%u,%u,%u adma=%03X",
-                         hw_get_frame_num(), pal, lc[0], lc[1], lc[2], lc[3], per[0], per[1],
+                         pc_presented_frame_num(), pal, lc[0], lc[1], lc[2], lc[3], per[0], per[1],
                          per[2], per[3], vol[0], vol[1], vol[2], vol[3], dma);
 }

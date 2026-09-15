@@ -109,6 +109,22 @@ class FramePacer {
      * returns 0. */
     Nanoseconds wait() noexcept;
 
+    /* Whether the frame now being produced is one to SHOW. At 100% it always
+     * is. Fast-forward runs the guest at up to five times PAL, and the display
+     * has nothing to gain from that — no monitor shows 250 frames a second, and
+     * uploading them is what capped the old turbo — so the picture is sampled
+     * at the rate the game is displayed at when it is NOT being fast-forwarded,
+     * which is PAL. Every frame is still produced and still paced; only the
+     * present is skipped.
+     *
+     * This is the same kind of deadline as `wait()`'s and for the same reason:
+     * what stood here was `SDL_GetTicks() - last < 16`, whole milliseconds
+     * against a constant that cannot express 16.667 ms, carrying its own hidden
+     * static — the exact defect the pacing rewrite removed from the main loop.
+     * The rate is `PAL_FRAME_NS`, derived like every other period here, rather
+     * than a number chosen to look like 60 Hz. */
+    [[nodiscard]] bool display_frame_due() noexcept;
+
     /* Start again from now: the game was held, or the host was asleep. Without
      * this a hold of any length is a backlog the pacer would try to run off. */
     void resync() noexcept;
@@ -120,6 +136,7 @@ class FramePacer {
     [[nodiscard]] Nanoseconds deadline_for(std::uint64_t frame) const noexcept;
     void rebase(Nanoseconds at) noexcept;
     void record(Nanoseconds period) noexcept;
+    void rebase_display(Nanoseconds at) noexcept;
 
     PacerHost &host_;
     unsigned percent_ = 100;
@@ -127,6 +144,12 @@ class FramePacer {
     std::uint64_t frames_ = 0; /* frames paced since the epoch */
     bool started_ = false;
     Nanoseconds last_woke_ = 0;
+
+    /* The display cadence, kept apart from the pacing one: the guest's frame
+     * rate is the speed knob's to scale, the picture's is not. */
+    Nanoseconds display_epoch_ = 0;
+    std::uint64_t display_frames_ = 0;
+    bool display_started_ = false;
 
     std::uint64_t measured_ = 0;
     Nanoseconds total_ = 0;
@@ -160,6 +183,10 @@ uint64_t pc_pace_frame_wait(void);
 
 /* The game was held or the host stalled; do not try to make the time back. */
 void pc_pace_resync(void);
+
+/* Non-zero when the frame now being produced is one to show. See
+ * FramePacer::display_frame_due — the fast-forward display sample. */
+int pc_pace_display_frame_due(void);
 
 /* What the pacing delivered, for /state and the frame watchdog. */
 typedef struct {

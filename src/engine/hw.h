@@ -55,7 +55,11 @@ int hw_present_paused_frame(void);
 
 /* Get pointer to the internal ARGB8888 framebuffer (HW_DISPLAY_W × HW_DISPLAY_H pixels). */
 const uint32_t *hw_get_framebuffer(void);
-int hw_get_frame_num(void);
+
+/* There is no "the frame number" here any more. The display path counts the
+ * frames it SHOWED and the frames the guest PRODUCED separately, and a caller
+ * says which one it means: pc_presented_frame_num() / pc_game_frame_num() in
+ * port/frame_accounting.h. Beam-frame boundaries are g_hw_beam_crossed below. */
 
 /* Render nsamples of stereo (interleaved L,R) PCM at 22050 Hz from the current
  * audio channel state. For offline capture/comparison (e.g. the harness). */

@@ -70,6 +70,19 @@ void pc_note_title_draw(void) {
     FrameAccounting::instance().note_title_draw();
 }
 
+void pc_count_presented_frame(void) {
+    FrameAccounting::instance().frames().presented();
+}
+void pc_count_skipped_frame(void) {
+    FrameAccounting::instance().frames().skipped();
+}
+uint32_t pc_presented_frame_num(void) {
+    return FrameAccounting::instance().frames().presented_count();
+}
+uint32_t pc_game_frame_num(void) {
+    return FrameAccounting::instance().frames().game_count();
+}
+
 void pc_frame_accounting(PcFrameAccounting *out) {
     if (out == nullptr) {
         return;
@@ -78,12 +91,25 @@ void pc_frame_accounting(PcFrameAccounting *out) {
     const auto &level3 = a.owner(PC_OWNER_LEVEL3_VBLANK);
     const auto &level6 = a.owner(PC_OWNER_LEVEL6_TIMER);
     *out = PcFrameAccounting{
-        a.flow().last(),           a.flow().peak(),           level3.cycles().last(),
-        level3.cycles().peak(),    level6.cycles().last(),    level6.cycles().peak(),
-        a.frame_cycles(),          a.present_cycles(),        a.iteration().last(),
-        a.iteration().peak(),      level3.deliveries(),       level6.deliveries(),
-        a.waits().reached_count(), a.waits().refused_count(), a.waits().parked_count(),
-        a.title_draws(),           (uint32_t)a.running(),
+        a.flow().last(),
+        a.flow().peak(),
+        level3.cycles().last(),
+        level3.cycles().peak(),
+        level6.cycles().last(),
+        level6.cycles().peak(),
+        a.frame_cycles(),
+        a.present_cycles(),
+        a.iteration().last(),
+        a.iteration().peak(),
+        a.frames().presented_count(),
+        a.frames().game_count(),
+        level3.deliveries(),
+        level6.deliveries(),
+        a.waits().reached_count(),
+        a.waits().refused_count(),
+        a.waits().parked_count(),
+        a.title_draws(),
+        (uint32_t)a.running(),
     };
 }
 
@@ -96,8 +122,8 @@ void pc_note_frame_phase(void) {
      * two copper lists every frame, and at info level that is a two-line-per-
      * frame flood that buries everything else a host writes — including, on the
      * browser, the only readout there is. Raise log_level to debug to see them. */
-    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "phase", "frame=%d cop1lc=%06X", hw_get_frame_num(),
-                         cop1lc);
+    benefactor_log_write(BENEFACTOR_LOG_DEBUG, "phase", "frame=%u cop1lc=%06X",
+                         pc_presented_frame_num(), cop1lc);
     /* One screen's hot loop must not be read as the next screen's. Report the
      * screen that is ending before clearing it. */
     char hot[512];
