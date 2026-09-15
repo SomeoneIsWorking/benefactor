@@ -125,6 +125,17 @@ class FramePacer {
      * than a number chosen to look like 60 Hz. */
     [[nodiscard]] bool display_frame_due() noexcept;
 
+    /* Whether the frame now being produced is one to feed the audio device.
+     * The same question as `display_frame_due()` and the same answer at 100%;
+     * at fast-forward the mixer wants one frame of samples per real PAL frame,
+     * not five, or the device runs out of buffer and the song plays fast.
+     *
+     * It is a separate cadence rather than the display's because the two are
+     * asked at different points in the loop and either may be skipped alone —
+     * sharing one counter would mean whichever asked first consumed the other's
+     * turn. */
+    [[nodiscard]] bool audio_frame_due() noexcept;
+
     /* Start again from now: the game was held, or the host was asleep. Without
      * this a hold of any length is a backlog the pacer would try to run off. */
     void resync() noexcept;
@@ -133,10 +144,22 @@ class FramePacer {
     void forget_measurements() noexcept;
 
   private:
+    /* A real-time PAL cadence: how the pacer answers "is one of these due yet"
+     * for something that is sampled at the rate the game is displayed at,
+     * whatever speed the guest is running. Held as an epoch and a count, like
+     * the pacing deadline and for the same reason: a cadence accumulated
+     * period by period drifts, and these have to hold for as long as
+     * fast-forward is held. */
+    struct Cadence {
+        Nanoseconds epoch = 0;
+        std::uint64_t frames = 0;
+        bool started = false;
+    };
+
     [[nodiscard]] Nanoseconds deadline_for(std::uint64_t frame) const noexcept;
     void rebase(Nanoseconds at) noexcept;
     void record(Nanoseconds period) noexcept;
-    void rebase_display(Nanoseconds at) noexcept;
+    [[nodiscard]] bool cadence_due(Cadence &cadence) noexcept;
 
     PacerHost &host_;
     unsigned percent_ = 100;
@@ -145,11 +168,10 @@ class FramePacer {
     bool started_ = false;
     Nanoseconds last_woke_ = 0;
 
-    /* The display cadence, kept apart from the pacing one: the guest's frame
-     * rate is the speed knob's to scale, the picture's is not. */
-    Nanoseconds display_epoch_ = 0;
-    std::uint64_t display_frames_ = 0;
-    bool display_started_ = false;
+    /* Kept apart from the pacing deadline: the guest's frame rate is the speed
+     * knob's to scale, the picture's and the song's are not. */
+    Cadence display_{};
+    Cadence audio_{};
 
     std::uint64_t measured_ = 0;
     Nanoseconds total_ = 0;
@@ -187,6 +209,9 @@ void pc_pace_resync(void);
 /* Non-zero when the frame now being produced is one to show. See
  * FramePacer::display_frame_due — the fast-forward display sample. */
 int pc_pace_display_frame_due(void);
+
+/* FramePacer::audio_frame_due — the fast-forward audio sample. */
+int pc_pace_audio_frame_due(void);
 
 /* What the pacing delivered, for /state and the frame watchdog. */
 typedef struct {
