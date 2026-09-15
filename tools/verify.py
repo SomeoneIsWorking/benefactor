@@ -51,6 +51,12 @@ _INSTALLED_BY = {
     "node": "brew install node",
 }
 
+#: Homebrew keeps some formulae out of PATH. llvm is one, so a host that has
+#: clang-tidy installed still answers `which clang-tidy` with nothing, and the
+#: install command below is an instruction to do what is already done.
+_KEG_ONLY_FORMULA = {"clang-format": "llvm", "clang-tidy": "llvm"}
+
+
 #: A rasteriser is what lets the app icon be checked as a player meets it — at
 #: launcher sizes, not as SVG text. Either ImageMagick 7 or 6's `convert` will do.
 RASTERISERS = ("magick", "convert")
@@ -140,13 +146,69 @@ def _run_optional_winhttp_transport() -> None:
     _run([str(wine), str(executable)], environment=dict(os.environ, WINEDEBUG="-all"))
 
 
+def _keg_only_bin(tool: str) -> Path | None:
+    """`tool` inside its keg-only Homebrew prefix, which is not on PATH."""
+    formula = _KEG_ONLY_FORMULA.get(tool)
+    brew = shutil.which("brew")
+    if formula is None or brew is None:
+        return None
+    prefix = subprocess.run(
+        [brew, "--prefix", formula], text=True, capture_output=True, check=False
+    )
+    if prefix.returncode != 0:
+        return None
+    candidate = Path(prefix.stdout.strip()) / "bin" / tool
+    return candidate if candidate.is_file() else None
+
+
+def _sdl_include_args() -> list[str]:
+    """Where the SDL3 headers the tidy runs parse are, on this host.
+
+    CI names a checkout; a developer machine usually has the package instead,
+    and tidy reporting `SDL3/SDL.h` not found reads as broken sources rather
+    than as an unset variable.
+    """
+    configured = os.environ.get("BENEFACTOR_SDL3_DIR")
+    if configured:
+        include = Path(configured).expanduser().resolve() / "include"
+        if not (include / "SDL3" / "SDL.h").is_file():
+            raise SystemExit(f"verify needs SDL3 headers at {include}")
+        return [f"-I{include}"]
+    for command in (["pkg-config", "--cflags-only-I", "sdl3"], ["brew", "--prefix", "sdl3"]):
+        tool = shutil.which(command[0])
+        if tool is None:
+            continue
+        found = subprocess.run([tool, *command[1:]], text=True, capture_output=True, check=False)
+        if found.returncode != 0:
+            continue
+        for token in shlex.split(found.stdout.strip()):
+            include = Path(token.removeprefix("-I"))
+            if command[0] == "brew":
+                include = include / "include"
+            if (include / "SDL3" / "SDL.h").is_file():
+                return [f"-I{include}"]
+    raise SystemExit(
+        "verify needs the SDL3 headers: install sdl3, or set BENEFACTOR_SDL3_DIR to a checkout"
+    )
+
+
 def _require(tool: str) -> str:
-    """`tool` if it is on PATH; otherwise exit saying which one and how to get it."""
-    found = shutil.which(tool)
-    if found:
+    """`tool` if this host has it; otherwise exit saying which one and how to get it.
+
+    A keg-only prefix is searched as well as PATH, and put on PATH for the rest
+    of the run, so an installed tool is used rather than reported missing.
+    """
+    if shutil.which(tool):
+        return tool
+    keg_only = _keg_only_bin(tool)
+    if keg_only is not None:
+        os.environ["PATH"] = os.pathsep.join([str(keg_only.parent), os.environ.get("PATH", "")])
         return tool
     remedy = _INSTALLED_BY.get(tool, f"install {tool} and put it on PATH")
-    raise SystemExit(f"verify needs {tool}, which is not on PATH — {remedy}")
+    searched = "PATH"
+    if tool in _KEG_ONLY_FORMULA:
+        searched = f"PATH and the {_KEG_ONLY_FORMULA[tool]} Homebrew prefix"
+    raise SystemExit(f"verify needs {tool}, which is on neither {searched} — {remedy}")
 
 
 def _run(
@@ -224,13 +286,7 @@ def main() -> int:
             "tests/web_release_check.test.mjs",
         ]
     )
-    sdl_source = os.environ.get("BENEFACTOR_SDL3_DIR")
-    sdl_include_args: list[str] = []
-    if sdl_source:
-        sdl_include = Path(sdl_source).expanduser().resolve() / "include"
-        if not (sdl_include / "SDL3" / "SDL.h").is_file():
-            raise SystemExit(f"verify needs SDL3 headers at {sdl_include}")
-        sdl_include_args.append(f"-I{sdl_include}")
+    sdl_include_args = _sdl_include_args()
     _run(["clang-format", "--dry-run", "--Werror", *C_FORMAT_PATHS])
     _run(["clang-tidy", *C_TIDY_PATHS, "--", "-std=c11", "-Isrc", *sdl_include_args])
     shared_include = amigaport_dir() / "include"

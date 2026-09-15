@@ -66,7 +66,9 @@ class GuestMemory final : public amigaport::Memory {
             return {.value = hw_read16(address), .fault = amigaport::MemoryFault::None};
         if (address > bytes_.size() - 2u)
             return unmapped<std::uint16_t>();
-        return {.value = static_cast<std::uint16_t>(bytes_[address] << 8u | bytes_[address + 1u]),
+        return {.value =
+                    static_cast<std::uint16_t>(static_cast<std::uint32_t>(bytes_[address]) << 8u |
+                                               static_cast<std::uint32_t>(bytes_[address + 1u])),
                 .fault = amigaport::MemoryFault::None};
     }
 
