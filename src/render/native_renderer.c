@@ -48,8 +48,9 @@ static const uint8_t *s_render_src = NULL; /* chip-RAM source the renderer reads
 
 static inline uint16_t chip_r16(uint32_t addr) {
     addr &= 0xFFFFEu; /* word-align, stay within 512 KB */
-    if (addr + 1 >= 0x80000u)
+    if (addr + 1 >= 0x80000u) {
         return 0;
+    }
     const uint8_t *m = s_render_src ? s_render_src : g_mem;
     return (uint16_t)((m[addr] << 8) | m[addr + 1]);
 }
@@ -134,8 +135,9 @@ static uint32_t s_cur_cop1lc = 0;
 static void walk_copper(void) {
     uint32_t cop1lc = ((uint32_t)s_regs[RIDX_COP1LCH] << 16) | (uint32_t)s_regs[RIDX_COP1LCL];
     cop1lc &= 0xFFFFEu;
-    if (cop1lc < 0x1000u || cop1lc >= 0x80000u)
+    if (cop1lc < 0x1000u || cop1lc >= 0x80000u) {
         cop1lc = 0x7BC8u; /* fallback: title copper list */
+    }
     s_cur_cop1lc = cop1lc;
 
     s_nanchors = 0;
@@ -183,23 +185,26 @@ static void walk_copper(void) {
 
         if (w1 & 1u) {
             /* WAIT or SKIP instruction */
-            if (w1 == 0xFFFFu && w2 == 0xFFFEu)
+            if (w1 == 0xFFFFu && w2 == 0xFFFEu) {
                 break; /* true end-of-list sentinel */
+            }
             if (w2 & 1u) {
                 ip += 4u;
                 continue;
             } /* SKIP: skip next instr */
             int raw_vp = (int)((w1 >> 8) & 0xFFu);
             /* A VP lower than the previous wait is an 8-bit wrap past line 255. */
-            if (raw_vp < prev_vp)
+            if (raw_vp < prev_vp) {
                 vp_base += 256;
+            }
             prev_vp = raw_vp;
             int vp = raw_vp + vp_base;
 
             /* Map VP → display_y (negative VPs are in invisible top border) */
             int dy = vp - FIRST_VISIBLE;
-            if (dy < 0)
+            if (dy < 0) {
                 dy = 0;
+            }
             int lim = (dy < HW_DISPLAY_H) ? dy : HW_DISPLAY_H;
 
             /* Stamp current state for display lines [cur_line, lim) */
@@ -220,16 +225,18 @@ static void walk_copper(void) {
                 BplAnchor *a = &s_anchors[s_nanchors++];
                 a->first_line = cur_line;
                 a->mask = pend_mask;
-                for (int p = 0; p < MAX_PLANES; p++)
+                for (int p = 0; p < MAX_PLANES; p++) {
                     a->ptr[p] = pend_ready[p] ? pend_ptr[p] : 0u;
+                }
                 pend_mask = 0;
                 memset(pend_hi, 0, sizeof pend_hi);
                 memset(pend_ready, 0, sizeof pend_ready);
             }
 
             cur_line = lim;
-            if (cur_line >= HW_DISPLAY_H)
+            if (cur_line >= HW_DISPLAY_H) {
                 break;
+            }
         } else {
             /* MOVE instruction */
             uint32_t reg = (uint32_t)(w1 & 0x01FEu);
@@ -290,8 +297,9 @@ static void walk_copper(void) {
  * exactly what pixel data is present in the bitplanes regardless of colour. */
 static int s_raw_planes = -1;
 static inline int raw_planes_on(void) {
-    if (s_raw_planes < 0)
+    if (s_raw_planes < 0) {
         s_raw_planes = pc_cfg_bool("raw_planes", 0);
+    }
     return s_raw_planes;
 }
 
@@ -302,18 +310,22 @@ static inline uint32_t decode_planes(int bi, const uint32_t bplpt[MAX_PLANES], i
     uint8_t cidx = 0;
     for (int p = 0; p < nplanes; p++) {
         uint32_t addr = (bplpt[p] + (uint32_t)byte_off) & 0x7FFFFu;
-        if ((s_render_src[addr] >> bit) & 1u)
+        if ((s_render_src[addr] >> bit) & 1u) {
             cidx |= (uint8_t)(1u << p);
+        }
     }
-    if (raw_planes_on())
+    if (raw_planes_on()) {
         return cidx ? 0xFFFFFFFFu : pal[0];
-    if (nplanes <= 5)
+    }
+    if (nplanes <= 5) {
         return pal[cidx & 0x1Fu]; /* up to 5 planes / 32 colours */
+    }
     /* 6 planes, non-HAM/non-DPF = Extra-Half-Brite (the gameplay menu/title):
      * planes 1-5 pick COLOR00-31; plane 6 (bit 5) halves the RGB brightness. */
     uint32_t c = pal[cidx & 0x1Fu];
-    if (cidx & 0x20u)
+    if (cidx & 0x20u) {
         c = (c & 0xFF000000u) | ((c >> 1) & 0x007F7F7Fu);
+    }
     return c;
 }
 
@@ -327,26 +339,32 @@ static inline uint32_t decode_dpf(int x, const uint32_t bplpt[4], const uint32_t
     uint8_t pf1 = 0;
     {
         uint32_t a = (bplpt[0] + (uint32_t)byte_off) & 0x7FFFFu;
-        if ((s_render_src[a] >> bit) & 1u)
+        if ((s_render_src[a] >> bit) & 1u) {
             pf1 |= 1u;
+        }
         a = (bplpt[2] + (uint32_t)byte_off) & 0x7FFFFu;
-        if ((s_render_src[a] >> bit) & 1u)
+        if ((s_render_src[a] >> bit) & 1u) {
             pf1 |= 2u;
+        }
     }
     uint8_t pf2 = 0;
     {
         uint32_t a = (bplpt[1] + (uint32_t)byte_off) & 0x7FFFFu;
-        if ((s_render_src[a] >> bit) & 1u)
+        if ((s_render_src[a] >> bit) & 1u) {
             pf2 = 1u;
+        }
     }
 
-    if (raw_planes_on())
+    if (raw_planes_on()) {
         return (pf1 || pf2) ? 0xFFFFFFFFu : pal[0];
-    if (pf2)
+    }
+    if (pf2) {
         return pal[8u + pf2]; /* COLOR09 */
-    if (pf1)
+    }
+    if (pf1) {
         return pal[pf1]; /* COLOR01-03 */
-    return pal[0];       /* COLOR00 */
+    }
+    return pal[0]; /* COLOR00 */
 }
 
 /* ── Effects publish (Vulkan-only) ──────────────────────────────────────────
@@ -358,7 +376,9 @@ static inline uint32_t decode_dpf(int x, const uint32_t bplpt[4], const uint32_t
  * transitions) presents a clean passthrough. */
 static FxFrame s_fx;
 
-const FxFrame *native_render_fx_frame(void) { return &s_fx; }
+const FxFrame *native_render_fx_frame(void) {
+    return &s_fx;
+}
 
 static void native_fx_publish(int ow, int oh, int pf_top, int pf_bot, int light_sx, int light_sy) {
     s_fx.valid = 1;
@@ -387,8 +407,9 @@ void native_render_frame(void) {
      * model, else live) BEFORE walking the copper, so the copper list/pointers
      * and the bitplane pixel data are read from the same delayed view. */
     int delay = g_native_render_delay;
-    if (delay > RENDER_SNAP_RING - 1)
+    if (delay > RENDER_SNAP_RING - 1) {
         delay = RENDER_SNAP_RING - 1;
+    }
     if (delay > 0 && s_snap_count >= delay) {
         int slot = (s_snap_widx - delay + RENDER_SNAP_RING) % RENDER_SNAP_RING;
         s_render_src = s_snap_ring[slot];
@@ -407,9 +428,11 @@ void native_render_frame(void) {
          * (Anchors are in ascending first_line order from walk_copper.) */
         while (next_anchor < s_nanchors && s_anchors[next_anchor].first_line <= y) {
             const BplAnchor *a = &s_anchors[next_anchor++];
-            for (int p = 0; p < MAX_PLANES; p++)
-                if (a->mask & (uint8_t)(1u << p))
+            for (int p = 0; p < MAX_PLANES; p++) {
+                if (a->mask & (uint8_t)(1u << p)) {
                     bplpt[p] = a->ptr[p];
+                }
+            }
         }
 
         const ScanState *st = &s_scan[y];
@@ -423,10 +446,12 @@ void native_render_frame(void) {
          * (16px) per 8 DDF units, inclusive. Both title sections and gameplay
          * derive their width here. */
         int fetch_words = (((int)st->ddfstop - (int)st->ddfstrt) >> 3) + 1;
-        if (fetch_words < 1)
+        if (fetch_words < 1) {
             fetch_words = 1;
-        if (fetch_words > 64)
+        }
+        if (fetch_words > 64) {
             fetch_words = 64;
+        }
         int fetch_bytes = fetch_words * 2;
         int width_px = fetch_words * 16;
         int scroll1 = st->bplcon1 & 0xF;        /* PF1 (odd planes) H-scroll */
@@ -434,16 +459,19 @@ void native_render_frame(void) {
         /* Display-window crop: the playfield is fetched wider than it's shown; only
          * x in [diw_x0, diw_x1) is visible, the rest is border (as on real OCS). */
         int diw_x0 = DIW_X0(st->diwstrt);
-        if (diw_x0 < 0)
+        if (diw_x0 < 0) {
             diw_x0 = 0;
+        }
         int diw_x1 = DIW_X1(st->diwstop);
-        if (diw_x1 > HW_DISPLAY_W)
+        if (diw_x1 > HW_DISPLAY_W) {
             diw_x1 = HW_DISPLAY_W;
+        }
 
         if (bpu == 0) {
             /* No bitplanes — fill with background colour */
-            for (int x = 0; x < HW_DISPLAY_W; x++)
+            for (int x = 0; x < HW_DISPLAY_W; x++) {
                 row[x] = bg;
+            }
         } else if (dpf) {
             /* Dual-playfield (title star-field): PF1=BPL1+BPL3, PF2=BPL2. */
             for (int x = 0; x < HW_DISPLAY_W; x++) {
@@ -462,8 +490,9 @@ void native_render_frame(void) {
         } else {
             /* Single playfield, 1-5 planes (title box = 4, gameplay = 5).
              * BPLCON1 delays the playfield by `scroll1` lores px (smooth scroll). */
-            for (int p = 0; p < MAX_PLANES; p++)
+            for (int p = 0; p < MAX_PLANES; p++) {
                 s_line_bplpt[y][p] = bplpt[p];
+            }
             s_line_xoff[y] = (int16_t)x_off;
             s_line_scr1[y] = (int16_t)scroll1;
             s_line_bpu[y] = (uint8_t)bpu;
@@ -486,8 +515,9 @@ void native_render_frame(void) {
     if (g_native_render_delay) {
         memcpy(s_snap_ring[s_snap_widx], g_mem, 0x80000);
         s_snap_widx = (s_snap_widx + 1) % RENDER_SNAP_RING;
-        if (s_snap_count < RENDER_SNAP_RING)
+        if (s_snap_count < RENDER_SNAP_RING) {
             s_snap_count++;
+        }
     }
 }
 
@@ -550,12 +580,14 @@ static uint32_t *s_objlayer; /* HW_DISPLAY_H rows x s_layer_w cols, world X */
 static int s_layer_w;
 #define OBJL(y, x) s_objlayer[(size_t)(y) * (size_t)s_layer_w + (size_t)(x)]
 static int objlayer_ensure(int w) {
-    if (w < WS_LAYER_MIN)
+    if (w < WS_LAYER_MIN) {
         w = WS_LAYER_MIN;
+    }
     if (w > s_layer_w) {
         uint32_t *nb = realloc(s_objlayer, (size_t)HW_DISPLAY_H * (size_t)w * 4);
-        if (!nb)
+        if (!nb) {
             return 0;
+        }
         s_objlayer = nb;
         s_layer_w = w;
     }
@@ -573,25 +605,34 @@ static int s_scene_ylo = 0, s_scene_yhi = 0; /* playfield row span the scene tar
 /* Accessors for the per-sprite backends / headless verification (scene_sdl,
  * vk consumer). The scene is populated by native_render_wide_bg (BenRen). */
 int native_render_line_info(int y, uint32_t pt[5], int *xoff, int *scr1, int *width) {
-    if (y < 0 || y >= HW_DISPLAY_H)
+    if (y < 0 || y >= HW_DISPLAY_H) {
         return 0;
-    for (int p = 0; p < MAX_PLANES; p++)
+    }
+    for (int p = 0; p < MAX_PLANES; p++) {
         pt[p] = s_line_bplpt[y][p];
-    if (xoff)
+    }
+    if (xoff) {
         *xoff = s_line_xoff[y];
-    if (scr1)
+    }
+    if (scr1) {
         *scr1 = s_line_scr1[y];
-    if (width)
+    }
+    if (width) {
         *width = s_line_width[y];
+    }
     return s_line_bpu[y];
 }
 
-const Scene *native_render_scene(void) { return &s_scene; }
+const Scene *native_render_scene(void) {
+    return &s_scene;
+}
 void native_render_scene_yrange(int *lo, int *hi) {
-    if (lo)
+    if (lo) {
         *lo = s_scene_ylo;
-    if (hi)
+    }
+    if (hi) {
         *hi = s_scene_yhi;
+    }
 }
 
 /* Per-scanline background colour (COLOR00) of the last rendered frame. The
@@ -600,8 +641,9 @@ void native_render_scene_yrange(int *lo, int *hi) {
  * VOID must use this instead of hardcoded black or the margins/void stay
  * black against the curtain (the "missed corners"). Black normally. */
 uint32_t native_scanline_bgcolor(int y) {
-    if (y < 0 || y >= HW_DISPLAY_H)
+    if (y < 0 || y >= HW_DISPLAY_H) {
         return 0xFF000000u;
+    }
     return s_scan[y].palette[0] | 0xFF000000u;
 }
 
@@ -610,18 +652,22 @@ uint32_t native_scanline_bgcolor(int y) {
  * fades in/out, so the brightest entry tracks the fade — PC-overlay text drawn on
  * top can dim to match instead of popping at full brightness. */
 int native_scanline_palette_luma(int y) {
-    if (y < 0 || y >= HW_DISPLAY_H)
+    if (y < 0 || y >= HW_DISPLAY_H) {
         return 255;
+    }
     int mx = 0;
     for (int i = 0; i < 32; i++) {
         uint32_t c = s_scan[y].palette[i];
         int r = (int)((c >> 16) & 0xFF), g = (int)((c >> 8) & 0xFF), b = (int)(c & 0xFF);
-        if (r > mx)
+        if (r > mx) {
             mx = r;
-        if (g > mx)
+        }
+        if (g > mx) {
             mx = g;
-        if (b > mx)
+        }
+        if (b > mx) {
             mx = b;
+        }
     }
     return mx;
 }
@@ -631,8 +677,9 @@ int native_scanline_palette_luma(int y) {
  * (e.g. the victory-curtain rows that run with a different BPLCON0). */
 int native_scanline_info(int y, uint16_t *con0, uint16_t *con1, int *mod1, int *mod2,
                          uint16_t *ddfstrt) {
-    if (y < 0 || y >= HW_DISPLAY_H)
+    if (y < 0 || y >= HW_DISPLAY_H) {
         return 0;
+    }
     *con0 = s_scan[y].bplcon0;
     *con1 = s_scan[y].bplcon1;
     *mod1 = s_scan[y].bpl1mod;
@@ -647,21 +694,27 @@ uint32_t native_scanline_color0(int y) {
 
 /* Per-scanline data-fetch + display window — for the `diw` probe. */
 int native_scanline_ddf(int y, uint16_t *ddfstrt, uint16_t *ddfstop) {
-    if (y < 0 || y >= HW_DISPLAY_H)
+    if (y < 0 || y >= HW_DISPLAY_H) {
         return 0;
-    if (ddfstrt)
+    }
+    if (ddfstrt) {
         *ddfstrt = s_scan[y].ddfstrt;
-    if (ddfstop)
+    }
+    if (ddfstop) {
         *ddfstop = s_scan[y].ddfstop;
+    }
     return 1;
 }
 int native_scanline_diw(int y, uint16_t *diwstrt, uint16_t *diwstop) {
-    if (y < 0 || y >= HW_DISPLAY_H)
+    if (y < 0 || y >= HW_DISPLAY_H) {
         return 0;
-    if (diwstrt)
+    }
+    if (diwstrt) {
         *diwstrt = s_scan[y].diwstrt;
-    if (diwstop)
+    }
+    if (diwstop) {
         *diwstop = s_scan[y].diwstop;
+    }
     return 1;
 }
 
@@ -673,10 +726,12 @@ int native_scanline_diw(int y, uint16_t *diwstrt, uint16_t *diwstop) {
  * crops the excess right overscan. Constants are the measured gameplay DIW words,
  * resolved through the same DIW_X0/X1 calibration the per-scanline crop uses. */
 void native_std_display_window(int *x0, int *x1) {
-    if (x0)
+    if (x0) {
         *x0 = DIW_X0(0x2881u); /* DIWSTRT H=$81 → x6  */
-    if (x1)
+    }
+    if (x1) {
         *x1 = DIW_X1(0x2FC0u); /* DIWSTOP H=$C0 → x325 */
+    }
 }
 
 /* `diw` probe: at playfield scanline y, report the engine camera and the vanilla
@@ -685,30 +740,38 @@ void native_std_display_window(int *x0, int *x1) {
 int native_diag_mapping(int y, int x, int *cam_out, int *scroll1_out, int *xoff_out,
                         int *vanilla_world, int *native_world) {
     EngineView ev;
-    if (y < 0 || y >= HW_DISPLAY_H || !engine_view_capture(&ev))
+    if (y < 0 || y >= HW_DISPLAY_H || !engine_view_capture(&ev)) {
         return 0;
+    }
     int cam = ev.camera;
     int cam16 = cam & ~15;
     int x_off = DDF_TO_X(s_scan[y].ddfstrt);
     int scroll1 = s_scan[y].bplcon1 & 0xF;
-    if (cam_out)
+    if (cam_out) {
         *cam_out = cam;
-    if (scroll1_out)
+    }
+    if (scroll1_out) {
         *scroll1_out = scroll1;
-    if (xoff_out)
+    }
+    if (xoff_out) {
         *xoff_out = x_off;
-    if (vanilla_world)
+    }
+    if (vanilla_world) {
         *vanilla_world = cam16 + (x - x_off - scroll1);
-    if (native_world)
+    }
+    if (native_world) {
         *native_world = cam + (x - x_off - 16);
+    }
     return 1;
 }
 void native_render_scene_dims(int *w, int *h) {
     objlayer_ensure(0);
-    if (w)
+    if (w) {
         *w = s_layer_w;
-    if (h)
+    }
+    if (h) {
         *h = HW_DISPLAY_H;
+    }
 }
 
 /* Scene freshness: the windowed per-sprite present must only consume a scene
@@ -716,14 +779,19 @@ void native_render_scene_dims(int *w, int *h) {
  * stale). hw_compose_output invalidates before the BenRen compose; the compose
  * marks it ready once it has built this frame's draw list. */
 static int s_scene_ready = 0;
-void native_render_scene_invalidate(void) { s_scene_ready = 0; }
-int native_render_scene_ready(void) { return s_scene_ready; }
+void native_render_scene_invalidate(void) {
+    s_scene_ready = 0;
+}
+int native_render_scene_ready(void) {
+    return s_scene_ready;
+}
 
 /* Copy walk_copper's per-scanline palette into the scene's per-row colour LUT
  * (this engine's palette is copper-driven, so colours are per output row). */
 static void scene_load_palrows(void) {
-    for (int y = 0; y < HW_DISPLAY_H; y++)
+    for (int y = 0; y < HW_DISPLAY_H; y++) {
         memcpy(s_scene.pal_rows[y], s_scan[y].palette, sizeof s_scene.pal_rows[y]);
+    }
 }
 
 #define WS_GFXTAB 0x005A539Eu
@@ -732,7 +800,9 @@ static void scene_load_palrows(void) {
 /* Pixel decoder reads delayed chip snapshot for parity, but presentation
  * ownership differs: live copper may switch while snapshot holds gameplay.
  * Use live display owner so transition UI is not replaced by stale gameplay. */
-static int native_live_gameplay_active(void) { return hw_get_cop1lc() == WS_GAMEPLAY_COP1LC; }
+static int native_live_gameplay_active(void) {
+    return hw_get_cop1lc() == WS_GAMEPLAY_COP1LC;
+}
 
 /* Per-object draw params captured at the engine's $57D8D0 choke point (before its
  * 352px camera-clip) — the faithful, camera-independent source of every gameplay
@@ -764,25 +834,29 @@ static inline uint32_t gmem_r32(const uint8_t *m, uint32_t a) {
  * follow the engine camera, clamped to the level edges. */
 int ws_view_left(int ow) {
     EngineView ev;
-    if (!engine_view_capture(&ev))
+    if (!engine_view_capture(&ev)) {
         return 0; /* no sourced state -> no view (no fudge) */
+    }
     /* World column span the camera can ever reveal, from the engine's own clamp
      * range (ev.level_lo/hi already include the engine clamp biases). level_lo can
      * be slightly negative at the left edge; the visible world starts at column 0. */
     int level_lo = (ev.level_lo < 0 ? 0 : ev.level_lo) & ~15;
     int level_hi = (ev.level_hi + 320) & ~15;
     int level_w = level_hi - level_lo;
-    if (level_w <= ow)
+    if (level_w <= ow) {
         return level_lo - (ow - level_w) / 2; /* center narrow level */
+    }
     /* FREE CAM (src/port/freecam.c): a detached, user-panned follow-point
      * replaces the engine camera. Same clamps below, so it can't leave the
      * level; the object-cull overrides share this view so margins re-derive. */
     int follow = pc_freecam_active() ? pc_freecam_x() : ev.camera + 16;
     int vl = follow - (ow - 320) / 2; /* follow player/cam */
-    if (vl < level_lo)
+    if (vl < level_lo) {
         vl = level_lo;
-    if (vl > level_hi - ow)
+    }
+    if (vl > level_hi - ow) {
         vl = level_hi - ow;
+    }
     return vl;
 }
 
@@ -794,21 +868,25 @@ int ws_view_left(int ow) {
  * rounding) instead of its own bounds, or the two clamps drift apart. */
 int ws_follow_clamp(int ow, int sx) {
     EngineView ev;
-    if (!engine_view_capture(&ev))
+    if (!engine_view_capture(&ev)) {
         return sx;
+    }
     int level_lo = (ev.level_lo < 0 ? 0 : ev.level_lo) & ~15;
     int level_hi = (ev.level_hi + 320) & ~15;
     int half = (ow - 320) / 2;
     /* Narrow level: ws_view_left centers and ignores the follow entirely, so pin
      * the follow to the low edge (any value collapses to the same centered view). */
-    if (level_hi - level_lo <= ow)
+    if (level_hi - level_lo <= ow) {
         return level_lo + half;
+    }
     int lo = level_lo + half;        /* follow that yields view_left == level_lo   */
     int hi = (level_hi - ow) + half; /* follow that yields view_left == level_hi-ow */
-    if (sx < lo)
+    if (sx < lo) {
         sx = lo;
-    if (sx > hi)
+    }
+    if (sx > hi) {
         sx = hi;
+    }
     return sx;
 }
 
@@ -822,34 +900,42 @@ int ws_follow_clamp(int ow, int sx) {
  * -> the void the main loop paints black. */
 static void native_wstiles_compose(int pf_top, int pf_bot, int rowstride, int mincol, int maxcol) {
     const uint8_t *M = g_mem;
-    if (!M || pc_cfg_bool("widescreen_no_tiles", 0))
+    if (!M || pc_cfg_bool("widescreen_no_tiles", 0)) {
         return;
+    }
     int nrows = (pf_bot - pf_top + 15) >> 4;
     for (int r = 0; r < nrows; r++) {
         for (int col = mincol; col < maxcol; col++) {
             int wx = col * 16;
-            if (wx < 0 || wx + 16 > s_layer_w)
+            if (wx < 0 || wx + 16 > s_layer_w) {
                 continue;
+            }
             uint32_t mo = WS_TILEMAP + (uint32_t)r * (uint32_t)rowstride + (uint32_t)col * 2u;
-            if (mo + 1u >= RT_MEM_SIZE)
+            if (mo + 1u >= RT_MEM_SIZE) {
                 continue;
+            }
             uint16_t w = gmem_r16(M, mo);
             uint32_t gfx = gmem_r32(M, WS_GFXTAB + (uint32_t)(w & 0xFFFEu));
-            if (gfx < 0x1000u || gfx + 160u > RT_MEM_SIZE)
+            if (gfx < 0x1000u || gfx + 160u > RT_MEM_SIZE) {
                 continue; /* void: no tile here */
+            }
             uint8_t *idx = scene_alloc_idx(&s_scene, 16u * 16u);
-            if (!idx)
+            if (!idx) {
                 continue;
+            }
             for (int ty = 0; ty < 16; ty++) {
                 uint16_t pl[5];
-                for (int p = 0; p < 5; p++)
+                for (int p = 0; p < 5; p++) {
                     pl[p] = gmem_r16(M, gfx + (uint32_t)p * 32u + (uint32_t)ty * 2u);
+                }
                 uint8_t *irow = idx + (size_t)ty * 16;
                 for (int tx = 0; tx < 16; tx++) {
                     int bit = 15 - tx, ci = 0;
-                    for (int p = 0; p < 5; p++)
-                        if ((pl[p] >> bit) & 1u)
+                    for (int p = 0; p < 5; p++) {
+                        if ((pl[p] >> bit) & 1u) {
                             ci |= (1 << p);
+                        }
+                    }
                     irow[tx] = (uint8_t)ci; /* opaque index (0..31); no cookie-cut */
                 }
             }
@@ -869,35 +955,42 @@ static void native_wstiles_compose(int pf_top, int pf_bot, int rowstride, int mi
 static void native_wsobj_compose(int pf_top, int pf_bot) {
     const uint8_t *M = g_mem;
     (void)pf_bot;
-    if (!M || pc_cfg_bool("widescreen_no_objects", 0))
+    if (!M || pc_cfg_bool("widescreen_no_objects", 0)) {
         return;
+    }
     int n = native_wsobj_count();
     for (int i = 0; i < n; i++) {
         int x, y, w, h;
         uint32_t src, mod;
-        if (!native_wsobj_get(i, &x, &y, &w, &h, &src, &mod))
+        if (!native_wsobj_get(i, &x, &y, &w, &h, &src, &mod)) {
             continue;
-        if (w <= 0 || h <= 0 || w > 64 || h > 256)
+        }
+        if (w <= 0 || h <= 0 || w > 64 || h > 256) {
             continue;
+        }
         uint32_t plane_stride = (uint32_t)w * 2u * (uint32_t)h; /* A-mod 0 => packed */
-        if (src < 0x1000u || src + plane_stride * 5u > RT_MEM_SIZE)
+        if (src < 0x1000u || src + plane_stride * 5u > RT_MEM_SIZE) {
             continue;
+        }
         int wpx = w * 16;
         /* Decode the sprite into a colour-index bitmap (0..31, 0xFF = transparent
          * where the colour index is 0) and emit it as a draw-list quad at the
          * object's absolute world (x, pf_top+y). The CPU rasterizer composites it
          * into s_objlayer below — same pixels as the old direct write. */
         uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)wpx * (uint32_t)h);
-        if (!idx)
+        if (!idx) {
             continue;
+        }
         for (int r = 0; r < h; r++) {
             uint8_t *irow = idx + (size_t)r * wpx;
             for (int c = 0; c < wpx; c++) {
                 uint32_t base = src + (uint32_t)r * (uint32_t)w * 2u + (uint32_t)(c >> 4) * 2u;
                 int bit = 15 - (c & 15), ci = 0;
-                for (int p = 0; p < 5; p++)
-                    if ((gmem_r16(M, base + (uint32_t)p * plane_stride) >> bit) & 1u)
+                for (int p = 0; p < 5; p++) {
+                    if ((gmem_r16(M, base + (uint32_t)p * plane_stride) >> bit) & 1u) {
                         ci |= (1 << p);
+                    }
+                }
                 irow[c] = ci ? (uint8_t)ci : SCENE_TRANSPARENT;
             }
         }
@@ -917,27 +1010,34 @@ static void native_wsobj_compose(int pf_top, int pf_bot) {
 static void native_wswater_compose(int pf_top, int pf_bot) {
     const uint8_t *M = g_mem;
     (void)pf_bot;
-    if (!M || pc_cfg_bool("widescreen_no_water", 0))
+    if (!M || pc_cfg_bool("widescreen_no_water", 0)) {
         return;
+    }
     int n = native_wswater_count();
     for (int i = 0; i < n; i++) {
         int wx, row, col;
         uint32_t src;
-        if (!native_wswater_get(i, &wx, &row, &col, &src))
+        if (!native_wswater_get(i, &wx, &row, &col, &src)) {
             continue;
-        if (src < 0x1000u || src + 20u > RT_MEM_SIZE)
+        }
+        if (src < 0x1000u || src + 20u > RT_MEM_SIZE) {
             continue;
+        }
         uint8_t *idx = scene_alloc_idx(&s_scene, 16u * 2u);
-        if (!idx)
+        if (!idx) {
             continue;
-        for (int r = 0; r < 2; r++)
+        }
+        for (int r = 0; r < 2; r++) {
             for (int c = 0; c < 16; c++) {
                 int ci = 0;
-                for (int p = 0; p < 5; p++)
-                    if ((gmem_r16(M, src + (uint32_t)(p * 2 + r) * 2u) >> (15 - c)) & 1u)
+                for (int p = 0; p < 5; p++) {
+                    if ((gmem_r16(M, src + (uint32_t)(p * 2 + r) * 2u) >> (15 - c)) & 1u) {
                         ci |= (1 << p);
+                    }
+                }
                 idx[r * 16 + c] = (uint8_t)ci;
             }
+        }
         scene_add_quad(&s_scene, wx, pf_top + row, 16, 2, idx, 16);
     }
 }
@@ -954,24 +1054,30 @@ static void native_wsplayer_compose(int pf_top, int pf_bot) {
     (void)pf_bot;
     int x, y, black;
     uint32_t dbase, mbase;
-    if (!M || pc_cfg_bool("widescreen_no_objects", 0))
+    if (!M || pc_cfg_bool("widescreen_no_objects", 0)) {
         return;
-    if (!native_wsplayer_get(&x, &y, &dbase, &mbase, &black))
+    }
+    if (!native_wsplayer_get(&x, &y, &dbase, &mbase, &black)) {
         return;
-    if (dbase + WS_PLR_DATA_PSTRIDE * 4u + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE)
+    }
+    if (dbase + WS_PLR_DATA_PSTRIDE * 4u + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) {
         return;
-    if (mbase + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE)
+    }
+    if (mbase + 16u * WS_PLR_ROW_STRIDE > RT_MEM_SIZE) {
         return;
+    }
     uint8_t *idx = scene_alloc_idx(&s_scene, 16u * 16u);
-    if (!idx)
+    if (!idx) {
         return;
+    }
     for (int r = 0; r < 16; r++) {
         uint8_t *irow = idx + (size_t)r * 16;
         uint16_t mw = gmem_r16(M, mbase + (uint32_t)r * WS_PLR_ROW_STRIDE);
         uint16_t dw[5];
-        for (int p = 0; p < 5; p++)
+        for (int p = 0; p < 5; p++) {
             dw[p] = gmem_r16(M, dbase + (uint32_t)p * WS_PLR_DATA_PSTRIDE +
                                     (uint32_t)r * WS_PLR_ROW_STRIDE);
+        }
         for (int c = 0; c < 16; c++) {
             int bit = 15 - c;
             if (!((mw >> bit) & 1u)) {
@@ -981,10 +1087,13 @@ static void native_wsplayer_compose(int pf_top, int pf_bot) {
             /* Damage-blink black frame: the engine fills the mask silhouette with
              * colour 0 ($57A7E6); else the normal 5-plane data colour. */
             int ci = 0;
-            if (!black)
-                for (int p = 0; p < 5; p++)
-                    if ((dw[p] >> bit) & 1u)
+            if (!black) {
+                for (int p = 0; p < 5; p++) {
+                    if ((dw[p] >> bit) & 1u) {
                         ci |= (1 << p);
+                    }
+                }
+            }
             irow[c] = (uint8_t)ci;
         }
     }
@@ -1002,16 +1111,19 @@ static void native_wsplayer_compose(int pf_top, int pf_bot) {
 static void native_wschar_compose(int pf_top, int pf_bot) {
     const uint8_t *M = g_mem;
     (void)pf_bot;
-    if (!M || pc_cfg_bool("widescreen_no_objects", 0))
+    if (!M || pc_cfg_bool("widescreen_no_objects", 0)) {
         return;
+    }
     int n = native_wschar_count();
     for (int i = 0; i < n; i++) {
         int x, y, w, h, rs;
         uint32_t data, mask;
-        if (!native_wschar_get(i, &x, &y, &w, &h, &data, &mask, &rs))
+        if (!native_wschar_get(i, &x, &y, &w, &h, &data, &mask, &rs)) {
             continue;
-        if (w <= 0 || h <= 0 || w > 64 || h > 256 || rs <= 0)
+        }
+        if (w <= 0 || h <= 0 || w > 64 || h > 256 || rs <= 0) {
             continue;
+        }
         uint32_t pstride = (uint32_t)h * (uint32_t)rs; /* B auto-advance/plane */
         /* DISPLAYED width = rs/2 words, NOT w. Verified from the actual blits
          * (BLIT_LOG fn=$57D688): the blit reads w words/row but the row only
@@ -1021,16 +1133,20 @@ static void native_wschar_compose(int pf_top, int pf_bot) {
          * 84 = 21*4 on the L9 walker, matching the measured bpt step $54). Using w
          * drew the masked spillover word as a doubled second body. */
         int ww = rs / 2;
-        if (ww < 1)
+        if (ww < 1) {
             ww = 1;
+        }
         int wpx = ww * 16;
-        if (data + pstride * 5u > RT_MEM_SIZE)
+        if (data + pstride * 5u > RT_MEM_SIZE) {
             continue;
-        if (mask + (uint32_t)(h - 1) * (uint32_t)rs + (uint32_t)ww * 2u > RT_MEM_SIZE)
+        }
+        if (mask + (uint32_t)(h - 1) * (uint32_t)rs + (uint32_t)ww * 2u > RT_MEM_SIZE) {
             continue;
+        }
         uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)wpx * (uint32_t)h);
-        if (!idx)
+        if (!idx) {
             continue;
+        }
         for (int r = 0; r < h; r++) {
             uint8_t *irow = idx + (size_t)r * wpx;
             for (int c = 0; c < wpx; c++) {
@@ -1042,9 +1158,11 @@ static void native_wschar_compose(int pf_top, int pf_bot) {
                     continue;
                 } /* cookie-cut */
                 int ci = 0;
-                for (int p = 0; p < 5; p++)
-                    if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
+                for (int p = 0; p < 5; p++) {
+                    if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u) {
                         ci |= (1 << p);
+                    }
+                }
                 irow[c] = (uint8_t)ci;
             }
         }
@@ -1090,11 +1208,21 @@ static int s_wsstatic_drawn = 0;   /* non-Marry-Man descriptors drawn from the q
 static int s_wsstatic_scanned = 0; /* descriptors in the queue this frame   */
 static int s_wsstatic_cached = 0;  /* Marry Men resolved+drawn from placement records */
 static uint32_t s_wsstatic_dbg_bp0 = 0, s_wsstatic_dbg_first = 0;
-int native_wsstatic_drawn(void) { return s_wsstatic_drawn; }
-int native_wsstatic_scanned(void) { return s_wsstatic_scanned; }
-int native_wsstatic_cached(void) { return s_wsstatic_cached; }
-uint32_t native_wsstatic_dbg_bp0(void) { return s_wsstatic_dbg_bp0; }
-uint32_t native_wsstatic_dbg_first(void) { return s_wsstatic_dbg_first; }
+int native_wsstatic_drawn(void) {
+    return s_wsstatic_drawn;
+}
+int native_wsstatic_scanned(void) {
+    return s_wsstatic_scanned;
+}
+int native_wsstatic_cached(void) {
+    return s_wsstatic_cached;
+}
+uint32_t native_wsstatic_dbg_bp0(void) {
+    return s_wsstatic_dbg_bp0;
+}
+uint32_t native_wsstatic_dbg_first(void) {
+    return s_wsstatic_dbg_first;
+}
 
 /* Decode one cookie-cut static sprite (mask 1-plane gates; data 5-plane, plane stride
  * h*rs; colour 0 transparent) into s_objlayer at absolute world (wx0, worldY). */
@@ -1102,17 +1230,21 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot, int wx0, in
                            int rs, uint32_t data, uint32_t mask) {
     (void)pf_bot;
     int ww = rs / 2;
-    if (ww < 1)
+    if (ww < 1) {
         ww = 1; /* BLTALWM=0 kills the spillover word */
+    }
     int wpx = ww * 16;
     uint32_t pstride = (uint32_t)h * (uint32_t)rs;
-    if (data + pstride * 4u + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE)
+    if (data + pstride * 4u + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) {
         return;
-    if (mask + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE)
+    }
+    if (mask + (uint32_t)(h - 1) * rs + 2u > RT_MEM_SIZE) {
         return;
+    }
     uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)wpx * (uint32_t)h);
-    if (!idx)
+    if (!idx) {
         return;
+    }
     for (int py = 0; py < h; py++) {
         uint8_t *irow = idx + (size_t)py * wpx;
         for (int c = 0; c < wpx; c++) {
@@ -1123,9 +1255,11 @@ static void ws_draw_static(const uint8_t *M, int pf_top, int pf_bot, int wx0, in
                 continue;
             } /* cookie-cut */
             int ci = 0;
-            for (int p = 0; p < 5; p++)
-                if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u)
+            for (int p = 0; p < 5; p++) {
+                if ((gmem_r16(M, data + (uint32_t)p * pstride + rowoff) >> bit) & 1u) {
                     ci |= (1 << p);
+                }
+            }
             irow[c] = ci ? (uint8_t)ci : SCENE_TRANSPARENT; /* colour 0 also transparent here */
         }
     }
@@ -1187,8 +1321,9 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16) {
     s_wsstatic_drawn = 0;
     s_wsstatic_scanned = 0;
     s_wsstatic_cached = 0;
-    if (!M || pc_cfg_bool("widescreen_no_objects", 0))
+    if (!M || pc_cfg_bool("widescreen_no_objects", 0)) {
         return;
+    }
     (void)cam16;
     s_wsstatic_dbg_bp0 = (s_nanchors >= 1) ? s_anchors[0].ptr[0] : 0u;
     s_wsstatic_dbg_first = 0;
@@ -1205,27 +1340,33 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16) {
     s_wsstatic_scanned = n;
     for (int i = 0; i < n; i++) {
         int worldX, worldY, frame, flags, blind;
-        if (!native_wsbuild_get(i, &worldX, &worldY, &frame, &flags, &blind))
+        if (!native_wsbuild_get(i, &worldX, &worldY, &frame, &flags, &blind)) {
             continue;
+        }
         int frame2 = frame + ((flags & 2) ? 0 : 0x55); /* facing: +$55 when d4 bit1 clear */
-        if (frame2 < 0)
+        if (frame2 < 0) {
             continue;
+        }
         uint32_t e = gtab + (uint32_t)frame2 * 8u;
-        if (e + 8u > RT_MEM_SIZE)
+        if (e + 8u > RT_MEM_SIZE) {
             continue;
+        }
         uint16_t bsz = gmem_r16(M, e + 6u);
         int w = bsz & 0x3F, h = bsz >> 6;
-        if (w <= 0 || h <= 0 || w > 64 || h > 256)
+        if (w <= 0 || h <= 0 || w > 64 || h > 256) {
             continue;
+        }
         int rs = w * 2 - 2;
-        if (rs <= 0)
+        if (rs <= 0) {
             continue; /* BMOD = -2 */
+        }
         int yoff = (int16_t)gmem_r16(M, e + 4u);
         uint32_t bdelta = blind ? WS_GFX_BLIND_ADD : 0u; /* blind/gray = red + $4C38 */
         uint32_t data = (gmem_r16(M, e) + WS_GFX_DATA_ADD + bdelta) & 0xFFFFFFu;
         uint32_t mask = (gmem_r16(M, e + 2u) + WS_GFX_MASK_ADD + bdelta) & 0xFFFFFFu;
-        if (worldY > 0xD7)
-            worldY = 0xD7;       /* engine clamps d2 to $D7 */
+        if (worldY > 0xD7) {
+            worldY = 0xD7; /* engine clamps d2 to $D7 */
+        }
         s_scene.shadow_next = 1; /* caged Marry Man = a character → drop shadow (not the cloud) */
         ws_draw_static(M, pf_top, pf_bot, worldX - 8, worldY + yoff, h, rs, data, mask);
         s_scene.shadow_next = 0;
@@ -1289,8 +1430,9 @@ static void native_wsstatic_compose(int pf_top, int pf_bot, int cam16) {
 #define WS_ROPE_CI 19 /* $9C5521 — the rope's main brown (row-35 palette) */
 static void native_wsrope_compose(int pf_top, int pf_bot) {
     (void)pf_bot;
-    if (pc_cfg_bool("widescreen_no_rope", 0))
+    if (pc_cfg_bool("widescreen_no_rope", 0)) {
         return;
+    }
     int nseg = native_wsrope_count();
     for (int i = 0; i < nseg; i++) {
         int x0, y0, x1, y1;
@@ -1303,16 +1445,18 @@ static void native_wsrope_compose(int pf_top, int pf_bot) {
         int bw = (x1 > x0 ? x1 - x0 : x0 - x1) + 1;
         int bh = (y1 > y0 ? y1 - y0 : y0 - y1) + 1;
         uint8_t *idx = scene_alloc_idx(&s_scene, (uint32_t)bw * (uint32_t)bh);
-        if (!idx)
+        if (!idx) {
             continue;
+        }
         memset(idx, SCENE_TRANSPARENT, (size_t)bw * (size_t)bh);
         int dx = (bw - 1), sx = x0 < x1 ? 1 : -1;
         int dy = -(bh - 1), sy = y0 < y1 ? 1 : -1;
         int err = dx + dy, x = x0, y = y0;
         for (;;) {
             idx[(size_t)(y - by) * bw + (x - bx)] = WS_ROPE_CI;
-            if (x == x1 && y == y1)
+            if (x == x1 && y == y1) {
                 break;
+            }
             int e2 = 2 * err;
             if (e2 >= dy) {
                 err += dy;
@@ -1331,10 +1475,12 @@ static void native_wsbanner_compose(int ow, int cam, int pf_top) {
     const uint8_t *M = g_mem;
     int row, brel, pstride, rs, ww, rows;
     uint32_t data, mask;
-    if (!M || pc_cfg_bool("widescreen_no_banner", 0))
+    if (!M || pc_cfg_bool("widescreen_no_banner", 0)) {
         return;
-    if (!native_wsbanner_get(&row, &brel, &data, &mask, &pstride, &rs, &ww, &rows))
+    }
+    if (!native_wsbanner_get(&row, &brel, &data, &mask, &pstride, &rs, &ww, &rows)) {
         return;
+    }
     int wpx = ww * 16;
     int box_worldX = ((cam >> 4) + 3) * 16;
     int bx0 = (ow > HW_DISPLAY_W)
@@ -1364,10 +1510,12 @@ static void native_wsbanner_compose(int ow, int cam, int pf_top) {
                         continue;
                     }
                     int ci = 0;
-                    for (int p = 0; p < 5; p++)
+                    for (int p = 0; p < 5; p++) {
                         if ((gmem_r16(M, data + (uint32_t)p * (uint32_t)pstride + roff) >> bit) &
-                            1u)
+                            1u) {
                             ci |= (1 << p);
+                        }
+                    }
                     irow[c] = (uint8_t)ci;
                 }
             }
@@ -1396,11 +1544,13 @@ static void native_wsbanner_compose(int ow, int cam, int pf_top) {
                             int wo = c >> 4, bit = 15 - (c & 15);
                             uint32_t roff = (uint32_t)r * trs + (uint32_t)wo * 2u;
                             int ci = 0;
-                            for (int p = 0; p < 4; p++) /* anim is 4 planes (moveq #3,d6) */
+                            for (int p = 0; p < 4; p++) { /* anim is 4 planes (moveq #3,d6) */
                                 if ((gmem_r16(M, tsrc + (uint32_t)p * WS_TEL_PSTRIDE + roff) >>
                                      bit) &
-                                    1u)
+                                    1u) {
                                     ci |= (1 << p);
+                                }
+                            }
                             /* The engine blits only planes 0-3; the circle background has plane 4
                              * SET, so the displayed colour is ci|16 (verified: page index =
                              * src+16). */
@@ -1431,30 +1581,38 @@ static void native_wsbanner_compose(int ow, int cam, int pf_top) {
                 memset(idx, SCENE_TRANSPARENT, 40u * 8u * 16u);
                 for (int k = 0; k < 40; k++) {
                     uint32_t ca = str + (uint32_t)k;
-                    if (ca >= RT_MEM_SIZE)
+                    if (ca >= RT_MEM_SIZE) {
                         break;
+                    }
                     uint8_t ch = M[ca];
-                    if (ch == 0)
+                    if (ch == 0) {
                         break;
+                    }
                     nk = k + 1;
-                    if (ch < 0x20)
+                    if (ch < 0x20) {
                         continue;
+                    }
                     uint32_t glyph = WS_FONT_BASE + (uint32_t)(ch - 0x20);
                     for (int r = 0; r < 16; r++) {
                         uint32_t ga = glyph + (uint32_t)r * WS_FONT_RS;
-                        if (ga >= RT_MEM_SIZE)
+                        if (ga >= RT_MEM_SIZE) {
                             continue;
+                        }
                         uint8_t gb = M[ga];
-                        if (!gb)
+                        if (!gb) {
                             continue;
+                        }
                         uint8_t *irow = idx + (size_t)r * (40 * 8) + (size_t)k * 8;
-                        for (int px = 0; px < 8; px++)
-                            if ((gb >> (7 - px)) & 1u)
+                        for (int px = 0; px < 8; px++) {
+                            if ((gb >> (7 - px)) & 1u) {
                                 irow[px] = 16;
+                            }
+                        }
                     }
                 }
-                if (nk > 0)
+                if (nk > 0) {
                     scene_add_quad_screen(&s_scene, txx, tsy0, nk * 8, 16, idx, 40 * 8);
+                }
             }
         }
     }
@@ -1476,12 +1634,14 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
      * the engine-aligned WS_CMP compare path. */
     int freecam = pc_freecam_active();
     int wide = (margin > 0) || (margin < 0 && freecam);
-    if ((margin < 0 && !freecam) || !native_live_gameplay_active())
+    if ((margin < 0 && !freecam) || !native_live_gameplay_active()) {
         return; /* gameplay only */
+    }
     const uint8_t *M = g_mem;
     EngineView ev;
-    if (!M || !engine_view_capture(&ev))
+    if (!M || !engine_view_capture(&ev)) {
         return; /* firewall: engine state only, no fudge */
+    }
 
     int cam = ev.camera;           /* signed screen-left world X */
     int rowstride = ev.row_stride; /* per-level tilemap row stride, sourced (no L9 fallback) */
@@ -1518,23 +1678,28 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
      * (the first BPL anchor can fire at the top border before the playfield). Bottom =
      * the next BPL anchor below it (the HUD re-points the pointers there). */
     int pf_top = -1;
-    for (int y = 0; y < HW_DISPLAY_H; y++)
+    for (int y = 0; y < HW_DISPLAY_H; y++) {
         if (((s_scan[y].bplcon0 >> 12) & 7) >= 5 && !((s_scan[y].bplcon0 >> 10) & 1)) {
             pf_top = y;
             break;
         }
+    }
     int pf_bot = 0;
     if (pf_top >= 0) {
         pf_bot = pf_top + 16 * 16;
-        for (int a = 0; a < s_nanchors; a++)
-            if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot)
+        for (int a = 0; a < s_nanchors; a++) {
+            if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot) {
                 pf_bot = s_anchors[a].first_line;
-        if (pf_bot > HW_DISPLAY_H)
+            }
+        }
+        if (pf_bot > HW_DISPLAY_H) {
             pf_bot = HW_DISPLAY_H;
+        }
     }
 
-    if (pf_top < 0)
+    if (pf_top < 0) {
         return;
+    }
     /* New frame on the draw list + load this frame's per-scanline palette LUT
      * (Phase 1 seam — see instructions/gpu-renderer-plan.md). Every sprite pass
      * APPENDS index quads to s_scene; the single composite below rasterizes them
@@ -1542,8 +1707,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
      * object layer. */
     scene_reset(&s_scene);
     scene_load_palrows();
-    if (!objlayer_ensure(maxcol * 16))
+    if (!objlayer_ensure(maxcol * 16)) {
         return;
+    }
     memset(s_objlayer, 0, (size_t)HW_DISPLAY_H * (size_t)s_layer_w * 4);
     native_wstiles_compose(pf_top, pf_bot, rowstride, mincol, maxcol); /* terrain background */
     native_wswater_compose(pf_top, pf_bot);  /* animated page patches (water surface) */
@@ -1574,8 +1740,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
         const ScanState *st = &s_scan[y];
         /* must be the 5-plane single-playfield scanline the scroll buffer drives */
         int bpu = (st->bplcon0 >> 12) & 7;
-        if (bpu < 5 || ((st->bplcon0 >> 10) & 1))
+        if (bpu < 5 || ((st->bplcon0 >> 10) & 1)) {
             continue; /* skip HUD/dpf lines */
+        }
         uint32_t *row = out + (size_t)y * ow;
 
         int x_off = DDF_TO_X(st->ddfstrt);
@@ -1583,11 +1750,13 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
         /* Display-window crop — the SAME visible window s_fb now uses, so the 352
          * paths frame identically to vanilla (off-window = border, left as s_fb). */
         int diw_x0 = DIW_X0(st->diwstrt);
-        if (diw_x0 < 0)
+        if (diw_x0 < 0) {
             diw_x0 = 0;
+        }
         int diw_x1 = DIW_X1(st->diwstop);
-        if (diw_x1 > HW_DISPLAY_W)
+        if (diw_x1 > HW_DISPLAY_W) {
             diw_x1 = HW_DISPLAY_W;
+        }
 
         for (int x = 0; x < ow; x++) {
             int worldX;
@@ -1598,8 +1767,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
                 /* margin==0 is the WS_CMP correctness gate ONLY (Native 4:3 no longer
                  * re-renders the background — see native_render_effects_43). Engine-
                  * aligned mapping + vanilla's display window so it diffs against s_fb. */
-                if (x < diw_x0 || x >= diw_x1)
+                if (x < diw_x0 || x >= diw_x1) {
                     continue; /* outside DIW = s_fb border */
+                }
                 worldX = cam16 + (x - x_off - scroll1);
             }
             int drawn = 0;
@@ -1613,8 +1783,9 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
                     }
                 }
             }
-            if (!drawn && wide)
+            if (!drawn && wide) {
                 row[x] = st->palette[0] | 0xFF000000u; /* wide void = COLOR00 (curtain-aware) */
+            }
             /* Native (margin==0): a hole keeps the vanilla s_fb pixel already in s_out. */
         }
     }
@@ -1654,23 +1825,29 @@ void native_render_wide_bg(uint32_t *out, int ow, int margin) {
  * (turbo jitter) and framing drift vs vanilla. We keep the engine's pixels verbatim
  * and project the player light with the engine-aligned mapping that matches s_fb. */
 void native_render_effects_43(uint32_t *out, int ow) {
-    if (!native_live_gameplay_active())
+    if (!native_live_gameplay_active()) {
         return;
+    }
 
     int pf_top = -1;
-    for (int y = 0; y < HW_DISPLAY_H; y++)
+    for (int y = 0; y < HW_DISPLAY_H; y++) {
         if (((s_scan[y].bplcon0 >> 12) & 7) >= 5 && !((s_scan[y].bplcon0 >> 10) & 1)) {
             pf_top = y;
             break;
         }
-    if (pf_top < 0)
+    }
+    if (pf_top < 0) {
         return;
+    }
     int pf_bot = pf_top + 16 * 16;
-    for (int a = 0; a < s_nanchors; a++)
-        if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot)
+    for (int a = 0; a < s_nanchors; a++) {
+        if (s_anchors[a].first_line > pf_top && s_anchors[a].first_line < pf_bot) {
             pf_bot = s_anchors[a].first_line;
-    if (pf_bot > HW_DISPLAY_H)
+        }
+    }
+    if (pf_bot > HW_DISPLAY_H) {
         pf_bot = HW_DISPLAY_H;
+    }
 
     /* Player centre → screen, via the vanilla mapping (worldX = cam16 + x - x_off
      * - scroll1) so the light lands exactly on the s_fb sprite. */

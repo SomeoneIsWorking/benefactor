@@ -21,13 +21,16 @@ static int write_chunk(FILE *f, const char *type, const uint8_t *data, uint32_t 
     uint8_t hdr[8];
     put32(hdr, len);
     memcpy(hdr + 4, type, 4);
-    if (fwrite(hdr, 1, 8, f) != 8)
+    if (fwrite(hdr, 1, 8, f) != 8) {
         return -1;
-    if (len && fwrite(data, 1, len, f) != len)
+    }
+    if (len && fwrite(data, 1, len, f) != len) {
         return -1;
+    }
     uint32_t crc = crc32(0, (const uint8_t *)type, 4);
-    if (len)
+    if (len) {
         crc = crc32(crc, data, len);
+    }
     uint8_t cb[4];
     put32(cb, crc);
     return fwrite(cb, 1, 4, f) == 4 ? 0 : -1;
@@ -37,15 +40,17 @@ static int write_chunk(FILE *f, const char *type, const uint8_t *data, uint32_t 
  * RGB PNG at integer scale `scale`. Returns 0 on success. */
 int png_dump_region(const char *path, const uint32_t *argb, int stride, int x0, int y0, int w,
                     int h, int scale) {
-    if (!path || !argb || w <= 0 || h <= 0 || scale < 1)
+    if (!path || !argb || w <= 0 || h <= 0 || scale < 1) {
         return -1;
+    }
     int W = w * scale, H = h * scale;
 
     /* Raw scanlines: filter byte 0 + RGB triples. */
     size_t raw_len = (size_t)H * (1 + (size_t)W * 3);
     uint8_t *raw = malloc(raw_len);
-    if (!raw)
+    if (!raw) {
         return -1;
+    }
     uint8_t *p = raw;
     for (int y = 0; y < H; y++) {
         *p++ = 0;

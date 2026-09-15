@@ -15,9 +15,11 @@
 
 int native_fx_flags(void) {
     int f = 0;
-    if (pc_cfg_bool("fx_ambient", 0))
+    if (pc_cfg_bool("fx_ambient", 0)) {
         f |= FX_AMBIENT;
-    if (pc_cfg_bool("fx_shadow", 0))
+    }
+    if (pc_cfg_bool("fx_shadow", 0)) {
         f |= FX_SHADOW;
+    }
     return f;
 }

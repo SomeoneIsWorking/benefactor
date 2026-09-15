@@ -89,8 +89,9 @@ static const struct {
  * note extend==0 never reaches here, so vanilla stays bit-exact). */
 static int nudged_px(M68KCtx *ctx, uint32_t addr, int px, int extend) {
     for (unsigned i = 0; i < sizeof s_xwin / sizeof s_xwin[0]; i++) {
-        if (s_xwin[i].addr != addr)
+        if (s_xwin[i].addr != addr) {
             continue;
+        }
         int objX;
         switch (s_xwin[i].src) {
         case OBJX_D0:
@@ -103,13 +104,16 @@ static int nudged_px(M68KCtx *ctx, uint32_t addr, int px, int extend) {
             objX = (int16_t)MR16(ctx->A[0]);
             break;
         }
-        if (px < objX - extend || px > objX + 16 + extend)
+        if (px < objX - extend || px > objX + 16 + extend) {
             return px; /* out of reach: vanilla          */
+        }
         int lo = objX + s_xwin[i].bias, hi = lo + s_xwin[i].range;
-        if (px < lo)
+        if (px < lo) {
             return lo;
-        if (px > hi)
+        }
+        if (px > hi) {
             return hi;
+        }
         return px; /* already inside the window      */
     }
     return px; /* unknown handler: never touch   */
@@ -168,16 +172,19 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch) {
     }
 
     int interact = hw_get_interact();
-    if (!interact)
+    if (!interact) {
         s_interact_consumed = 0; /* key released → rearm latch */
+    }
 
     if (latch && pc_cfg_bool("interact_scan", 0)) {
         static uint32_t seen[32];
         static int nseen = 0;
         int known = 0;
-        for (int i = 0; i < nseen; i++)
-            if (seen[i] == addr)
+        for (int i = 0; i < nseen; i++) {
+            if (seen[i] == addr) {
                 known = 1;
+            }
+        }
         if (!known && nseen < 32) {
             seen[nseen++] = addr;
             benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
@@ -199,8 +206,9 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch) {
         /* Fire held on a VANILLA-scheme device (mixed setups: e.g. modern pad +
          * vanilla keyboard, or the harness's forced fire): keep the original
          * fire-interacts semantics, with the same reach extension. */
-        if (extend > 0)
+        if (extend > 0) {
             MW16(ctx->A[5] + A5_F96, (uint16_t)nudged_px(ctx, addr, (int16_t)s_f96, extend));
+        }
     } else {
         MW16(ctx->A[5] + A5_F80, (uint16_t)(s_f80 & ~0x20)); /* modern FIRE never interacts */
     }
@@ -213,8 +221,9 @@ static void interact_wide(M68KCtx *ctx, uint32_t addr, int extend, int latch) {
     MW16(ctx->A[5] + A5_F80, s_f80); /* restore input                */
     MW16(ctx->A[5] + A5_F96, s_f96);
     if (triggered) {
-        if (latch)
+        if (latch) {
             s_interact_consumed = 1; /* one toggle per key press     */
+        }
         g_native_pickup_hits++;
         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
                              "[interact] $%06X triggered (extend=%d)\n", addr, extend);
@@ -237,7 +246,9 @@ static void lever_wide(M68KCtx *ctx, uint32_t addr) {
 
 /* Thin per-handler thunks (the override dispatch can't pass the address). */
 #define PK(hex)                                                                                    \
-    void native_pickup_##hex(M68KCtx *ctx) { pickup_wide(ctx, 0x##hex##u); }
+    void native_pickup_##hex(M68KCtx *ctx) {                                                       \
+        pickup_wide(ctx, 0x##hex##u);                                                              \
+    }
 PK(586B1C)
 PK(586B2A)
 PK(586C10)
@@ -267,7 +278,9 @@ PK(5876C4)
  * would clear the player's fire bit every frame and break jump/throw. Only handlers
  * that read a real world object via `movem.w (a0)` belong here. */
 #define IK(hex)                                                                                    \
-    void native_interact_##hex(M68KCtx *ctx) { lever_wide(ctx, 0x##hex##u); }
+    void native_interact_##hex(M68KCtx *ctx) {                                                     \
+        lever_wide(ctx, 0x##hex##u);                                                               \
+    }
 IK(589572)
 IK(589642)
 IK(58A828)
@@ -312,13 +325,16 @@ IK(59B0B0)
  * The engine also consumes $109c as the lift linkage: poking it to 0 before
  * a lift produced a frozen, detached MM record. Do not write it.
  * ($1094 covers only items; $fa2 bit15 latches on first lift, never clears.) */
-int native_hands_full(M68KCtx *ctx) { return (MR16(ctx->A[5] + 0x10ACu) & 0x4000u) != 0; }
+int native_hands_full(M68KCtx *ctx) {
+    return (MR16(ctx->A[5] + 0x10ACu) & 0x4000u) != 0;
+}
 
 void native_mm_pickup_gate(M68KCtx *ctx) {
-    if ((ctx->D[4] & 0x4000u))
+    if ((ctx->D[4] & 0x4000u)) {
         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override",
                              "[mm] $57EA76 d4=%08X held=%d int=%d vfire=%d\n", ctx->D[4],
                              native_hands_full(ctx), hw_get_interact(), hw_get_fire_vanilla());
+    }
     /* Strip the "thing here" flag for BARE modern fire in EVERY carry state:
      * empty-handed it blocks the lift, while carrying it blocks the LET-GO
      * (verified live 2026-06-10: the fire let-go of a held MM runs through
@@ -327,8 +343,9 @@ void native_mm_pickup_gate(M68KCtx *ctx) {
      * blocked via the $108e arm in native_gameplay_input). The interact
      * bridge presents fire WITH hw_get_interact() still true, so it always
      * passes; vanilla-device fire keeps its original semantics. */
-    if (pc_modern_any() && !(hw_get_interact() || hw_get_fire_vanilla()))
+    if (pc_modern_any() && !(hw_get_interact() || hw_get_fire_vanilla())) {
         ctx->D[4] &= ~0x4000u;
+    }
     rt_call(ctx, ctx->image, 0x0057EA76u);
 }
 

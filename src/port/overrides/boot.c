@@ -15,12 +15,15 @@ static uint16_t color_step(uint16_t src, uint16_t dst) {
     uint16_t sg = src & 0x0F0u, dg = dst & 0x0F0u;
     uint16_t sr = src & 0xF00u, dr = dst & 0xF00u;
 
-    if (dr != sr)
+    if (dr != sr) {
         dr = (dr > sr) ? (uint16_t)(dr - 0x100u) : (uint16_t)(dr + 0x100u);
-    if (dg != sg)
+    }
+    if (dg != sg) {
         dg = (dg > sg) ? (uint16_t)(dg - 0x010u) : (uint16_t)(dg + 0x010u);
-    if (db != sb)
+    }
+    if (db != sb) {
         db = (db > sb) ? (uint16_t)(db - 0x001u) : (uint16_t)(db + 0x001u);
+    }
 
     return (uint16_t)(dr | dg | db);
 }
@@ -75,8 +78,9 @@ void native_boot_anim_iterator(M68KCtx *ctx) {
     uint32_t a4 = ctx->A[4];
     uint16_t outer = r16(a4);
     a4 += 2; /* a4 -> delay word */
-    if (outer > 256)
+    if (outer > 256) {
         outer = 256;
+    }
     w16(ctx->A[5] + 0x2216u, outer);
     uint16_t delay = r16(a4); /* per-pass vblank delay (constant) */
 
@@ -88,8 +92,9 @@ void native_boot_anim_iterator(M68KCtx *ctx) {
 
     for (uint16_t pass = 0; pass < outer; pass++) {
         /* $74B2-$74C2: wait (delay+1) vblank frames before stepping the palette. */
-        for (uint16_t wv = 0; wv <= delay; wv++)
+        for (uint16_t wv = 0; wv <= delay; wv++) {
             hw_vblank_wait();
+        }
 
         uint32_t a3 = a4 + 2; /* skip delay word -> first entry */
         for (int guard = 0; guard < 500; guard++) {
@@ -102,8 +107,9 @@ void native_boot_anim_iterator(M68KCtx *ctx) {
             int16_t count = (int16_t)r16(a3);
             a3 += 2;
             anim_step_colors(src, dst, stride, count);
-            if (r32(a3) == 0)
+            if (r32(a3) == 0) {
                 break; /* longword 0 = end of entry list */
+            }
         }
     }
 
@@ -275,8 +281,9 @@ void native_menu_glyph_blit(M68KCtx *ctx) {
     int len = 0;
     while (len < 31) {
         uint8_t c = MR8(orig_a2 + (uint32_t)len);
-        if (c == 0)
+        if (c == 0) {
             break;
+        }
         buf[len++] = (char)c;
     }
     const char *render = buf;
@@ -374,8 +381,9 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
         g_level_select_visible = 1;
 
         /* Wait for the entry fire press to release. */
-        while (hw_get_fire())
+        while (hw_get_fire()) {
             hw_vblank_wait();
+        }
 
         /* World/level geometry comes from the SSoT accessors in pc.h
          * (pc_levels_in_world / pc_world_first_level) — never re-hardcode. */
@@ -396,22 +404,27 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
             int level = pc_get_start_level();
             int world = 0, liw = 0;
             pc_level_split(level, &world, &liw);
-            if (world < 0 || world >= pc_num_worlds_ui())
+            if (world < 0 || world >= pc_num_worlds_ui()) {
                 world = 0;
+            }
             int liw_max = pc_levels_in_world(world) - 1;
-            if (liw < 0)
+            if (liw < 0) {
                 liw = 0;
-            if (liw > liw_max)
+            }
+            if (liw > liw_max) {
                 liw = liw_max;
+            }
 
             /* UP/DOWN navigate level within current world (clamped, no wrap).
              * LOCKED targets refuse (pc_profile_try_select): the cursor can
              * only reach completed levels + the next one (or anything with
              * the unlock_all_levels knob on). */
-            if (u && !prev_u && liw > 0)
+            if (u && !prev_u && liw > 0) {
                 pc_profile_try_select(pc_world_first_level(world) + (liw - 1));
-            if (d && !prev_d && liw < liw_max)
+            }
+            if (d && !prev_d && liw < liw_max) {
                 pc_profile_try_select(pc_world_first_level(world) + (liw + 1));
+            }
 
             /* LEFT/RIGHT cycle worlds with wrap; reset to liw 0 of new world.
              * A world whose first level is locked can't be navigated to —
@@ -422,21 +435,28 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
              * UNDERWORLD (world 0) lands on the extras, per their billing
              * as the "before Underworld" bonus shelf. */
             int nw = pc_num_worlds_ui();
-            if (lt && !prev_l)
-                for (int k = 1; k < nw; k++)
-                    if (pc_profile_try_select(pc_world_first_level((world + nw - k) % nw)))
+            if (lt && !prev_l) {
+                for (int k = 1; k < nw; k++) {
+                    if (pc_profile_try_select(pc_world_first_level((world + nw - k) % nw))) {
                         break;
-            if (rt && !prev_r)
-                for (int k = 1; k < nw; k++)
-                    if (pc_profile_try_select(pc_world_first_level((world + k) % nw)))
+                    }
+                }
+            }
+            if (rt && !prev_r) {
+                for (int k = 1; k < nw; k++) {
+                    if (pc_profile_try_select(pc_world_first_level((world + k) % nw))) {
                         break;
+                    }
+                }
+            }
 
             prev_u = u;
             prev_d = d;
             prev_l = lt;
             prev_r = rt;
-            if (f)
+            if (f) {
                 break;
+            }
         }
         g_level_select_visible = 0;
         if (cancelled) { /* back to the menu, no level start.
@@ -490,8 +510,9 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
             g_pc_menu_visible = 0;
         }
         int next = pc_menu_continue_level();
-        if (!pc_profile_try_select(next))
+        if (!pc_profile_try_select(next)) {
             pc_set_start_level(1);
+        }
         MW16(ctx->A[6] + 0x94u, 0x7FFFu);
         MW16(ctx->A[6] + 0x98u, 0x7FFFu);
         ctx->A[7] = 0x00080000u;
@@ -514,15 +535,17 @@ void native_main_menu_fire_dispatch(M68KCtx *ctx) {
 /* First uncleared VANILLA level — what CONTINUE starts. */
 int pc_menu_continue_level(void) {
     int next = 1;
-    while (next < PC_NUM_LEVELS && pc_profile_completed(next))
+    while (next < PC_NUM_LEVELS && pc_profile_completed(next)) {
         next++;
+    }
     return next;
 }
 
 static void menu_write_string(uint32_t dst, const char *str) {
     uint32_t i = 0;
-    for (; str[i]; i++)
+    for (; str[i]; i++) {
         g_mem[dst + i] = (uint8_t)str[i];
+    }
     g_mem[dst + i] = 0;
 }
 
@@ -552,8 +575,9 @@ void native_menu_setup(M68KCtx *ctx) {
 
     /* Engine extras flag (the old LOAD EXTRA LEVELS action) — set it
      * automatically whenever the disk provides extra worlds. */
-    if (pc_extra_worlds_available() > 0)
+    if (pc_extra_worlds_available() > 0) {
         MW8(0x38u, 0xFFu);
+    }
 
     /* On-page indicators are drawn post-unpack by native_menu_art_unpack
      * ($3700 hook) — the engine renders the menu on page 1 only (GLYPH_LOG:
@@ -574,8 +598,9 @@ void native_menu_art_unpack(M68KCtx *ctx) {
      * guest frame on the wrong continuation and eventually trips the frame
      * watchdog during menu input. */
     rt_call(ctx, ctx->image, 0x00003700u);
-    if (is_menu_art)
+    if (is_menu_art) {
         s_menu_page_base = dst; /* anchor base for the glyph-blit capture */
+    }
 }
 
 void native_menu_cursor_down(M68KCtx *ctx) {
@@ -593,16 +618,18 @@ void native_menu_cursor_down(M68KCtx *ctx) {
      * the UI just doesn't render row 3. */
     MW16(ctx->A[5] + 0x2BE2u, 0x0384);
     uint16_t cur = MR16(ctx->A[5] - 6334u);
-    if (cur != 2)
+    if (cur != 2) {
         MW16(ctx->A[5] - 6334u, cur + 1);
+    }
 }
 
 void native_menu_cursor_up(M68KCtx *ctx) {
     /* $003C88 — symmetric: decrement cursor if > 0. */
     MW16(ctx->A[5] + 0x2BE2u, 0x0384);
     uint16_t cur = MR16(ctx->A[5] - 6334u);
-    if (cur != 0)
+    if (cur != 0) {
         MW16(ctx->A[5] - 6334u, cur - 1);
+    }
 }
 
 /* ── $003C6E / $003C9A — main-menu LEFT/RIGHT: the DIFFICULTY selector ────────
@@ -628,10 +655,12 @@ void native_menu_cursor_up(M68KCtx *ctx) {
  * -$18C0(a5), so the row label/art follows automatically). */
 void native_menu_diff_left(M68KCtx *ctx) {
     MW16(ctx->A[5] + 0x2BE2u, 0x0384);
-    if (MR16(ctx->A[5] - 6334u) != 0)
+    if (MR16(ctx->A[5] - 6334u) != 0) {
         return; /* not on PLAY GAME */
-    if (MR8(0x1Fu) & 0x01u)
+    }
+    if (MR8(0x1Fu) & 0x01u) {
         return; /* lowest already   */
+    }
     uint16_t v = MR16(0x1Eu);
     MW16(0x1Eu, (uint16_t)((v >> 1) | (v << 15))); /* ror.w #1 */
 }
@@ -685,10 +714,12 @@ void native_menu_pwfield_draw(M68KCtx *ctx) {
 
 void native_menu_diff_right(M68KCtx *ctx) {
     MW16(ctx->A[5] + 0x2BE2u, 0x0384);
-    if (MR16(ctx->A[5] - 6334u) != 0)
+    if (MR16(ctx->A[5] - 6334u) != 0) {
         return; /* not on PLAY GAME */
-    if (MR8(0x1Fu) & 0x04u)
+    }
+    if (MR8(0x1Fu) & 0x04u) {
         return; /* highest already  */
+    }
     uint16_t v = MR16(0x1Eu);
     MW16(0x1Eu, (uint16_t)((v << 1) | (v >> 15))); /* rol.w #1 */
 }

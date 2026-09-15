@@ -34,7 +34,9 @@ struct Buttons {
     bool drop = false;
     bool hop = false;
 
-    bool any() const { return up || down || left || right || fire || interact || drop || hop; }
+    bool any() const {
+        return up || down || left || right || fire || interact || drop || hop;
+    }
 };
 
 class InputScript {

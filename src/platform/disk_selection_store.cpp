@@ -20,29 +20,34 @@ bool inside(const std::filesystem::path &path, const std::filesystem::path &dire
 void discard_path(const std::filesystem::path &path, std::string &error) {
     std::error_code status;
     std::filesystem::remove_all(path, status);
-    if (status)
+    if (status) {
         error += (error.empty() ? "" : "; ") + std::string{"could not clear "} + path.string();
+    }
 }
 
 } // namespace
 
 DiskSelectionStore::DiskSelectionStore(std::filesystem::path directory)
-    : directory_(std::move(directory)) {}
+    : directory_(std::move(directory)) {
+}
 
 bool DiskSelectionStore::read(Paths &paths) const {
     std::ifstream input(directory_ / kSelectionFile);
-    if (!input)
+    if (!input) {
         return false;
+    }
     Paths found;
     for (auto &path : found) {
         std::string line;
-        if (!std::getline(input, line) || line.empty())
+        if (!std::getline(input, line) || line.empty()) {
             return false;
+        }
         path = std::filesystem::path(line);
     }
     std::string extra;
-    if (std::getline(input, extra))
+    if (std::getline(input, extra)) {
         return false;
+    }
     paths = std::move(found);
     return true;
 }
@@ -104,15 +109,17 @@ std::filesystem::path DiskSelectionStore::reserve_import(std::string &error) con
         return {};
     }
     discard_import(error);
-    if (!error.empty())
+    if (!error.empty()) {
         return {};
+    }
     return import_directory();
 }
 
 std::filesystem::path DiskSelectionStore::create_import_directory(std::string &error) const {
     auto pending = reserve_import(error);
-    if (pending.empty())
+    if (pending.empty()) {
         return {};
+    }
     std::error_code status;
     std::filesystem::create_directories(pending, status);
     if (status || !std::filesystem::is_directory(pending)) {
@@ -154,11 +161,13 @@ bool DiskSelectionStore::publish_import(const Paths &prepared_paths, Paths &inst
         relative_paths[index] = prepared_paths[index].lexically_relative(prepared);
     }
     const auto target = inactive_slot(error);
-    if (!error.empty())
+    if (!error.empty()) {
         return false;
+    }
     discard_path(target, error);
-    if (!error.empty())
+    if (!error.empty()) {
         return false;
+    }
 
     std::error_code status;
     std::filesystem::rename(prepared, target, status);
@@ -167,8 +176,9 @@ bool DiskSelectionStore::publish_import(const Paths &prepared_paths, Paths &inst
         return false;
     }
     Paths candidate;
-    for (std::size_t index = 0; index < candidate.size(); ++index)
+    for (std::size_t index = 0; index < candidate.size(); ++index) {
         candidate[index] = target / relative_paths[index];
+    }
     if (!persist(candidate, error)) {
         discard_path(target, error);
         return false;

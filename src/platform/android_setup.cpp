@@ -69,16 +69,18 @@ void request_selection(SetupDeliver deliver) {
             error = "Android could not open the file picker";
         }
     }
-    if (klass != nullptr)
+    if (klass != nullptr) {
         environment->DeleteLocalRef(klass);
+    }
     environment->DeleteLocalRef(activity);
     if (!error.empty()) {
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "android", "%s", error.c_str());
         std::lock_guard lock(g_delivery_mutex);
         SetupDeliver pending = std::move(g_delivery);
         g_delivery_waiting = false;
-        if (pending)
+        if (pending) {
             pending({});
+        }
     }
 }
 
@@ -88,8 +90,9 @@ void request_selection(SetupDeliver deliver) {
 void release_staged_import() {
     JNIEnv *environment = static_cast<JNIEnv *>(SDL_GetAndroidJNIEnv());
     jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
-    if (environment == nullptr || activity == nullptr)
+    if (environment == nullptr || activity == nullptr) {
         return;
+    }
     jclass klass = environment->GetObjectClass(activity);
     jmethodID method = klass != nullptr
                            ? environment->GetMethodID(klass, "releaseBenefactorStaging", "()V")
@@ -98,16 +101,18 @@ void release_staged_import() {
         environment->CallVoidMethod(activity, method);
         environment->ExceptionClear();
     }
-    if (klass != nullptr)
+    if (klass != nullptr) {
         environment->DeleteLocalRef(klass);
+    }
     environment->DeleteLocalRef(activity);
 }
 
 } // namespace
 
 extern "C" int android_bridge_select_disks(const char **disks, size_t capacity) {
-    if (disks == nullptr || capacity < 3)
+    if (disks == nullptr || capacity < 3) {
         return 0;
+    }
     const std::string root = private_storage_root();
     if (root.empty() || lucent_platform_set_user_data_directory(root.c_str()) == 0) {
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "android",
@@ -124,8 +129,9 @@ extern "C" int android_bridge_select_disks(const char **disks, size_t capacity) 
             stable[index] = committed[index].string();
             disks[index] = stable[index].c_str();
         }
-        if (chdir(root.c_str()) != 0)
+        if (chdir(root.c_str()) != 0) {
             benefactor_log_write(BENEFACTOR_LOG_ERROR, "android", "cannot enter private storage");
+        }
         return 1;
     }
 
@@ -145,8 +151,9 @@ extern "C" int android_bridge_select_disks(const char **disks, size_t capacity) 
         stable[index] = flow.disks[index].string();
         disks[index] = stable[index].c_str();
     }
-    if (chdir(root.c_str()) != 0)
+    if (chdir(root.c_str()) != 0) {
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "android", "cannot enter private storage");
+    }
     return 1;
 }
 
@@ -162,8 +169,9 @@ Java_io_github_someoneisworking_benefactor_BenefactorActivity_nativeDiskSelectio
 extern "C" int android_bridge_enforce_window_policy(void) {
     JNIEnv *environment = static_cast<JNIEnv *>(SDL_GetAndroidJNIEnv());
     jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
-    if (environment == nullptr || activity == nullptr)
+    if (environment == nullptr || activity == nullptr) {
         return 0;
+    }
     jclass klass = environment->GetObjectClass(activity);
     jmethodID method = klass != nullptr
                            ? environment->GetMethodID(klass, "enforceBenefactorWindowPolicy", "()V")
@@ -172,8 +180,9 @@ extern "C" int android_bridge_enforce_window_policy(void) {
         environment->CallVoidMethod(activity, method);
         environment->ExceptionClear();
     }
-    if (klass != nullptr)
+    if (klass != nullptr) {
         environment->DeleteLocalRef(klass);
+    }
     environment->DeleteLocalRef(activity);
     return 1;
 }
@@ -197,8 +206,9 @@ Java_io_github_someoneisworking_benefactor_BenefactorActivity_nativeDiskSelectio
         for (jsize index = 0; index < count; ++index) {
             auto *entry =
                 static_cast<jstring>(environment->GetObjectArrayElement(document_names, index));
-            if (entry == nullptr)
+            if (entry == nullptr) {
                 continue;
+            }
             const char *value = environment->GetStringUTFChars(entry, nullptr);
             if (value != nullptr) {
                 names.emplace_back(value);
@@ -219,6 +229,7 @@ Java_io_github_someoneisworking_benefactor_BenefactorActivity_nativeDiskSelectio
     std::lock_guard lock(g_delivery_mutex);
     SetupDeliver deliver = std::move(g_delivery);
     g_delivery_waiting = false;
-    if (deliver)
+    if (deliver) {
         deliver(chosen);
+    }
 }

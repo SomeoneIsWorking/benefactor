@@ -21,19 +21,23 @@ static const unsigned kAudioBase[4] = {0x0A0u, 0x0B0u, 0x0C0u, 0x0D0u};
 static uint32_t palette_hash(void) {
     const uint32_t list = hw_get_cop1lc() & 0xFFFFFFu;
     uint32_t hash = 2166136261u;
-    if (!list || !g_mem)
+    if (!list || !g_mem) {
         return hash;
+    }
     for (uint32_t i = 0; i + 1 < COPLIST_SCAN_WORDS; i += 2) {
         const uint8_t *word = g_mem + list + i * 2u;
         const uint16_t control = (uint16_t)((word[0] << 8) | word[1]);
         const uint16_t value = (uint16_t)((word[2] << 8) | word[3]);
-        if (control == 0xFFFFu)
+        if (control == 0xFFFFu) {
             break;
-        if (control & 1u)
+        }
+        if (control & 1u) {
             continue; /* WAIT/SKIP — the colours after it still count */
+        }
         const uint16_t reg = control & 0x01FEu;
-        if (reg < 0x180u || reg > 0x1BEu)
+        if (reg < 0x180u || reg > 0x1BEu) {
             continue;
+        }
         hash ^= (uint32_t)reg;
         hash *= 16777619u;
         hash ^= (uint32_t)(value & 0x0FFFu);
@@ -64,10 +68,12 @@ void pc_note_frame_signature(void) {
     static uint32_t last_pal = 0xFFFFFFFFu, last_dma = 0xFFFFFFFFu;
     static uint32_t last_lc[4], last_per[4], last_vol[4];
     int same = (pal == last_pal) && (dma == last_dma);
-    for (unsigned c = 0; c < 4 && same; c++)
+    for (unsigned c = 0; c < 4 && same; c++) {
         same = (lc[c] == last_lc[c]) && (per[c] == last_per[c]) && (vol[c] == last_vol[c]);
-    if (same)
+    }
+    if (same) {
         return;
+    }
     last_pal = pal;
     last_dma = dma;
     for (unsigned c = 0; c < 4; c++) {

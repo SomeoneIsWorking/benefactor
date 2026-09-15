@@ -22,13 +22,24 @@ SOURCE_SUFFIXES = {
 DEFAULT_SOURCE_LINE_LIMIT = 1200
 LEGACY_SOURCE_LINE_LIMITS = {
     # These frozen counts use the repository's tracked clang-format style so
-    # formatting cannot masquerade as structural growth or reduction.
-    "src/engine/hw.c": 2562,
-    "src/harness/harness_main.c": 2665,
-    "src/port/game_loop.c": 1000,
-    "src/port/overrides/gameplay.c": 1360,
-    "src/render/native_renderer.c": 1699,
-    "src/render/present_vulkan.c": 1766,
+    # formatting cannot masquerade as structural growth or reduction. Adopting
+    # the shared brace policy moved every count by the braces the formatter
+    # wrote, so each limit was re-expressed in the new style by the same number
+    # of lines its file gained: the headroom each file had is exactly the
+    # headroom it has, and no file was given room it did not already own.
+    "src/engine/hw.c": 2733,
+    "src/harness/harness_main.c": 2813,
+    "src/port/game_loop.c": 1058,
+    "src/port/overrides/gameplay.c": 1410,
+    # The braces pushed this one past the 1200-line default. It is recorded
+    # here at the headroom it already had rather than left to fail on a change
+    # that added no code, and it is the one entry in this table that should not
+    # be re-expressed again: its menu state, its input routing, and its drawing
+    # are three responsibilities in one file, and the way it comes back under
+    # the default is by being split.
+    "src/port/pause_menu.c": 1269,
+    "src/render/native_renderer.c": 1876,
+    "src/render/present_vulkan.c": 1892,
 }
 RETIRED_PATHS = (
     "tools/recomp",

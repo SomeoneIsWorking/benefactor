@@ -29,8 +29,9 @@ int disk_boot_open(const char *const *paths, int n) {
         s_disk_sz[i] = 0;
     }
     for (int i = 0; i < n && i < MAX_DISKS; i++) {
-        if (!paths[i])
+        if (!paths[i]) {
             continue;
+        }
         s_disk[i] = fopen(paths[i], "rb");
         if (!s_disk[i]) {
             benefactor_log_write(BENEFACTOR_LOG_ERROR, "disk", "cannot open %s", paths[i]);
@@ -47,26 +48,31 @@ int disk_boot_open(const char *const *paths, int n) {
 }
 
 void disk_boot_close(void) {
-    for (int i = 0; i < MAX_DISKS; i++)
+    for (int i = 0; i < MAX_DISKS; i++) {
         if (s_disk[i]) {
             fclose(s_disk[i]);
             s_disk[i] = NULL;
             s_disk_sz[i] = 0;
         }
+    }
 }
 
 /* Copy `length` raw bytes from disk image `disk_no` (1-based) at byte offset
  * `src_off` into chip RAM at `dst_addr`. Returns bytes copied, or -1 on error. */
 int disk_boot_load(int disk_no, uint32_t src_off, uint32_t dst_addr, uint32_t length) {
     int idx = disk_no - 1;
-    if (idx < 0 || idx >= MAX_DISKS || !s_disk[idx])
+    if (idx < 0 || idx >= MAX_DISKS || !s_disk[idx]) {
         return -1;
-    if (src_off >= s_disk_sz[idx])
+    }
+    if (src_off >= s_disk_sz[idx]) {
         return 0;
-    if (src_off + length > s_disk_sz[idx])
+    }
+    if (src_off + length > s_disk_sz[idx]) {
         length = s_disk_sz[idx] - src_off;
-    if (dst_addr + length > RT_MEM_SIZE)
+    }
+    if (dst_addr + length > RT_MEM_SIZE) {
         return -1;
+    }
     fseek(s_disk[idx], (long)src_off, SEEK_SET);
     size_t got = fread(g_mem + dst_addr, 1, length, s_disk[idx]);
     return (int)got;
@@ -120,8 +126,9 @@ static int atn_getbit(AtnBits *b) {
  * below), so the algorithm is magic-agnostic. */
 uint32_t atn_decrunch(uint32_t start) {
     uint32_t magic = r32(start);
-    if (magic != 0x41544E21u && magic != 0x494D5021u)
+    if (magic != 0x41544E21u && magic != 0x494D5021u) {
         return 0; /* ATN! / IMP! */
+    }
     uint32_t out_len = r32(start + 4);
     uint32_t a4 = start + out_len;        /* output end (write -(a4)) */
     uint32_t a3 = start + r32(start + 8); /* input end (read -(a3))  */
@@ -141,8 +148,9 @@ uint32_t atn_decrunch(uint32_t start) {
     a2 += 4; /* initial literal run     */
     uint16_t d3 = (uint16_t)((g_mem[a2] << 8) | g_mem[a2 + 1]);
     a2 += 2;
-    if (!(d3 & 0x8000))
+    if (!(d3 & 0x8000)) {
         a3 -= 1;
+    }
     uint8_t tbl[28];
     memcpy(tbl, g_mem + a2, 28);
     a2 += 28;
@@ -153,8 +161,9 @@ uint32_t atn_decrunch(uint32_t start) {
             g_mem[--a4] = g_mem[--b.a3];
             d2--;
         }
-        if (!(a5 < a4))
+        if (!(a5 < a4)) {
             break;
+        }
         int d4, d0;
         if (atn_getbit(&b) == 0) {
             d4 = 2;
@@ -173,8 +182,9 @@ uint32_t atn_decrunch(uint32_t start) {
             d0 = 3;
         } else {
             int v = 0;
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 3; i++) {
                 v = ((v << 1) | atn_getbit(&b)) & 0xFF;
+            }
             d4 = (v + 6) & 0xFF;
             d0 = 3;
         }
@@ -190,8 +200,9 @@ uint32_t atn_decrunch(uint32_t start) {
         }
         int nb = ATN_T73C[d0];
         d2 = 0;
-        for (int i = 0; i < nb; i++)
+        for (int i = 0; i < nb; i++) {
             d2 = ((d2 << 1) | atn_getbit(&b)) & 0xFFFF;
+        }
         d2 += d5;
         /* match offset */
         uint32_t a2base = 0;
@@ -208,11 +219,13 @@ uint32_t atn_decrunch(uint32_t start) {
         }
         nb = tbl[0x10 + d0];
         uint32_t off = 0;
-        for (int i = 0; i < nb; i++)
+        for (int i = 0; i < nb; i++) {
             off = ((off << 1) | atn_getbit(&b));
+        }
         uint32_t src = a4 + a2base + off + 1;
-        for (int i = 0; i < d4; i++)
+        for (int i = 0; i < d4; i++) {
             g_mem[--a4] = g_mem[--src];
+        }
     }
     return out_len;
 }

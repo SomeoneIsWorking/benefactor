@@ -2,7 +2,6 @@
 # and the public C headers consistently use the supported pragma form. Their
 # corresponding heuristics are excluded while the substantive groups remain.
 Checks: >
-  -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   clang-analyzer-*,
@@ -11,6 +10,7 @@ Checks: >
   portability-*,
   -portability-avoid-pragma-once,
   readability-avoid-const-params-in-decls,
+  readability-braces-around-statements,
   readability-container-size-empty,
   readability-duplicate-include,
   readability-inconsistent-declaration-parameter-name,
@@ -26,6 +26,9 @@ Checks: >
 WarningsAsErrors: '*'
 HeaderFilterRegex: '^(.*/)?src/'
 CheckOptions:
+  # Braces on every body, with no length below which one may be left off: the
+  # formatter inserts them, and this is what refuses a file it never saw.
+  readability-braces-around-statements.ShortStatementLines: 0
   # A shift distance is written as a plain `8`, which is an `int`. clang-tidy 20
   # and later count that as a signed operand, so every `>> 8` in hardware-word
   # code reads as a finding. The check still reports signed values, which is

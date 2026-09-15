@@ -33,18 +33,21 @@ std::string validate_staged_disks(DiskSelectionStore *store,
         bool matched = false;
         for (std::size_t disk = 0; disk < kDiskCount; ++disk) {
             if (name == kDiskNames[disk]) {
-                if (!found[disk].empty())
+                if (!found[disk].empty()) {
                     return "Each disk image must be provided exactly once";
+                }
                 found[disk] = file.path;
                 matched = true;
                 break;
             }
         }
-        if (matched)
+        if (matched) {
             continue;
+        }
         if (file.is_archive) {
-            if (have_zip)
+            if (have_zip) {
                 return "Provide one archive, not two";
+            }
             have_zip = true;
             archive = file.path;
             continue;
@@ -53,13 +56,15 @@ std::string validate_staged_disks(DiskSelectionStore *store,
     }
 
     if (have_zip) {
-        if (files.size() != 1)
+        if (files.size() != 1) {
             return "Provide either one ZIP or the three disk images, not both";
+        }
         std::string prepare_error;
         const auto pending = store->reserve_import(prepare_error);
-        if (pending.empty())
+        if (pending.empty()) {
             return prepare_error.empty() ? "The disk import area could not be prepared"
                                          : prepare_error;
+        }
         std::vector<std::filesystem::path> extracted;
         std::string failure;
         const lucent::zip::ExtractionLimits limits{.max_archive_bytes = 32ULL * 1024u * 1024u,
@@ -73,8 +78,9 @@ std::string validate_staged_disks(DiskSelectionStore *store,
         for (const auto &path : extracted) {
             const std::string name = path.filename().string();
             for (std::size_t disk = 0; disk < kDiskCount; ++disk) {
-                if (name != kDiskNames[disk])
+                if (name != kDiskNames[disk]) {
                     continue;
+                }
                 if (!found[disk].empty()) {
                     store->discard_import(failure);
                     return "The archive contains more than one " + name;
@@ -84,17 +90,20 @@ std::string validate_staged_disks(DiskSelectionStore *store,
         }
     }
 
-    if (std::any_of(found.begin(), found.end(),
-                    [](const std::filesystem::path &path) { return path.empty(); })) {
+    if (std::any_of(found.begin(), found.end(), [](const std::filesystem::path &path) {
+            return path.empty();
+        })) {
         std::string failure = "All three images are required: Disk.1, Disk.2, and Disk.3";
-        if (have_zip)
+        if (have_zip) {
             store->discard_import(failure);
+        }
         return failure;
     }
     std::string failure;
     if (!validate_set(found, failure)) {
-        if (have_zip)
+        if (have_zip) {
             store->discard_import(failure);
+        }
         return failure;
     }
     if (!have_zip) {
@@ -102,8 +111,9 @@ std::string validate_staged_disks(DiskSelectionStore *store,
         // them into the store's own import directory before publication: the
         // promotion contract accepts only paths it owns.
         const auto pending = store->create_import_directory(failure);
-        if (pending.empty())
+        if (pending.empty()) {
             return failure;
+        }
         DiskSelectionStore::Paths relocated;
         for (std::size_t index = 0; index < found.size(); ++index) {
             const auto target = pending / kDiskNames[index];
@@ -122,8 +132,9 @@ std::string validate_staged_disks(DiskSelectionStore *store,
 
     DiskSelectionStore::Paths installed;
     std::string publish_error;
-    if (!store->publish_import(found, installed, publish_error))
+    if (!store->publish_import(found, installed, publish_error)) {
         return publish_error;
+    }
     return {};
 }
 

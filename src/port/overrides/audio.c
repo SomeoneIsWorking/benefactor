@@ -52,10 +52,11 @@ void native_sfx_trigger(M68KCtx *ctx) {
                          g_native_sfx_trigger_hits, (unsigned)src, (unsigned)MR16(src + 0x10),
                          (unsigned)MR16(src + 6));
 
-    MW16(0x586610u, 0);          /* reset ping-pong buffer selector   */
-    MW32(0x57fe78u, MR32(src));  /* stable base sample ptr            */
-    for (int i = 0; i < 20; i++) /* copy the 5-long descriptor        */
+    MW16(0x586610u, 0);            /* reset ping-pong buffer selector   */
+    MW32(0x57fe78u, MR32(src));    /* stable base sample ptr            */
+    for (int i = 0; i < 20; i++) { /* copy the 5-long descriptor        */
         MW8(cur + i, MR8(src + i));
+    }
     MW8(0x57fe4e, 0xFFu);     /* ch0 pending                       */
     MW16(0xdff096u, 0x0001u); /* DMACON: clear ch0 DMA (restart)   */
 

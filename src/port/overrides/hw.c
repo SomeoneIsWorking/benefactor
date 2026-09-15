@@ -11,7 +11,9 @@
  * Original M68K: tight loop polling bit 6 of DMACONR ($DFF002) until clear.
  * Synchronous blitter never sets BBUSY, so this is always a no-op.
  * ───────────────────────────────────────────────────────────────────────────── */
-void native_hw_wait(M68KCtx *ctx) { (void)ctx; }
+void native_hw_wait(M68KCtx *ctx) {
+    (void)ctx;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * $0031A0 — wait for blitter done + initialise blitter state for frame

@@ -72,7 +72,9 @@ static int is_air_state(uint32_t a) {
 }
 
 /* 8.8 fixed-point tunables (cfg-overridable for feel iteration). */
-static int t_gravity(void) { return pc_cfg_int("pf_gravity", 60); } /* px/f^2 *256 */
+static int t_gravity(void) {
+    return pc_cfg_int("pf_gravity", 60);
+} /* px/f^2 *256 */
 static int t_jump_vy(void) {
     return pc_cfg_int("pf_jump_vy", -768);
 } /* initial vy.
@@ -92,7 +94,9 @@ Super Metroid-style: on a NEUTRAL stick the air
 velocity decays toward 0 (here ~3 frames from cap)
 instead of persisting, so X motion tracks the stick
 almost directly. 0 = old pure-momentum behaviour. */
-static int t_vx_max(void) { return pc_cfg_int("pf_vx_max", 512); } /* px/f *256   */
+static int t_vx_max(void) {
+    return pc_cfg_int("pf_vx_max", 512);
+} /* px/f *256   */
 
 /* SUPER-SHOES boost: the vanilla long jump reads its per-frame X step from
  * table $2ad0(a5), but with the SHOES in the carry slot it uses the faster
@@ -111,12 +115,15 @@ static int pf_vx_cap(M68KCtx *ctx) {
             sn += (int16_t)MR16(ctx->A[5] + 0x2AD0u + 2u * i);
             sc += (int16_t)MR16(ctx->A[5] + 0x2B3Cu + 2u * i);
         }
-        if (sn > 0 && sc > sn)
+        if (sn > 0 && sc > sn) {
             cap = cap * sc / sn;
+        }
     }
     return cap;
 }
-static int t_vy_max(void) { return pc_cfg_int("pf_fall_max", 1024); } /* terminal vy */
+static int t_vy_max(void) {
+    return pc_cfg_int("pf_fall_max", 1024);
+} /* terminal vy */
 
 static int s_vx, s_vy; /* 8.8 px/frame */
 static int s_steer;    /* 8.8 air-control velocity ON TOP of a tracked arc */
@@ -132,11 +139,15 @@ static int s_fire_jump;                  /* jump initiated by vanilla fire+dir: 
 static int s_jump_prev;                  /* JUMP edge latch */
 static int s_x_expect, s_x_expect_valid; /* wall feedback (see wall_feedback) */
 
-int pc_platformer_on(void) { return pc_cfg_bool("platformer_physics", 0); }
+int pc_platformer_on(void) {
+    return pc_cfg_bool("platformer_physics", 0);
+}
 
 /* Never engage during DEMO playback/record ($1e.w==8): the RLE input stream
  * cannot represent JUMP and the recorded inputs assume vanilla physics. */
-static int pf_active(M68KCtx *ctx) { return pc_platformer_on() && MR16(0x1Eu) != 8; }
+static int pf_active(M68KCtx *ctx) {
+    return pc_platformer_on() && MR16(0x1Eu) != 8;
+}
 
 /* JUMP inputs, SCHEME-INDEPENDENT (user, 2026-06-13: there is no dedicated
  * jump key; "jump" = fire+direction, the vanilla long jump, on EVERY device;
@@ -144,12 +155,15 @@ static int pf_active(M68KCtx *ctx) { return pc_platformer_on() && MR16(0x1Eu) !=
  * on modern and vanilla alike — the earlier per-device gating (which existed
  * to keep modern UP jump-free for the dedicated button) is obsolete. The
  * optional bind_hop/pad_hop binding still ORs in for JSON power users. */
-static int jump_input(void) { return hw_get_hop() || hw_joy_up(); }
+static int jump_input(void) {
+    return hw_get_hop() || hw_joy_up();
+}
 
 /* The jump trigger's own tile probe ($57E458..$57E484). */
 static int tile_solid(M68KCtx *ctx, int x, int y) {
-    if (x < 0 || y < 0)
+    if (x < 0 || y < 0) {
         return 1;
+    }
     uint32_t a0 = 0x5A8C7Eu + (uint32_t)((x >> 4) << 1) +
                   (uint32_t)(int16_t)MR16(0x5A211Au + (uint32_t)((y >> 4) << 1));
     return MR16(a0) != 0;
@@ -158,8 +172,9 @@ static int tile_solid(M68KCtx *ctx, int x, int y) {
 /* Vanilla's own "can I jump on this tile?" gate ($57E50A..$57E51C): tile attr
  * record at $46cc(a5)[code], bit4 of the byte at +4 set = no jump here. */
 static int tile_nojump(M68KCtx *ctx, int x, int y) {
-    if (x < 0 || y < 0)
+    if (x < 0 || y < 0) {
         return 1;
+    }
     int16_t code = (int16_t)MR16(0x5A8C7Eu + (uint32_t)((x >> 4) << 1) +
                                  (uint32_t)(int16_t)MR16(0x5A211Au + (uint32_t)((y >> 4) << 1)));
     uint32_t rec = MR32(ctx->A[5] + 0x46CCu + (uint32_t)(int32_t)code);
@@ -198,12 +213,13 @@ static void flight_start(M68KCtx *ctx, int keep_vx) {
         /* Ground velocity isn't tracked yet (Stage 4): a held direction means
          * "running jump" — full cap, momentum-equivalent. */
         int cap = pf_vx_cap(ctx);
-        if (hw_joy_right())
+        if (hw_joy_right()) {
             s_vx = cap;
-        else if (hw_joy_left())
+        } else if (hw_joy_left()) {
             s_vx = -cap;
-        else
+        } else {
             s_vx = 0;
+        }
     }
     s_roll = (s_vx != 0);
     s_air_frames = 0;
@@ -212,8 +228,9 @@ static void flight_start(M68KCtx *ctx, int keep_vx) {
 }
 
 static void phys_jump_cut(void) {
-    if (s_cut_done || s_vy >= 0)
+    if (s_cut_done || s_vy >= 0) {
         return;
+    }
     if (!(s_fire_jump ? hw_get_fire() : jump_input())) {
         if (s_air_frames <= 4) { /* TAP: a genuinely small hop — cut the
                                   * rise hard AND shed horizontal speed,
@@ -245,23 +262,26 @@ static void phys_jump_cut(void) {
  * caller detects the pass's clamp (actual X != the X we emitted last frame)
  * and zeroes vx then. */
 static int air_vel_step(int v, int cap) {
-    if (hw_joy_right())
+    if (hw_joy_right()) {
         v += t_air_acc();
-    else if (hw_joy_left())
+    } else if (hw_joy_left()) {
         v -= t_air_acc();
-    else {
+    } else {
         int drag = t_air_drag();
-        if (v > drag)
+        if (v > drag) {
             v -= drag;
-        else if (v < -drag)
+        } else if (v < -drag) {
             v += drag;
-        else
+        } else {
             v = 0;
+        }
     }
-    if (v > cap)
+    if (v > cap) {
         v = cap;
-    if (v < -cap)
+    }
+    if (v < -cap) {
         v = -cap;
+    }
     return v;
 }
 
@@ -299,13 +319,16 @@ static void flight_anim(M68KCtx *ctx) {
             s_d5 = 0;
             cell = (int16_t)MR16(tab);
         } /* loop the roll */
-        else
+        else {
             cell = 0; /* hold last pose */
+        }
     }
-    if (cell != 0)
+    if (cell != 0) {
         ctx->D[3] = (ctx->D[3] & 0xFFFF0000u) | (uint16_t)cell;
-    if (s_roll || s_d5 < 0x14)
+    }
+    if (s_roll || s_d5 < 0x14) {
         s_d5 += 2;
+    }
     ctx->D[5] = (ctx->D[5] & 0xFFFF0000u) | (uint16_t)s_d5;
 }
 
@@ -367,16 +390,18 @@ static void flight_fall(M68KCtx *ctx) {
     /* $f6e fall-time meter, +2/frame — the landing state's fall-damage input.
      * Past ramp index 6 vanilla clears the anim cell ($579F50). */
     uint16_t f6e = MR16(ctx->A[5] + 0xF6Eu);
-    if (s_roll && s_fly)
+    if (s_roll && s_fly) {
         flight_anim(ctx); /* roll through the descent */
-    else if ((uint16_t)(f6e + 2) >= 6)
+    } else if ((uint16_t)(f6e + 2) >= 6) {
         ctx->D[3] = (ctx->D[3] & 0xFFFF0000u); /* vanilla fall anim clear */
+    }
     MW16(ctx->A[5] + 0xF6Eu, (uint16_t)(f6e + 2));
 
     /* Vertical: vy integration replaces the $3b2e ramp. */
     s_vy += t_gravity();
-    if (s_vy > t_vy_max())
+    if (s_vy > t_vy_max()) {
         s_vy = t_vy_max();
+    }
     s_y_acc += s_vy;
     int dy = s_y_acc >> 8;
     s_y_acc -= dy << 8;
@@ -482,12 +507,13 @@ void native_pf_fall(M68KCtx *ctx) {
         /* No ground-velocity tracking yet (Stage 4): a held direction carries
          * the walk into the fall. */
         int cap = pf_vx_cap(ctx);
-        if (hw_joy_right())
+        if (hw_joy_right()) {
             s_vx = cap;
-        else if (hw_joy_left())
+        } else if (hw_joy_left()) {
             s_vx = -cap;
-        else
+        } else {
             s_vx = 0;
+        }
     }
     flight_fall(ctx);
 }
@@ -534,11 +560,13 @@ static void air_track(M68KCtx *ctx, uint32_t original_address) {
             sdx = 0;
         }
     }
-    if (sdx)
+    if (sdx) {
         ctx->D[1] = (ctx->D[1] & 0xFFFF0000u) | (uint16_t)(int16_t)(x_in + dxv + sdx);
+    }
 
-    if (dxv || sdx)
+    if (dxv || sdx) {
         s_vx = (dxv << 8) + s_steer; /* combined momentum for fall */
+    }
 
     /* The arc's own hand-off to fall is kept; when it fires, mark the model
      * live so the fall entry preserves the tracked momentum. */
@@ -549,8 +577,12 @@ static void air_track(M68KCtx *ctx, uint32_t original_address) {
     (void)state_in;
 }
 
-void native_pf_arc(M68KCtx *ctx) { air_track(ctx, 0x00579D52u); }
-void native_pf_longjump(M68KCtx *ctx) { air_track(ctx, 0x00579DDCu); }
+void native_pf_arc(M68KCtx *ctx) {
+    air_track(ctx, 0x00579D52u);
+}
+void native_pf_longjump(M68KCtx *ctx) {
+    air_track(ctx, 0x00579DDCu);
+}
 
 /* ── FALL DAMAGE scaling ("fall_damage": vanilla | light | none) ──────────────
  * Vanilla applies fall damage in exactly two places, both wrapped here: the
@@ -563,19 +595,23 @@ void native_pf_longjump(M68KCtx *ctx) { air_track(ctx, 0x00579DDCu); }
 static int fall_dmg_mode(void) /* 0 = vanilla, 1 = light, 2 = none */
 {
     char buf[16];
-    if (!pc_cfg_show("fall_damage", buf, sizeof buf, NULL) || !buf[0])
+    if (!pc_cfg_show("fall_damage", buf, sizeof buf, NULL) || !buf[0]) {
         return 0;
-    if (!strcasecmp(buf, "light"))
+    }
+    if (!strcasecmp(buf, "light")) {
         return 1;
-    if (!strcasecmp(buf, "none"))
+    }
+    if (!strcasecmp(buf, "none")) {
         return 2;
+    }
     return 0;
 }
 
 static void fall_dmg_scale(M68KCtx *ctx, int mode, uint16_t energy_before) {
     int dmg = (int16_t)(energy_before - (uint16_t)MR16(0x1Cu));
-    if (dmg <= 0)
+    if (dmg <= 0) {
         return; /* no damage (or a refill) */
+    }
     int keep = (mode == 1) ? (dmg + 1) / 2 : 0;
     MW16(0x1Cu, (uint16_t)(energy_before - keep));
 }
@@ -584,8 +620,9 @@ void native_pf_landing_impact(M68KCtx *ctx) {
     int mode = fall_dmg_mode();
     uint16_t before = MR16(0x1Cu);
     rt_call(ctx, ctx->image, 0x00579F86u);
-    if (mode)
+    if (mode) {
         fall_dmg_scale(ctx, mode, before);
+    }
 }
 
 /* ── JUMP trigger: wraps the per-frame terrain pass $57A934 ───────────────── */
@@ -593,8 +630,9 @@ void native_pf_collision(M68KCtx *ctx) {
     int dmg_mode = fall_dmg_mode();
     uint16_t energy_before = MR16(0x1Cu);
     rt_call(ctx, ctx->image, 0x0057A934u);
-    if (dmg_mode)
+    if (dmg_mode) {
         fall_dmg_scale(ctx, dmg_mode, energy_before);
+    }
 
     int j = jump_input();
     int edge = j && !s_jump_prev;
@@ -603,8 +641,9 @@ void native_pf_collision(M68KCtx *ctx) {
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "override", "[pf] trig j=%d edge=%d st=%08X\n", j,
                          edge, MR32(ctx->A[5] + 0xF70u));
 
-    if (!pf_active(ctx))
+    if (!pf_active(ctx)) {
         return;
+    }
 
     uint32_t st = MR32(ctx->A[5] + 0xF70u);
     if (!is_air_state(st)) {
@@ -615,16 +654,20 @@ void native_pf_collision(M68KCtx *ctx) {
      * direction goes through the engine's OWN committer instead, with its
      * ladder/door checks; every grounded entry of $579D84 becomes a native
      * takeoff in native_pf_hop — no suppression, no takeoff mark). */
-    if (!edge || !hw_get_hop())
+    if (!edge || !hw_get_hop()) {
         return;
-    if (st != 0)
+    }
+    if (st != 0) {
         return;
-    if (MR16(ctx->A[5] + 0xF82u) == 0x14)
+    }
+    if (MR16(ctx->A[5] + 0xF82u) == 0x14) {
         return; /* vanilla's own gate */
+    }
     int x = (int16_t)MR16(ctx->A[5] + 0x10A6u);
     int y = (int16_t)MR16(ctx->A[5] + 0x10A8u);
-    if (tile_nojump(ctx, x, y))
+    if (tile_nojump(ctx, x, y)) {
         return; /* no-jump tile (water etc.) */
+    }
 
     MW32(ctx->A[5] + 0xF70u, ST_HOP);
 }

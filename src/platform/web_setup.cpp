@@ -103,7 +103,9 @@ void web_frame() {
  * told where to write, and never names that path back: the import directory is
  * this product's own, and a page-supplied path would be a boundary the title
  * does not need to open. */
-extern "C" EMSCRIPTEN_KEEPALIVE void benefactor_web_pick_begin() { g_pick_names.clear(); }
+extern "C" EMSCRIPTEN_KEEPALIVE void benefactor_web_pick_begin() {
+    g_pick_names.clear();
+}
 
 extern "C" EMSCRIPTEN_KEEPALIVE void benefactor_web_pick_add(const char *name) {
     if (name != nullptr) {

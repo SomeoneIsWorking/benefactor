@@ -7,7 +7,9 @@
 static TraceEntry s_buf[TRACE_MAX_ENTRIES];
 static volatile uint32_t s_head = 0; /* monotonically increasing index */
 
-void trace_reset(void) { s_head = 0; }
+void trace_reset(void) {
+    s_head = 0;
+}
 
 void trace_write(int side, uint32_t addr, uint32_t old_val, uint32_t new_val, uint8_t size,
                  uint32_t pc, uint8_t is_blitter) {
@@ -25,12 +27,15 @@ void trace_write(int side, uint32_t addr, uint32_t old_val, uint32_t new_val, ui
     s_head++;
 }
 
-int trace_count(void) { return (s_head > TRACE_MAX_ENTRIES) ? TRACE_MAX_ENTRIES : (int)s_head; }
+int trace_count(void) {
+    return (s_head > TRACE_MAX_ENTRIES) ? TRACE_MAX_ENTRIES : (int)s_head;
+}
 
 static uint32_t _idx(uint32_t i) {
     /* If we've wrapped, return the wrapped index; otherwise return as-is */
-    if (s_head > TRACE_MAX_ENTRIES)
+    if (s_head > TRACE_MAX_ENTRIES) {
         return i % TRACE_MAX_ENTRIES;
+    }
     return i;
 }
 
@@ -54,8 +59,9 @@ void trace_dump_range(FILE *fp, uint32_t addr_start, uint32_t addr_end, int max_
                 e->size * 2, e->old_val, e->size * 2, e->new_val, e->pc, e->size);
         printed++;
     }
-    if (printed == 0)
+    if (printed == 0) {
         fprintf(fp, "  (no trace entries for range $%06X-$%06X)\n", addr_start, addr_end);
+    }
 }
 
 void trace_dump_side_by_side(FILE *fp, uint32_t addr, int max_entries) {
@@ -72,17 +78,20 @@ void trace_dump_side_by_side(FILE *fp, uint32_t addr, int max_entries) {
 
     for (uint32_t i = 0; i < count && (puae_n < 64 || pc_n < 64); i++) {
         const TraceEntry *e = &s_buf[_idx(i)];
-        if (e->addr != addr)
+        if (e->addr != addr) {
             continue;
-        if (e->side == TRACE_SIDE_PUAE && puae_n < 64)
+        }
+        if (e->side == TRACE_SIDE_PUAE && puae_n < 64) {
             puae_ent[puae_n++] = *e;
-        else if (e->side == TRACE_SIDE_PC && pc_n < 64)
+        } else if (e->side == TRACE_SIDE_PC && pc_n < 64) {
             pc_ent[pc_n++] = *e;
+        }
     }
 
     int limit = (puae_n < pc_n) ? puae_n : pc_n;
-    if (limit > max_entries)
+    if (limit > max_entries) {
         limit = max_entries;
+    }
 
     fprintf(fp, "\n  Side-by-side write trace for $%06X (first %d matched pairs):\n", addr, limit);
     fprintf(fp, "  %-50s | %-50s\n", "PUAE", "PC");
@@ -102,10 +111,13 @@ void trace_dump_side_by_side(FILE *fp, uint32_t addr, int max_entries) {
         fprintf(fp, "  %-50s | %-50s\n", pl, cl);
     }
 
-    if (puae_n > limit)
+    if (puae_n > limit) {
         fprintf(fp, "  ... (%d more PUAE entries)\n", puae_n - limit);
-    if (pc_n > limit)
+    }
+    if (pc_n > limit) {
         fprintf(fp, "  ... (%d more PC entries)\n", pc_n - limit);
-    if (limit == 0)
+    }
+    if (limit == 0) {
         fprintf(fp, "  (no matching trace entries for $%06X)\n", addr);
+    }
 }

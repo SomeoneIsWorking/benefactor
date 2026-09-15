@@ -43,8 +43,9 @@ bool validate_disk(const std::filesystem::path &path, std::size_t index, std::st
 
 bool validate_set(const std::array<std::filesystem::path, 3> &paths, std::string &error) {
     for (std::size_t index = 0; index < paths.size(); ++index) {
-        if (!validate_disk(paths[index], index, error))
+        if (!validate_disk(paths[index], index, error)) {
             return false;
+        }
     }
     return true;
 }

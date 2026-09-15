@@ -25,9 +25,12 @@ constexpr std::uint64_t kRebaseEvery = 50ULL * 60ULL * 60ULL;
 
 } // namespace
 
-FramePacer::FramePacer(PacerHost &host) noexcept : host_(host) {}
+FramePacer::FramePacer(PacerHost &host) noexcept : host_(host) {
+}
 
-Nanoseconds FramePacer::target_period() const noexcept { return offset_of(1, percent_); }
+Nanoseconds FramePacer::target_period() const noexcept {
+    return offset_of(1, percent_);
+}
 
 Nanoseconds FramePacer::deadline_for(std::uint64_t frame) const noexcept {
     return epoch_ + offset_of(frame, percent_);
@@ -42,12 +45,14 @@ void FramePacer::set_speed_percent(unsigned percent) noexcept {
     /* 0% is not a speed, and the caller asking for it means a configuration
      * value got here unvalidated. Refusing it here keeps the divide safe. */
     const unsigned wanted = std::max(1U, percent);
-    if (wanted == percent_)
+    if (wanted == percent_) {
         return;
+    }
     /* Rebase onto the deadline that is currently due, so the frame spanning the
      * change is one frame of the old speed and not a short or long one. */
-    if (started_)
+    if (started_) {
         rebase(deadline_for(frames_));
+    }
     percent_ = wanted;
 }
 
@@ -63,8 +68,9 @@ void FramePacer::record(Nanoseconds period) noexcept {
     longest_ = std::max(longest_, period);
     const Nanoseconds target = target_period();
     const Nanoseconds off = (period > target) ? period - target : target - period;
-    if (off <= kOnTarget)
+    if (off <= kOnTarget) {
         on_target_++;
+    }
 }
 
 Nanoseconds FramePacer::wait() noexcept {
@@ -97,16 +103,18 @@ Nanoseconds FramePacer::wait() noexcept {
         return period;
     }
 
-    if (now < deadline)
+    if (now < deadline) {
         host_.sleep_for(deadline - now);
+    }
 
     const Nanoseconds woke = host_.now();
     const Nanoseconds period = woke - last_woke_;
     last_woke_ = woke;
     record(period);
 
-    if (frames_ >= kRebaseEvery)
+    if (frames_ >= kRebaseEvery) {
         rebase(deadline);
+    }
 
     return period;
 }

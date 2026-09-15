@@ -10,7 +10,9 @@
 
 // The policy reads the build's own version; this test is not linked with the
 // product's version.c, so it states the version it is testing against.
-extern "C" const char *pc_version(void) { return "0.3.0"; }
+extern "C" const char *pc_version(void) {
+    return "0.3.0";
+}
 
 namespace {
 
@@ -83,7 +85,9 @@ void test_failures_never_claim_current() {
 void test_result_from_another_thread() {
     pc_update_reset();
     pc_update_begin_checking();
-    std::thread reporter([] { pc_update_report("v1.0.0", nullptr); });
+    std::thread reporter([] {
+        pc_update_report("v1.0.0", nullptr);
+    });
     reporter.join();
     // Nothing is visible until the main thread adopts it.
     check(pc_update_state() == PC_UPDATE_CHECKING, "a report is not visible before its tick");

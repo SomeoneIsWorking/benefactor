@@ -15,7 +15,9 @@
 #define MEM_SIZE 0x200u
 static uint8_t memory[MEM_SIZE];
 
-static void put(uint32_t at, const char *bytes, uint32_t n) { memcpy(memory + at, bytes, n); }
+static void put(uint32_t at, const char *bytes, uint32_t n) {
+    memcpy(memory + at, bytes, n);
+}
 
 /* btst #0,$5(a6) — VPOSR bit 8, the beam past line 256 */
 #define BTST_V8 "\x08\x2E\x00\x00\x00\x03"

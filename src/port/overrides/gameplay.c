@@ -173,12 +173,14 @@ void native_gameplay_input(M68KCtx *ctx) {
      * long jump, not a lift/let-go ($f80 != $20). */
     static int s_mm_intent_consumed = 0;
     int interact = hw_get_interact();
-    if (!interact)
+    if (!interact) {
         s_mm_intent_consumed = 0; /* release → rearm */
+    }
     int mm_pickup_intent = interact && !s_mm_intent_consumed && !carrying && !down &&
                            !hw_joy_left() && !hw_joy_right();
-    if (interact)
+    if (interact) {
         s_mm_intent_consumed = 1; /* one shot per press */
+    }
 
     /* And the reverse: bare MODERN fire must trigger NEITHER the lift NOR the
      * let-go. Both are "fire ALONE" pose actions — every site (the inline
@@ -213,8 +215,9 @@ void native_gameplay_input(M68KCtx *ctx) {
      * normalizes the engine's UP/diagonal commits into a native takeoff, so
      * the commit/suppress freeze can no longer occur.) */
     int up_restore = (want_up != up_dir);
-    if (up_restore)
+    if (up_restore) {
         hw_set_joy_up(want_up);
+    }
 
     /* DROP via the engine's real place (it dispatches the held-item action by player pose
      * through the $5834de table — all those targets, incl. the prone pose's, are now
@@ -270,17 +273,21 @@ void native_gameplay_input(M68KCtx *ctx) {
         hw_set_fire(sf);
         hw_set_mouse_lmb(sl);
     }
-    if (down_add)
+    if (down_add) {
         hw_set_joy_down(0);
-    if (down_strip)
+    }
+    if (down_strip) {
         hw_set_joy_down(1);
-    if (up_restore)
+    }
+    if (up_restore) {
         hw_set_joy_up(up_dir);
+    }
 
-    if (drop_intent || down)
+    if (drop_intent || down) {
         benefactor_log_write(
             BENEFACTOR_LOG_TRACE, "input", "drop f80=%04X int=%d down=%d carry=%d intent=%d",
             MR16(ctx->A[5] + 0xf80u), hw_get_interact(), down, carrying, drop_intent);
+    }
 }
 
 /* ── $57EB20 — "place carried item at tile" PROBE (BENEFACTOR_DBG_DROP=1) ──────
@@ -309,8 +316,9 @@ void native_level_setup(M68KCtx *ctx) {
     int in = rt_insn_ring_snapshot(ins, 64);
     char lead_up[512];
     int used = snprintf(lead_up, sizeof lead_up, "lead-up insns:");
-    for (int i = 0; i < in && used > 0 && used < (int)sizeof lead_up; i++)
+    for (int i = 0; i < in && used > 0 && used < (int)sizeof lead_up; i++) {
         used += snprintf(lead_up + used, sizeof lead_up - (size_t)used, " %06X", ins[i]);
+    }
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "level-setup", "%s", lead_up);
     rt_call(ctx, ctx->image, 0x005782B4u);
 }
@@ -360,19 +368,24 @@ typedef struct {
 static WsObjCommit s_wsobj_commit[WS_OBJ_MAX];
 static int s_wsobj_commit_n = 0;
 
-void native_wsobj_commit_reset(void) { s_wsobj_commit_n = 0; }
+void native_wsobj_commit_reset(void) {
+    s_wsobj_commit_n = 0;
+}
 
 static WsObj *wsobj_commit_find(uint32_t node) {
-    for (int i = 0; i < s_wsobj_commit_n; i++)
-        if (s_wsobj_commit[i].node == node)
+    for (int i = 0; i < s_wsobj_commit_n; i++) {
+        if (s_wsobj_commit[i].node == node) {
             return &s_wsobj_commit[i].obj;
+        }
+    }
     return NULL;
 }
 static void wsobj_commit_put(uint32_t node, const WsObj *o) {
     WsObj *c = wsobj_commit_find(node);
     if (!c) {
-        if (s_wsobj_commit_n >= WS_OBJ_MAX)
+        if (s_wsobj_commit_n >= WS_OBJ_MAX) {
             return;
+        }
         s_wsobj_commit[s_wsobj_commit_n].node = node;
         c = &s_wsobj_commit[s_wsobj_commit_n++].obj;
     }
@@ -381,10 +394,13 @@ static void wsobj_commit_put(uint32_t node, const WsObj *o) {
 
 /* Renderer-facing API (called from native_renderer.c). Returns the last fully
  * captured frame's object list — stable while the next frame is being built. */
-int native_wsobj_count(void) { return s_wsobj_done_n; }
+int native_wsobj_count(void) {
+    return s_wsobj_done_n;
+}
 int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint32_t *mod) {
-    if (i < 0 || i >= s_wsobj_done_n)
+    if (i < 0 || i >= s_wsobj_done_n) {
         return 0;
+    }
     const WsObj *o = &s_wsobj_done[i];
     *x = o->x;
     *y = o->y;
@@ -398,8 +414,9 @@ int native_wsobj_get(int i, int *x, int *y, int *w, int *h, uint32_t *src, uint3
 /* Raw descriptor inputs (debug): A1 handler, gfxBase=MR32(A1-$A), D5 anim offset.
  * src = gfxBase + (int16)D5. Used by the `wsobjs` REPL dump to spot a wrong D5. */
 int native_wsobj_getraw(int i, uint32_t *a1, uint32_t *gfxbase, int *d5) {
-    if (i < 0 || i >= s_wsobj_done_n)
+    if (i < 0 || i >= s_wsobj_done_n) {
         return 0;
+    }
     const WsObj *o = &s_wsobj_done[i];
     *a1 = o->a1;
     *gfxbase = o->gfxbase;
@@ -442,11 +459,14 @@ static int s_wschar_n = 0;
 static WsChar s_wschar_done[WS_CHAR_MAX];
 static int s_wschar_done_n = 0;
 
-int native_wschar_count(void) { return s_wschar_done_n; }
+int native_wschar_count(void) {
+    return s_wschar_done_n;
+}
 int native_wschar_get(int i, int *x, int *y, int *w, int *h, uint32_t *data, uint32_t *mask,
                       int *rowstride) {
-    if (i < 0 || i >= s_wschar_done_n)
+    if (i < 0 || i >= s_wschar_done_n) {
         return 0;
+    }
     const WsChar *c = &s_wschar_done[i];
     *x = c->x;
     *y = c->y;
@@ -499,10 +519,13 @@ static int s_wsbuild_n = 0;
 static WsBuild s_wsbuild_done[WS_BUILD_MAX];
 static int s_wsbuild_done_n = 0;
 
-int native_wsbuild_count(void) { return s_wsbuild_done_n; }
+int native_wsbuild_count(void) {
+    return s_wsbuild_done_n;
+}
 int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind) {
-    if (i < 0 || i >= s_wsbuild_done_n)
+    if (i < 0 || i >= s_wsbuild_done_n) {
         return 0;
+    }
     const WsBuild *b = &s_wsbuild_done[i];
     *x = b->worldX;
     *y = b->worldY;
@@ -514,8 +537,9 @@ int native_wsbuild_get(int i, int *x, int *y, int *frame, int *flags, int *blind
 
 /* Repair dust-cloud overlay of build i (see WsBuild). Returns 0 when none. */
 int native_wsbuild_cloud(int i, int *x, int *y, int *idx) {
-    if (i < 0 || i >= s_wsbuild_done_n || !s_wsbuild_done[i].cloud)
+    if (i < 0 || i >= s_wsbuild_done_n || !s_wsbuild_done[i].cloud) {
         return 0;
+    }
     const WsBuild *b = &s_wsbuild_done[i];
     *x = b->cloudX;
     *y = b->cloudY;
@@ -528,8 +552,9 @@ uint32_t native_wsbuild_handler(int i) {
 }
 
 static void wsbuild_capture(M68KCtx *ctx, int blind) {
-    if (s_wsbuild_n >= WS_BUILD_MAX)
+    if (s_wsbuild_n >= WS_BUILD_MAX) {
         return;
+    }
     /* At the build entry a0 = the pose-HANDLER SLOT inside the placement record
      * (= rec+$C; verified live: a0=$5A456E with rec0=$5A4562). The cloud-tail
      * $57B562 sees a0 rewound to the record base; here it's still the slot. */
@@ -589,8 +614,9 @@ void native_char_capture(M68KCtx *ctx) {
     uint32_t data = data1x + d5mul;
     int rowstride = w * 2 + bmod;
 
-    if (s_wschar_n < WS_CHAR_MAX && w > 0 && h > 0 && rowstride > 0)
+    if (s_wschar_n < WS_CHAR_MAX && w > 0 && h > 0 && rowstride > 0) {
         s_wschar[s_wschar_n++] = (WsChar){worldX, worldY, w, h, data, mask, rowstride};
+    }
 
     int log_cam = (int16_t)(uint16_t)MR16(0x57FDBAu);
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "widescreen-character",
@@ -617,7 +643,9 @@ typedef struct {
 #define WS_ROPE_MAX 128
 static WsRope s_wsrope[WS_ROPE_MAX];
 static int s_wsrope_n = 0;
-int native_wsrope_count(void) { return s_wsrope_n; }
+int native_wsrope_count(void) {
+    return s_wsrope_n;
+}
 void native_wsrope_get(int i, int *x0, int *y0, int *x1, int *y1) {
     const WsRope *r = &s_wsrope[i];
     *x0 = r->x0;
@@ -656,17 +684,22 @@ typedef struct {
 #define WS_WATER_MAX 128
 static WsWater s_wswater[WS_WATER_MAX];
 static int s_wswater_n = 0;
-int native_wswater_count(void) { return s_wswater_n; }
+int native_wswater_count(void) {
+    return s_wswater_n;
+}
 int native_wswater_get(int i, int *worldX, int *row, int *col, uint32_t *src) {
-    if (i < 0 || i >= s_wswater_n)
+    if (i < 0 || i >= s_wswater_n) {
         return 0;
+    }
     *worldX = s_wswater[i].worldX;
     *row = s_wswater[i].row;
     *col = s_wswater[i].col;
     *src = s_wswater[i].src;
     return 1;
 }
-void native_wswater_reset(void) { s_wswater_n = 0; }
+void native_wswater_reset(void) {
+    s_wswater_n = 0;
+}
 void native_anim_patch(M68KCtx *ctx) /* $57D81C — capture pre-cull, then delegate */
 {
     uint32_t a0 = ctx->A[0], a1 = ctx->A[1], a5 = ctx->A[5];
@@ -686,9 +719,10 @@ void native_anim_patch(M68KCtx *ctx) /* $57D81C — capture pre-cull, then deleg
 
 void native_wsrope_seg(M68KCtx *ctx) /* $57DCD4 — shared clip/emit entry, PRE-cull */
 {
-    if (s_wsrope_n < WS_ROPE_MAX)
+    if (s_wsrope_n < WS_ROPE_MAX) {
         s_wsrope[s_wsrope_n++] = (WsRope){(int16_t)ctx->D[0], (int16_t)ctx->D[1],
                                           (int16_t)ctx->D[2], (int16_t)ctx->D[3]};
+    }
     rt_continue_original(ctx, ctx->image);
 }
 
@@ -999,12 +1033,15 @@ void native_ws_promote(void) {
         if (s_banner_fresh) {
             s_banner_objwalk_at = g_diag_objwalk;
             s_banner_fresh = 0;
-        } else if (g_diag_objwalk > s_banner_objwalk_at)
+        } else if (g_diag_objwalk > s_banner_objwalk_at) {
             s_banner_active = 0; /* resumed */
-        if (--s_banner_ttl <= 0)
+        }
+        if (--s_banner_ttl <= 0) {
             s_banner_active = 0; /* safety  */
-        if (!s_banner_active)
+        }
+        if (!s_banner_active) {
             native_wsbanner_clear_children();
+        }
     }
 }
 
@@ -1045,11 +1082,11 @@ void native_objdraw_capture(M68KCtx *ctx) {
     } else {
         uint16_t d4 = (uint16_t)((uint16_t)(cam + 0x160u) >> 4);
         int16_t span = (int16_t)(uint16_t)(d4 - (uint16_t)(((uint16_t)ctx->D[0]) >> 4));
-        if (span <= 0)
+        if (span <= 0) {
             dec = CULL;
-        else if (span < (int16_t)w16)
+        } else if (span < (int16_t)w16) {
             dec = EMIT; /* right clip */
-        else {          /* in window  */
+        } else {        /* in window  */
             uint32_t sig = MR32(a4slot);
             uint16_t cnt = (uint16_t)MR16(a4slot + 4u);
             dec = (sig == ctx->D[5] && cnt == 1u) ? PERSIST : EMIT;
@@ -1107,8 +1144,9 @@ void native_objdraw_capture(M68KCtx *ctx) {
  *   promote/clear that makes the player vanish on undrawn frames — the blink.) */
 
 int native_wsplayer_get(int *x, int *y, uint32_t *dbase, uint32_t *mbase, int *black) {
-    if (!s_wsplayer_done.valid)
+    if (!s_wsplayer_done.valid) {
         return 0;
+    }
     *x = s_wsplayer_done.x;
     *y = s_wsplayer_done.y;
     *dbase = s_wsplayer_done.dbase;
@@ -1129,21 +1167,25 @@ void native_player_capture(M68KCtx *ctx) {
     uint8_t fbyte = (uint8_t)MR8(GP_A5 + 0x10ADu);
 
     uint16_t frameoff = (uint16_t)MR16(GP_A5 + 0x2286u + animidx);
-    if (fbyte & 2)
+    if (fbyte & 2) {
         frameoff = (uint16_t)(frameoff + 0x14);
+    }
 
     int xoff = (int16_t)(uint16_t)MR16(GP_A5 + 0x23E2u + animidx);
-    if (state & 2)
+    if (state & 2) {
         xoff = -xoff + 2;
+    }
     int wxleft = worldX - 8 + xoff;
 
     int d2 = worldY;
-    if (d2 > 0xD8)
+    if (d2 > 0xD8) {
         d2 = 0xD8; /* cmpi #$d8 / bcs (unsigned) clamp */
+    }
     d2 -= 8;
     d2 += (int16_t)(uint16_t)MR16(GP_A5 + 0x253Eu + animidx);
-    if (d2 < 0)
+    if (d2 < 0) {
         d2 = 0;
+    }
 
     /* Damage-invincibility BLINK ($57A666): when the player block's flag byte
      * $57FEBF ($10AD) bit7 is set (invincible), the engine draws the player NORMAL
@@ -1229,8 +1271,9 @@ void native_wsbanner_clear_children(void) {
 
 int native_wsbanner_get(int *row, int *rel, uint32_t *data, uint32_t *mask, int *pstride, int *rs,
                         int *ww, int *rows) {
-    if (!s_banner_active)
+    if (!s_banner_active) {
         return 0;
+    }
     *row = s_banner_row;
     *rel = s_banner_rel;
     *data = WS_BANNER_DATA;
@@ -1242,8 +1285,9 @@ int native_wsbanner_get(int *row, int *rel, uint32_t *data, uint32_t *mask, int 
     return 1;
 }
 int native_wstelanim_get(uint32_t *src, int *rel, int *w, int *h) {
-    if (!s_banner_active || !s_tel_active)
+    if (!s_banner_active || !s_tel_active) {
         return 0;
+    }
     *src = s_tel_src;
     *rel = s_tel_rel;
     *w = 2;
@@ -1251,15 +1295,20 @@ int native_wstelanim_get(uint32_t *src, int *rel, int *w, int *h) {
     return 1;
 }
 int native_wstext_get(uint32_t *str, int *rel) {
-    if (!s_banner_active || !s_txt_active)
+    if (!s_banner_active || !s_txt_active) {
         return 0;
+    }
     *str = s_txt_str;
     *rel = s_txt_rel;
     return 1;
 }
-int native_wsbanner_ash(void) { return s_banner_ash; }
+int native_wsbanner_ash(void) {
+    return s_banner_ash;
+}
 
-static int banner_cam_tile(M68KCtx *ctx) { return (int)(int16_t)(uint16_t)MR16(0x57FDBAu) >> 4; }
+static int banner_cam_tile(M68KCtx *ctx) {
+    return (int)(int16_t)(uint16_t)MR16(0x57FDBAu) >> 4;
+}
 
 void native_banner_capture(M68KCtx *ctx) /* $578974 — box */
 {
@@ -1315,8 +1364,9 @@ void native_lc_text_set(void) {
     uint32_t base = GP_A5 - 0x64FCu; /* $578916 */
     g_mem[base] = 0;
     g_mem[base + 1] = 15; /* position word (8px cols): 14=centered, +1 nudges right slightly */
-    for (uint32_t i = 0; i < sizeof txt; i++) /* incl. the NUL */
+    for (uint32_t i = 0; i < sizeof txt; i++) { /* incl. the NUL */
         g_mem[base + 2u + i] = (uint8_t)txt[i];
+    }
 }
 void native_password_build(M68KCtx *ctx) {
     rt_call(ctx, ctx->image, 0x0057901Eu);

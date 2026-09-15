@@ -207,8 +207,9 @@ static const char *reg_name(uint16_t reg) {
 /* Comparison: frames_differ checks if two frames match */
 
 int frames_differ(const FrameState *p, const FrameState *c) {
-    if (p->cop1lc != c->cop1lc)
+    if (p->cop1lc != c->cop1lc) {
         return 1;
+    }
 
     /* BPL data CRC is NOT checked here; harness_main.c compares PUAE post-frame
      * CRC against PC pre-render CRC (one frame earlier in PC's pipeline) to
@@ -234,8 +235,9 @@ int frames_differ(const FrameState *p, const FrameState *c) {
     }
 
     /* Copper list content is the authoritative comparison for BPL/sprite setup. */
-    if (!p->coplist_valid || !c->coplist_valid)
+    if (!p->coplist_valid || !c->coplist_valid) {
         return 0;
+    }
     for (int i = 0; i < HARNESS_COPLIST_WORDS; i++) {
         if (p->coplist[i] != c->coplist[i]) {
             uint32_t cop_addr = p->cop1lc + (uint32_t)(i * 2);
@@ -275,14 +277,16 @@ static void report_pixel_cause(int px, int py, const uint16_t *plist, const uint
         uint16_t cw1 = clist[i], cw2 = clist[i + 1];
 
         /* End of list marker */
-        if (pw1 == 0xFFFF && pw2 == 0xFFFE)
+        if (pw1 == 0xFFFF && pw2 == 0xFFFE) {
             break;
+        }
 
         if (pw1 & 1) {
             /* WAIT instruction: bits 15-8 of pw1 = line (vpos) */
             int wait_line = (pw1 >> 8) & 0xFF;
-            if (wait_line > target_line)
+            if (wait_line > target_line) {
                 break; /* past the target scanline */
+            }
             cur_line = wait_line;
         } else {
             /* MOVE instruction: pw1 bits 8-1 = register offset */
@@ -346,20 +350,23 @@ static void dump_suspect_state_traces(void) {
 }
 
 int framebuffers_differ(int fi) {
-    if (fi >= s_puae_fb_count || fi >= s_pc_fb_count)
+    if (fi >= s_puae_fb_count || fi >= s_pc_fb_count) {
         return 0;
+    }
     const uint32_t *pf = s_puae_fb_log[fi];
     const uint32_t *cf = s_pc_fb_log[fi];
     for (int i = 0; i < FB_W * FB_H; i++) {
-        if ((pf[i] & 0xFFFFFFu) != (cf[i] & 0xFFFFFFu))
+        if ((pf[i] & 0xFFFFFFu) != (cf[i] & 0xFFFFFFu)) {
             return 1;
+        }
     }
     return 0;
 }
 
 void compare_framebuffers(int fi) {
-    if (fi >= s_puae_fb_count || fi >= s_pc_fb_count)
+    if (fi >= s_puae_fb_count || fi >= s_pc_fb_count) {
         return;
+    }
 
     const uint32_t *pf = s_puae_fb_log[fi];
     const uint32_t *cf = s_pc_fb_log[fi];
@@ -380,8 +387,9 @@ void compare_framebuffers(int fi) {
         uint32_t pv = pf[i] & 0xFFFFFFu;
         uint32_t cv = cf[i] & 0xFFFFFFu;
         if (pv != cv) {
-            if (first_px < 0)
+            if (first_px < 0) {
                 first_px = i;
+            }
             px_diff++;
             row_diff[i / FB_W]++;
 
@@ -444,17 +452,19 @@ void compare_framebuffers(int fi) {
             int spr_diffs = 0;
             for (int i = 0; i < 8; i++) {
                 if (s_puae_log[fi].sprpt[i] != s_pc_log[fi].sprpt[i]) {
-                    if (spr_diffs == 0)
+                    if (spr_diffs == 0) {
                         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                              "[sprite-ptrs] mismatches:\n");
+                    }
                     benefactor_log_write(
                         BENEFACTOR_LOG_INFO, "harness", "  spr%d PUAE=$%06X PC=$%06X\n", i,
                         s_puae_log[fi].sprpt[i] & 0xFFFFFFu, s_pc_log[fi].sprpt[i] & 0xFFFFFFu);
                     spr_diffs++;
                 }
             }
-            if (spr_diffs == 0)
+            if (spr_diffs == 0) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[sprite-ptrs] all 8 match\n");
+            }
         }
 
         dump_suspect_state_traces();
@@ -493,10 +503,11 @@ void compare_phases(int puae_frames, int pc_frames, const char *report_path) {
     for (int i = 0; i < n; i++) {
         uint32_t pc = s_puae_log[i].bpl_data_crc;
         uint32_t cc = s_pc_log[i].bpl_data_crc;
-        if (pc && cc && pc != cc)
+        if (pc && cc && pc != cc) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "[bpl-crc] frame=%d PUAE=$%08X PC=$%08X  DIFF\n",
                                  s_puae_log[i].frame, pc, cc);
+        }
     }
 
     /* Dump trace for the entire $86CC gameplay copper list region so we can
@@ -510,47 +521,56 @@ void compare_phases(int puae_frames, int pc_frames, const char *report_path) {
                          p->cop1lc, c->cop1lc, p->cop1lc == c->cop1lc ? "OK" : "DIFF <<<");
     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "  bplcon0 PUAE=$%04X  PC=$%04X  %s\n",
                          p->bplcon0, c->bplcon0, p->bplcon0 == c->bplcon0 ? "OK" : "DIFF <<<");
-    if (p->bplcon1 != c->bplcon1)
+    if (p->bplcon1 != c->bplcon1) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "  bplcon1 PUAE=$%04X  PC=$%04X  DIFF <<<\n", p->bplcon1, c->bplcon1);
-    if (p->bplcon2 != c->bplcon2)
+    }
+    if (p->bplcon2 != c->bplcon2) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "  bplcon2 PUAE=$%04X  PC=$%04X  DIFF <<<\n", p->bplcon2, c->bplcon2);
-    if (p->diwstrt != c->diwstrt || p->diwstop != c->diwstop)
+    }
+    if (p->diwstrt != c->diwstrt || p->diwstop != c->diwstop) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "  diw PUAE=$%04X/$%04X  PC=$%04X/$%04X  DIFF <<<\n", p->diwstrt,
                              p->diwstop, c->diwstrt, c->diwstop);
-    if (p->ddfstrt != c->ddfstrt || p->ddfstop != c->ddfstop)
+    }
+    if (p->ddfstrt != c->ddfstrt || p->ddfstop != c->ddfstop) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "  ddf PUAE=$%04X/$%04X  PC=$%04X/$%04X  DIFF <<<\n", p->ddfstrt,
                              p->ddfstop, c->ddfstrt, c->ddfstop);
+    }
 
     for (int i = 0; i < 6; i++) {
-        if (p->bplpt[i] != c->bplpt[i])
+        if (p->bplpt[i] != c->bplpt[i]) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "  bplpt[%d] PUAE=$%06X  PC=$%06X  DIFF <<<\n", i, p->bplpt[i],
                                  c->bplpt[i]);
+        }
     }
 
     for (int i = 0; i < 8; i++) {
-        if (p->sprpt[i] != c->sprpt[i])
+        if (p->sprpt[i] != c->sprpt[i]) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "  sprpt[%d] PUAE=$%06X  PC=$%06X  DIFF <<<\n", i,
                                  p->sprpt[i] & 0xFFFFFFu, c->sprpt[i] & 0xFFFFFFu);
+        }
     }
 
     int pal_diffs = 0;
-    for (int i = 0; i < 32; i++)
-        if (p->palette[i] != c->palette[i])
+    for (int i = 0; i < 32; i++) {
+        if (p->palette[i] != c->palette[i]) {
             pal_diffs++;
+        }
+    }
     if (pal_diffs) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "  palette: %d of 32 entries differ\n",
                              pal_diffs);
         for (int i = 0; i < 32; i++) {
-            if (p->palette[i] != c->palette[i])
+            if (p->palette[i] != c->palette[i]) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "    COLOR%02d PUAE=$%04X  PC=$%04X\n", i, p->palette[i],
                                      c->palette[i]);
+            }
         }
     }
 
@@ -560,19 +580,21 @@ void compare_phases(int puae_frames, int pc_frames, const char *report_path) {
         for (int i = 0; i + 1 < HARNESS_COPLIST_WORDS; i += 2) {
             uint16_t pw1 = p->coplist[i], pw2 = p->coplist[i + 1];
             uint16_t cw1 = c->coplist[i], cw2 = c->coplist[i + 1];
-            if (pw1 == cw1 && pw2 == cw2)
+            if (pw1 == cw1 && pw2 == cw2) {
                 continue;
+            }
             if (!(pw1 & 1)) {
                 uint16_t reg = pw1 & 0x1FE;
                 const char *name = reg_name(reg);
-                if (name)
+                if (name) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "  cop[%03d] %s: PUAE=$%04X  PC=$%04X\n", i / 2, name, pw2,
                                          cw2);
-                else
+                } else {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "  cop[%03d] DFF%03X: PUAE=$%04X  PC=$%04X\n", i / 2, reg,
                                          pw2, cw2);
+                }
             } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "  cop[%03d] WAIT/SKIP: PUAE=%04X/%04X  PC=%04X/%04X\n", i / 2,
@@ -584,8 +606,9 @@ void compare_phases(int puae_frames, int pc_frames, const char *report_path) {
                 break;
             }
         }
-        if (ndiff == 0)
+        if (ndiff == 0) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "  [coplist content matches]\n");
+        }
     } else if (!p->coplist_valid || !c->coplist_valid) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "  [coplist not captured: PUAE valid=%d, PC valid=%d]\n",
@@ -595,22 +618,26 @@ void compare_phases(int puae_frames, int pc_frames, const char *report_path) {
     /* Audio channel diffs — compare the full Paula state per channel
      * (sample pointer, length, period, volume), not just volume. */
     for (int i = 0; i < 4; i++) {
-        if (p->audio[i].lc != c->audio[i].lc)
+        if (p->audio[i].lc != c->audio[i].lc) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "  audio[%d].lc  PUAE=$%06X PC=$%06X  DIFF <<<\n", i,
                                  p->audio[i].lc, c->audio[i].lc);
-        if (p->audio[i].len != c->audio[i].len)
+        }
+        if (p->audio[i].len != c->audio[i].len) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "  audio[%d].len PUAE=$%04X  PC=$%04X  DIFF <<<\n", i,
                                  p->audio[i].len, c->audio[i].len);
-        if (p->audio[i].per != c->audio[i].per)
+        }
+        if (p->audio[i].per != c->audio[i].per) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "  audio[%d].per PUAE=$%04X  PC=$%04X  DIFF <<<\n", i,
                                  p->audio[i].per, c->audio[i].per);
-        if (p->audio[i].vol != c->audio[i].vol)
+        }
+        if (p->audio[i].vol != c->audio[i].vol) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "  audio[%d].vol PUAE=$%04X  PC=$%04X  DIFF <<<\n", i,
                                  p->audio[i].vol, c->audio[i].vol);
+        }
     }
 
     compare_framebuffers(first_diff);
@@ -631,10 +658,12 @@ static int32_t cop_bpl_ptr(const uint16_t *coplist, int nwords, uint16_t reg_h) 
     uint16_t hi = 0, lo = 0;
     for (int i = 0; i + 1 < nwords; i += 2) {
         uint16_t inst = coplist[i];
-        if (inst == 0xFFFF)
+        if (inst == 0xFFFF) {
             break;
-        if (inst & 1)
+        }
+        if (inst & 1) {
             continue; /* WAIT */
+        }
         uint16_t reg = inst & 0x1FEu;
         if (reg == reg_h) {
             hi = coplist[i + 1];
@@ -645,8 +674,9 @@ static int32_t cop_bpl_ptr(const uint16_t *coplist, int nwords, uint16_t reg_h) 
             got_l = 1;
         }
     }
-    if (!got_h || !got_l)
+    if (!got_h || !got_l) {
         return -1;
+    }
     return ((uint32_t)hi << 16) | lo;
 }
 
@@ -656,10 +686,12 @@ static int32_t cop_bpl_ptr_first(const uint16_t *coplist, int nwords, uint16_t r
     uint16_t hi = 0, lo = 0;
     for (int i = 0; i + 1 < nwords; i += 2) {
         uint16_t inst = coplist[i];
-        if (inst == 0xFFFF)
+        if (inst == 0xFFFF) {
             break;
-        if (inst & 1)
+        }
+        if (inst & 1) {
             continue;
+        }
         uint16_t reg = inst & 0x1FEu;
         if (reg == reg_h && !got_h) {
             hi = coplist[i + 1];
@@ -669,18 +701,21 @@ static int32_t cop_bpl_ptr_first(const uint16_t *coplist, int nwords, uint16_t r
             lo = coplist[i + 1];
             got_l = 1;
         }
-        if (got_h && got_l)
+        if (got_h && got_l) {
             break;
+        }
     }
-    if (!got_h || !got_l)
+    if (!got_h || !got_l) {
         return -1;
+    }
     return ((uint32_t)hi << 16) | lo;
 }
 
 /* Full chip RAM diff: report every contiguous range that differs. */
 static void compare_chipram_full(void) {
-    if (!s_puae_chipram_valid || !s_pc_chipram_valid)
+    if (!s_puae_chipram_valid || !s_pc_chipram_valid) {
         return;
+    }
 
     int total_diff = 0, n_ranges = 0;
     int range_start = -1, range_count = 0;
@@ -711,24 +746,28 @@ static void compare_chipram_full(void) {
         }
     }
 
-    if (total_diff == 0)
+    if (total_diff == 0) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "[chipram-diff] PERFECT MATCH (%d bytes)\n", CHIP_RAM_SIZE);
-    else
+    } else {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "[chipram-diff] %d byte%s differ in %d range%s\n", total_diff,
                              total_diff > 1 ? "s" : "", n_ranges, n_ranges > 1 ? "s" : "");
+    }
 }
 
 static int16_t cop_reg16(const uint16_t *coplist, int nwords, uint16_t reg_want) {
     for (int i = 0; i + 1 < nwords; i += 2) {
         uint16_t inst = coplist[i];
-        if (inst == 0xFFFF)
+        if (inst == 0xFFFF) {
             break;
-        if (inst & 1)
+        }
+        if (inst & 1) {
             continue;
-        if ((inst & 0x1FEu) == reg_want)
+        }
+        if ((inst & 0x1FEu) == reg_want) {
             return (int16_t)coplist[i + 1];
+        }
     }
     return 0;
 }
@@ -768,8 +807,9 @@ void compare_bitplanes(const FrameState *p) {
      * BPL1MOD applied after each odd-plane line, BPL2MOD after even-plane line. */
     const int fetch_bytes = 20;
     int stride[4];
-    for (int pl = 0; pl < 4; pl++)
+    for (int pl = 0; pl < 4; pl++) {
         stride[pl] = fetch_bytes + (int)((pl % 2 == 0) ? bpl1mod : bpl2mod);
+    }
 
     const int height = 256;
 
@@ -789,10 +829,11 @@ void compare_bitplanes(const FrameState *p) {
                 pass ? cop_bpl_ptr(p->coplist, HARNESS_COPLIST_WORDS, bpl_regs_h[pl])
                      : cop_bpl_ptr_first(p->coplist, HARNESS_COPLIST_WORDS, bpl_regs_h[pl]);
             if (base32 < 0) {
-                if (pass == 0)
+                if (pass == 0) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[bpl-diff] BPL%d (%s): not found in copper list\n",
                                          pl + 1, pass_label);
+                }
                 continue;
             }
             uint32_t base = (uint32_t)base32;
@@ -801,19 +842,22 @@ void compare_bitplanes(const FrameState *p) {
             if (pass == 1) {
                 int32_t first32 =
                     cop_bpl_ptr_first(p->coplist, HARNESS_COPLIST_WORDS, bpl_regs_h[pl]);
-                if (first32 == base32)
+                if (first32 == base32) {
                     continue;
+                }
             }
 
             int scan_bytes = stride[pl] > 0 ? stride[pl] * height : fetch_bytes * height;
-            if ((int64_t)base + scan_bytes > CHIP_RAM_SIZE)
+            if ((int64_t)base + scan_bytes > CHIP_RAM_SIZE) {
                 scan_bytes = (int)(CHIP_RAM_SIZE - base);
+            }
 
             int first_off = -1, n_diff = 0;
             for (int j = 0; j < scan_bytes; j++) {
                 if (s_puae_chipram_snap[base + j] != s_pc_chipram_snap[base + j]) {
-                    if (first_off < 0)
+                    if (first_off < 0) {
                         first_off = j;
+                    }
                     n_diff++;
                 }
             }
@@ -834,13 +878,15 @@ void compare_bitplanes(const FrameState *p) {
                     pl + 1, pass_label, base, first_off, da, line, col, s_puae_chipram_snap[da],
                     s_pc_chipram_snap[da], n_diff, scan_bytes);
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[bpl-diff]   PUAE:");
-                for (int k = 0; k < 8 && (da + k) < (uint32_t)CHIP_RAM_SIZE; k++)
+                for (int k = 0; k < 8 && (da + k) < (uint32_t)CHIP_RAM_SIZE; k++) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " %02X",
                                          s_puae_chipram_snap[da + k]);
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n[bpl-diff]   PC  :");
-                for (int k = 0; k < 8 && (da + k) < (uint32_t)CHIP_RAM_SIZE; k++)
+                for (int k = 0; k < 8 && (da + k) < (uint32_t)CHIP_RAM_SIZE; k++) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " %02X",
                                          s_pc_chipram_snap[da + k]);
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
 
                 benefactor_log_write(

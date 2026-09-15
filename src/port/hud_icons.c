@@ -49,27 +49,31 @@ static int ff_shape(int x, int y) {
      * left edge and converges to the apex at its right edge (right-pointing). */
     for (int t = 0; t < 2; t++) {
         int lx = x - t * 8;
-        if (lx >= 0 && lx < 8 && dy <= 7 - lx)
+        if (lx >= 0 && lx < 8 && dy <= 7 - lx) {
             return 1;
+        }
     }
-    if (x >= 18 && x <= 19 && y >= 1 && y < ICON_H - 1)
+    if (x >= 18 && x <= 19 && y >= 1 && y < ICON_H - 1) {
         return 1; /* end bar */
+    }
     return 0;
 }
 
 /* Camera: viewfinder bump on top, rounded body, lens ring. */
 static int cam_shape(int x, int y) {
     /* bump: x 7..14, y 0..2 */
-    if (y >= 0 && y <= 2 && x >= 7 && x <= 14)
+    if (y >= 0 && y <= 2 && x >= 7 && x <= 14) {
         return 1;
+    }
     /* body: x 0..21, y 3..15 */
     if (y >= 3 && y <= 15 && x >= 0 && x <= 21) {
         /* lens hole: ring around (11, 9), inner r2 dark hole handled by caller
          * via outline colour — here body minus inner circle */
         int dx = x - 11, dy = y - 9;
         int r2 = dx * dx + dy * dy;
-        if (r2 <= 6)
+        if (r2 <= 6) {
             return 0; /* lens hole (drawn as outline colour) */
+        }
         return 1;
     }
     return 0;
@@ -85,12 +89,14 @@ static void draw_icon(uint32_t *fb, int ow, int oh, int ox, int oy, int (*shape)
                       int (*hole)(int, int)) {
     for (int y = -1; y <= ICON_H; y++) {
         int py = oy + y;
-        if (py < 0 || py >= oh)
+        if (py < 0 || py >= oh) {
             continue;
+        }
         for (int x = -1; x <= ICON_W; x++) {
             int px = ox + x;
-            if (px < 0 || px >= ow)
+            if (px < 0 || px >= ow) {
                 continue;
+            }
             if (shape(x, y)) {
                 fb[(size_t)py * ow + px] = COL_FILL;
                 continue;
@@ -101,19 +107,24 @@ static void draw_icon(uint32_t *fb, int ow, int oh, int ox, int oy, int (*shape)
             }
             /* outline: any 8-neighbour inside the shape */
             int near = 0;
-            for (int j = -1; j <= 1 && !near; j++)
-                for (int i = -1; i <= 1 && !near; i++)
-                    if (shape(x + i, y + j))
+            for (int j = -1; j <= 1 && !near; j++) {
+                for (int i = -1; i <= 1 && !near; i++) {
+                    if (shape(x + i, y + j)) {
                         near = 1;
-            if (near)
+                    }
+                }
+            }
+            if (near) {
                 fb[(size_t)py * ow + px] = COL_OUTLINE;
+            }
         }
     }
 }
 
 void pc_hud_icons_overlay(uint32_t *fb) {
-    if (!pc_hud_icons_active())
+    if (!pc_hud_icons_active()) {
         return;
+    }
     int ow = pc_overlay_w(), oh = pc_overlay_h();
     int x = ICON_X;
     if (hw_ffwd_active()) {
@@ -140,11 +151,13 @@ void pc_hud_icons_overlay(uint32_t *fb) {
                  p->compose_us / 1000, p->compose_us % 1000 / 100, p->present_us / 1000,
                  p->present_us % 1000 / 100);
         int len = 0;
-        while (line[len])
+        while (line[len]) {
             len++;
+        }
         int x0 = ow - len * 6 - 6; /* right-align: 5px glyphs + 1px gap */
-        if (x0 < 2)
+        if (x0 < 2) {
             x0 = 2;
+        }
         pc_draw_text(fb, x0 + 1, 3, line, 1, 0xFF000000); /* drop shadow */
         pc_draw_text(fb, x0, 2, line, 1, 0xFF80FF80);
         hw_overlay_rect(x0, 2, len * 6 + 2, 9); /* text + 1px shadow offset */

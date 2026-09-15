@@ -59,7 +59,8 @@ struct SetupFlow::Impl {
                   [this](const std::vector<setup_ui::StagedFile> &files) {
                       return validate_staged_disks(&store, files);
                   }),
-          view(session, view_options()) {}
+          view(session, view_options()) {
+    }
 
     static setup_ui::SessionOptions session_options(const std::filesystem::path &staging) {
         setup_ui::SessionOptions settings;
@@ -88,10 +89,12 @@ struct SetupFlow::Impl {
     }
 };
 
-SetupFlow::SetupFlow(SetupFlowOptions options)
-    : impl_(std::make_unique<Impl>(std::move(options))) {}
+SetupFlow::SetupFlow(SetupFlowOptions options) : impl_(std::make_unique<Impl>(std::move(options))) {
+}
 
-SetupFlow::~SetupFlow() { impl_->view.close(); }
+SetupFlow::~SetupFlow() {
+    impl_->view.close();
+}
 
 bool SetupFlow::open() {
     if (!impl_->options.request_selection) {
@@ -187,11 +190,17 @@ bool SetupFlow::step() {
     return !impl_->finished;
 }
 
-bool SetupFlow::accepted() const { return impl_->accepted; }
+bool SetupFlow::accepted() const {
+    return impl_->accepted;
+}
 
-const std::array<std::filesystem::path, 3> &SetupFlow::disks() const { return impl_->disks; }
+const std::array<std::filesystem::path, 3> &SetupFlow::disks() const {
+    return impl_->disks;
+}
 
-const std::string &SetupFlow::error() const { return impl_->error; }
+const std::string &SetupFlow::error() const {
+    return impl_->error;
+}
 
 void SetupFlow::deliver(const std::vector<std::filesystem::path> &paths) {
     std::lock_guard lock(impl_->pending_mutex);

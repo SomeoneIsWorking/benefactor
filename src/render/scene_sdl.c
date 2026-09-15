@@ -13,8 +13,9 @@ static SDL_FRect scene_frect(SDL_Rect r) {
 static SDL_Texture *quad_texture(SDL_Renderer *r, const Scene *s, const SceneQuad *q) {
     SDL_Texture *tex =
         SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, q->w, q->h);
-    if (!tex)
+    if (!tex) {
         return NULL;
+    }
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
 
     void *pixels;
@@ -40,8 +41,9 @@ static SDL_Texture *quad_texture(SDL_Renderer *r, const Scene *s, const SceneQua
 }
 
 int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi) {
-    if (!r || !s)
+    if (!r || !s) {
         return -1;
+    }
 
     /* Vertical clip to [y_lo, y_hi): SDL clips the dest, and because each quad's
      * texture bakes the per-output-row palette, clipped-away rows never matter. */
@@ -51,10 +53,12 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi) {
     int rc = 0;
     for (int i = 0; i < s->nquads && rc == 0; i++) {
         const SceneQuad *q = &s->quads[i];
-        if (q->space != SCENE_SPACE_WORLD)
+        if (q->space != SCENE_SPACE_WORLD) {
             continue; /* screen-space UI: windowed present only */
-        if (q->w <= 0 || q->h <= 0)
+        }
+        if (q->w <= 0 || q->h <= 0) {
             continue;
+        }
 
         SDL_Texture *tex = quad_texture(r, s, q);
         if (!tex) {
@@ -62,8 +66,9 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi) {
             break;
         }
         SDL_FRect d = {(float)q->x, (float)q->y, (float)q->w, (float)q->h};
-        if (!SDL_RenderTexture(r, tex, NULL, &d))
+        if (!SDL_RenderTexture(r, tex, NULL, &d)) {
             rc = -1;
+        }
         SDL_DestroyTexture(tex);
     }
 
@@ -75,12 +80,15 @@ int scene_draw_sdl(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi) {
 #define SCENE_SDL_ATLAS_H 2048
 
 void scene_sdl_cache_free(SceneSdlCache *c) {
-    if (!c)
+    if (!c) {
         return;
-    if (c->atlas)
+    }
+    if (c->atlas) {
         SDL_DestroyTexture(c->atlas);
-    if (c->base)
+    }
+    if (c->base) {
         SDL_DestroyTexture(c->base);
+    }
     c->atlas = NULL;
     c->base = NULL;
     c->r = NULL;
@@ -99,8 +107,9 @@ static int cache_ensure(SceneSdlCache *c, SDL_Renderer *r, int ow, int oh) {
     if (!c->atlas) {
         c->atlas = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
                                      SCENE_SDL_ATLAS_W, SCENE_SDL_ATLAS_H);
-        if (!c->atlas)
+        if (!c->atlas) {
             return -1;
+        }
         SDL_SetTextureBlendMode(c->atlas, SDL_BLENDMODE_BLEND);
     }
     if (c->base && (c->base_w != ow || c->base_h != oh)) {
@@ -110,8 +119,9 @@ static int cache_ensure(SceneSdlCache *c, SDL_Renderer *r, int ow, int oh) {
     if (!c->base) {
         c->base =
             SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ow, oh);
-        if (!c->base)
+        if (!c->base) {
             return -1;
+        }
         SDL_SetTextureBlendMode(c->base, SDL_BLENDMODE_NONE);
         c->base_w = ow;
         c->base_h = oh;
@@ -128,36 +138,44 @@ static int atlas_pack_bake(SceneSdlCache *c, const Scene *s, SDL_Rect *pos) {
     for (int i = 0; i < s->nquads; i++) {
         const SceneQuad *q = &s->quads[i];
         pos[i].w = 0; /* mark not-packed */
-        if (q->w <= 0 || q->h <= 0)
+        if (q->w <= 0 || q->h <= 0) {
             continue;
-        if (q->w > SCENE_SDL_ATLAS_W)
+        }
+        if (q->w > SCENE_SDL_ATLAS_W) {
             return -1;
+        }
         if (cur_x + q->w > SCENE_SDL_ATLAS_W) { /* new shelf */
             cur_x = 0;
             cur_y += shelf_h;
             shelf_h = 0;
         }
-        if (cur_y + q->h > SCENE_SDL_ATLAS_H)
+        if (cur_y + q->h > SCENE_SDL_ATLAS_H) {
             return -1; /* atlas full */
+        }
         pos[i] = (SDL_Rect){cur_x, cur_y, q->w, q->h};
         cur_x += q->w;
-        if (q->h > shelf_h)
+        if (q->h > shelf_h) {
             shelf_h = q->h;
-        if (cur_y + q->h > max_y)
+        }
+        if (cur_y + q->h > max_y) {
             max_y = cur_y + q->h;
+        }
     }
-    if (max_y == 0)
+    if (max_y == 0) {
         return 0; /* nothing to bake */
+    }
 
     SDL_Rect lock = {0, 0, SCENE_SDL_ATLAS_W, max_y};
     void *pixels;
     int pitch;
-    if (!SDL_LockTexture(c->atlas, &lock, &pixels, &pitch))
+    if (!SDL_LockTexture(c->atlas, &lock, &pixels, &pitch)) {
         return -1;
+    }
     for (int i = 0; i < s->nquads; i++) {
         const SceneQuad *q = &s->quads[i];
-        if (pos[i].w == 0)
+        if (pos[i].w == 0) {
             continue;
+        }
         for (int rr = 0; rr < q->h; rr++) {
             int dy = q->y + rr; /* output row this texel lands on */
             const uint32_t *pal =
@@ -179,14 +197,17 @@ static int atlas_pack_bake(SceneSdlCache *c, const Scene *s, SDL_Rect *pos) {
 
 int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, const uint32_t *base,
                           int ow, int oh, SceneSdlCache *cache) {
-    if (!r || !s || !base || !cache)
+    if (!r || !s || !base || !cache) {
         return -1;
-    if (cache_ensure(cache, r, ow, oh) != 0)
+    }
+    if (cache_ensure(cache, r, ow, oh) != 0) {
         return -1;
+    }
 
     SDL_Rect *pos = (SDL_Rect *)malloc(sizeof(SDL_Rect) * (size_t)(s->nquads ? s->nquads : 1));
-    if (!pos)
+    if (!pos) {
         return -1;
+    }
     if (atlas_pack_bake(cache, s, pos) != 0) {
         free(pos);
         return -1;
@@ -209,15 +230,17 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
             int y1 = y + 1;
             while (y1 < y_hi) {
                 uint32_t c1 = (y1 >= 0 && y1 < SCENE_MAX_ROWS) ? s->pal_rows[y1][0] : 0;
-                if ((c1 & 0xFFFFFF) != (c0 & 0xFFFFFF))
+                if ((c1 & 0xFFFFFF) != (c0 & 0xFFFFFF)) {
                     break;
+                }
                 y1++;
             }
             if (c0 & 0xFFFFFF) {
                 SDL_SetRenderDrawColor(r, (c0 >> 16) & 0xFF, (c0 >> 8) & 0xFF, c0 & 0xFF, 255);
                 SDL_FRect band = {0.0f, (float)y, (float)ow, (float)(y1 - y)};
-                if (!SDL_RenderFillRect(r, &band))
+                if (!SDL_RenderFillRect(r, &band)) {
                     rc = -1;
+                }
             }
             y = y1;
         }
@@ -229,36 +252,42 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
         SDL_Rect rr = {0, 0, ow, y_lo};
         SDL_FRect frr = scene_frect(rr);
         if (!SDL_UpdateTexture(cache->base, &rr, base, ow * 4) ||
-            !SDL_RenderTexture(r, cache->base, &frr, &frr))
+            !SDL_RenderTexture(r, cache->base, &frr, &frr)) {
             rc = -1;
+        }
     }
     if (y_hi < oh) {
         SDL_Rect rr = {0, y_hi, ow, oh - y_hi};
         SDL_FRect frr = scene_frect(rr);
         if (!SDL_UpdateTexture(cache->base, &rr, base + (size_t)y_hi * ow, ow * 4) ||
-            !SDL_RenderTexture(r, cache->base, &frr, &frr))
+            !SDL_RenderTexture(r, cache->base, &frr, &frr)) {
             rc = -1;
+        }
     }
 
     /* World quads: per-sprite, camera-projected (screen_x = x - view_left),
      * clipped to the camera-reachable world columns AND the playfield rows. */
     {
         int cx0 = s->wclip_x0 - s->view_left, cx1 = s->wclip_x1 - s->view_left;
-        if (cx0 < 0)
+        if (cx0 < 0) {
             cx0 = 0;
-        if (cx1 > ow)
+        }
+        if (cx1 > ow) {
             cx1 = ow;
+        }
         if (cx1 > cx0) {
             SDL_Rect clip = {cx0, y_lo, cx1 - cx0, y_hi - y_lo};
             SDL_SetRenderClipRect(r, &clip);
             for (int i = 0; i < s->nquads && rc == 0; i++) {
                 const SceneQuad *q = &s->quads[i];
-                if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0)
+                if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0) {
                     continue;
+                }
                 SDL_FRect src = scene_frect(pos[i]);
                 SDL_FRect d = {(float)(q->x - s->view_left), (float)q->y, (float)q->w, (float)q->h};
-                if (!SDL_RenderTexture(r, cache->atlas, &src, &d))
+                if (!SDL_RenderTexture(r, cache->atlas, &src, &d)) {
                     rc = -1;
+                }
             }
             SDL_SetRenderClipRect(r, NULL);
         }
@@ -267,12 +296,14 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
     /* Screen quads (the banner): screen-fixed UI on top, no camera, full frame. */
     for (int i = 0; i < s->nquads && rc == 0; i++) {
         const SceneQuad *q = &s->quads[i];
-        if (q->space != SCENE_SPACE_SCREEN || pos[i].w == 0)
+        if (q->space != SCENE_SPACE_SCREEN || pos[i].w == 0) {
             continue;
+        }
         SDL_FRect src = scene_frect(pos[i]);
         SDL_FRect d = {(float)q->x, (float)q->y, (float)q->w, (float)q->h};
-        if (!SDL_RenderTexture(r, cache->atlas, &src, &d))
+        if (!SDL_RenderTexture(r, cache->atlas, &src, &d)) {
             rc = -1;
+        }
     }
     free(pos);
     return rc;
@@ -282,15 +313,18 @@ int scene_draw_sdl_window(SDL_Renderer *r, const Scene *s, int y_lo, int y_hi, c
 void scene_composite_argb(const Scene *s, uint32_t *dst, int dst_w, int dst_h, int y_lo, int y_hi);
 
 long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi, int *max_chan) {
-    if (max_chan)
+    if (max_chan) {
         *max_chan = 0;
-    if (!s || dst_w <= 0 || dst_h <= 0)
+    }
+    if (!s || dst_w <= 0 || dst_h <= 0) {
         return -1;
+    }
 
     const size_t npx = (size_t)dst_w * dst_h;
     uint32_t *cpu = (uint32_t *)calloc(npx, sizeof(uint32_t));
-    if (!cpu)
+    if (!cpu) {
         return -1;
+    }
 
     /* CPU reference: composite over a zeroed buffer. */
     scene_composite_argb(s, cpu, dst_w, dst_h, y_lo, y_hi);
@@ -300,8 +334,9 @@ long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi
     SDL_Surface *surf = SDL_CreateSurface(dst_w, dst_h, SDL_PIXELFORMAT_ARGB8888);
     SDL_Renderer *r = surf ? SDL_CreateSoftwareRenderer(surf) : NULL;
     if (!r) {
-        if (surf)
+        if (surf) {
             SDL_DestroySurface(surf);
+        }
         free(cpu);
         return -1;
     }
@@ -317,23 +352,28 @@ long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi
         const uint32_t *sdl = (const uint32_t *)surf->pixels;
         int stride = surf->pitch / 4;
         int mc = 0;
-        for (int y = 0; y < dst_h; y++)
+        for (int y = 0; y < dst_h; y++) {
             for (int x = 0; x < dst_w; x++) {
                 uint32_t a = cpu[(size_t)y * dst_w + x];
                 uint32_t b = sdl[(size_t)y * stride + x];
-                if (a == b)
+                if (a == b) {
                     continue;
+                }
                 ndiff++;
                 for (int sh = 0; sh < 32; sh += 8) {
                     int d = (int)((a >> sh) & 0xFF) - (int)((b >> sh) & 0xFF);
-                    if (d < 0)
+                    if (d < 0) {
                         d = -d;
-                    if (d > mc)
+                    }
+                    if (d > mc) {
                         mc = d;
+                    }
                 }
             }
-        if (max_chan)
+        }
+        if (max_chan) {
             *max_chan = mc;
+        }
     }
 
     SDL_DestroyRenderer(r);
@@ -344,16 +384,19 @@ long scene_sdl_selftest(const Scene *s, int dst_w, int dst_h, int y_lo, int y_hi
 
 long scene_sdl_window_selftest(const Scene *s, const uint32_t *base, int ow, int oh, int y_lo,
                                int y_hi, int *max_chan) {
-    if (max_chan)
+    if (max_chan) {
         *max_chan = 0;
-    if (!s || !base || ow <= 0 || oh <= 0)
+    }
+    if (!s || !base || ow <= 0 || oh <= 0) {
         return -1;
+    }
 
     SDL_Surface *surf = SDL_CreateSurface(ow, oh, SDL_PIXELFORMAT_ARGB8888);
     SDL_Renderer *r = surf ? SDL_CreateSoftwareRenderer(surf) : NULL;
     if (!r) {
-        if (surf)
+        if (surf) {
             SDL_DestroySurface(surf);
+        }
         return -1;
     }
 
@@ -367,23 +410,28 @@ long scene_sdl_window_selftest(const Scene *s, const uint32_t *base, int ow, int
         const uint32_t *sdl = (const uint32_t *)surf->pixels;
         int stride = surf->pitch / 4;
         int mc = 0;
-        for (int y = 0; y < oh; y++)
+        for (int y = 0; y < oh; y++) {
             for (int x = 0; x < ow; x++) {
                 uint32_t a = base[(size_t)y * ow + x]; /* CPU-composed reference */
                 uint32_t b = sdl[(size_t)y * stride + x];
-                if (a == b)
+                if (a == b) {
                     continue;
+                }
                 ndiff++;
                 for (int sh = 0; sh < 32; sh += 8) {
                     int d = (int)((a >> sh) & 0xFF) - (int)((b >> sh) & 0xFF);
-                    if (d < 0)
+                    if (d < 0) {
                         d = -d;
-                    if (d > mc)
+                    }
+                    if (d > mc) {
                         mc = d;
+                    }
                 }
             }
-        if (max_chan)
+        }
+        if (max_chan) {
             *max_chan = mc;
+        }
     }
 
     SDL_DestroyRenderer(r);

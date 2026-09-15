@@ -59,9 +59,11 @@ static const uint32_t k_fx_frag_spv[] = {
 static uint32_t find_mem_type(VkPhysicalDevice pd, uint32_t type_bits, VkMemoryPropertyFlags want) {
     VkPhysicalDeviceMemoryProperties mp;
     vkGetPhysicalDeviceMemoryProperties(pd, &mp);
-    for (uint32_t i = 0; i < mp.memoryTypeCount; i++)
-        if ((type_bits & (1u << i)) && (mp.memoryTypes[i].propertyFlags & want) == want)
+    for (uint32_t i = 0; i < mp.memoryTypeCount; i++) {
+        if ((type_bits & (1u << i)) && (mp.memoryTypes[i].propertyFlags & want) == want) {
             return i;
+        }
+    }
     return UINT32_MAX;
 }
 
@@ -118,12 +120,13 @@ static int vk_offscreen_render(const uint32_t *argb, int w, int h, uint32_t *out
             vkGetPhysicalDeviceQueueFamilyProperties(devs[i], &qn, NULL);
             VkQueueFamilyProperties *q = calloc(qn, sizeof *q);
             vkGetPhysicalDeviceQueueFamilyProperties(devs[i], &qn, q);
-            for (uint32_t j = 0; j < qn; j++)
+            for (uint32_t j = 0; j < qn; j++) {
                 if (q[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                     pd = devs[i];
                     qfam = j;
                     break;
                 }
+            }
             free(q);
         }
         free(devs);
@@ -437,54 +440,78 @@ static int vk_offscreen_render(const uint32_t *argb, int w, int h, uint32_t *out
 
     rc = 0;
 fail:
-    if (dev)
+    if (dev) {
         vkDeviceWaitIdle(dev);
-    if (fence)
+    }
+    if (fence) {
         vkDestroyFence(dev, fence, NULL);
-    if (pipe)
+    }
+    if (pipe) {
         vkDestroyPipeline(dev, pipe, NULL);
-    if (pll)
+    }
+    if (pll) {
         vkDestroyPipelineLayout(dev, pll, NULL);
-    if (dpool)
+    }
+    if (dpool) {
         vkDestroyDescriptorPool(dev, dpool, NULL);
-    if (dsl)
+    }
+    if (dsl) {
         vkDestroyDescriptorSetLayout(dev, dsl, NULL);
-    if (vs)
+    }
+    if (vs) {
         vkDestroyShaderModule(dev, vs, NULL);
-    if (fs)
+    }
+    if (fs) {
         vkDestroyShaderModule(dev, fs, NULL);
-    if (fb)
+    }
+    if (fb) {
         vkDestroyFramebuffer(dev, fb, NULL);
-    if (rpass)
+    }
+    if (rpass) {
         vkDestroyRenderPass(dev, rpass, NULL);
-    if (rb_buf)
+    }
+    if (rb_buf) {
         vkDestroyBuffer(dev, rb_buf, NULL);
-    if (rb_mem)
+    }
+    if (rb_mem) {
         vkFreeMemory(dev, rb_mem, NULL);
-    if (up_buf)
+    }
+    if (up_buf) {
         vkDestroyBuffer(dev, up_buf, NULL);
-    if (up_mem)
+    }
+    if (up_mem) {
         vkFreeMemory(dev, up_mem, NULL);
-    if (samp)
+    }
+    if (samp) {
         vkDestroySampler(dev, samp, NULL);
-    if (src_view)
+    }
+    if (src_view) {
         vkDestroyImageView(dev, src_view, NULL);
-    if (dst_view)
+    }
+    if (dst_view) {
         vkDestroyImageView(dev, dst_view, NULL);
-    if (src_img)
+    }
+    if (src_img) {
         vkDestroyImage(dev, src_img, NULL);
-    if (dst_img)
+    }
+    if (dst_img) {
         vkDestroyImage(dev, dst_img, NULL);
-    if (src_mem)
+    }
+    if (src_mem) {
         vkFreeMemory(dev, src_mem, NULL);
-    if (dst_mem)
+    }
+    if (dst_mem) {
         vkFreeMemory(dev, dst_mem, NULL);
-    if (cpool)
+    }
+    if (cpool) {
         vkDestroyCommandPool(dev, cpool, NULL);
-    if (dev)
+    }
+    if (dev) {
         vkDestroyDevice(dev, NULL);
-    if (inst)
+    }
+    if (inst) {
         vkDestroyInstance(inst, NULL);
+    }
     return rc;
 }
 
@@ -492,8 +519,9 @@ fail:
  * Returns the max per-channel abs difference (0 = exact), or -1 on Vulkan error. */
 int present_vulkan_selftest(const uint32_t *argb, int w, int h) {
     uint32_t *out = malloc((size_t)w * h * 4);
-    if (!out)
+    if (!out) {
         return -1;
+    }
     int rc = vk_offscreen_render(argb, w, h, out);
     if (rc != 0) {
         free(out);
@@ -503,10 +531,12 @@ int present_vulkan_selftest(const uint32_t *argb, int w, int h) {
     const uint8_t *a = (const uint8_t *)argb, *b = (const uint8_t *)out;
     for (size_t i = 0; i < (size_t)w * h * 4; i++) {
         int d = (int)a[i] - (int)b[i];
-        if (d < 0)
+        if (d < 0) {
             d = -d;
-        if (d > maxdiff)
+        }
+        if (d > maxdiff) {
             maxdiff = d;
+        }
     }
     free(out);
     benefactor_log_write(BENEFACTOR_LOG_INFO, "vulkan", "selftest %dx%d: max channel diff = %d", w,
@@ -614,23 +644,29 @@ static Swap g_sw;
 
 static void sw_destroy_targets(Swap *s) {
     if (s->fbs) {
-        for (uint32_t i = 0; i < s->n_images; i++)
-            if (s->fbs[i])
+        for (uint32_t i = 0; i < s->n_images; i++) {
+            if (s->fbs[i]) {
                 vkDestroyFramebuffer(s->dev, s->fbs[i], NULL);
+            }
+        }
         free(s->fbs);
         s->fbs = NULL;
     }
     if (s->views) {
-        for (uint32_t i = 0; i < s->n_images; i++)
-            if (s->views[i])
+        for (uint32_t i = 0; i < s->n_images; i++) {
+            if (s->views[i]) {
                 vkDestroyImageView(s->dev, s->views[i], NULL);
+            }
+        }
         free(s->views);
         s->views = NULL;
     }
     if (s->sem_done) {
-        for (uint32_t i = 0; i < s->n_images; i++)
-            if (s->sem_done[i])
+        for (uint32_t i = 0; i < s->n_images; i++) {
+            if (s->sem_done[i]) {
                 vkDestroySemaphore(s->dev, s->sem_done[i], NULL);
+            }
+        }
         free(s->sem_done);
         s->sem_done = NULL;
     }
@@ -638,11 +674,13 @@ static void sw_destroy_targets(Swap *s) {
 
 static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h) {
     VkSurfaceCapabilitiesKHR caps;
-    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(s->pd, s->surface, &caps) != VK_SUCCESS)
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(s->pd, s->surface, &caps) != VK_SUCCESS) {
         return -1;
+    }
     s->extent = caps.currentExtent.width != 0xFFFFFFFFu ? caps.currentExtent : (VkExtent2D){w, h};
-    if (s->extent.width == 0 || s->extent.height == 0)
+    if (s->extent.width == 0 || s->extent.height == 0) {
         s->extent = (VkExtent2D){w, h};
+    }
 
     /* Prefer B8G8R8A8_UNORM (matches the source surface: no colour conversion). */
     uint32_t nf = 0;
@@ -650,17 +688,19 @@ static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h) {
     VkSurfaceFormatKHR *fmts = calloc(nf, sizeof *fmts);
     vkGetPhysicalDeviceSurfaceFormatsKHR(s->pd, s->surface, &nf, fmts);
     VkSurfaceFormatKHR pick = fmts[0];
-    for (uint32_t i = 0; i < nf; i++)
+    for (uint32_t i = 0; i < nf; i++) {
         if (fmts[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
             pick = fmts[i];
             break;
         }
+    }
     free(fmts);
     s->sc_format = pick.format;
 
     uint32_t want = caps.minImageCount + 1;
-    if (caps.maxImageCount && want > caps.maxImageCount)
+    if (caps.maxImageCount && want > caps.maxImageCount) {
         want = caps.maxImageCount;
+    }
 
     VkSwapchainCreateInfoKHR ci = {.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
                                    .surface = s->surface,
@@ -676,8 +716,9 @@ static int sw_make_swapchain(Swap *s, uint32_t w, uint32_t h) {
                                    .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
                                    .presentMode = VK_PRESENT_MODE_FIFO_KHR, /* always supported */
                                    .clipped = VK_TRUE};
-    if (vkCreateSwapchainKHR(s->dev, &ci, NULL, &s->swap) != VK_SUCCESS)
+    if (vkCreateSwapchainKHR(s->dev, &ci, NULL, &s->swap) != VK_SUCCESS) {
         return -1;
+    }
     vkGetSwapchainImagesKHR(s->dev, s->swap, &s->n_images, NULL);
     s->images = calloc(s->n_images, sizeof *s->images);
     vkGetSwapchainImagesKHR(s->dev, s->swap, &s->n_images, s->images);
@@ -694,8 +735,9 @@ static int sw_make_targets(Swap *s) {
                                     .viewType = VK_IMAGE_VIEW_TYPE_2D,
                                     .format = s->sc_format,
                                     .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-        if (vkCreateImageView(s->dev, &vi, NULL, &s->views[i]) != VK_SUCCESS)
+        if (vkCreateImageView(s->dev, &vi, NULL, &s->views[i]) != VK_SUCCESS) {
             return -1;
+        }
         VkFramebufferCreateInfo fi = {.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                                       .renderPass = s->rpass,
                                       .attachmentCount = 1,
@@ -703,16 +745,18 @@ static int sw_make_targets(Swap *s) {
                                       .width = s->extent.width,
                                       .height = s->extent.height,
                                       .layers = 1};
-        if (vkCreateFramebuffer(s->dev, &fi, NULL, &s->fbs[i]) != VK_SUCCESS)
+        if (vkCreateFramebuffer(s->dev, &fi, NULL, &s->fbs[i]) != VK_SUCCESS) {
             return -1;
+        }
     }
     /* One "render done" semaphore per image: present may still be consuming the
      * previous frame's, so it can't be reused until that image is reacquired. */
     s->sem_done = calloc(s->n_images, sizeof *s->sem_done);
     for (uint32_t i = 0; i < s->n_images; i++) {
         VkSemaphoreCreateInfo sci = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-        if (vkCreateSemaphore(s->dev, &sci, NULL, &s->sem_done[i]) != VK_SUCCESS)
+        if (vkCreateSemaphore(s->dev, &sci, NULL, &s->sem_done[i]) != VK_SUCCESS) {
             return -1;
+        }
     }
     return 0;
 }
@@ -723,18 +767,22 @@ static int sw_make_targets(Swap *s) {
 static int sw_rebuild(Swap *s) {
     int dw = 0, dh = 0;
     SDL_Vulkan_GetDrawableSize(s->win, &dw, &dh);
-    if (dw <= 0)
+    if (dw <= 0) {
         dw = (int)s->extent.width;
-    if (dh <= 0)
+    }
+    if (dh <= 0) {
         dh = (int)s->extent.height;
+    }
     vkDeviceWaitIdle(s->dev);
     sw_destroy_targets(s);
-    if (s->swap)
+    if (s->swap) {
         vkDestroySwapchainKHR(s->dev, s->swap, NULL);
+    }
     free(s->images);
     s->images = NULL;
-    if (sw_make_swapchain(s, (uint32_t)dw, (uint32_t)dh) != 0)
+    if (sw_make_swapchain(s, (uint32_t)dw, (uint32_t)dh) != 0) {
         return -1;
+    }
     return sw_make_targets(s);
 }
 
@@ -743,24 +791,31 @@ static int sw_rebuild(Swap *s) {
 static void vk_check_resize(Swap *s) {
     int dw = 0, dh = 0;
     SDL_Vulkan_GetDrawableSize(s->win, &dw, &dh);
-    if (dw > 0 && dh > 0 && ((uint32_t)dw != s->extent.width || (uint32_t)dh != s->extent.height))
+    if (dw > 0 && dh > 0 && ((uint32_t)dw != s->extent.width || (uint32_t)dh != s->extent.height)) {
         sw_rebuild(s);
+    }
 }
 
 /* ── SAMPLED texture (atlas / base) + persistently-mapped upload buffer ─────── */
 static void vk_tex_free(Swap *s, VkTex *t) {
-    if (t->view)
+    if (t->view) {
         vkDestroyImageView(s->dev, t->view, NULL);
-    if (t->img)
+    }
+    if (t->img) {
         vkDestroyImage(s->dev, t->img, NULL);
-    if (t->mem)
+    }
+    if (t->mem) {
         vkFreeMemory(s->dev, t->mem, NULL);
-    if (t->up_ptr)
+    }
+    if (t->up_ptr) {
         vkUnmapMemory(s->dev, t->up_mem);
-    if (t->up_buf)
+    }
+    if (t->up_buf) {
         vkDestroyBuffer(s->dev, t->up_buf, NULL);
-    if (t->up_mem)
+    }
+    if (t->up_mem) {
         vkFreeMemory(s->dev, t->up_mem, NULL);
+    }
     memset(t, 0, sizeof *t);
 }
 
@@ -778,31 +833,35 @@ static int vk_tex_make(Swap *s, VkTex *t, int w, int h) {
                             .tiling = VK_IMAGE_TILING_OPTIMAL,
                             .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
-    if (vkCreateImage(s->dev, &ii, NULL, &t->img) != VK_SUCCESS)
+    if (vkCreateImage(s->dev, &ii, NULL, &t->img) != VK_SUCCESS) {
         return -1;
+    }
     VkMemoryRequirements mr;
     vkGetImageMemoryRequirements(s->dev, t->img, &mr);
     VkMemoryAllocateInfo mai = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
                                 .allocationSize = mr.size,
                                 .memoryTypeIndex = find_mem_type(
                                     s->pd, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)};
-    if (vkAllocateMemory(s->dev, &mai, NULL, &t->mem) != VK_SUCCESS)
+    if (vkAllocateMemory(s->dev, &mai, NULL, &t->mem) != VK_SUCCESS) {
         return -1;
+    }
     vkBindImageMemory(s->dev, t->img, t->mem, 0);
     VkImageViewCreateInfo vi = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                                 .image = t->img,
                                 .viewType = VK_IMAGE_VIEW_TYPE_2D,
                                 .format = VK_FORMAT_B8G8R8A8_UNORM,
                                 .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-    if (vkCreateImageView(s->dev, &vi, NULL, &t->view) != VK_SUCCESS)
+    if (vkCreateImageView(s->dev, &vi, NULL, &t->view) != VK_SUCCESS) {
         return -1;
+    }
 
     VkDeviceSize bytes = (VkDeviceSize)w * h * 4;
     VkBufferCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                              .size = bytes,
                              .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT};
-    if (vkCreateBuffer(s->dev, &bi, NULL, &t->up_buf) != VK_SUCCESS)
+    if (vkCreateBuffer(s->dev, &bi, NULL, &t->up_buf) != VK_SUCCESS) {
         return -1;
+    }
     VkMemoryRequirements br;
     vkGetBufferMemoryRequirements(s->dev, t->up_buf, &br);
     VkMemoryAllocateInfo bmai = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -811,8 +870,9 @@ static int vk_tex_make(Swap *s, VkTex *t, int w, int h) {
                                      find_mem_type(s->pd, br.memoryTypeBits,
                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)};
-    if (vkAllocateMemory(s->dev, &bmai, NULL, &t->up_mem) != VK_SUCCESS)
+    if (vkAllocateMemory(s->dev, &bmai, NULL, &t->up_mem) != VK_SUCCESS) {
         return -1;
+    }
     vkBindBufferMemory(s->dev, t->up_buf, t->up_mem, 0);
     vkMapMemory(s->dev, t->up_mem, 0, bytes, 0, &t->up_ptr);
     return 0;
@@ -834,12 +894,14 @@ static void vk_point_desc(Swap *s, VkDescriptorSet set, VkImageView view) {
 /* Ensure the base texture matches the content size (rebuild + re-point descriptor
  * when the aspect toggles at runtime). */
 static int vk_ensure_base(Swap *s, int w, int h) {
-    if (s->base.img && s->base.w == w && s->base.h == h)
+    if (s->base.img && s->base.w == w && s->base.h == h) {
         return 0;
+    }
     vkDeviceWaitIdle(s->dev);
     vk_tex_free(s, &s->base);
-    if (vk_tex_make(s, &s->base, w, h) != 0)
+    if (vk_tex_make(s, &s->base, w, h) != 0) {
         return -1;
+    }
     vk_point_desc(s, s->dset_base, s->base.view);
     return 0;
 }
@@ -882,8 +944,9 @@ static int vk_make_pipeline(Swap *s) {
                               .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                               .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                               .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE};
-    if (vkCreateSampler(s->dev, &si, NULL, &s->samp) != VK_SUCCESS)
+    if (vkCreateSampler(s->dev, &si, NULL, &s->samp) != VK_SUCCESS) {
         return -1;
+    }
 
     VkDescriptorSetLayoutBinding b = {.binding = 0,
                                       .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -893,8 +956,9 @@ static int vk_make_pipeline(Swap *s) {
                                               VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
                                           .bindingCount = 1,
                                           .pBindings = &b};
-    if (vkCreateDescriptorSetLayout(s->dev, &li, NULL, &s->dsl) != VK_SUCCESS)
+    if (vkCreateDescriptorSetLayout(s->dev, &li, NULL, &s->dsl) != VK_SUCCESS) {
         return -1;
+    }
 
     VkPushConstantRange pcr = {.stageFlags =
                                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -905,37 +969,42 @@ static int vk_make_pipeline(Swap *s) {
                                       .pSetLayouts = &s->dsl,
                                       .pushConstantRangeCount = 1,
                                       .pPushConstantRanges = &pcr};
-    if (vkCreatePipelineLayout(s->dev, &pli, NULL, &s->pll) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(s->dev, &pli, NULL, &s->pll) != VK_SUCCESS) {
         return -1;
+    }
 
     VkDescriptorPoolSize ps = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
     VkDescriptorPoolCreateInfo dci = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                                       .maxSets = 2,
                                       .poolSizeCount = 1,
                                       .pPoolSizes = &ps};
-    if (vkCreateDescriptorPool(s->dev, &dci, NULL, &s->dpool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(s->dev, &dci, NULL, &s->dpool) != VK_SUCCESS) {
         return -1;
+    }
     VkDescriptorSetLayout layouts[2] = {s->dsl, s->dsl};
     VkDescriptorSet sets[2];
     VkDescriptorSetAllocateInfo dai = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
                                        .descriptorPool = s->dpool,
                                        .descriptorSetCount = 2,
                                        .pSetLayouts = layouts};
-    if (vkAllocateDescriptorSets(s->dev, &dai, sets) != VK_SUCCESS)
+    if (vkAllocateDescriptorSets(s->dev, &dai, sets) != VK_SUCCESS) {
         return -1;
+    }
     s->dset_atlas = sets[0];
     s->dset_base = sets[1];
 
     VkShaderModuleCreateInfo vmi = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
                                     .codeSize = sizeof k_quad_vert_spv,
                                     .pCode = k_quad_vert_spv};
-    if (vkCreateShaderModule(s->dev, &vmi, NULL, &s->vs) != VK_SUCCESS)
+    if (vkCreateShaderModule(s->dev, &vmi, NULL, &s->vs) != VK_SUCCESS) {
         return -1;
+    }
     VkShaderModuleCreateInfo fmi = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
                                     .codeSize = sizeof k_quad_frag_spv,
                                     .pCode = k_quad_frag_spv};
-    if (vkCreateShaderModule(s->dev, &fmi, NULL, &s->fs) != VK_SUCCESS)
+    if (vkCreateShaderModule(s->dev, &fmi, NULL, &s->fs) != VK_SUCCESS) {
         return -1;
+    }
 
     VkPipelineShaderStageCreateInfo stages[2] = {
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -986,8 +1055,9 @@ static int vk_make_pipeline(Swap *s) {
                                        .pDynamicState = &dys,
                                        .layout = s->pll,
                                        .renderPass = s->rpass};
-    if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe) != VK_SUCCESS)
+    if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe) != VK_SUCCESS) {
         return -1;
+    }
 
     /* Same pipeline but ALPHA blend — the per-character drop shadow (quad mode 2):
      * result = black*srcA + dst*(1-srcA) → darkens the background by the silhouette. */
@@ -1006,8 +1076,9 @@ static int vk_make_pipeline(Swap *s) {
         .pAttachments = &cba_a};
     gp.pColorBlendState = &cb_a;
     if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe_quad_shadow) !=
-        VK_SUCCESS)
+        VK_SUCCESS) {
         return -1;
+    }
     return 0;
 }
 
@@ -1018,21 +1089,24 @@ static int vk_make_fx_pipelines(Swap *s) {
     VkShaderModuleCreateInfo vmi = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
                                     .codeSize = sizeof k_blit_vert_spv,
                                     .pCode = k_blit_vert_spv};
-    if (vkCreateShaderModule(s->dev, &vmi, NULL, &s->fx_vs) != VK_SUCCESS)
+    if (vkCreateShaderModule(s->dev, &vmi, NULL, &s->fx_vs) != VK_SUCCESS) {
         return -1;
+    }
     VkShaderModuleCreateInfo fmi = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
                                     .codeSize = sizeof k_fx_frag_spv,
                                     .pCode = k_fx_frag_spv};
-    if (vkCreateShaderModule(s->dev, &fmi, NULL, &s->fx_fs) != VK_SUCCESS)
+    if (vkCreateShaderModule(s->dev, &fmi, NULL, &s->fx_fs) != VK_SUCCESS) {
         return -1;
+    }
 
     VkPushConstantRange pcr = {
         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FxPush)};
     VkPipelineLayoutCreateInfo pli = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                       .pushConstantRangeCount = 1,
                                       .pPushConstantRanges = &pcr};
-    if (vkCreatePipelineLayout(s->dev, &pli, NULL, &s->pll_fx) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(s->dev, &pli, NULL, &s->pll_fx) != VK_SUCCESS) {
         return -1;
+    }
 
     VkPipelineShaderStageCreateInfo stages[2] = {
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -1094,8 +1168,9 @@ static int vk_make_fx_pipelines(Swap *s) {
                                        .layout = s->pll_fx,
                                        .renderPass = s->rpass};
     if (vkCreateGraphicsPipelines(s->dev, VK_NULL_HANDLE, 1, &gp, NULL, &s->pipe_fx_dim) !=
-        VK_SUCCESS)
+        VK_SUCCESS) {
         return -1;
+    }
     return 0;
 }
 
@@ -1291,14 +1366,18 @@ static void vk_scissor_content(Swap *s, int cw, int ch, int x, int y, int w, int
         rh += ry;
         ry = 0;
     }
-    if (rx + rw > (int)s->extent.width)
+    if (rx + rw > (int)s->extent.width) {
         rw = (int)s->extent.width - rx;
-    if (ry + rh > (int)s->extent.height)
+    }
+    if (ry + rh > (int)s->extent.height) {
         rh = (int)s->extent.height - ry;
-    if (rw < 0)
+    }
+    if (rw < 0) {
         rw = 0;
-    if (rh < 0)
+    }
+    if (rh < 0) {
         rh = 0;
+    }
     VkRect2D sc = {{rx, ry}, {(uint32_t)rw, (uint32_t)rh}};
     vkCmdSetScissor(s->cmd, 0, 1, &sc);
 }
@@ -1323,21 +1402,25 @@ static int vk_atlas_pack_bake(Swap *s, const Scene *sc, AtlasPos *pos) {
     for (int i = 0; i < sc->nquads; i++) {
         const SceneQuad *q = &sc->quads[i];
         pos[i].w = 0;
-        if (q->w <= 0 || q->h <= 0)
+        if (q->w <= 0 || q->h <= 0) {
             continue;
-        if (q->w > VK_ATLAS_W)
+        }
+        if (q->w > VK_ATLAS_W) {
             return -1;
+        }
         if (cur_x + q->w > VK_ATLAS_W) {
             cur_x = 0;
             cur_y += shelf_h;
             shelf_h = 0;
         }
-        if (cur_y + q->h > VK_ATLAS_H)
+        if (cur_y + q->h > VK_ATLAS_H) {
             return -1;
+        }
         pos[i] = (AtlasPos){cur_x, cur_y, q->w, q->h};
         cur_x += q->w;
-        if (q->h > shelf_h)
+        if (q->h > shelf_h) {
             shelf_h = q->h;
+        }
         for (int rr = 0; rr < q->h; rr++) {
             int dy = q->y + rr;
             const uint32_t *pal =
@@ -1367,8 +1450,9 @@ static int vk_begin_frame(Swap *s, uint32_t *out_idx) {
         sw_rebuild(s);
         return -1;
     }
-    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR)
+    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) {
         return -1;
+    }
     vkResetFences(s->dev, 1, &s->fence);
     vkResetCommandBuffer(s->cmd, 0);
     VkCommandBufferBeginInfo bi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1399,8 +1483,9 @@ static void vk_end_frame(Swap *s, uint32_t idx) {
                            .pSwapchains = &s->swap,
                            .pImageIndices = &idx};
     VkResult pr = vkQueuePresentKHR(s->queue, &pi);
-    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
+    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) {
         sw_rebuild(s);
+    }
 }
 
 static void vk_begin_pass(Swap *s, uint32_t idx, int cw, int ch) {
@@ -1439,15 +1524,18 @@ static void vk_begin_pass(Swap *s, uint32_t idx, int cw, int ch) {
 /* Overlay / fallback path: present the composed surface as one fullscreen quad. */
 static void vulkan_present(const uint32_t *argb, int w, int h) {
     Swap *s = &g_sw;
-    if (!s->ok)
+    if (!s->ok) {
         return;
-    if (vk_ensure_base(s, w, h) != 0)
+    }
+    if (vk_ensure_base(s, w, h) != 0) {
         return;
+    }
     memcpy(s->base.up_ptr, argb, (size_t)w * h * 4);
 
     uint32_t idx;
-    if (vk_begin_frame(s, &idx) != 0)
+    if (vk_begin_frame(s, &idx) != 0) {
         return;
+    }
     vk_tex_upload_cmd(s, &s->base);
     vk_begin_pass(s, idx, w, h);
 
@@ -1469,15 +1557,18 @@ static void vulkan_present(const uint32_t *argb, int w, int h) {
 static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi, const uint32_t *base, int w,
                                  int h, const PresentRect *rects, int nrects) {
     Swap *s = &g_sw;
-    if (!s->ok)
+    if (!s->ok) {
         return;
-    if (vk_ensure_base(s, w, h) != 0)
+    }
+    if (vk_ensure_base(s, w, h) != 0) {
         return;
+    }
     memcpy(s->base.up_ptr, base, (size_t)w * h * 4);
 
     AtlasPos *pos = malloc(sizeof(AtlasPos) * (size_t)(sc->nquads ? sc->nquads : 1));
-    if (!pos)
+    if (!pos) {
         return;
+    }
     if (vk_atlas_pack_bake(s, sc, pos) != 0) { /* atlas overflow: composed fallback */
         free(pos);
         vulkan_present(base, w, h);
@@ -1527,8 +1618,9 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi, const uint
         int y1 = y + 1;
         while (y1 < y_hi) {
             uint32_t c1 = (y1 >= 0 && y1 < SCENE_MAX_ROWS) ? sc->pal_rows[y1][0] : 0;
-            if ((c1 & 0xFFFFFF) != (c0 & 0xFFFFFF))
+            if ((c1 & 0xFFFFFF) != (c0 & 0xFFFFFF)) {
                 break;
+            }
             y1++;
         }
         QuadPush q;
@@ -1553,10 +1645,12 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi, const uint
      * shows behind them. */
     {
         int cx0 = sc->wclip_x0 - sc->view_left, cx1 = sc->wclip_x1 - sc->view_left;
-        if (cx0 < 0)
+        if (cx0 < 0) {
             cx0 = 0;
-        if (cx1 > w)
+        }
+        if (cx1 > w) {
             cx1 = w;
+        }
         if (cx1 > cx0) {
             vk_scissor_content(s, w, h, cx0, y_lo, cx1 - cx0, y_hi - y_lo);
 
@@ -1564,8 +1658,9 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi, const uint
             const float SH_DX = 3.0f, SH_DY = 3.0f, SH_OPACITY = 0.45f; /* offset px + darkness */
             for (int i = 0; i < sc->nquads; i++) {
                 const SceneQuad *q = &sc->quads[i];
-                if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0)
+                if (q->space != SCENE_SPACE_WORLD || pos[i].w == 0) {
                     continue;
+                }
                 float u0 = (float)pos[i].x / VK_ATLAS_W, v0 = (float)pos[i].y / VK_ATLAS_H;
                 float u1 = (float)(pos[i].x + q->w) / VK_ATLAS_W,
                       v1 = (float)(pos[i].y + q->h) / VK_ATLAS_H;
@@ -1637,8 +1732,9 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi, const uint
     vk_scissor_content(s, w, h, 0, 0, w, h);
     for (int i = 0; i < sc->nquads; i++) {
         const SceneQuad *q = &sc->quads[i];
-        if (q->space != SCENE_SPACE_SCREEN || pos[i].w == 0)
+        if (q->space != SCENE_SPACE_SCREEN || pos[i].w == 0) {
             continue;
+        }
         QuadPush qp;
         memset(&qp, 0, sizeof qp);
         qp.screen[0] = scr0;
@@ -1668,12 +1764,15 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi, const uint
             rh += y0;
             y0 = 0;
         }
-        if (x0 + rw > w)
+        if (x0 + rw > w) {
             rw = w - x0;
-        if (y0 + rh > h)
+        }
+        if (y0 + rh > h) {
             rh = h - y0;
-        if (rw <= 0 || rh <= 0)
+        }
+        if (rw <= 0 || rh <= 0) {
             continue;
+        }
         QuadPush qp;
         memset(&qp, 0, sizeof qp);
         qp.screen[0] = scr0;
@@ -1694,63 +1793,88 @@ static void vulkan_present_scene(const Scene *sc, int y_lo, int y_hi, const uint
 }
 
 static void vulkan_set_effects(const FxFrame *fx) {
-    if (fx)
+    if (fx) {
         g_sw.fx = *fx;
+    }
 }
 
-static SDL_Window *vulkan_window(void) { return g_sw.win; }
+static SDL_Window *vulkan_window(void) {
+    return g_sw.win;
+}
 
 static void vulkan_shutdown(void) {
     Swap *s = &g_sw;
-    if (s->dev)
+    if (s->dev) {
         vkDeviceWaitIdle(s->dev);
-    if (s->fence)
+    }
+    if (s->fence) {
         vkDestroyFence(s->dev, s->fence, NULL);
-    if (s->sem_acquire)
+    }
+    if (s->sem_acquire) {
         vkDestroySemaphore(s->dev, s->sem_acquire, NULL);
+    }
     /* sem_done[] is freed by sw_destroy_targets below. */
-    if (s->pipe_fx_dim)
+    if (s->pipe_fx_dim) {
         vkDestroyPipeline(s->dev, s->pipe_fx_dim, NULL);
-    if (s->pll_fx)
+    }
+    if (s->pll_fx) {
         vkDestroyPipelineLayout(s->dev, s->pll_fx, NULL);
-    if (s->fx_vs)
+    }
+    if (s->fx_vs) {
         vkDestroyShaderModule(s->dev, s->fx_vs, NULL);
-    if (s->fx_fs)
+    }
+    if (s->fx_fs) {
         vkDestroyShaderModule(s->dev, s->fx_fs, NULL);
-    if (s->pipe_quad_shadow)
+    }
+    if (s->pipe_quad_shadow) {
         vkDestroyPipeline(s->dev, s->pipe_quad_shadow, NULL);
-    if (s->pipe)
+    }
+    if (s->pipe) {
         vkDestroyPipeline(s->dev, s->pipe, NULL);
-    if (s->vs)
+    }
+    if (s->vs) {
         vkDestroyShaderModule(s->dev, s->vs, NULL);
-    if (s->fs)
+    }
+    if (s->fs) {
         vkDestroyShaderModule(s->dev, s->fs, NULL);
-    if (s->pll)
+    }
+    if (s->pll) {
         vkDestroyPipelineLayout(s->dev, s->pll, NULL);
-    if (s->dpool)
+    }
+    if (s->dpool) {
         vkDestroyDescriptorPool(s->dev, s->dpool, NULL);
-    if (s->dsl)
+    }
+    if (s->dsl) {
         vkDestroyDescriptorSetLayout(s->dev, s->dsl, NULL);
-    if (s->samp)
+    }
+    if (s->samp) {
         vkDestroySampler(s->dev, s->samp, NULL);
+    }
     vk_tex_free(s, &s->atlas);
     vk_tex_free(s, &s->base);
     sw_destroy_targets(s);
-    if (s->rpass)
+    if (s->rpass) {
         vkDestroyRenderPass(s->dev, s->rpass, NULL);
-    if (s->cpool)
+    }
+    if (s->cpool) {
         vkDestroyCommandPool(s->dev, s->cpool, NULL);
-    if (s->swap)
+    }
+    if (s->swap) {
         vkDestroySwapchainKHR(s->dev, s->swap, NULL);
+    }
     free(s->images);
-    if (s->dev)
+    if (s->dev) {
         vkDestroyDevice(s->dev, NULL);
-    if (s->surface)
+    }
+    if (s->surface) {
         vkDestroySurfaceKHR(s->inst, s->surface, NULL);
-    if (s->inst)
+    }
+    if (s->inst) {
         vkDestroyInstance(s->inst, NULL);
-    if (s->win)
+    }
+    if (s->win) {
         SDL_DestroyWindow(s->win);
+    }
     memset(s, 0, sizeof *s);
 }
 
@@ -1760,6 +1884,8 @@ static const PresentBackend VULKAN_BACKEND = {
 
 /* Returns the Vulkan backend; present_backend_select() handles the case where
  * vulkan_init() later fails (it returns -1 and hw_init aborts that backend). */
-const PresentBackend *present_backend_vulkan(void) { return &VULKAN_BACKEND; }
+const PresentBackend *present_backend_vulkan(void) {
+    return &VULKAN_BACKEND;
+}
 
 #endif /* BENEFACTOR_HAVE_VULKAN */

@@ -175,7 +175,9 @@ static const PresentBackend *s_backend = NULL;
  * enabled — exactly as the real CPU's interrupt priority logic would, so a
  * vector left over from the previous screen (e.g. during a level load, when the
  * game has masked the interrupt) never runs. */
-uint16_t hw_get_intena(void) { return s_intena; }
+uint16_t hw_get_intena(void) {
+    return s_intena;
+}
 
 /* Disk images */
 static char *s_disk_paths[4];
@@ -184,7 +186,9 @@ static int s_n_disks = 0;
 /* Framebuffer 320×256 ARGB8888 */
 uint32_t s_fb[HW_DISPLAY_W * HW_DISPLAY_H];
 
-const uint32_t *hw_get_framebuffer(void) { return s_fb; }
+const uint32_t *hw_get_framebuffer(void) {
+    return s_fb;
+}
 
 /* ── Widescreen output surface ─────────────────────────────────────────────────
  * s_fb is always the engine's 4:3 render (352 wide). s_out is the final OUTPUT
@@ -193,17 +197,23 @@ const uint32_t *hw_get_framebuffer(void) { return s_fb; }
  * or 1 for a 480 default. */
 int s_hw_out_w = HW_DISPLAY_W;
 static uint32_t s_out[HW_OUT_MAX * HW_DISPLAY_H];
-int hw_output_width(void) { return s_hw_out_w; }
-const uint32_t *hw_get_output_framebuffer(void) { return s_out; }
+int hw_output_width(void) {
+    return s_hw_out_w;
+}
+const uint32_t *hw_get_output_framebuffer(void) {
+    return s_out;
+}
 
 /* Current DIWSTRT/DIWSTOP hardware shadow (display window). The renderer crops
  * the playfield to this horizontal window so off-window scroll-overscan columns
  * don't show on the sides — same as real OCS. */
 void hw_get_diw(uint16_t *strt, uint16_t *stop) {
-    if (strt)
+    if (strt) {
         *strt = s_regs[DIWSTRT >> 1];
-    if (stop)
+    }
+    if (stop) {
         *stop = s_regs[DIWSTOP >> 1];
+    }
 }
 
 /* Composite the 352-wide s_fb (+ pillarbox margins) into s_out at s_hw_out_w.
@@ -226,15 +236,18 @@ static void hw_compose_output(void) {
         for (int y = 0; y < HW_DISPLAY_H; y++) {
             uint32_t *dst = s_out + y * ow;
             uint32_t bg = native_scanline_bgcolor(y);
-            for (int x = 0; x < margin; x++)
+            for (int x = 0; x < margin; x++) {
                 dst[x] = bg;
+            }
             memcpy(dst + margin, s_fb + y * HW_DISPLAY_W, HW_DISPLAY_W * sizeof(uint32_t));
-            for (int x = margin + HW_DISPLAY_W; x < ow; x++)
+            for (int x = margin + HW_DISPLAY_W; x < ow; x++) {
                 dst[x] = bg;
+            }
         }
     } else {
-        for (int y = 0; y < HW_DISPLAY_H; y++)
+        for (int y = 0; y < HW_DISPLAY_H; y++) {
             memcpy(s_out + y * ow, s_fb + y * HW_DISPLAY_W, (size_t)ow * sizeof(uint32_t));
+        }
     }
     /* BenRen = the sprite-based renderer (no Amiga blit): it composes the gameplay
      * playfield + margins natively across the full output width. Vanilla leaves
@@ -252,8 +265,9 @@ static void hw_compose_output(void) {
      *                                  the camera/copper timing skew (turbo jitter) and a
      *                                  framing drift vs vanilla — so we don't. */
     static int cmp = -1;
-    if (cmp < 0)
+    if (cmp < 0) {
         cmp = pc_cfg_bool("widescreen_compare", 0);
+    }
     PcRenderMode mode = pc_render_mode();
     int benren = (mode == PC_RENDER_BENREN) || (mode == PC_RENDER_AUTO && ow > HW_DISPLAY_W) || cmp;
     {
@@ -265,10 +279,11 @@ static void hw_compose_output(void) {
      * Otherwise Software/Vanilla 4:3 keep the engine frame. */
     int want_scene = hw_scene_render_enabled() || pc_freecam_active();
     if (benren) {
-        if (margin > 0 || cmp || want_scene)
+        if (margin > 0 || cmp || want_scene) {
             native_render_wide_bg(s_out, ow, margin); /* full native playfield */
-        else
+        } else {
             native_render_effects_43(s_out, ow); /* 4:3: engine frame + effects */
+        }
     }
     hw_blit_capture_reset(); /* start a fresh object-blit capture for the next frame */
 }
@@ -295,19 +310,23 @@ static int s_frame_num = 0;
 static int s_blt_setup_open = 0;
 volatile uint32_t g_hw_blt_last_reg = 0; /* BLTxxx write that set the flag */
 
-int hw_blit_setup_open(void) { return s_blt_setup_open; }
+int hw_blit_setup_open(void) {
+    return s_blt_setup_open;
+}
 
 /* Save/restore the whole shared blitter register set ($040..$074) around an
  * interrupt, so a vector delivered mid-sequence cannot corrupt the flow's
  * half-written blit. The interrupt's own blits still run: they complete at
  * their BLTSIZE, inside the saved window. */
 void hw_blit_regs_save(uint16_t *dst) {
-    for (uint32_t reg = 0x040; reg <= 0x074; reg += 2)
+    for (uint32_t reg = 0x040; reg <= 0x074; reg += 2) {
         dst[(reg - 0x040) >> 1] = s_regs[reg >> 1];
+    }
 }
 void hw_blit_regs_restore(const uint16_t *src) {
-    for (uint32_t reg = 0x040; reg <= 0x074; reg += 2)
+    for (uint32_t reg = 0x040; reg <= 0x074; reg += 2) {
         s_regs[reg >> 1] = src[(reg - 0x040) >> 1];
+    }
 }
 
 volatile uint32_t g_hw_beam_by_flow = 0; /* the parkable game flow      */
@@ -325,8 +344,9 @@ static void hw_step_register_beam(int at_beam_read) {
     uint64_t line = rt_get_guest_cycles() / BEAM_CYCLES_PER_LINE;
     uint64_t frame = line / BEAM_LINES_PER_FRAME;
     s_scanline = (int)(line % BEAM_LINES_PER_FRAME);
-    if (frame == s_beam_frame)
+    if (frame == s_beam_frame) {
         return;
+    }
     s_beam_frame = frame;
     g_hw_beam_crossed++;
     if (!g_hw_vblank_yield) {
@@ -335,7 +355,9 @@ static void hw_step_register_beam(int at_beam_read) {
     }
 }
 
-int hw_get_frame_num(void) { return s_frame_num; }
+int hw_get_frame_num(void) {
+    return s_frame_num;
+}
 
 /* Frame timing */
 static uint64_t s_frame_start_ns = 0;
@@ -352,7 +374,9 @@ static int s_in_present_frame = 0;
 
 /* Skip the per-frame 50Hz SDL_Delay pacing — set by the harness so test runs
  * go at full CPU speed (the interactive harness paces separately). */
-void hw_set_no_pace(int on) { s_no_pace = on; }
+void hw_set_no_pace(int on) {
+    s_no_pace = on;
+}
 
 /* Real-time speed, in PERCENT of PAL 50Hz. Two sources:
  *   - "game_speed" cfg knob ("normal" = 100 | "turbo" = 120), the persistent
@@ -369,32 +393,40 @@ static int s_speed_pct = 100; /* persistent knob: normal=100, turbo=120 */
 static int s_ffwd_held = 0;   /* fast-forward action currently held */
 #define HW_FFWD_PCT 500
 
-static int hw_speed_eff_pct(void) { return s_ffwd_held ? HW_FFWD_PCT : s_speed_pct; }
+static int hw_speed_eff_pct(void) {
+    return s_ffwd_held ? HW_FFWD_PCT : s_speed_pct;
+}
 
 void hw_speed_refresh(void) {
     int pct = 100;
     char buf[16];
     if (pc_cfg_show("game_speed", buf, sizeof buf, NULL) && buf[0]) {
-        if (!strcasecmp(buf, "turbo"))
+        if (!strcasecmp(buf, "turbo")) {
             pct = 120;
-        else if (!strcasecmp(buf, "hyper"))
+        } else if (!strcasecmp(buf, "hyper")) {
             pct = 150;
-        else if (!strcasecmp(buf, "normal"))
+        } else if (!strcasecmp(buf, "normal")) {
             pct = 100;
-        else { /* numeric multiplier (legacy "1"/"2"/"4") */
+        } else { /* numeric multiplier (legacy "1"/"2"/"4") */
             int m = atoi(buf);
-            if (m >= 1 && m <= 16)
+            if (m >= 1 && m <= 16) {
                 pct = m * 100;
+            }
         }
     }
-    if (pct == s_speed_pct)
+    if (pct == s_speed_pct) {
         return;
+    }
     s_speed_pct = pct;
     benefactor_log_write(BENEFACTOR_LOG_INFO, "speed", "%d%%", pct);
 }
 
-void hw_set_ffwd(int held) { s_ffwd_held = !!held; }
-int hw_ffwd_active(void) { return s_ffwd_held; } /* HUD icon */
+void hw_set_ffwd(int held) {
+    s_ffwd_held = !!held;
+}
+int hw_ffwd_active(void) {
+    return s_ffwd_held;
+} /* HUD icon */
 
 /* True when a real-time (wall-clock 20ms) music/audio frame is due. At exactly
  * 100% this is ALWAYS true — one audio frame per game frame, the original
@@ -415,14 +447,16 @@ static void hw_pace_frame(void) {
      * stand down — a held frame never finishing is the point, not a fault. */
     if (pc_control_paused()) {
         hw_watchdog_disarm();
-        while (pc_control_paused() && hw_running)
+        while (pc_control_paused() && hw_running) {
             SDL_Delay(5);
+        }
         hw_watchdog_rearm();
         /* However long the hold was, it is not a backlog of frames owed. */
         pc_pace_resync();
     }
-    if (s_no_pace)
+    if (s_no_pace) {
         return;
+    }
     pc_pace_set_speed_percent((unsigned)hw_speed_eff_pct());
     pc_pace_frame_wait();
 }
@@ -442,8 +476,9 @@ uint64_t hw_perf_now_us(void) {
 
 void hw_perf_acc(uint32_t *ema_us, uint64_t t0_us) {
     uint64_t dt = hw_perf_now_us() - t0_us;
-    if (dt > 10000000ull)
+    if (dt > 10000000ull) {
         dt = 10000000ull; /* clamp pathological stalls */
+    }
     int32_t d = (int32_t)dt - (int32_t)*ema_us;
     *ema_us = (uint32_t)((int32_t)*ema_us + d / 32); /* EMA, alpha = 1/32 */
 }
@@ -453,8 +488,9 @@ static void hw_perf_fps_tick(void) {
     static int s_sec_frames = 0;
     s_sec_frames++;
     uint64_t now = hw_perf_now_us();
-    if (s_sec_start == 0)
+    if (s_sec_start == 0) {
         s_sec_start = now;
+    }
     if (now - s_sec_start >= 1000000ull) {
         g_hw_perf.fps = (int)((uint64_t)s_sec_frames * 1000000ull / (now - s_sec_start));
         s_sec_start = now;
@@ -463,14 +499,17 @@ static void hw_perf_fps_tick(void) {
 }
 
 int hw_audio_frame_due(void) {
-    if (hw_speed_eff_pct() == 100)
+    if (hw_speed_eff_pct() == 100) {
         return 1;
+    }
     static uint64_t s_next_ms = 0;
     uint64_t now = SDL_GetTicks();
-    if (s_next_ms == 0 || now > s_next_ms + 200)
+    if (s_next_ms == 0 || now > s_next_ms + 200) {
         s_next_ms = now; /* (re)sync */
-    if (now < s_next_ms)
+    }
+    if (now < s_next_ms) {
         return 0;
+    }
     s_next_ms += 20;
     return 1;
 }
@@ -479,7 +518,9 @@ int hw_audio_frame_due(void) {
  * set, hw_present_frame must NOT call SDL_PollEvent — two consumers draining
  * the single event queue split KEYUP/KEYDOWN/QUIT between them, causing stuck
  * fire (missed KEYUP) and ignored presses (missed KEYDOWN). */
-void hw_set_external_input(int on) { s_ext_input = on; }
+void hw_set_external_input(int on) {
+    s_ext_input = on;
+}
 
 /* Present-rect registry for the LIGHT PC overlays (HUD icons / F3 profiler):
  * regions of the composed surface the per-sprite scene present must re-assert
@@ -490,8 +531,9 @@ static PresentRect s_ovl_rects[HW_OVL_RECT_MAX];
 static int s_ovl_nrects = 0;
 
 void hw_overlay_rect(int x, int y, int w, int h) {
-    if (s_ovl_nrects >= HW_OVL_RECT_MAX || w <= 0 || h <= 0)
+    if (s_ovl_nrects >= HW_OVL_RECT_MAX || w <= 0 || h <= 0) {
         return;
+    }
     s_ovl_rects[s_ovl_nrects++] = (PresentRect){x, y, w, h};
 }
 
@@ -511,9 +553,10 @@ static uint8_t s_fire_vanilla = 0;      /* fire held on a device with VANILLA co
 void (*g_hw_boot_handoff)(void) = NULL; /* native disk-boot → frame-loop hand-off */
 
 void hw_set_joystick(int up, int down, int left, int right, int fire) {
-    if (s_joy_right != !!right)
+    if (s_joy_right != !!right) {
         benefactor_log_write(BENEFACTOR_LOG_TRACE, "input", "joystick right %d -> %d", s_joy_right,
                              !!right);
+    }
     s_joy_up = !!up;
     s_joy_down = !!down;
     s_joy_left = !!left;
@@ -526,33 +569,66 @@ void hw_set_joystick(int up, int down, int left, int right, int fire) {
         s_fire_pressed = 0;
     }
 }
-int hw_get_fire(void) { return s_fire_pressed; }
-int hw_get_fire_vanilla(void) { return s_fire_vanilla; }
-void hw_set_fire_vanilla(int on) { s_fire_vanilla = !!on; } /* harness forced fire */
-int hw_get_mouse_lmb(void) { return s_mouse_lmb; }
+int hw_get_fire(void) {
+    return s_fire_pressed;
+}
+int hw_get_fire_vanilla(void) {
+    return s_fire_vanilla;
+}
+void hw_set_fire_vanilla(int on) {
+    s_fire_vanilla = !!on;
+} /* harness forced fire */
+int hw_get_mouse_lmb(void) {
+    return s_mouse_lmb;
+}
 void hw_set_fire(int on) {
     s_fire_pressed = on;
-    if (on)
+    if (on) {
         s_joy_buttons |= 1;
-    else
+    } else {
         s_joy_buttons &= ~1;
+    }
 }
 void hw_set_mouse_lmb(int on) {
     s_mouse_lmb_raw = (uint8_t)(on ? 1 : 0);
     s_mouse_lmb = (uint8_t)(on ? 1 : 0);
 }
-int hw_get_interact(void) { return s_interact; }
-void hw_set_interact(int on) { s_interact = !!on; }
-int hw_get_drop(void) { return s_drop; }
-void hw_set_drop(int on) { s_drop = !!on; }
-int hw_get_hop(void) { return s_hop; }
-void hw_set_hop(int on) { s_hop = !!on; }
-void hw_set_joy_down(int on) { s_joy_down = !!on; }
-void hw_set_joy_up(int on) { s_joy_up = !!on; }
-int hw_joy_up(void) { return s_joy_up; }
-int hw_joy_down(void) { return s_joy_down; }
-int hw_joy_left(void) { return s_joy_left; }
-int hw_joy_right(void) { return s_joy_right; }
+int hw_get_interact(void) {
+    return s_interact;
+}
+void hw_set_interact(int on) {
+    s_interact = !!on;
+}
+int hw_get_drop(void) {
+    return s_drop;
+}
+void hw_set_drop(int on) {
+    s_drop = !!on;
+}
+int hw_get_hop(void) {
+    return s_hop;
+}
+void hw_set_hop(int on) {
+    s_hop = !!on;
+}
+void hw_set_joy_down(int on) {
+    s_joy_down = !!on;
+}
+void hw_set_joy_up(int on) {
+    s_joy_up = !!on;
+}
+int hw_joy_up(void) {
+    return s_joy_up;
+}
+int hw_joy_down(void) {
+    return s_joy_down;
+}
+int hw_joy_left(void) {
+    return s_joy_left;
+}
+int hw_joy_right(void) {
+    return s_joy_right;
+}
 
 /* Derive the engine input flags from the resolved (config-bound) actions. Called after
  * every gameplay key event. Up = Up direction OR a separate Hop binding — so a dedicated
@@ -579,13 +655,15 @@ static void apply_bound_input(void) {
      * JUMP button doubles as fire/confirm, so the primary face button
      * (pad A / Space on the modern scheme) still drives the game's own
      * title/menu/card screens. In playfield gameplay it is strictly JUMP. */
-    if (s_hop && (!g_gameplay_active || hw_get_cop1lc() == 0x003914u))
+    if (s_hop && (!g_gameplay_active || hw_get_cop1lc() == 0x003914u)) {
         fire = 1;
+    }
     s_fire_pressed = fire;
-    if (fire)
+    if (fire) {
         s_joy_buttons |= 1;
-    else
+    } else {
         s_joy_buttons &= ~1;
+    }
     s_mouse_lmb = (uint8_t)(fire || s_mouse_lmb_raw); /* fire also = port-0/menu select */
     /* Fire held on a VANILLA-scheme device: that fire is allowed to keep its
      * original interact/drop meaning in the overrides (hw_get_fire_vanilla). */
@@ -606,8 +684,9 @@ static void apply_bound_input(void) {
     {
         static int prev_fc = 0;
         int fc = pc_input_active(PI_FREECAM);
-        if (fc && !prev_fc)
+        if (fc && !prev_fc) {
             pc_freecam_toggle();
+        }
         prev_fc = fc;
         if (pc_freecam_active()) {
             s_joy_left = s_joy_right = s_joy_up = s_joy_down = 0;
@@ -622,7 +701,9 @@ static void apply_bound_input(void) {
 
 /* The Android touch owner updates logical actions through pc_input, then asks
  * this single hardware boundary to resolve Amiga input state. */
-void hw_touch_controls_changed(void) { apply_bound_input(); }
+void hw_touch_controls_changed(void) {
+    apply_bound_input();
+}
 
 /* Single keyboard→input-state mapper, shared by the standalone
  * (hw_present_frame) and the harness (input.c) so there is exactly one input
@@ -638,9 +719,9 @@ void hw_handle_key(int sym, int down) {
         /* Bindings capture ("PRESS A KEY"): the next key press becomes the
          * binding. ESC cancels (handled inside pc_pause_capture_code). */
         if (pc_pause_capture_active()) {
-            if (down)
+            if (down) {
                 pc_pause_capture_code(PI_DEV_KB, sym);
-            else {
+            } else {
                 pc_input_load();
                 pc_input_key(sym, 0);
                 apply_bound_input();
@@ -719,12 +800,14 @@ void hw_handle_key(int sym, int down) {
         if (down && g_level_select_visible &&
             (sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT || sym == SDLK_RIGHT)) {
             int cur = pc_get_start_level();
-            if (cur < 1)
+            if (cur < 1) {
                 cur = 1;
+            }
             int w, liw;
             pc_level_split(cur, &w, &liw);
-            if (w < 0 || w >= PC_NUM_WORLDS)
+            if (w < 0 || w >= PC_NUM_WORLDS) {
                 w = 0;
+            }
             switch (sym) { /* locked targets refuse (pc_profile_try_select) */
             case SDLK_UP:
                 pc_profile_try_select(cur - 1);
@@ -791,20 +874,25 @@ static uint8_t s_axis_on[SDL_GAMEPAD_AXIS_COUNT][2];
 #define PAD_AXIS_ON_THRESH 16000
 #define PAD_AXIS_OFF_THRESH 8000
 
-int hw_pad_count(void) { return s_npads; }
+int hw_pad_count(void) {
+    return s_npads;
+}
 
 static void hw_pad_open(int device_index) {
-    if (!SDL_IsGamepad(device_index) || s_npads >= HW_MAX_PADS)
+    if (!SDL_IsGamepad(device_index) || s_npads >= HW_MAX_PADS) {
         return;
+    }
     SDL_Gamepad *gc = SDL_OpenGamepad(device_index);
-    if (!gc)
+    if (!gc) {
         return;
+    }
     SDL_JoystickID id = SDL_GetGamepadID(gc);
-    for (int i = 0; i < s_npads; i++)
+    for (int i = 0; i < s_npads; i++) {
         if (s_pad_ids[i] == id) {
             SDL_CloseGamepad(gc);
             return;
         } /* already open */
+    }
     s_pads[s_npads] = gc;
     s_pad_ids[s_npads] = id;
     s_npads++;
@@ -814,8 +902,9 @@ static void hw_pad_open(int device_index) {
 
 static void hw_pad_close(SDL_JoystickID id) {
     for (int i = 0; i < s_npads; i++) {
-        if (s_pad_ids[i] != id)
+        if (s_pad_ids[i] != id) {
             continue;
+        }
         benefactor_log_write(BENEFACTOR_LOG_INFO, "input", "controller disconnected: %s",
                              SDL_GetGamepadName(s_pads[i]));
         SDL_CloseGamepad(s_pads[i]);
@@ -856,12 +945,14 @@ static int pad_navigation(int code) {
 }
 
 int hw_overlay_navigate(int intent, int down) {
-    if (!pc_pause_active())
+    if (!pc_pause_active()) {
         return 0;
+    }
     /* Releases are consumed: the menu advances on the press edge and holds no
      * state that a release would clear. */
-    if (!down)
+    if (!down) {
         return 1;
+    }
     switch (intent) {
     case HW_NAV_UP:
         pc_pause_input_up();
@@ -890,9 +981,9 @@ int hw_overlay_navigate(int intent, int down) {
 static void hw_handle_pad_code(int code, int down) {
 
     if (pc_pause_capture_active()) {
-        if (down)
+        if (down) {
             pc_pause_capture_code(PI_DEV_PAD, code);
-        else {
+        } else {
             pc_input_load();
             pc_input_pad_button(code, 0);
             apply_bound_input();
@@ -901,11 +992,11 @@ static void hw_handle_pad_code(int code, int down) {
     }
     if (code == SDL_GAMEPAD_BUTTON_START) {
         if (down) {
-            if (pc_pause_active())
+            if (pc_pause_active()) {
                 pc_pause_escape();
-            else if (g_gameplay_active)
+            } else if (g_gameplay_active) {
                 pc_pause_toggle();
-            else {
+            } else {
                 pc_pause_open_options();
             } /* title: straight to OPTIONS */
         }
@@ -938,16 +1029,21 @@ static int hw_widescreen_mode(void) /* -1 unset, 0 disabled, 1 16:9, 2 ultrawide
 {
     char buf[24];
     const char *src;
-    if (!pc_cfg_show("widescreen_mode", buf, sizeof buf, &src) || !buf[0])
+    if (!pc_cfg_show("widescreen_mode", buf, sizeof buf, &src) || !buf[0]) {
         return -1;
-    if (!strcasecmp(buf, "disabled") || !strcasecmp(buf, "off"))
+    }
+    if (!strcasecmp(buf, "disabled") || !strcasecmp(buf, "off")) {
         return 0;
-    if (!strcmp(buf, "16:9") || !strcasecmp(buf, "169"))
+    }
+    if (!strcmp(buf, "16:9") || !strcasecmp(buf, "169")) {
         return 1;
-    if (!strcasecmp(buf, "ultrawide") || !strcmp(buf, "21:9"))
+    }
+    if (!strcasecmp(buf, "ultrawide") || !strcmp(buf, "21:9")) {
         return 2;
-    if (!strcasecmp(buf, "auto"))
+    }
+    if (!strcasecmp(buf, "auto")) {
         return 3;
+    }
     benefactor_log_write(BENEFACTOR_LOG_WARNING, "widescreen",
                          "unknown mode '%s' (disabled|16:9|ultrawide|auto)", buf);
     return -1;
@@ -956,10 +1052,12 @@ static int hw_widescreen_mode(void) /* -1 unset, 0 disabled, 1 16:9, 2 ultrawide
 static int ws_clamp(int w) {
     /* Floor allows the 4:3 symmetric crop (≈331, below the 352 native width); the
      * old HW_DISPLAY_W floor would have undone it. */
-    if (w < HW_DISPLAY_W - 64)
+    if (w < HW_DISPLAY_W - 64) {
         w = HW_DISPLAY_W - 64;
-    if (w > HW_OUT_MAX)
+    }
+    if (w > HW_OUT_MAX) {
         w = HW_OUT_MAX;
+    }
     return w & ~1;
 }
 
@@ -968,8 +1066,9 @@ static int ws_clamp(int w) {
  * WS_CMP correctness gate we keep the full 352 so the BenRen compose still diffs
  * pixel-for-pixel against s_fb. */
 static int hw_width_43(void) {
-    if (pc_cfg_bool("widescreen_compare", 0))
+    if (pc_cfg_bool("widescreen_compare", 0)) {
         return HW_DISPLAY_W;
+    }
     int x0 = 0, x1 = HW_DISPLAY_W;
     native_std_display_window(&x0, &x1);
     int w = x0 + x1;
@@ -978,8 +1077,9 @@ static int hw_width_43(void) {
 
 void hw_widescreen_refresh(void) {
     int mode = hw_widescreen_mode();
-    if (mode < 0)
+    if (mode < 0) {
         return; /* knob unset: legacy width stays */
+    }
     int w;
     switch (mode) {
     case 0:
@@ -1004,16 +1104,18 @@ void hw_widescreen_refresh(void) {
     }
     }
     w = ws_clamp(w);
-    if (w == s_hw_out_w)
+    if (w == s_hw_out_w) {
         return;
+    }
     s_hw_out_w = w;
     benefactor_log_write(BENEFACTOR_LOG_INFO, "widescreen", "output width -> %d px", w);
     /* For the fixed presets, match the window to the new aspect (auto follows
      * the window instead; fullscreen scales within the display). */
     if (mode != 3 && !s_headless && s_backend) {
         SDL_Window *win = s_backend->window();
-        if (win && !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN))
+        if (win && !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)) {
             SDL_SetWindowSize(win, w * 2, HW_DISPLAY_H * 2);
+        }
     }
 }
 
@@ -1021,15 +1123,18 @@ void hw_widescreen_refresh(void) {
  * and calls this too, so both paths stay in sync and the state survives a
  * restart). Desktop fullscreen — the content letterboxes/scales inside it. */
 void hw_fullscreen_refresh(void) {
-    if (s_headless || !s_backend)
+    if (s_headless || !s_backend) {
         return;
+    }
     SDL_Window *win = s_backend->window();
-    if (!win)
+    if (!win) {
         return;
+    }
     int want = pc_cfg_bool("fullscreen", 0);
     int have = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0;
-    if (want != have)
+    if (want != have) {
         SDL_SetWindowFullscreen(win, want != 0);
+    }
 }
 
 /* Resolve the present (window-owning) backend. The window is created ONCE at init
@@ -1040,8 +1145,9 @@ void hw_fullscreen_refresh(void) {
  * when Vulkan is unavailable. The present setting forces a backend. */
 static const PresentBackend *hw_resolve_backend(void) {
     char backend[32];
-    if (pc_cfg_string("present", "", backend, sizeof backend) && backend[0])
+    if (pc_cfg_string("present", "", backend, sizeof backend) && backend[0]) {
         return present_backend_select(backend);
+    }
     return present_backend_select("vulkan"); /* falls back to sdl if unavailable */
 }
 
@@ -1075,8 +1181,9 @@ int hw_handle_sdl_event(const SDL_Event *ev) {
                              (unsigned)ev->type);
     }
 #ifdef BENEFACTOR_ANDROID
-    if (touch_controls_handle_sdl_event(ev))
+    if (touch_controls_handle_sdl_event(ev)) {
         return 1;
+    }
 #endif
     switch (ev->type) {
     case SDL_EVENT_GAMEPAD_ADDED:
@@ -1091,8 +1198,9 @@ int hw_handle_sdl_event(const SDL_Event *ev) {
         return 1;
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
         int axis = ev->gaxis.axis;
-        if (axis < 0 || axis >= SDL_GAMEPAD_AXIS_COUNT)
+        if (axis < 0 || axis >= SDL_GAMEPAD_AXIS_COUNT) {
             return 1;
+        }
         int v = ev->gaxis.value;
         for (int dir = 0; dir < 2; dir++) { /* 0 = negative, 1 = positive */
             int mag = dir ? v : -v;
@@ -1107,9 +1215,10 @@ int hw_handle_sdl_event(const SDL_Event *ev) {
     }
     case SDL_EVENT_WINDOW_RESIZED:
     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-        if (hw_widescreen_mode() == 3)
+        if (hw_widescreen_mode() == 3) {
             hw_widescreen_refresh(); /* auto: follow the window aspect */
-        return 0;                    /* not exclusive — others may care */
+        }
+        return 0; /* not exclusive — others may care */
     default:
         return 0;
     }
@@ -1126,7 +1235,9 @@ SDL_AudioStream *s_audio_stream = NULL;
  * to its framebuffer but does NOT open its own SDL window — the harness presents
  * the framebuffer itself (side-by-side). Avoids a second window. */
 static int s_force_headless = 0;
-void hw_request_headless(void) { s_force_headless = 1; }
+void hw_request_headless(void) {
+    s_force_headless = 1;
+}
 
 int hw_init(const char *title, const char **disk_paths, int n_disks) {
     pc_config_load();
@@ -1137,20 +1248,24 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
      * the same timeline in a fraction of the time. Reaching gameplay takes
      * ~2.5 minutes of real time paced, seconds unpaced, which is the
      * difference between an experiment per turn and an experiment per idea. */
-    if (pc_cfg_bool("no_pace", 0))
+    if (pc_cfg_bool("no_pace", 0)) {
         hw_set_no_pace(1);
+    }
 
     /* Widescreen output width (widescreen=<px>, or =1 → 480). Read here
      * (before the headless branch) so headless widescreen captures work too. */
     {
         int w = pc_cfg_int("widescreen", 0);
         if (w != 0) {
-            if (w <= 1)
+            if (w <= 1) {
                 w = 480;
-            if (w < HW_DISPLAY_W)
+            }
+            if (w < HW_DISPLAY_W) {
                 w = HW_DISPLAY_W;
-            if (w > HW_OUT_MAX)
+            }
+            if (w > HW_OUT_MAX) {
                 w = HW_OUT_MAX;
+            }
             s_hw_out_w = w & ~1;
         }
     }
@@ -1179,8 +1294,9 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
          * SDL_EVENT_GAMEPAD_ADDED events through hw_handle_sdl_event). */
         int gamepad_count = 0;
         SDL_JoystickID *gamepads = SDL_GetGamepads(&gamepad_count);
-        for (int i = 0; gamepads && i < gamepad_count; i++)
+        for (int i = 0; gamepads && i < gamepad_count; i++) {
             hw_pad_open(gamepads[i]);
+        }
         SDL_free(gamepads);
 
         /* Pick the present (window-owning) backend — Vulkan when available, else SDL;
@@ -1194,13 +1310,15 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
         s_backend = hw_resolve_backend();
         if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) {
             const PresentBackend *sdl = present_backend_sdl();
-            if (s_backend == sdl)
+            if (s_backend == sdl) {
                 return -1; /* sdl itself failed: nothing to fall back to */
+            }
             HW_LOG("[render] backend '%s' init failed (%s); falling back to sdl\n", s_backend->name,
                    SDL_GetError());
             s_backend = sdl;
-            if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0)
+            if (s_backend->init(title, s_hw_out_w, HW_DISPLAY_H) != 0) {
                 return -1;
+            }
         }
         HW_LOG("[render] present backend: %s\n", s_backend->name);
 #ifdef BENEFACTOR_ANDROID
@@ -1215,12 +1333,14 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
 
     /* Store disk paths */
     s_n_disks = (n_disks < 4) ? n_disks : 4;
-    for (int i = 0; i < s_n_disks; i++)
+    for (int i = 0; i < s_n_disks; i++) {
         s_disk_paths[i] = disk_paths[i] ? strdup(disk_paths[i]) : NULL;
+    }
 
     /* Init default palette to grey ramp */
-    for (int i = 0; i < 32; i++)
+    for (int i = 0; i < 32; i++) {
         s_palette[i] = amiga_to_argb((uint16_t)(i * 0x111));
+    }
 
     s_frame_start_ns = (uint64_t)SDL_GetTicks() * 1000000ULL;
     return 0;
@@ -1228,10 +1348,12 @@ int hw_init(const char *title, const char **disk_paths, int n_disks) {
 
 void hw_fini(void) {
     hw_audio_close();
-    for (int i = 0; i < s_n_disks; i++)
+    for (int i = 0; i < s_n_disks; i++) {
         free(s_disk_paths[i]);
-    if (!s_headless && s_backend)
+    }
+    if (!s_headless && s_backend) {
         s_backend->shutdown();
+    }
     SDL_Quit();
 }
 
@@ -1285,8 +1407,9 @@ static int hw_present_body(void) {
                 s_in_present_frame = 0;
                 return 1;
             }
-            if (hw_handle_sdl_event(&ev))
+            if (hw_handle_sdl_event(&ev)) {
                 continue; /* controllers, window resize */
+            }
             if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN || ev.type == SDL_EVENT_MOUSE_BUTTON_UP) {
                 if (ev.button.button == SDL_BUTTON_LEFT) {
                     s_mouse_lmb_raw = (uint8_t)(ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
@@ -1307,8 +1430,9 @@ static int hw_present_body(void) {
                         hw_fullscreen_refresh();
                     }
                 } else if (ev.key.key == SDLK_F3) {
-                    if (down)
+                    if (down) {
                         g_hw_perf_overlay = !g_hw_perf_overlay;
+                    }
                 } else {
                     hw_handle_key(ev.key.key, down);
                 }
@@ -1452,13 +1576,15 @@ static int hw_present_body(void) {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 void hw_set_pixel(int x, int y, uint32_t argb) {
-    if ((unsigned)x < HW_DISPLAY_W && (unsigned)y < HW_DISPLAY_H)
+    if ((unsigned)x < HW_DISPLAY_W && (unsigned)y < HW_DISPLAY_H) {
         s_fb[y * HW_DISPLAY_W + x] = argb;
+    }
 }
 
 void hw_set_color(int idx, uint16_t amiga_rgb12) {
-    if ((unsigned)idx < 32)
+    if ((unsigned)idx < 32) {
         s_palette[idx] = amiga_to_argb(amiga_rgb12);
+    }
 }
 
 void hw_set_frame_limit(int frames) {
@@ -1515,39 +1641,46 @@ void hw_get_snap(struct FrameState *s) {
                     i = max_w;
                     break;
                 }
-                if (w0 & 1u)
+                if (w0 & 1u) {
                     break; /* first WAIT — end of pre-WAIT section */
+                }
                 uint16_t reg = w0 & 0x01FEu;
-                for (int r = 0; r < _NREGS; r++)
+                for (int r = 0; r < _NREGS; r++) {
                     if (reg == WATCH_REG[r] && !pre_set[r]) {
                         pre_val[r] = w1;
                         pre_set[r] = 1;
                     }
-                for (int r = 0; r < 7; r++)
+                }
+                for (int r = 0; r < 7; r++) {
                     if (reg == EXT_REG[r] && !ext_pre_set[r]) {
                         ext_pre[r] = w1;
                         ext_pre_set[r] = 1;
                     }
+                }
             }
             /* Pass 2: post-WAIT (last write wins) */
             for (; i + 1 < max_w; i += 2) {
                 uint16_t w0 = (uint16_t)((cp[i * 2] << 8) | cp[i * 2 + 1]);
                 uint16_t w1 = (uint16_t)((cp[i * 2 + 2] << 8) | cp[i * 2 + 3]);
-                if (w0 == 0xFFFFu)
+                if (w0 == 0xFFFFu) {
                     break;
-                if (w0 & 1u)
+                }
+                if (w0 & 1u) {
                     continue;
+                }
                 uint16_t reg = w0 & 0x01FEu;
-                for (int r = 0; r < _NREGS; r++)
+                for (int r = 0; r < _NREGS; r++) {
                     if (reg == WATCH_REG[r]) {
                         post_val[r] = w1;
                         post_set[r] = 1;
                     }
-                for (int r = 0; r < 7; r++)
+                }
+                for (int r = 0; r < 7; r++) {
                     if (reg == EXT_REG[r]) {
                         ext_post[r] = w1;
                         ext_post_set[r] = 1;
                     }
+                }
             }
         }
 
@@ -1606,15 +1739,17 @@ void hw_get_snap(struct FrameState *s) {
                 pl = ext_pre_set[ei] ? ext_pre[ei] : ext_post[ei];
                 pl_set = ext_pre_set[ei] | ext_post_set[ei];
             }
-            if (ph_set || pl_set)
+            if (ph_set || pl_set) {
                 s->bplpt[p] = (((uint32_t)ph << 16) | pl) & 0xFFFFFF;
-            else
+            } else {
                 s->bplpt[p] = s_bplptr[p];
+            }
         }
     }
 
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 8; i++) {
         s->sprpt[i] = s_sprpt[i];
+    }
 
     /* Palette from copper list — two-pass scan to replicate PUAE hardware shadow.
      *
@@ -1659,8 +1794,9 @@ void hw_get_snap(struct FrameState *s) {
                     i = HARNESS_COPLIST_WORDS;
                     break;
                 } /* end sentinel */
-                if (w0 & 1u)
+                if (w0 & 1u) {
                     break; /* first WAIT/SKIP — end of pre-WAIT section */
+                }
                 uint16_t reg = w0 & 0x01FEu;
                 if (reg >= 0x180u && reg <= 0x1BEu) {
                     int idx = (reg - 0x180u) >> 1;
@@ -1673,10 +1809,12 @@ void hw_get_snap(struct FrameState *s) {
             for (; i + 1 < HARNESS_COPLIST_WORDS; i += 2) {
                 uint16_t w0 = (uint16_t)((cp[i * 2] << 8) | cp[i * 2 + 1]);
                 uint16_t w1 = (uint16_t)((cp[i * 2 + 2] << 8) | cp[i * 2 + 3]);
-                if (w0 == 0xFFFFu)
+                if (w0 == 0xFFFFu) {
                     break;
-                if (w0 & 1u)
+                }
+                if (w0 & 1u) {
                     continue; /* additional WAITs — skip, keep scanning */
+                }
                 uint16_t reg = w0 & 0x01FEu;
                 if (reg >= 0x180u && reg <= 0x1BEu) {
                     int idx = (reg - 0x180u) >> 1;
@@ -1706,8 +1844,9 @@ void hw_get_snap(struct FrameState *s) {
     s->coplist_valid = 0;
     if (s->cop1lc + HARNESS_COPLIST_WORDS * 2 < RT_MEM_SIZE) {
         uint8_t *p = g_mem + s->cop1lc;
-        for (int i = 0; i < HARNESS_COPLIST_WORDS; i++)
+        for (int i = 0; i < HARNESS_COPLIST_WORDS; i++) {
             s->coplist[i] = (uint16_t)((p[i * 2] << 8) | p[i * 2 + 1]);
+        }
         s->coplist_valid = 1;
     }
 
@@ -1746,8 +1885,9 @@ void hw_get_snap(struct FrameState *s) {
 void hw_load_audio_sync(const char *path) {
     AudioChanSnap snap[4];
     FILE *fp = fopen(path, "rb");
-    if (!fp)
+    if (!fp) {
         return;
+    }
     if (fread(snap, sizeof(snap), 1, fp) != 1) {
         fclose(fp);
         return;
@@ -1773,12 +1913,14 @@ void hw_load_audio_sync(const char *path) {
 #ifdef HARNESS_BUILD
 void hw_seed_sync_regs(const struct FrameState *snap) {
     /* Palette: seed all 32; hw_get_snap's copper scan overrides 0-20 anyway */
-    for (int i = 0; i < 32; i++)
+    for (int i = 0; i < 32; i++) {
         s_palette[i] = amiga_to_argb(snap->palette[i]);
+    }
 
     /* Bitplane pointers: seed all 6; copper scan overrides 0-3 */
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 6; i++) {
         s_bplptr[i] = snap->bplpt[i];
+    }
 
     /* Seed the full Paula state per channel (sample pointer, length, period,
      * volume) from PUAE's sync-point state.  These registers are NOT in chip RAM,
@@ -1848,7 +1990,9 @@ uint16_t hw_joystick(void) {
     return (uint16_t)((mx & 0xFF) | (my << 8));
 }
 
-uint8_t hw_cia_keyboard(void) { return s_key_byte; }
+uint8_t hw_cia_keyboard(void) {
+    return s_key_byte;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Register-level I/O (called from the runtime adapter)                         */
@@ -1887,8 +2031,9 @@ uint16_t hw_read16(uint32_t addr) {
      * (pc_step) can take over. */
     if (g_hw_boot_handoff && addr == 0xBFE000u) {
         uint32_t cop = ((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1];
-        if (cop == 0x7BC8u || cop == 0x86CCu)
+        if (cop == 0x7BC8u || cop == 0x86CCu) {
             g_hw_boot_handoff();
+        }
     }
 
     /* ── CIA-B ($BFD000) ── */
@@ -1902,8 +2047,9 @@ uint16_t hw_read16(uint32_t addr) {
         case CIA_ICR: {
             uint8_t d = s_ciab_icr_data;
             s_ciab_icr_data = 0;
-            if (d & s_ciab_icr_mask)
+            if (d & s_ciab_icr_mask) {
                 d |= 0x80;
+            }
             return d;
         }
         case CIA_PRA:
@@ -1922,20 +2068,25 @@ uint16_t hw_read16(uint32_t addr) {
              * player's fire button (e.g. $578CFE tst.b $bfe001; bpl), so the
              * fire button must clear bit7 too — not only the mouse button. */
             uint8_t val = 0xFF;
-            if (s_fire_pressed)
+            if (s_fire_pressed) {
                 val &= ~0x01;
-            if (s_fire_pressed)
+            }
+            if (s_fire_pressed) {
                 val &= ~0x40;
-            if (s_fire_pressed || s_mouse_lmb)
+            }
+            if (s_fire_pressed || s_mouse_lmb) {
                 val &= ~0x80;
+            }
             {
                 static uint32_t seen[64];
                 static int n = 0;
                 uint32_t pc = rt_get_last_insn();
                 int k = 0;
-                for (; k < n; k++)
-                    if (seen[k] == pc)
+                for (; k < n; k++) {
+                    if (seen[k] == pc) {
                         break;
+                    }
+                }
                 if (k == n && n < 64 && g_gameplay_active) {
                     seen[n++] = pc;
                     benefactor_log_write(BENEFACTOR_LOG_TRACE, "cia",
@@ -2000,20 +2151,23 @@ uint16_t hw_read16(uint32_t addr) {
         case POT0DAT:
         case POT1DAT: {
             uint16_t v = 0;
-            if (s_fire_pressed)
+            if (s_fire_pressed) {
                 v = 0x0000;
-            else
+            } else {
                 v = 0x0300;
+            }
             HW_LOG("POT%cDAT read fire=%d -> $%04X\n", (reg == POT0DAT) ? '0' : '1', s_fire_pressed,
                    v);
             return v;
         }
         case POTINP: {
             uint8_t v = 0xFF;
-            if (s_fire_pressed)
+            if (s_fire_pressed) {
                 v &= ~0x40;
-            if (s_mouse_lmb)
+            }
+            if (s_mouse_lmb) {
                 v &= ~0x10;
+            }
             HW_LOG("POTINP read fire=%d lmb=%d -> $%02X\n", s_fire_pressed, s_mouse_lmb, v);
             return (uint16_t)(v << 8) | v;
         }
@@ -2043,10 +2197,11 @@ void hw_write8(uint32_t addr, uint8_t v) {
     }
     /* Reconstruct 16-bit write (read-modify-write) for custom chips */
     uint16_t cur = hw_read16(addr & ~1u);
-    if (addr & 1)
+    if (addr & 1) {
         hw_write16(addr & ~1u, (uint16_t)((cur & 0xFF00) | v));
-    else
+    } else {
         hw_write16(addr & ~1u, (uint16_t)((cur & 0x00FF) | ((uint16_t)v << 8)));
+    }
 }
 
 static inline uint32_t _bplptr(int hi_reg, int lo_reg) {
@@ -2066,8 +2221,9 @@ void hw_write16(uint32_t addr, uint16_t v) {
         case CIA_TAHI:
             s_ciab_ta_latch = (s_ciab_ta_latch & 0x00FF) | (uint16_t)((v & 0xFF) << 8);
             /* In one-shot mode with timer not running, signal immediately */
-            if (!(s_ciab_cra & 1))
+            if (!(s_ciab_cra & 1)) {
                 s_ciab_icr_data |= 0x01;
+            }
             break;
         case CIA_CRA:
             s_ciab_cra = (uint8_t)v;
@@ -2093,10 +2249,11 @@ void hw_write16(uint32_t addr, uint16_t v) {
             }
             break;
         case CIA_ICR:
-            if (v & 0x80)
+            if (v & 0x80) {
                 s_ciab_icr_mask |= (uint8_t)(v & 0x7F);
-            else
+            } else {
                 s_ciab_icr_mask &= ~(uint8_t)(v & 0x7F);
+            }
             break;
         default:
             break;
@@ -2116,8 +2273,9 @@ void hw_write16(uint32_t addr, uint16_t v) {
         hw_step_register_beam(0);
         if (reg >= 0x040 && reg <= 0x074) {
             s_blt_setup_open = (reg != BLTSIZE);
-            if (s_blt_setup_open)
+            if (s_blt_setup_open) {
                 g_hw_blt_last_reg = reg;
+            }
         }
         /* The shadow is stored for EVERY custom-chip write, before any
          * register's own handling below. So a handler that wants to know
@@ -2130,8 +2288,9 @@ void hw_write16(uint32_t addr, uint16_t v) {
 
         /* COP1LCL completes the 32-bit COP1LC write (the game uses move.l to
          * $7e(a6)): the display copper pointer is now committed — present here. */
-        if (reg == COP1LCL && g_hw_cop1lc_present)
+        if (reg == COP1LCL && g_hw_cop1lc_present) {
             g_hw_cop1lc_present();
+        }
         /* Name the guest PC that set the display list, and do it on every
          * screen, not only during gameplay. "Which screen is being shown, and
          * who chose it" is the question this trace exists to answer, and it
@@ -2148,31 +2307,35 @@ void hw_write16(uint32_t addr, uint16_t v) {
         switch (reg) {
         /* DMA control */
         case DMACON:
-            if (v & 0x8000)
+            if (v & 0x8000) {
                 s_dmacon |= (v & 0x7FFF);
-            else {
+            } else {
                 s_dmacon &= ~(v & 0x7FFF);
                 /* Audio DMA disabled for a channel => stop it. The game gates
                  * one-shot samples by clearing the channel's DMACON bit; the
                  * mixer otherwise loops the sample forever (the repeating
                  * intro / ringing notes). */
-                for (int ch = 0; ch < 4; ch++)
-                    if (v & (1u << ch))
+                for (int ch = 0; ch < 4; ch++) {
+                    if (v & (1u << ch)) {
                         s_audio[ch].active = 0;
+                    }
+                }
             }
-            if (v & 0x000F)
+            if (v & 0x000F) {
                 benefactor_log_write(
                     BENEFACTOR_LOG_TRACE, "audio", "frame=%d DMACON %s aud=$%X (active aud=$%X)",
                     hw_get_frame_num(), (v & 0x8000) ? "SET" : "CLR", v & 0xF, s_dmacon & 0xF);
+            }
             /* sfx_trace: on audio-channel DMA ENABLE, record which sample (AUDxLC),
              * length, period — one line per "note/SFX on" so we can diff PC vs
              * PUAE jump sounds. */
             if ((v & 0x8000) && (v & 0x000F) && pc_cfg_bool("sfx_trace", 0)) {
                 static FILE *sf = NULL;
-                if (!sf)
+                if (!sf) {
                     sf = fopen("logs/sfx_pc.txt", "w");
-                if (sf)
-                    for (int ch = 0; ch < 4; ch++)
+                }
+                if (sf) {
+                    for (int ch = 0; ch < 4; ch++) {
                         if (v & (1u << ch)) {
                             int b = (AUD0LCH + ch * 0x10) >> 1;
                             uint32_t lc = ((uint32_t)s_regs[b] << 16) | s_regs[b + 1];
@@ -2182,20 +2345,24 @@ void hw_write16(uint32_t addr, uint16_t v) {
                                     (unsigned)rt_get_active_call_address());
                             fflush(sf);
                         }
+                    }
+                }
             }
             break;
         /* Interrupt */
         case INTENA:
-            if (v & 0x8000)
+            if (v & 0x8000) {
                 s_intena |= (v & 0x7FFF);
-            else
+            } else {
                 s_intena &= ~(v & 0x7FFF);
+            }
             break;
         case INTREQ:
-            if (v & 0x8000)
+            if (v & 0x8000) {
                 s_intreq |= (v & 0x7FFF);
-            else
+            } else {
                 s_intreq &= ~(v & 0x7FFF);
+            }
             break;
         /* BPLCON0 */
         case BPLCON0:
@@ -2463,7 +2630,9 @@ int g_hw_pc_owns_present = 0;
 void (*g_hw_cop1lc_present)(void) = NULL;
 
 /* Current copper-list-1 location (last value written to COP1LC $DFF080/82). */
-uint32_t hw_get_cop1lc(void) { return ((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1]; }
+uint32_t hw_get_cop1lc(void) {
+    return ((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1];
+}
 
 /* hw_vblank_wait and the rest of "when is a frame over" moved to
  * engine/hw_beam.c. */
@@ -2475,10 +2644,12 @@ void hw_wait_fire(int want_pressed) {
      * fires. Yield a frame per check so the input layer can flip s_fire_pressed
      * (either via the keyboard mapper or the harness REPL). */
     if (want_pressed) {
-        while (!s_fire_pressed && !s_mouse_lmb && hw_running)
+        while (!s_fire_pressed && !s_mouse_lmb && hw_running) {
             hw_vblank_wait();
+        }
     } else {
-        while ((s_fire_pressed || s_mouse_lmb) && hw_running)
+        while ((s_fire_pressed || s_mouse_lmb) && hw_running) {
             hw_vblank_wait();
+        }
     }
 }

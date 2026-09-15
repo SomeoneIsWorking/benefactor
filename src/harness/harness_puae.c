@@ -43,12 +43,14 @@ static int state_contract_matches(const char *marker_path, const char *mount_pat
     char expected[4096];
     int expected_length =
         snprintf(expected, sizeof expected, "benefactor-puae-scratch-state-v1\n%s\n", mount_path);
-    if (expected_length < 0 || (size_t)expected_length >= sizeof expected)
+    if (expected_length < 0 || (size_t)expected_length >= sizeof expected) {
         return 0;
+    }
     char actual[4096];
     FILE *marker = fopen(marker_path, "rb");
-    if (!marker)
+    if (!marker) {
         return 0;
+    }
     size_t length = fread(actual, 1, sizeof actual, marker);
     fclose(marker);
     return length == (size_t)expected_length && memcmp(actual, expected, length) == 0;
@@ -58,11 +60,13 @@ static int write_state_contract(const char *marker_path, const char *mount_path)
     char marker_text[4096];
     int marker_length = snprintf(marker_text, sizeof marker_text,
                                  "benefactor-puae-scratch-state-v1\n%s\n", mount_path);
-    if (marker_length < 0 || (size_t)marker_length >= sizeof marker_text)
+    if (marker_length < 0 || (size_t)marker_length >= sizeof marker_text) {
         return 0;
+    }
     FILE *marker = fopen(marker_path, "wb");
-    if (!marker)
+    if (!marker) {
         return 0;
+    }
     size_t written = fwrite(marker_text, 1, (size_t)marker_length, marker);
     return fclose(marker) == 0 && written == (size_t)marker_length;
 }
@@ -90,8 +94,9 @@ int puae_run_to_loop_top(int skip) {
     g_benefactor_sync_pc = TITLE_LOOP_TOP;
     g_benefactor_sync_skip = skip;
     g_benefactor_sync_hit = 0;
-    for (int i = 0; i < 16 && !g_benefactor_sync_hit; i++)
+    for (int i = 0; i < 16 && !g_benefactor_sync_hit; i++) {
         retro_run();
+    }
     g_benefactor_sync_pc = 0; /* disarm */
     return g_benefactor_sync_hit;
 }
@@ -104,8 +109,9 @@ int puae_run_to_pc(uint32_t pc, int skip, int max_frames) {
     g_benefactor_sync_pc = pc;
     g_benefactor_sync_skip = skip;
     g_benefactor_sync_hit = 0;
-    for (int i = 0; i < max_frames && !g_benefactor_sync_hit; i++)
+    for (int i = 0; i < max_frames && !g_benefactor_sync_hit; i++) {
         retro_run();
+    }
     g_benefactor_sync_pc = 0; /* disarm */
     return g_benefactor_sync_hit;
 }
@@ -133,8 +139,9 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
         !harness_artifact_path("puae_sync.contract", state_contract_path,
                                sizeof state_contract_path) ||
         !pc_project_path(PC_PROJECT_PATH_HARNESS_WHDLOAD, NULL, whdload_mount_path,
-                         sizeof whdload_mount_path))
+                         sizeof whdload_mount_path)) {
         return -1;
+    }
     snprintf(harness_system_dir, RETRO_PATH_MAX, "%s", kick_dir);
     harness_frontend_init();
     snprintf(full_path, RETRO_PATH_MAX, "%s", whdload_path);
@@ -145,8 +152,9 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[harness] retro_load_game failed\n");
         return -1;
     }
-    if (!harness_stage_puae_disks(disk_paths, disk_count))
+    if (!harness_stage_puae_disks(disk_paths, disk_count)) {
         return -1;
+    }
 
     puae_trace_init();
     extern bool libretro_runloop_active;
@@ -200,8 +208,9 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
 
     /* retro_unserialize re-installs the original memory bank handlers, so re-wrap
      * the chip-write traces after a restore (no-op cost if already wrapped). */
-    if (restored)
+    if (restored) {
         puae_trace_init();
+    }
 
     if (!restored) {
         int sync_frame = -1;
@@ -226,8 +235,9 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
                 char name[64];
                 char sp[4096];
                 snprintf(name, sizeof name, "boot_fb_%04d.bin", f);
-                if (!harness_artifact_path(name, sp, sizeof sp))
+                if (!harness_artifact_path(name, sp, sizeof sp)) {
                     return -1;
+                }
                 FILE *sf2 = fopen(sp, "wb");
                 if (sf2) {
                     fwrite(s_puae_fb, 4, FB_W * FB_H, sf2);
@@ -260,8 +270,9 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
              * kickstart?): dump the final framebuffer for offline viewing. */
             {
                 char path[4096];
-                if (!harness_artifact_path("refreeze_fail_fb.bin", path, sizeof path))
+                if (!harness_artifact_path("refreeze_fail_fb.bin", path, sizeof path)) {
                     return -1;
+                }
                 FILE *ff = fopen(path, "wb");
                 if (ff) {
                     fwrite(s_puae_fb, 4, FB_W * FB_H, ff);
@@ -283,14 +294,15 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
                 size_t written = fwrite(buf, 1, need, sf);
                 int close_result = fclose(sf);
                 if (written == need && close_result == 0 &&
-                    write_state_contract(state_contract_path, whdload_mount_path))
+                    write_state_contract(state_contract_path, whdload_mount_path)) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[harness]   Froze PUAE sync state -> %s (%zu bytes)\n",
                                          state_path, need);
-                else
+                } else {
                     benefactor_log_write(
                         BENEFACTOR_LOG_ERROR, "harness",
                         "[harness]   Could not persist complete PUAE sync state\n");
+                }
             }
         } else {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -324,12 +336,14 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
     {
         static uint8_t s_chipram_buf[2 * 1024 * 1024];
         int bytes = puae_dump_chipram(s_chipram_buf, sizeof(s_chipram_buf));
-        if (bytes > 524288)
+        if (bytes > 524288) {
             bytes = 524288;
+        }
         if (bytes > 0) {
             if (!harness_artifact_path("harness_puae_chipram.bin", chipram_out_path,
-                                       (size_t)chipram_out_len))
+                                       (size_t)chipram_out_len)) {
                 return -1;
+            }
             FILE *fp = fopen(chipram_out_path, "wb");
             if (fp) {
                 fwrite(s_chipram_buf, 1, bytes, fp);
@@ -366,8 +380,9 @@ int run_puae_phase(const char *kick_dir, const char *whdload_path, int boot_fram
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "[harness] --display-only mode: running PUAE forever\n");
         benefactor_log_flush();
-        for (;;)
+        for (;;) {
             retro_run();
+        }
     }
 
     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[harness] PUAE boot phase done\n");

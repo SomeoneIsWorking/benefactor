@@ -6,3 +6,12 @@ ColumnLimit: 100
 DerivePointerAlignment: false
 PointerAlignment: Right
 SortIncludes: CaseSensitive
+# Every body is a block, and the formatter writes the braces rather than asking
+# a reviewer to notice their absence. A one-line `if` whose second statement is
+# indented to look guarded is the defect this removes the room for.
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortLambdasOnASingleLine: None
+InsertBraces: true

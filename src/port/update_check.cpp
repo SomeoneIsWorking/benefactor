@@ -109,7 +109,9 @@ extern "C" void pc_update_tick(void) {
     adopt(have_tag, tag, detail);
 }
 
-extern "C" PcUpdateState pc_update_state(void) { return s_state; }
+extern "C" PcUpdateState pc_update_state(void) {
+    return s_state;
+}
 
 namespace {
 
@@ -120,9 +122,13 @@ char s_release_url[128];
 
 } // namespace
 
-extern "C" const char *pc_update_release_host(void) { return kReleaseHost; }
+extern "C" const char *pc_update_release_host(void) {
+    return kReleaseHost;
+}
 
-extern "C" const char *pc_update_release_path(void) { return kReleasePath; }
+extern "C" const char *pc_update_release_path(void) {
+    return kReleasePath;
+}
 
 extern "C" const char *pc_update_release_url(void) {
     /* Composed from the same parts every other host reads, once. */
@@ -133,8 +139,14 @@ extern "C" const char *pc_update_release_url(void) {
     return s_release_url;
 }
 
-extern "C" const char *pc_update_latest(void) { return s_latest; }
+extern "C" const char *pc_update_latest(void) {
+    return s_latest;
+}
 
-extern "C" const char *pc_update_detail(void) { return s_detail; }
+extern "C" const char *pc_update_detail(void) {
+    return s_detail;
+}
 
-extern "C" const char *pc_update_line(void) { return s_line; }
+extern "C" const char *pc_update_line(void) {
+    return s_line;
+}

@@ -25,14 +25,18 @@ constexpr Nanoseconds kPal = NS_PER_SECOND / 50; /* 20 ms */
  * a test that wants an imperfect sleep says so with `overshoot`. */
 class FakeHost final : public PacerHost {
   public:
-    [[nodiscard]] Nanoseconds now() const override { return now_; }
+    [[nodiscard]] Nanoseconds now() const override {
+        return now_;
+    }
 
     void sleep_for(Nanoseconds duration) override {
         slept.push_back(duration);
         now_ += duration + overshoot;
     }
 
-    void advance(Nanoseconds by) { now_ += by; }
+    void advance(Nanoseconds by) {
+        now_ += by;
+    }
 
     Nanoseconds overshoot = 0;
     std::vector<Nanoseconds> slept;
@@ -116,8 +120,9 @@ void a_period_that_is_not_a_whole_nanosecond_does_not_drift() {
     pacer.set_speed_percent(120);
     pacer.wait();
     constexpr std::uint64_t frames = 3600; /* a minute at 60 fps */
-    for (std::uint64_t i = 0; i < frames; i++)
+    for (std::uint64_t i = 0; i < frames; i++) {
         pacer.wait();
+    }
 
     const Nanoseconds expected = 1000000000ULL + frames * NS_PER_SECOND * 100ULL / (50ULL * 120ULL);
     assert(host.now() == expected);
@@ -148,8 +153,9 @@ void the_report_counts_frames_on_target_and_names_the_worst() {
     FakeHost host;
     FramePacer pacer(host);
     pacer.wait();
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 10; i++) {
         pacer.wait();
+    }
 
     /* A sleep that overshoots by a millisecond is outside the half-millisecond
      * on-target band, so the count must stop rising. */

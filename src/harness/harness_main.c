@@ -87,8 +87,9 @@ static char s_http_response_body[1 << 20];
 
 static void harness_http_init(void) {
     int port = pc_cfg_int("harness_http", 0);
-    if (port <= 0)
+    if (port <= 0) {
         return;
+    }
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[hhttp] socket failed\n");
@@ -123,15 +124,16 @@ static void harness_http_init(void) {
 static void url_decode(char *s) {
     char *o = s;
     for (char *p = s; *p; p++) {
-        if (*p == '+')
+        if (*p == '+') {
             *o++ = ' ';
-        else if (*p == '%' && p[1] && p[2]) {
+        } else if (*p == '%' && p[1] && p[2]) {
             int hi = (p[1] <= '9') ? p[1] - '0' : (p[1] | 32) - 'a' + 10;
             int lo = (p[2] <= '9') ? p[2] - '0' : (p[2] | 32) - 'a' + 10;
             *o++ = (char)((hi << 4) | lo);
             p += 2;
-        } else
+        } else {
             *o++ = *p;
+        }
     }
     *o = 0;
 }
@@ -148,8 +150,9 @@ static void http_send(int fd, const char *status, const char *ctype, const void 
         long off = 0;
         while (off < len) {
             ssize_t w = write(fd, b + off, len - off);
-            if (w <= 0)
+            if (w <= 0) {
                 break;
+            }
             off += w;
         }
     }
@@ -191,10 +194,11 @@ static void http_serve_shot(int fd, const char *query) {
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     void *buf = malloc((size_t)sz);
-    if (buf && fread(buf, 1, (size_t)sz, f) == (size_t)sz)
+    if (buf && fread(buf, 1, (size_t)sz, f) == (size_t)sz) {
         http_send(fd, "200 OK", "image/png", buf, sz);
-    else
+    } else {
         http_send(fd, "500 Error", "text/plain", "read failed\n", 12);
+    }
     free(buf);
     fclose(f);
 }
@@ -208,8 +212,9 @@ static int harness_http_next(char *line, size_t linesz, int *cap_rd, int *cap_sa
         struct sockaddr_in ca;
         socklen_t cl = sizeof ca;
         int c = accept(s_http_listen_fd, (struct sockaddr *)&ca, &cl);
-        if (c < 0)
+        if (c < 0) {
             continue;
+        }
         char req[2048];
         ssize_t n = read(c, req, sizeof req - 1);
         if (n <= 0) {
@@ -221,11 +226,13 @@ static int harness_http_next(char *line, size_t linesz, int *cap_rd, int *cap_sa
         char *sp1 = strchr(req, ' ');
         char *path = sp1 ? sp1 + 1 : req;
         char *sp2 = path ? strchr(path, ' ') : NULL;
-        if (sp2)
+        if (sp2) {
             *sp2 = 0;
+        }
         char *query = strchr(path, '?');
-        if (query)
+        if (query) {
             *query++ = 0;
+        }
         if (!strcmp(path, "/shot")) {
             http_serve_shot(c, query);
             close(c);
@@ -292,8 +299,9 @@ static void harness_http_finish(int cap_rd, int cap_save) {
         ssize_t r;
         while (blen < sizeof s_http_response_body - 1 &&
                (r = read(cap_rd, s_http_response_body + blen,
-                         sizeof s_http_response_body - 1 - blen)) > 0)
+                         sizeof s_http_response_body - 1 - blen)) > 0) {
             blen += (size_t)r;
+        }
         close(cap_rd);
     }
     s_http_response_body[blen] = 0;
@@ -308,8 +316,9 @@ int main(int argc, char **argv) {
     /* Line-buffer stdout so messages survive the watchdog's _exit (which would
      * otherwise drop the buffered loader/diagnostic output). */
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (!harness_artifacts_prepare())
+    if (!harness_artifacts_prepare()) {
         return 1;
+    }
 
     /* Disk files are positional. The separate PUAE oracle may restore a state
      * created under the current project-scratch contract. A deliberate refreeze
@@ -322,19 +331,20 @@ int main(int argc, char **argv) {
     int play_mode = 0;
     int direct_level = 0; /* 0 = full title boot; 1..60 = jump straight to that level */
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--headed"))
+        if (!strcmp(argv[i], "--headed")) {
             headed = 1;
-        else if (!strcmp(argv[i], "--play")) {
+        } else if (!strcmp(argv[i], "--play")) {
             play_mode = 1;
             headed = 1;
         } else if (!strcmp(argv[i], "--level") && i + 1 < argc) {
             direct_level = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--kick") && i + 1 < argc)
+        } else if (!strcmp(argv[i], "--kick") && i + 1 < argc) {
             kick_dir = argv[++i];
-        else if (!strcmp(argv[i], "--whdload") && i + 1 < argc)
+        } else if (!strcmp(argv[i], "--whdload") && i + 1 < argc) {
             whdload_path = argv[++i];
-        else if (n_disks < 4)
+        } else if (n_disks < 4) {
             disks[n_disks++] = argv[i]; /* Disk.4 = extra levels */
+        }
     }
     if (n_disks < 1) {
         benefactor_log_write(
@@ -362,8 +372,9 @@ int main(int argc, char **argv) {
     if (!pc_cfg_bool("skip_puae", 0) &&
         run_puae_phase(kick_dir, whdload_path, /*boot_frames*/ 5000, /*n_frames*/ 1, chip_ram_path,
                        sizeof chip_ram_path,
-                       /*display_only*/ 0, /*interactive*/ 1, disks, n_disks) < 0)
+                       /*display_only*/ 0, /*interactive*/ 1, disks, n_disks) < 0) {
         return 1;
+    }
 
     /* Boot the PC port. The harness owns the display (side-by-side), so the PC
      * port must not open its own window. Use the direct-to-gameplay path when
@@ -448,23 +459,27 @@ int main(int argc, char **argv) {
         int via_http = (s_http_listen_fd >= 0);
         if (via_http) {
             http_cap_rd = http_cap_save = -1;
-            if (!harness_http_next(line, sizeof line, &http_cap_rd, &http_cap_save))
+            if (!harness_http_next(line, sizeof line, &http_cap_rd, &http_cap_save)) {
                 continue; /* request served internally (shot) */
+            }
         } else {
-            if (!fgets(line, sizeof line, stdin))
+            if (!fgets(line, sizeof line, stdin)) {
                 break;
+            }
         }
         char cmd[16] = {0};
         unsigned n = 0;
         if (sscanf(line, "%15s", cmd) < 1) {
-            if (via_http)
+            if (via_http) {
                 harness_http_finish(http_cap_rd, http_cap_save);
+            }
             continue;
         }
 
         if (!strcmp(cmd, "q")) {
-            if (via_http)
+            if (via_http) {
                 harness_http_finish(http_cap_rd, http_cap_save);
+            }
             break;
         } else if (!strcmp(cmd, "headed")) {
             int on = 1;
@@ -474,8 +489,9 @@ int main(int argc, char **argv) {
                 win_inited = 1;
             }
             headed = on;
-            if (headed)
+            if (headed) {
                 harness_combined_present(); /* show current frame now */
+            }
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] headed=%d\n", headed);
         } else if (!strcmp(cmd, "play")) {
             /* Live real-time drive: read the keyboard each frame and advance BOTH
@@ -484,8 +500,9 @@ int main(int argc, char **argv) {
              * (default 20 ≈ 50fps). */
             int ms = 20;
             sscanf(line, "%*s %d", &ms);
-            if (ms < 1)
+            if (ms < 1) {
                 ms = 20;
+            }
             if (!win_inited) {
                 harness_combined_init();
                 win_inited = 1;
@@ -541,9 +558,11 @@ int main(int argc, char **argv) {
                 }
             }
             fire = 0;
-            if (reached)
-                for (int s = 0; s < 12 && hw_get_cop1lc() == MENU_COP1LC; s++)
+            if (reached) {
+                for (int s = 0; s < 12 && hw_get_cop1lc() == MENU_COP1LC; s++) {
                     STEP_PC();
+                }
+            }
             fire = saved_fire;
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "[crepl] runtomenu: %s after %u frames (cop1lc=$%06X)\n",
@@ -558,8 +577,9 @@ int main(int argc, char **argv) {
             unsigned i = 0;
             for (; i < maxf; i++) {
                 STEP_PC();
-                if (pc_is_title_card_displayed())
+                if (pc_is_title_card_displayed()) {
                     break;
+                }
             }
             FrameState c;
             hw_get_snap(&c);
@@ -588,34 +608,40 @@ int main(int argc, char **argv) {
              * fire to advance to the menu (skipped if --level put us past it). */
             if (hw_get_cop1lc() != COP_CARD && hw_get_cop1lc() != COP_PLAY) {
                 fire = 1;
-                for (i = 0; i < 3000 && hw_get_cop1lc() != COP_MENU; i++)
+                for (i = 0; i < 3000 && hw_get_cop1lc() != COP_MENU; i++) {
                     STEP_PC();
+                }
                 /* settle the menu fade-in with fire released */
                 fire = 0;
-                for (i = 0; i < 12; i++)
+                for (i = 0; i < 12; i++) {
                     STEP_PC();
+                }
             }
             /* 2. menu -> card: confirm PLAY GAME (cursor 0) by holding fire. */
             if (hw_get_cop1lc() == COP_MENU) {
                 fire = 1;
-                for (i = 0; i < 600 && hw_get_cop1lc() != COP_CARD; i++)
+                for (i = 0; i < 600 && hw_get_cop1lc() != COP_CARD; i++) {
                     STEP_PC();
+                }
                 fire = 0;
             }
             /* (if --level landed us straight on the card, steps 1-2 are no-ops) */
             /* 3. card -> gameplay: a clean fire edge. */
             if (hw_get_cop1lc() == COP_CARD) {
                 fire = 0;
-                for (i = 0; i < 12; i++)
+                for (i = 0; i < 12; i++) {
                     STEP_PC();
+                }
                 fire = 1;
-                for (i = 0; i < 600 && hw_get_cop1lc() != COP_PLAY; i++)
+                for (i = 0; i < 600 && hw_get_cop1lc() != COP_PLAY; i++) {
                     STEP_PC();
+                }
                 fire = 0;
             }
             /* 4. wait out the GET READY banner so the player is controllable. */
-            for (i = 0; i < 500; i++)
+            for (i = 0; i < 500; i++) {
                 STEP_PC();
+            }
             fire = saved_fire;
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "[crepl] rungame: cop1lc=$%06X %s\n", hw_get_cop1lc(),
@@ -630,8 +656,9 @@ int main(int argc, char **argv) {
              * the storage->play-order name permutation). */
             extern uint8_t *g_mem;
             int level = g_mem ? (((int)g_mem[0x20] << 8) | g_mem[0x21]) : 1;
-            if (level < 1 || level > PC_NUM_LEVELS)
+            if (level < 1 || level > PC_NUM_LEVELS) {
                 level = 1;
+            }
             int world = 0, liw = 0;
             pc_level_split(level, &world, &liw);
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "  world %d: \"%s\"\n", world,
@@ -654,8 +681,9 @@ int main(int argc, char **argv) {
                                  pc_static_level_name(level), pc_is_level_card_displayed());
         } else if (!strcmp(cmd, "dumpall")) { /* dumpall [file] — dump first 6MB of g_mem */
             char path[4096];
-            if (!harness_artifact_path("gmem_runtime.bin", path, sizeof path))
+            if (!harness_artifact_path("gmem_runtime.bin", path, sizeof path)) {
                 continue;
+            }
             sscanf(line, "%*s %4095s", path);
             extern uint8_t *g_mem;
             FILE *f = fopen(path, "wb");
@@ -702,12 +730,13 @@ int main(int argc, char **argv) {
                 g_hw_perf_overlay = v;
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] perf overlay=%d\n",
                                      g_hw_perf_overlay);
-            } else
+            } else {
                 benefactor_log_write(
                     BENEFACTOR_LOG_INFO, "harness",
                     "[crepl] perf (EMA us): game=%u render=%u compose=%u present=%u fps=%d\n",
                     g_hw_perf.game_us, g_hw_perf.render_us, g_hw_perf.compose_us,
                     g_hw_perf.present_us, g_hw_perf.fps);
+            }
         } else if (!strcmp(
                        cmd,
                        "fcam")) { /* fcam <0|1> [dx] — toggle free cam / nudge its X (testing) */
@@ -752,8 +781,9 @@ int main(int argc, char **argv) {
                  * memory — the second-goto-in-one-process crash at $578B94. */
                 g_mem[0x20] = 0;
                 g_mem[0x21] = (uint8_t)n;
-                if (n > 60)
+                if (n > 60) {
                     g_mem[0x38] = 0xFF; /* extra-levels mode (preserved by reinit) */
+                }
                 /* Same flags as pc_request_level_restart MINUS its immediate
                  * PC_SCR_GAMEPLAY flip: goto can be issued from the title
                  * (poster/menu), whose thread still runs one final frame —
@@ -784,9 +814,10 @@ int main(int argc, char **argv) {
                 }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] poked PUAE $%06X = $%X\n", a, v);
-            } else
+            } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] usage: mpu <hexaddr> <hexval> [w]\n");
+            }
         } else if (!strcmp(cmd,
                            "mwp")) { /* mwp <hexaddr> <hexval> [w] — poke a PC g_mem byte/word */
             char av[32] = {0}, vv[32] = {0}, wf[8] = {0};
@@ -801,43 +832,50 @@ int main(int argc, char **argv) {
                 }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] poked PC $%06X = $%X\n", a, v);
-            } else
+            } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] usage: mwp <hexaddr> <hexval> [w]\n");
+            }
         } else if (!strcmp(cmd,
                            "putype")) { /* putype <text> — type text on the PUAE Amiga keyboard
                                            (real keyboard events via the core's keyboard callback;
                                            lowercase letters/digits; '\\n' use 'putype RET'). */
             extern void retro_keyboard_event(bool, unsigned, uint32_t, uint16_t);
             char txt[64] = {0};
-            if (sscanf(line, "%*s %63s", txt) != 1)
+            if (sscanf(line, "%*s %63s", txt) != 1) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] usage: putype <text|RET|BS>\n");
-            else if (!strcmp(txt, "RET")) {
+            } else if (!strcmp(txt, "RET")) {
                 retro_keyboard_event(true, 13, 13, 0);
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < 4; i++) {
                     STEP_PU();
+                }
                 retro_keyboard_event(false, 13, 13, 0);
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < 4; i++) {
                     STEP_PU();
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] typed <Return>\n");
             } else if (!strcmp(txt, "BS")) {
                 retro_keyboard_event(true, 8, 8, 0);
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < 4; i++) {
                     STEP_PU();
+                }
                 retro_keyboard_event(false, 8, 8, 0);
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < 4; i++) {
                     STEP_PU();
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] typed <Backspace>\n");
             } else {
                 for (const char *p = txt; *p; p++) {
                     unsigned k = (unsigned)(*p >= 'A' && *p <= 'Z' ? *p + 32 : *p);
                     retro_keyboard_event(true, k, k, 0);
-                    for (int i = 0; i < 4; i++)
+                    for (int i = 0; i < 4; i++) {
                         STEP_PU();
+                    }
                     retro_keyboard_event(false, k, k, 0);
-                    for (int i = 0; i < 4; i++)
+                    for (int i = 0; i < 4; i++) {
                         STEP_PU();
+                    }
                 }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] typed '%s'\n", txt);
             }
@@ -849,11 +887,11 @@ int main(int argc, char **argv) {
                                          checksummed 5-char halves, digits 1-6 = vowels AEIOUY). */
             int lvl = 0;
             sscanf(line, "%*s %d", &lvl);
-            if (lvl < 1 || lvl > 90)
+            if (lvl < 1 || lvl > 90) {
                 benefactor_log_write(
                     BENEFACTOR_LOG_INFO, "harness",
                     "[crepl] usage: password <1..90> (61+ needs LOAD EXTRA LEVELS)\n");
-            else {
+            } else {
                 uint16_t target = (uint16_t)(0xBF00u | (unsigned)lvl);
                 /* invert the decoder's bit shuffle (a pure bit permutation) */
                 uint16_t w1 = 0;
@@ -869,8 +907,9 @@ int main(int argc, char **argv) {
                     f |= ROR16((uint16_t)(w & 0x480), 6);
                     f |= ROR16((uint16_t)(w & 0x8200), 3);
                     f |= ROR16((uint16_t)(w & 0x801), 14);
-                    if (target & f)
+                    if (target & f) {
                         w1 |= (uint16_t)(1u << ib);
+                    }
                 }
                 uint16_t w2 = ROR16(w1, 8);
                 char out[11];
@@ -881,8 +920,9 @@ int main(int argc, char **argv) {
                                 word & 0xF};
                     int done = 0;
                     for (int k = 0; k < 16 && !done; k++) {
-                        if (n[0] + k > 25 || n[1] + k > 25 || n[2] + k > 25 || n[3] + k > 25)
+                        if (n[0] + k > 25 || n[1] + k > 25 || n[2] + k > 25 || n[3] + k > 25) {
                             continue;
+                        }
                         for (int sgn = 1; sgn >= -1; sgn -= 2) {
                             int v0 = (((n[0] << 4) | n[1]) - sgn * 16 * k) & 0xFF;
                             if (v0 <= 25) {
@@ -913,18 +953,20 @@ int main(int argc, char **argv) {
                             }
                         }
                     }
-                    if (!done)
+                    if (!done) {
                         okp = 0;
+                    }
 #undef ROR16
                 }
                 out[10] = 0;
-                if (okp)
+                if (okp) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[crepl] password for level %d: %s%s\n", lvl, out,
                                          lvl > 60 ? "  (run LOAD EXTRA LEVELS first)" : "");
-                else
+                } else {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[crepl] password: no encodable form for level %d\n", lvl);
+                }
             }
         } else if (!strcmp(cmd, "pupass")) { /* pupass <PASSWORD> — type a 10-char password on
                                                 PUAE's ORIGINAL password screen using pure joystick
@@ -971,10 +1013,11 @@ int main(int argc, char **argv) {
                 int ok = 1;
                 /* 1) menu cursor to ENTER PASSWORD (item 1) */
                 for (int t = 0; t < 24 && PU_RD16(0x3860u) != 1; t++) {
-                    if (PU_RD16(0x3860u) < 1)
+                    if (PU_RD16(0x3860u) < 1) {
                         PULSE(jd);
-                    else
+                    } else {
                         PULSE(ju);
+                    }
                 }
                 if (PU_RD16(0x3860u) != 1) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -982,8 +1025,9 @@ int main(int argc, char **argv) {
                     ok = 0;
                 }
                 /* 2) RIGHT enters the field (pos becomes 1) */
-                for (int t = 0; ok && t < 12 && PU_RD16(0x3B68u) == 0; t++)
+                for (int t = 0; ok && t < 12 && PU_RD16(0x3B68u) == 0; t++) {
                     PULSE(jr);
+                }
                 if (ok && PU_RD16(0x3B68u) == 0) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[crepl] pupass: field never opened\n");
@@ -996,10 +1040,11 @@ int main(int argc, char **argv) {
                 for (int i = 0; ok && i < 10; i++) {
                     /* move field pos to i+1 */
                     for (int t = 0; t < 30 && PU_RD16(0x3B68u) != (uint16_t)(i + 1); t++) {
-                        if (PU_RD16(0x3B68u) < (uint16_t)(i + 1))
+                        if (PU_RD16(0x3B68u) < (uint16_t)(i + 1)) {
                             PULSE(jr);
-                        else
+                        } else {
                             PULSE(jl);
+                        }
                     }
                     if (PU_RD16(0x3B68u) != (uint16_t)(i + 1)) {
                         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -1017,8 +1062,9 @@ int main(int argc, char **argv) {
                             landed = 1;
                             break;
                         }
-                        if (ch == start)
+                        if (ch == start) {
                             break; /* full cycle, char not present */
+                        }
                     }
                     if (!landed) {
                         benefactor_log_write(
@@ -1029,12 +1075,14 @@ int main(int argc, char **argv) {
                     }
                 }
                 /* 4) LEFT until the field closes (pos 0, back on the menu) */
-                for (int t = 0; ok && t < 30 && PU_RD16(0x3B68u) != 0; t++)
+                for (int t = 0; ok && t < 30 && PU_RD16(0x3B68u) != 0; t++) {
                     PULSE(jl);
+                }
                 /* 5) report the typed password by reading the cells back */
                 char got[11] = {0};
-                for (int i = 0; i < 10; i++)
+                for (int i = 0; i < 10; i++) {
                     got[i] = (char)PU_RD8(PU_RD32(0x3D6Eu + 4u * (uint32_t)i));
+                }
                 benefactor_log_write(
                     BENEFACTOR_LOG_INFO, "harness",
                     "[crepl] pupass: field now '%s' (%s), back at menu cursor=%u\n", got,
@@ -1053,8 +1101,9 @@ int main(int argc, char **argv) {
             int at_menu = 0;
             for (int pulse = 0; pulse < 40 && !at_menu; pulse++) {
                 fire = 1;
-                for (int i = 0; i < 6; i++)
+                for (int i = 0; i < 6; i++) {
                     STEP_PU();
+                }
                 fire = 0;
                 for (int i = 0; i < 110; i++) {
                     STEP_PU();
@@ -1072,10 +1121,10 @@ int main(int argc, char **argv) {
                                                  sync breakpoint, exposed). */
             extern int puae_run_to_pc(uint32_t, int, int);
             unsigned a = 0, maxf = 2000;
-            if (sscanf(line, "%*s %x %u", &a, &maxf) < 1)
+            if (sscanf(line, "%*s %x %u", &a, &maxf) < 1) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] usage: purunto <hexpc> [maxframes]\n");
-            else {
+            } else {
                 int hit = puae_run_to_pc(a, 0, (int)maxf);
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] purunto $%06X: %s\n",
                                      a, hit ? "hit" : "NOT reached");
@@ -1087,10 +1136,10 @@ int main(int argc, char **argv) {
                                            state a Disk.4 it was frozen without. */
             int dr = 0;
             char p[256] = {0};
-            if (sscanf(line, "%*s %d %255s", &dr, p) != 2 || dr < 0 || dr > 3)
+            if (sscanf(line, "%*s %d %255s", &dr, p) != 2 || dr < 0 || dr > 3) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] usage: pudisk <drive 0-3> <path>\n");
-            else {
+            } else {
                 extern void disk_insert(int, const char *);
                 disk_insert(dr, p);
                 benefactor_log_write(
@@ -1115,8 +1164,9 @@ int main(int argc, char **argv) {
                 int at_menu = 0;
                 for (int pulse = 0; pulse < 40 && !at_menu; pulse++) {
                     fire = 1;
-                    for (int i = 0; i < 6; i++)
+                    for (int i = 0; i < 6; i++) {
                         STEP_PU();
+                    }
                     fire = 0;
                     for (int i = 0; i < 110; i++) {
                         STEP_PU();
@@ -1163,12 +1213,14 @@ int main(int argc, char **argv) {
         }                                                                                          \
     } while (0)
                         disk_insert(0, (n_disks > 3) ? disks[3] : "Disk.4");
-                        for (int i = 0; i < 10; i++)
-                            STEP_PU();   /* let the swap land */
+                        for (int i = 0; i < 10; i++) {
+                            STEP_PU(); /* let the swap land */
+                        }
                         PU_CURSOR_TO(2); /* LOAD EXTRA LEVELS */
                         fire = 1;
-                        for (int i = 0; i < 6; i++)
+                        for (int i = 0; i < 6; i++) {
                             STEP_PU();
+                        }
                         fire = 0;
                         /* the load leaves the menu; wait until it is back */
                         int back = 0;
@@ -1182,16 +1234,18 @@ int main(int argc, char **argv) {
                         benefactor_log_write(
                             BENEFACTOR_LOG_INFO, "harness",
                             "[crepl] pugoto: LOAD EXTRA LEVELS done (menu back=%d)\n", back);
-                        for (int i = 0; i < 15; i++)
+                        for (int i = 0; i < 15; i++) {
                             STEP_PU();
+                        }
                         PU_CURSOR_TO(0); /* back to PLAY GAME */
 #undef PU_CURSOR_TO
 #undef PU_MENU_CURSOR
                     }
                     /* 2) PLAY GAME (default selection), then 3) stop at engine entry. */
                     fire = 1;
-                    for (int i = 0; i < 6; i++)
+                    for (int i = 0; i < 6; i++) {
                         STEP_PU();
+                    }
                     fire = 0;
                     int hit = puae_run_to_pc(0x577000u, 0, 2000);
                     if (!hit) {
@@ -1214,22 +1268,24 @@ int main(int argc, char **argv) {
                          *    gameplay ($003484) is STABLE (card dismissed). */
                         for (int i = 0; i < 600; i++) {
                             STEP_PU();
-                            if (puae_get_cop1lc() == 0x003914u)
+                            if (puae_get_cop1lc() == 0x003914u) {
                                 break;
+                            }
                         }
                         int stable = 0;
                         for (int pulse = 0; pulse < 20 && stable < 60; pulse++) {
                             if (puae_get_cop1lc() == 0x003914u) {
                                 fire = 1;
-                                for (int i = 0; i < 8; i++)
+                                for (int i = 0; i < 8; i++) {
                                     STEP_PU();
+                                }
                                 fire = 0;
                             }
                             for (int i = 0; i < 30; i++) {
                                 STEP_PU();
-                                if (puae_get_cop1lc() == 0x003484u)
+                                if (puae_get_cop1lc() == 0x003484u) {
                                     stable++;
-                                else {
+                                } else {
                                     stable = 0;
                                     break;
                                 }
@@ -1283,17 +1339,20 @@ int main(int argc, char **argv) {
             if (sscanf(line, "%*s %31s", arg) == 1) {
                 unsigned lo = 0, hi = 0;
                 const char *p = arg;
-                if (*p == '$')
+                if (*p == '$') {
                     p++;
+                }
                 char *end = NULL;
                 lo = (unsigned)strtoul(p, &end, 16);
                 if (*end == '-') {
                     p = end + 1;
-                    if (*p == '$')
+                    if (*p == '$') {
                         p++;
+                    }
                     hi = (unsigned)strtoul(p, &end, 16);
-                } else
+                } else {
                     hi = lo;
+                }
                 rt_chip_rwatch_add(lo, hi);
             } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -1309,17 +1368,20 @@ int main(int argc, char **argv) {
             if (sscanf(line, "%*s %31s", arg) == 1) {
                 unsigned lo = 0, hi = 0;
                 const char *p = arg;
-                if (*p == '$')
+                if (*p == '$') {
                     p++;
+                }
                 char *end = NULL;
                 lo = (unsigned)strtoul(p, &end, 16);
                 if (*end == '-') {
                     p = end + 1;
-                    if (*p == '$')
+                    if (*p == '$') {
                         p++;
+                    }
                     hi = (unsigned)strtoul(p, &end, 16);
-                } else
+                } else {
                     hi = lo;
+                }
                 rt_chip_watch_add(lo, hi);
             } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -1335,17 +1397,20 @@ int main(int argc, char **argv) {
             if (sscanf(line, "%*s %31s", arg) == 1) {
                 unsigned lo = 0, hi = 0;
                 const char *p = arg;
-                if (*p == '$')
+                if (*p == '$') {
                     p++;
+                }
                 char *end = NULL;
                 lo = (unsigned)strtoul(p, &end, 16);
                 if (*end == '-') {
                     p = end + 1;
-                    if (*p == '$')
+                    if (*p == '$') {
                         p++;
+                    }
                     hi = (unsigned)strtoul(p, &end, 16);
-                } else
+                } else {
                     hi = lo;
+                }
                 puae_watch_chip_add(lo, hi);
             } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -1356,15 +1421,17 @@ int main(int argc, char **argv) {
             puae_watch_chip_clear();
         } else if (!strcmp(cmd, "save")) { /* save [path] — dump PC coroutine state */
             char path[4096];
-            if (!harness_artifact_path("savestate.bin", path, sizeof path))
+            if (!harness_artifact_path("savestate.bin", path, sizeof path)) {
                 continue;
+            }
             sscanf(line, "%*s %4095s", path);
             extern int pc_savestate(const char *);
             pc_savestate(path);
         } else if (!strcmp(cmd, "load")) { /* load [path] — restore PC coroutine state */
             char path[4096];
-            if (!harness_artifact_path("savestate.bin", path, sizeof path))
+            if (!harness_artifact_path("savestate.bin", path, sizeof path)) {
                 continue;
+            }
             sscanf(line, "%*s %4095s", path);
             extern int pc_loadstate(const char *);
             pc_loadstate(path);
@@ -1376,8 +1443,9 @@ int main(int argc, char **argv) {
                                             it — works across binaries since the Amiga memory map is
                                             binary-independent. Diagnostic only. */
             char path[4096];
-            if (!harness_artifact_path("savestate.bin", path, sizeof path))
+            if (!harness_artifact_path("savestate.bin", path, sizeof path)) {
                 continue;
+            }
             sscanf(line, "%*s %4095s", path);
             extern uint8_t *g_mem;
             FILE *f = fopen(path, "rb");
@@ -1418,8 +1486,9 @@ int main(int argc, char **argv) {
                                               this state and re-renders the scene — giving the
                                               ORACLE's drawing of it. Run `pu N` after. */
             char path[4096];
-            if (!harness_artifact_path("savestate.bin", path, sizeof path))
+            if (!harness_artifact_path("savestate.bin", path, sizeof path)) {
                 continue;
+            }
             unsigned rlo = 0, rhi = 0x800000u; /* optional poke range */
             sscanf(line, "%*s %4095s %x %x", path, &rlo, &rhi);
             extern void puae_poke_mem(uint32_t, const void *, int);
@@ -1449,8 +1518,9 @@ int main(int argc, char **argv) {
                         uint32_t want = (rhi - lo < sizeof buf) ? rhi - lo : sizeof buf;
                         fseek(f, mem_off + lo, SEEK_SET);
                         size_t got = fread(buf, 1, want, f);
-                        if (!got)
+                        if (!got) {
                             break;
+                        }
                         puae_poke_mem(lo, buf, (int)got);
                         total += (long)got;
                     }
@@ -1513,8 +1583,9 @@ int main(int argc, char **argv) {
                                          v[0] ? v : "(unset)", src, pc_cfg_desc(i));
                 }
             } else {
-                if (got >= 2)
+                if (got >= 2) {
                     pc_cfg_set(key, strcmp(val, "-") ? val : NULL);
+                }
                 char v[64];
                 const char *src = "default";
                 pc_cfg_show(key, v, sizeof v, &src);
@@ -1530,8 +1601,9 @@ int main(int argc, char **argv) {
             long x = -999999, y = -999999;
             {
                 const char *p = line;
-                while (*p && *p != ' ')
+                while (*p && *p != ' ') {
                     p++;
+                }
                 sscanf(p, " %ld %ld", &x, &y);
             }
             if (!g_mem) {
@@ -1564,8 +1636,9 @@ int main(int argc, char **argv) {
                                  g_ws_view_left, g_ws_view_w);
             for (int k = 0; k < n; k++) {
                 int x, y, fr, fl, bl;
-                if (!native_wsbuild_get(k, &x, &y, &fr, &fl, &bl))
+                if (!native_wsbuild_get(k, &x, &y, &fr, &fl, &bl)) {
                     continue;
+                }
                 uint32_t h = native_wsbuild_handler(k);
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "  [%d] worldX=%d (screenX=%d) worldY=%d frame=%d "
@@ -1597,10 +1670,11 @@ int main(int argc, char **argv) {
                 {
                     extern int native_wsbuild_cloud(int, int *, int *, int *);
                     int cx, cy, ci;
-                    if (native_wsbuild_cloud(k, &cx, &cy, &ci))
+                    if (native_wsbuild_cloud(k, &cx, &cy, &ci)) {
                         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                              "        cloud: recX=%d recY=%d idx=$%02X\n", cx, cy,
                                              ci);
+                    }
                 }
             }
         } else if (!strcmp(
@@ -1614,10 +1688,11 @@ int main(int argc, char **argv) {
             for (int i = 0; i < n; i++) {
                 int wx, row, col;
                 uint32_t src;
-                if (native_wswater_get(i, &wx, &row, &col, &src))
+                if (native_wswater_get(i, &wx, &row, &col, &src)) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "  p%2d worldX=%d row=%d col=%d src=$%06X\n", i, wx, row,
                                          col, src);
+                }
             }
         } else if (!strcmp(cmd,
                            "line")) { /* line <y> — per-scanline BPL pointers from the last
@@ -1628,15 +1703,16 @@ int main(int argc, char **argv) {
             uint32_t pt[5];
             int xo = 0, sc = 0, wd = 0;
             int np = native_render_line_info(y, pt, &xo, &sc, &wd);
-            if (np <= 0)
+            if (np <= 0) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[line] y=%d: no single-PF data\n", y);
-            else {
+            } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[line] y=%d bpu=%d xoff=%d scr1=%d width=%d pt:", y, np, xo,
                                      sc, wd);
-                for (int p = 0; p < np; p++)
+                for (int p = 0; p < np; p++) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " $%06X", pt[p]);
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
             }
         } else if (!strcmp(cmd, "blits")) { /* blits — dump the engine's captured object blits
@@ -1648,11 +1724,12 @@ int main(int argc, char **argv) {
             const BlitRec *br = hw_blit_capture_recs();
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[blits] %d blit record(s):\n",
                                  bn);
-            for (int i = 0; i < bn; i++)
+            for (int i = 0; i < bn; i++) {
                 benefactor_log_write(
                     BENEFACTOR_LOG_INFO, "harness",
                     "  b%2d src=$%06X mask=$%06X dpt=$%06X w=%d h=%d shift=%d con0=$%04X\n", i,
                     br[i].src, br[i].mask, br[i].dpt, br[i].w, br[i].h, br[i].shift, br[i].con0);
+            }
         } else if (!strcmp(cmd,
                            "blitskip")) { /* blitskip <fn-hex|0> — DIAGNOSTIC: drop every blit
                                              issued by guest routine <fn>, to confirm which routine
@@ -1660,8 +1737,9 @@ int main(int argc, char **argv) {
             extern uint32_t g_blit_skip_fn;
             unsigned f = 0;
             const char *p = line;
-            while (*p && *p != ' ')
+            while (*p && *p != ' ') {
                 p++;
+            }
             sscanf(p, " %x", &f);
             g_blit_skip_fn = f;
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] blitskip fn=$%06X %s\n",
@@ -1688,18 +1766,19 @@ int main(int argc, char **argv) {
                 pc_pause_toggle();
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] toggled pause-menu overlay\n");
-            } else if (!strcmp(nav, "up"))
+            } else if (!strcmp(nav, "up")) {
                 pc_pause_input_up();
-            else if (!strcmp(nav, "down"))
+            } else if (!strcmp(nav, "down")) {
                 pc_pause_input_down();
-            else if (!strcmp(nav, "left"))
+            } else if (!strcmp(nav, "left")) {
                 pc_pause_input_left();
-            else if (!strcmp(nav, "right"))
+            } else if (!strcmp(nav, "right")) {
                 pc_pause_input_right();
-            else if (!strcmp(nav, "sel"))
+            } else if (!strcmp(nav, "sel")) {
                 pc_pause_input_select();
-            else if (!strcmp(nav, "esc"))
+            } else if (!strcmp(nav, "esc")) {
                 pc_pause_escape();
+            }
         } else if (!strcmp(cmd, "joy")) { /* joy <up> <down> <left> <right> (held until changed) */
             ju = jd = jl = jr = 0;
             sscanf(line, "%*s %d %d %d %d", &ju, &jd, &jl, &jr);
@@ -1708,10 +1787,12 @@ int main(int argc, char **argv) {
         } else if (!strcmp(cmd, "pc")) {
             n = 1;
             sscanf(line, "%*s %u", &n);
-            if (!n)
+            if (!n) {
                 n = 1;
-            for (unsigned i = 0; i < n; i++)
+            }
+            for (unsigned i = 0; i < n; i++) {
                 STEP_PC();
+            }
             FrameState c;
             hw_get_snap(&c);
             {
@@ -1727,15 +1808,17 @@ int main(int argc, char **argv) {
                                              */
             unsigned target = 0, maxf = 5000;
             sscanf(line, "%*s %x %u", &target, &maxf);
-            if (!maxf)
+            if (!maxf) {
                 maxf = 5000;
+            }
             FrameState c;
             unsigned i = 0;
             for (; i < maxf; i++) {
                 STEP_PC();
                 hw_get_snap(&c);
-                if (c.cop1lc == target)
+                if (c.cop1lc == target) {
                     break;
+                }
             }
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "[crepl] runto $%06X: %s after %u frames (cop1lc=$%06X)\n", target,
@@ -1744,10 +1827,12 @@ int main(int argc, char **argv) {
         } else if (!strcmp(cmd, "pu")) {
             n = 1;
             sscanf(line, "%*s %u", &n);
-            if (!n)
+            if (!n) {
                 n = 1;
-            for (unsigned i = 0; i < n; i++)
+            }
+            for (unsigned i = 0; i < n; i++) {
                 STEP_PU();
+            }
             FrameState p;
             puae_snap_state(&p);
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] PU +%u -> cop1lc=$%06X\n",
@@ -1755,8 +1840,9 @@ int main(int argc, char **argv) {
         } else if (!strcmp(cmd, "both")) {
             n = 1;
             sscanf(line, "%*s %u", &n);
-            if (!n)
+            if (!n) {
                 n = 1;
+            }
             for (unsigned i = 0; i < n; i++) {
                 STEP_PC();
                 STEP_PU();
@@ -1776,24 +1862,28 @@ int main(int argc, char **argv) {
         } else if (!strcmp(cmd, "m") || !strcmp(cmd, "mp")) {
             unsigned a = 0, k = 16;
             sscanf(line, "%*s %x %u", &a, &k);
-            if (!k)
+            if (!k) {
                 k = 16;
+            }
             if (cmd[1] == 'p') { /* PC g_mem */
                 extern uint8_t *g_mem;
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] PC  $%06X:", a);
-                for (unsigned i = 0; i < k; i++)
+                for (unsigned i = 0; i < k; i++) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " %02X",
                                          g_mem[(a + i) & 0x7FFFFF]);
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
             } else { /* PUAE any bank (chip/fast/expansion) via CPU map */
                 extern int puae_dump_mem(uint32_t addr, void *buf, int len);
                 uint8_t pb[256];
-                if (k > 256)
+                if (k > 256) {
                     k = 256;
+                }
                 puae_dump_mem(a, pb, (int)k);
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] PU  $%06X:", a);
-                for (unsigned i = 0; i < k; i++)
+                for (unsigned i = 0; i < k; i++) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " %02X", pb[i]);
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
             }
         } else if (!strcmp(cmd,
@@ -1808,13 +1898,15 @@ int main(int argc, char **argv) {
             if (sscanf(line, "%*s %x %lx %c", &a, &v, &sz) >= 2) {
                 a &= 0x7FFFFF;
                 int n = (sz == 'l') ? 4 : (sz == 'w') ? 2 : 1;
-                for (int i = 0; i < n; i++) /* big-endian */
+                for (int i = 0; i < n; i++) { /* big-endian */
                     g_mem[(a + i) & 0x7FFFFF] = (uint8_t)(v >> (8 * (n - 1 - i)));
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] PC  $%06X <- %0*lX (%c)\n", a, n * 2, v, sz);
-            } else
+            } else {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] usage: mpset <hex addr> <hex val> [w|l]\n");
+            }
         } else if (!strcmp(
                        cmd,
                        "wscmp")) { /* wscmp [frames] — per-frame diff native(s_out) vs vanilla(s_fb)
@@ -1830,39 +1922,48 @@ int main(int argc, char **argv) {
             for (unsigned f = 0; f < frames; f++) {
                 unsigned ph = f % 300; /* right 100, left 100, still 100 */
                 ju = jd = jl = jr = 0;
-                if (ph < 100)
+                if (ph < 100) {
                     jr = 1;
-                else if (ph < 200)
+                } else if (ph < 200) {
                     jl = 1;
+                }
                 STEP_PC();
                 const uint32_t *van = hw_get_framebuffer();
                 const uint32_t *nat = hw_get_output_framebuffer();
                 int nd = 0, bx0 = 9999, by0 = 9999, bx1 = -1, by1 = -1;
-                for (int y = 13; y < 237; y++)
-                    for (int x = 24; x < 328; x++)
+                for (int y = 13; y < 237; y++) {
+                    for (int x = 24; x < 328; x++) {
                         if ((van[y * FB_W + x] & 0xFFFFFF) != (nat[y * ow2 + x] & 0xFFFFFF)) {
                             nd++;
-                            if (x < bx0)
+                            if (x < bx0) {
                                 bx0 = x;
-                            if (x > bx1)
+                            }
+                            if (x > bx1) {
                                 bx1 = x;
-                            if (y < by0)
+                            }
+                            if (y < by0) {
                                 by0 = y;
-                            if (y > by1)
+                            }
+                            if (y > by1) {
                                 by1 = y;
+                            }
                         }
+                    }
+                }
                 total += nd;
                 if (nd > 0) {
                     badframes++;
-                    if (firstbad < 0)
+                    if (firstbad < 0) {
                         firstbad = (int)f;
+                    }
                 }
                 if (nd > worst) {
                     worst = nd;
                     worstf = (int)f;
                     memcpy(wv, van, sizeof wv);
-                    for (int y = 0; y < FB_H; y++)
+                    for (int y = 0; y < FB_H; y++) {
                         memcpy(wn + y * FB_W, nat + y * ow2, FB_W * 4);
+                    }
                 }
                 /* CAUSE: for the first few bad frames, print where + sample pixels (van vs nat). */
                 if (nd > 0 && badframes <= 6) {
@@ -1872,7 +1973,7 @@ int main(int argc, char **argv) {
                                          f, (g_mem[0x57FDBA] << 8) | g_mem[0x57FDBB], nd, bx0, bx1,
                                          by0, by1);
                     int shown = 0;
-                    for (int y = 13; y < 237 && shown < 6; y++)
+                    for (int y = 13; y < 237 && shown < 6; y++) {
                         for (int x = 24; x < 328 && shown < 6; x++) {
                             uint32_t v = van[y * FB_W + x] & 0xFFFFFF,
                                      q = nat[y * ow2 + x] & 0xFFFFFF;
@@ -1882,6 +1983,7 @@ int main(int argc, char **argv) {
                                 shown++;
                             }
                         }
+                    }
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
                 }
             }
@@ -1931,38 +2033,47 @@ int main(int argc, char **argv) {
                 int colhas[FB_W];
                 for (int x = 0; x < FB_W; x++) {
                     colhas[x] = 0;
-                    for (int y = 13; y < 201; y++)
+                    for (int y = 13; y < 201; y++) {
                         if ((van[y * FB_W + x] & 0xFFFFFF) != 0) {
                             colhas[x] = 1;
                             break;
                         }
+                    }
                 }
                 /* Skip an edge band: the native renderer has a known camera-alignment
                  * bug toward the left/right edges (off by a few px), which produces
                  * spurious diffs there. BENEFACTOR_WSDIFF_EDGE px are excluded from EACH side of
                  * the compared content window so the check reflects the real interior. */
                 static int wsedge = -1;
-                if (wsedge < 0)
+                if (wsedge < 0) {
                     wsedge = pc_cfg_int("wsdiff_edge", 32);
+                }
                 int nd = 0, bx0 = 9999, by0 = 9999, bx1 = -1, by1 = -1;
-                for (int y = 13; y < 237; y++)
+                for (int y = 13; y < 237; y++) {
                     for (int x = 24 + wsedge; x < 328 - wsedge; x++) {
-                        if (!colhas[x])
+                        if (!colhas[x]) {
                             continue;
+                        }
                         if ((van[y * FB_W + x] & 0xFFFFFF) != (nat[y * ow2 + x] & 0xFFFFFF)) {
                             nd++;
-                            if (x < bx0)
+                            if (x < bx0) {
                                 bx0 = x;
-                            if (x > bx1)
+                            }
+                            if (x > bx1) {
                                 bx1 = x;
-                            if (y < by0)
+                            }
+                            if (y < by0) {
                                 by0 = y;
-                            if (y > by1)
+                            }
+                            if (y > by1) {
                                 by1 = y;
+                            }
                         }
                     }
-                if ((unsigned)nd <= thresh)
+                }
+                if ((unsigned)nd <= thresh) {
                     nd = 0;
+                }
                 if (nd > 0) {
                     hit = (int)f;
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -1971,7 +2082,7 @@ int main(int argc, char **argv) {
                                          f, nd, bx0, bx1, by0, by1,
                                          (g_mem[0x57FDBA] << 8) | g_mem[0x57FDBB]);
                     int shown = 0;
-                    for (int y = by0; y <= by1 && shown < 8; y++)
+                    for (int y = by0; y <= by1 && shown < 8; y++) {
                         for (int x = bx0; x <= bx1 && shown < 8; x++) {
                             uint32_t v = van[y * FB_W + x] & 0xFFFFFF,
                                      q = nat[y * ow2 + x] & 0xFFFFFF;
@@ -1981,16 +2092,19 @@ int main(int argc, char **argv) {
                                 shown++;
                             }
                         }
+                    }
                     FILE *a = harness_artifact_open("wsdiff_van.bin", "wb");
                     if (a) {
-                        for (int y = 0; y < FB_H; y++)
+                        for (int y = 0; y < FB_H; y++) {
                             fwrite(van + y * FB_W, 4, FB_W, a);
+                        }
                         fclose(a);
                     }
                     FILE *b = harness_artifact_open("wsdiff_nat.bin", "wb");
                     if (b) {
-                        for (int y = 0; y < FB_H; y++)
+                        for (int y = 0; y < FB_H; y++) {
                             fwrite(nat + y * ow2, 4, FB_W, b);
+                        }
                         fclose(b);
                     }
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
@@ -1998,9 +2112,10 @@ int main(int argc, char **argv) {
                     break;
                 }
             }
-            if (hit < 0)
+            if (hit < 0) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[wsdiff] no divergence in %u frames (all match)\n", maxf);
+            }
         } else if (!strcmp(cmd,
                            "bannercmp")) { /* bannercmp [x0 y0 x1 y1] — diff native(s_out) vs
                                               vanilla(s_fb) in a REGION (default = the GET READY
@@ -2015,7 +2130,7 @@ int main(int argc, char **argv) {
             const uint32_t *van = hw_get_framebuffer();
             const uint32_t *nat = hw_get_output_framebuffer();
             int nd = 0, tot = 0, shown = 0;
-            for (int y = y0; y < y1; y++)
+            for (int y = y0; y < y1; y++) {
                 for (int x = x0; x < x1; x++) {
                     tot++;
                     uint32_t v = van[y * FB_W + x] & 0xFFFFFF, q = nat[y * ow2 + x] & 0xFFFFFF;
@@ -2028,6 +2143,7 @@ int main(int argc, char **argv) {
                         }
                     }
                 }
+            }
             benefactor_log_write(
                 BENEFACTOR_LOG_INFO, "harness",
                 "[bannercmp] region x[%d..%d] y[%d..%d]: %d/%d px differ (%.2f%% match)\n", x0, x1,
@@ -2047,15 +2163,16 @@ int main(int argc, char **argv) {
             } else {
                 int mc = 0;
                 long nd = scene_sdl_selftest(sc, w, h, lo, hi, &mc);
-                if (nd < 0)
+                if (nd < 0) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[scenesdl] SDL error (software renderer unavailable?)\n");
-                else
+                } else {
                     benefactor_log_write(
                         BENEFACTOR_LOG_INFO, "harness",
                         "[scenesdl] %d quads, rows[%d..%d], %dx%d: %ld px differ vs CPU "
                         "rasterizer (max channel diff %d) -> %s\n",
                         sc->nquads, lo, hi, w, h, nd, mc, nd == 0 ? "BYTE-IDENTICAL" : "MISMATCH");
+                }
             }
         } else if (!strcmp(cmd,
                            "scenewin")) { /* scenewin — P4 gate: render the WINDOWED per-sprite
@@ -2075,16 +2192,17 @@ int main(int argc, char **argv) {
                 int ow = hw_output_width(), mc = 0;
                 long nd = scene_sdl_window_selftest(sc, hw_get_output_framebuffer(), ow, FB_H, lo,
                                                     hi, &mc);
-                if (nd < 0)
+                if (nd < 0) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[scenewin] SDL error (software renderer unavailable?)\n");
-                else
+                } else {
                     benefactor_log_write(
                         BENEFACTOR_LOG_INFO, "harness",
                         "[scenewin] %d quads, rows[%d..%d], %dx%d window: %ld px differ "
                         "vs s_out (max channel diff %d) -> %s\n",
                         sc->nquads, lo, hi, ow, FB_H, nd, mc,
                         nd == 0 ? "BYTE-IDENTICAL" : "MISMATCH");
+                }
             }
         } else if (!strcmp(
                        cmd,
@@ -2108,8 +2226,9 @@ int main(int argc, char **argv) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                  "[blitlog] %d blits last frame (minw=%u)\n", nL, minw);
             for (int k = 0; k < nL; k++) {
-                if ((unsigned)L[k].w < minw)
+                if ((unsigned)L[k].w < minw) {
                     continue;
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "  con0=%04X con1=%04X %dx%d apt=%06X bpt=%06X cpt=%06X "
                                      "dpt=%06X cap=%c fn=$%06X\n",
@@ -2128,9 +2247,10 @@ int main(int argc, char **argv) {
                                  "[wscap] cop1lc=$%06X  wsobj=%d wschar=%d  player=%s",
                                  hw_get_cop1lc(), native_wsobj_count(), native_wschar_count(),
                                  have_p ? "yes" : "no");
-            if (have_p)
+            if (have_p) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " (x=%d y=%d black=%d)", px,
                                      py, pblack);
+            }
             {
                 extern void native_ws_diag(long *, long *, long *);
                 long ow = 0, od = 0, ch = 0;
@@ -2163,8 +2283,9 @@ int main(int argc, char **argv) {
             for (int i = 0; i < nobj; i++) {
                 int x, y, w, h;
                 uint32_t s, m;
-                if (!native_wsobj_get(i, &x, &y, &w, &h, &s, &m))
+                if (!native_wsobj_get(i, &x, &y, &w, &h, &s, &m)) {
                     continue;
+                }
                 uint32_t a1 = 0, gb = 0;
                 int d5 = 0;
                 native_wsobj_getraw(i, &a1, &gb, &d5);
@@ -2177,8 +2298,9 @@ int main(int argc, char **argv) {
             for (int i = 0; i < nchr; i++) {
                 int x, y, w, h, rsd;
                 uint32_t d, mk;
-                if (!native_wschar_get(i, &x, &y, &w, &h, &d, &mk, &rsd))
+                if (!native_wschar_get(i, &x, &y, &w, &h, &d, &mk, &rsd)) {
                     continue;
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "  chr%2d x=%5d y=%4d screenX=%5d w=%d h=%d data=$%06X\n", i,
                                      x, y, x - cam, w, h, d);
@@ -2311,22 +2433,27 @@ int main(int argc, char **argv) {
                 }
                 /* right-circle hole bounds from the mask (cols 120..ww*16) */
                 int hlo = 9999, hhi = -1, rlo = 9999, rhi = -1;
-                for (int r = 0; r < rows; r++)
+                for (int r = 0; r < rows; r++) {
                     for (int c = 120; c < ww * 16; c++) {
                         int wo = c >> 4, bit = 15 - (c & 15);
                         uint32_t a = bmask + (uint32_t)r * rs + (uint32_t)wo * 2;
                         uint16_t v = ((uint16_t)g_mem[a] << 8) | g_mem[a + 1];
                         if (!((v >> bit) & 1)) {
-                            if (c < hlo)
+                            if (c < hlo) {
                                 hlo = c;
-                            if (c > hhi)
+                            }
+                            if (c > hhi) {
                                 hhi = c;
-                            if (r < rlo)
+                            }
+                            if (r < rlo) {
                                 rlo = r;
-                            if (r > rhi)
+                            }
+                            if (r > rhi) {
                                 rhi = r;
+                            }
                         }
                     }
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[bpos] right hole: cols %d..%d  rows %d..%d\n", hlo, hhi, rlo,
                                      rhi);
@@ -2337,9 +2464,10 @@ int main(int argc, char **argv) {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] palette (ARGB):\n");
             for (int i = 0; i < 32; i += 8) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "  %2d:", i);
-                for (int j = i; j < i + 8; j++)
+                for (int j = i; j < i + 8; j++) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " %06X",
                                          g_state.palette[j] & 0xFFFFFF);
+                }
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
             }
         } else if (!strcmp(cmd, "scenepal")) { /* scenepal <y> — print the BenRen per-scanline
@@ -2357,9 +2485,10 @@ int main(int argc, char **argv) {
                                      yy);
                 for (int i = 0; i < 32; i += 8) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "  %2d:", i);
-                    for (int j = i; j < i + 8; j++)
+                    for (int j = i; j < i + 8; j++) {
                         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", " %06X",
                                              sc->pal_rows[yy][j] & 0xFFFFFF);
+                    }
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
                 }
             }
@@ -2377,10 +2506,11 @@ int main(int argc, char **argv) {
             FrameState ps;
             puae_snap_state(&ps);
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "| PU ");
-            for (int ch = 0; ch < 4; ch++)
+            for (int ch = 0; ch < 4; ch++) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "c%d=%06X/L%04X/V%02X ", ch,
                                      ps.audio[ch].lc & 0xFFFFFF, ps.audio[ch].len,
                                      ps.audio[ch].vol);
+            }
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "\n");
         } else if (!strcmp(cmd,
                            "sfxcmp")) { /* sfxcmp [n] — step BOTH cores n frames with current
@@ -2389,8 +2519,9 @@ int main(int argc, char **argv) {
                                            grunt sequences to find where PC diverges from PUAE. */
             unsigned n = 200;
             sscanf(line, "%*s %u", &n);
-            if (!n)
+            if (!n) {
                 n = 200;
+            }
             extern uint8_t *g_mem;
             extern int puae_dump_mem(uint32_t, void *, int);
             /* $57fe4e = SFX pending flag; $57fe78 = the descriptor's ORIGINAL sample
@@ -2408,8 +2539,9 @@ int main(int argc, char **argv) {
                 puae_dump_mem(0x57FE4E, &pupend, 1);
                 uint8_t b[4];
                 if (pcpend == 0xFF && pc_prev != 0xFF) {
-                    for (int k = 0; k < 4; k++)
+                    for (int k = 0; k < 4; k++) {
                         b[k] = g_mem[0x57FE78u + k];
+                    }
                     uint32_t s = ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | b[3];
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[sfxcmp] f+%-3u PC base %06X\n", i, s);
@@ -2432,10 +2564,11 @@ int main(int argc, char **argv) {
                                               isolation) */
             extern int g_mute_music;
             int v = -1;
-            if (sscanf(line, "%*s %d", &v) == 1)
+            if (sscanf(line, "%*s %d", &v) == 1) {
                 g_mute_music = v;
-            else
+            } else {
                 g_mute_music = !g_mute_music;
+            }
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[mute] music %s (hw frame=%d)\n",
                                  g_mute_music ? "OFF (muted)" : "ON", hw_get_frame_num());
         } else if (!strcmp(cmd, "state")) {
@@ -2451,10 +2584,13 @@ int main(int argc, char **argv) {
         } else if (!strcmp(cmd, "cmp")) {
             const uint32_t *pcfb = hw_get_framebuffer();
             int diff = 0;
-            if (pcfb)
-                for (int i = 0; i < FB_W * FB_H; i++)
-                    if ((pcfb[i] & 0xFFFFFF) != (s_puae_fb[i] & 0xFFFFFF))
+            if (pcfb) {
+                for (int i = 0; i < FB_W * FB_H; i++) {
+                    if ((pcfb[i] & 0xFFFFFF) != (s_puae_fb[i] & 0xFFFFFF)) {
                         diff++;
+                    }
+                }
+            }
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] fb diff=%d/%d\n", diff,
                                  FB_W * FB_H);
         } else if (!strcmp(cmd, "fb")) {
@@ -2469,8 +2605,9 @@ int main(int argc, char **argv) {
                 snprintf(puname, sizeof puname, "fb_puae.bin");
             }
             if (!harness_artifact_path(pcname, pcpath, sizeof pcpath) ||
-                !harness_artifact_path(puname, pupath, sizeof pupath))
+                !harness_artifact_path(puname, pupath, sizeof pupath)) {
                 continue;
+            }
             const uint32_t *pcfb = hw_get_framebuffer();
             FILE *q = fopen(pcpath, "wb");
             if (q && pcfb) {
@@ -2510,8 +2647,9 @@ int main(int argc, char **argv) {
                 w = stride;
                 h = FB_H;
             }
-            if (h <= 0)
+            if (h <= 0) {
                 h = FB_H - y;
+            }
             if (x < 0 || y < 0 || x + w > stride || y + h > FB_H || sc < 1) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] shot: bad region (%d,%d %dx%d) for %dx%d\n", x, y, w,
@@ -2519,8 +2657,9 @@ int main(int argc, char **argv) {
             } else {
                 char name[96], path[4096];
                 snprintf(name, sizeof name, "%s.png", tag);
-                if (!harness_artifact_path(name, path, sizeof path))
+                if (!harness_artifact_path(name, path, sizeof path)) {
                     continue;
+                }
                 benefactor_log_write(
                     BENEFACTOR_LOG_INFO, "harness", "[crepl] %s %s (%dx%d @%d,%d x%d)\n",
                     png_dump_region(path, src, stride, x, y, w, h, sc) == 0 ? "wrote" : "FAILED",
@@ -2540,8 +2679,9 @@ int main(int argc, char **argv) {
                 w = FB_W;
                 h = FB_H;
             }
-            if (h <= 0)
+            if (h <= 0) {
                 h = FB_H - y;
+            }
             if (x < 0 || y < 0 || x + w > FB_W || y + h > FB_H || sc < 1) {
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[crepl] shotpu: bad region (%d,%d %dx%d) for %dx%d\n", x, y,
@@ -2549,8 +2689,9 @@ int main(int argc, char **argv) {
             } else {
                 char name[96], path[4096];
                 snprintf(name, sizeof name, "%s.png", tag);
-                if (!harness_artifact_path(name, path, sizeof path))
+                if (!harness_artifact_path(name, path, sizeof path)) {
                     continue;
+                }
                 benefactor_log_write(
                     BENEFACTOR_LOG_INFO, "harness", "[crepl] %s %s (%dx%d @%d,%d x%d)\n",
                     png_dump_region(path, s_puae_fb, FB_W, x, y, w, h, sc) == 0 ? "wrote"
@@ -2567,8 +2708,9 @@ int main(int argc, char **argv) {
             for (int y = lo; y < hi; y++) {
                 uint16_t c0, c1, df;
                 int m1, m2;
-                if (!native_scanline_info(y, &c0, &c1, &m1, &m2, &df))
+                if (!native_scanline_info(y, &c0, &c1, &m1, &m2, &df)) {
                     break;
+                }
                 if (y == lo || c0 != pc0 || c1 != pc1 || m1 != pm1 || m2 != pm2 || df != pdf) {
                     extern uint32_t native_scanline_color0(int);
                     benefactor_log_write(
@@ -2609,8 +2751,9 @@ int main(int argc, char **argv) {
             if (y >= 0 && native_scanline_diw(y, &ds, &de) && native_scanline_ddf(y, &a, &b)) {
                 int h0 = ds & 0xFF, h1 = (de & 0xFF) | 0x100; /* DIWSTOP H has implicit bit8 */
                 int words = (((int)b - (int)a) >> 3) + 1;
-                if (words < 1)
+                if (words < 1) {
                     words = 1;
+                }
                 int xoff = (int)(a - 0x38) * 2 + 6; /* DDF_TO_X */
                 benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                      "[diw] y=%d DIWSTRT=%04X DIWSTOP=%04X Hwindow=[%d,%d) w=%d\n",
@@ -2621,11 +2764,12 @@ int main(int argc, char **argv) {
                     a, b, words, words * 16, xoff, xoff + words * 16);
                 extern int native_diag_mapping(int, int, int *, int *, int *, int *, int *);
                 int cam = 0, s1 = 0, xo = 0, vw = 0, nw = 0;
-                if (native_diag_mapping(y, 176, &cam, &s1, &xo, &vw, &nw))
+                if (native_diag_mapping(y, 176, &cam, &s1, &xo, &vw, &nw)) {
                     benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                                          "[diw]   cam=%d (cam&15=%d) scroll1=%d  @x=176: "
                                          "vanillaWorld=%d nativeWorld=%d (delta=%d)\n",
                                          cam, cam & 15, s1, vw, nw, nw - vw);
+                }
             }
         } else if (!strcmp(cmd, "fbw")) { /* fbw [tag] — dump the WIDE output surface */
             extern int hw_output_width(void);
@@ -2634,8 +2778,9 @@ int main(int argc, char **argv) {
             sscanf(line, "%*s %63s", tag);
             char name[96], path[4096];
             snprintf(name, sizeof name, "fbw_%s.bin", tag[0] ? tag : "out");
-            if (!harness_artifact_path(name, path, sizeof path))
+            if (!harness_artifact_path(name, path, sizeof path)) {
                 continue;
+            }
             int w = hw_output_width();
             FILE *q = fopen(path, "wb");
             if (q) {
@@ -2644,17 +2789,20 @@ int main(int argc, char **argv) {
             }
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] wrote %s (%dx%d)\n", path,
                                  w, FB_H);
-        } else
+        } else {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[crepl] ? %s", line);
+        }
         benefactor_log_flush();
-        if (via_http)
+        if (via_http) {
             harness_http_finish(http_cap_rd, http_cap_save);
+        }
     }
 #undef STEP_PC
 #undef STEP_PU
 
-    if (headed)
+    if (headed) {
         harness_combined_fini();
+    }
     pc_fini();
     retro_unload_game();
     retro_deinit();

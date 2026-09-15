@@ -41,17 +41,22 @@ static const struct {
                {"Tab", SDLK_TAB},      {"Esc", SDLK_ESCAPE},    {NULL, 0}};
 
 static int key_from_name(const char *buf) {
-    if (!buf[0])
+    if (!buf[0]) {
         return 0;
-    for (int k = 0; k_names[k].name; k++)
-        if (!strcasecmp(buf, k_names[k].name))
+    }
+    for (int k = 0; k_names[k].name; k++) {
+        if (!strcasecmp(buf, k_names[k].name)) {
             return k_names[k].sym;
+        }
+    }
     if (!buf[1]) { /* single char: letter or digit */
         char c = (char)tolower((unsigned char)buf[0]);
-        if (c >= 'a' && c <= 'z')
+        if (c >= 'a' && c <= 'z') {
             return SDLK_A + (c - 'a');
-        if (c >= '0' && c <= '9')
+        }
+        if (c >= '0' && c <= '9') {
             return SDLK_0 + (c - '0');
+        }
     }
     /* Anything else: SDL's own key-name table ("F1", "Backspace", ...). */
     SDL_Keycode kc = SDL_GetKeyFromName(buf);
@@ -59,12 +64,13 @@ static int key_from_name(const char *buf) {
 }
 
 static const char *key_name(int sym, char *buf, int cap) {
-    for (int k = 0; k_names[k].name; k++)
+    for (int k = 0; k_names[k].name; k++) {
         if (k_names[k].sym == sym && strcasecmp(k_names[k].name, "Enter") &&
             strcasecmp(k_names[k].name, "Ctrl")) {
             snprintf(buf, cap, "%s", k_names[k].name);
             return buf;
         }
+    }
     snprintf(buf, cap, "%s", SDL_GetKeyName((SDL_Keycode)sym));
     return buf;
 }
@@ -103,20 +109,24 @@ static const struct {
                {NULL, 0}};
 
 static int pad_from_name(const char *buf) {
-    if (!buf[0])
+    if (!buf[0]) {
         return -1;
-    for (int k = 0; p_names[k].name; k++)
-        if (!strcasecmp(buf, p_names[k].name))
+    }
+    for (int k = 0; p_names[k].name; k++) {
+        if (!strcasecmp(buf, p_names[k].name)) {
             return p_names[k].code;
+        }
+    }
     return -1;
 }
 
 static const char *pad_name(int code, char *buf, int cap) {
-    for (int k = 0; p_names[k].name; k++)
+    for (int k = 0; p_names[k].name; k++) {
         if (p_names[k].code == code) {
             snprintf(buf, cap, "%s", p_names[k].name);
             return buf;
         }
+    }
     snprintf(buf, cap, "PAD%d", code);
     return buf;
 }
@@ -137,24 +147,31 @@ static void parse_binding(int dev, const char *p, Binding *b) {
         while (*p && *p != ',') {
             char tok[24];
             int ti = 0;
-            while (*p == ' ')
+            while (*p == ' ') {
                 p++;
-            while (*p && *p != '+' && *p != ',' && ti < 23)
+            }
+            while (*p && *p != '+' && *p != ',' && ti < 23) {
                 tok[ti++] = *p++;
-            while (ti > 0 && tok[ti - 1] == ' ')
+            }
+            while (ti > 0 && tok[ti - 1] == ' ') {
                 ti--; /* trim trailing */
+            }
             tok[ti] = 0;
             int code = (dev == PI_DEV_PAD) ? pad_from_name(tok) : key_from_name(tok);
             int ok = (dev == PI_DEV_PAD) ? (code >= 0) : (code != 0);
-            if (ok && c.n < MAX_KEYS_PER_CHORD)
+            if (ok && c.n < MAX_KEYS_PER_CHORD) {
                 c.sym[c.n++] = code;
-            if (*p == '+')
+            }
+            if (*p == '+') {
                 p++;
+            }
         }
-        if (c.n)
+        if (c.n) {
             b->chord[b->n++] = c;
-        if (*p == ',')
+        }
+        if (*p == ',') {
             p++;
+        }
     }
 }
 
@@ -181,15 +198,18 @@ static const struct {
 };
 
 static const char *binding_cfg_key(int dev, int action) {
-    for (int i = 0; i < (int)(sizeof k_defaults / sizeof k_defaults[0]); i++)
-        if (k_defaults[i].act == action)
+    for (int i = 0; i < (int)(sizeof k_defaults / sizeof k_defaults[0]); i++) {
+        if (k_defaults[i].act == action) {
             return k_defaults[i].key[dev];
+        }
+    }
     return NULL;
 }
 
 void pc_input_load(void) {
-    if (s_loaded)
+    if (s_loaded) {
         return;
+    }
     s_loaded = 1;
     pc_config_load();
     for (int d = 0; d < PI_BIND_DEV; d++) {
@@ -202,8 +222,9 @@ void pc_input_load(void) {
              * second button; every non-jump gameplay fire function routes to
              * it (pickup wrappers + the bare-fire strip). There is NO dedicated
              * jump binding — PI_HOP keeps no default (JSON power users only). */
-            if (modern && k_defaults[i].act == PI_FIRE)
+            if (modern && k_defaults[i].act == PI_FIRE) {
                 def = (d == PI_DEV_PAD) ? "A, B" : "Space, Z, LCtrl, Return";
+            }
             char buf[160];
             const char *s =
                 pc_cfg_show(k_defaults[i].key[d], buf, sizeof buf, NULL) && buf[0] ? buf : def;
@@ -221,56 +242,75 @@ void pc_input_reload(void) {
 
 static void dev_press(int dev, int code, int down) {
     if (down) {
-        for (int i = 0; i < s_nheld[dev]; i++)
-            if (s_held[dev][i] == code)
+        for (int i = 0; i < s_nheld[dev]; i++) {
+            if (s_held[dev][i] == code) {
                 return;
-        if (s_nheld[dev] < MAX_HELD)
+            }
+        }
+        if (s_nheld[dev] < MAX_HELD) {
             s_held[dev][s_nheld[dev]++] = code;
+        }
     } else {
-        for (int i = 0; i < s_nheld[dev]; i++)
+        for (int i = 0; i < s_nheld[dev]; i++) {
             if (s_held[dev][i] == code) {
                 s_held[dev][i] = s_held[dev][--s_nheld[dev]];
                 return;
             }
+        }
     }
 }
 
-void pc_input_key(int sym, int down) { dev_press(PI_DEV_KB, sym, down); }
-void pc_input_pad_button(int code, int down) { dev_press(PI_DEV_PAD, code, down); }
-void pc_input_pad_clear(void) { s_nheld[PI_DEV_PAD] = 0; }
-void pc_input_touch_action(int action, int down) {
-    if (action >= 0 && action < PI_NUM)
-        s_touch_active[action] = !!down;
+void pc_input_key(int sym, int down) {
+    dev_press(PI_DEV_KB, sym, down);
 }
-void pc_input_touch_clear(void) { memset(s_touch_active, 0, sizeof s_touch_active); }
+void pc_input_pad_button(int code, int down) {
+    dev_press(PI_DEV_PAD, code, down);
+}
+void pc_input_pad_clear(void) {
+    s_nheld[PI_DEV_PAD] = 0;
+}
+void pc_input_touch_action(int action, int down) {
+    if (action >= 0 && action < PI_NUM) {
+        s_touch_active[action] = !!down;
+    }
+}
+void pc_input_touch_clear(void) {
+    memset(s_touch_active, 0, sizeof s_touch_active);
+}
 void pc_input_release_all(void) {
     s_nheld[PI_DEV_KB] = s_nheld[PI_DEV_PAD] = 0;
     pc_input_touch_clear();
 }
 
 static int held(int dev, int code) {
-    for (int i = 0; i < s_nheld[dev]; i++)
-        if (s_held[dev][i] == code)
+    for (int i = 0; i < s_nheld[dev]; i++) {
+        if (s_held[dev][i] == code) {
             return 1;
+        }
+    }
     return 0;
 }
 
 int pc_input_active_dev(int dev, int action) {
-    if (action < 0 || action >= PI_NUM || dev < 0 || dev >= PI_NUM_DEV)
+    if (action < 0 || action >= PI_NUM || dev < 0 || dev >= PI_NUM_DEV) {
         return 0;
-    if (dev == PI_DEV_TOUCH)
+    }
+    if (dev == PI_DEV_TOUCH) {
         return s_touch_active[action];
+    }
     const Binding *b = &s_bind[dev][action];
     for (int ci = 0; ci < b->n; ci++) {
         const Chord *c = &b->chord[ci];
         int all = 1;
-        for (int k = 0; k < c->n; k++)
+        for (int k = 0; k < c->n; k++) {
             if (!held(dev, c->sym[k])) {
                 all = 0;
                 break;
             }
-        if (c->n && all)
+        }
+        if (c->n && all) {
             return 1;
+        }
     }
     return 0;
 }
@@ -289,17 +329,20 @@ const char *pc_input_action_name(int action) {
 }
 
 const char *pc_input_binding_str(int dev, int action, char *buf, int cap) {
-    if (cap > 0)
+    if (cap > 0) {
         buf[0] = 0;
+    }
     const Binding *b = &s_bind[dev][action];
     int n = 0;
     for (int ci = 0; ci < b->n && n < cap - 1; ci++) {
-        if (ci)
+        if (ci) {
             n += snprintf(buf + n, cap - n, ", ");
+        }
         for (int k = 0; k < b->chord[ci].n && n < cap - 1; k++) {
             char nm[32];
-            if (k)
+            if (k) {
                 n += snprintf(buf + n, cap - n, "+");
+            }
             n += snprintf(buf + n, cap - n, "%s",
                           (dev == PI_DEV_PAD) ? pad_name(b->chord[ci].sym[k], nm, sizeof nm)
                                               : key_name(b->chord[ci].sym[k], nm, sizeof nm));
@@ -312,13 +355,15 @@ const char *pc_input_binding_str(int dev, int action, char *buf, int cap) {
  * re-apply live. (Chords/multi-bindings stay editable in benefactor.json.) */
 void pc_input_rebind(int dev, int action, int code) {
     const char *key = binding_cfg_key(dev, action);
-    if (!key)
+    if (!key) {
         return;
+    }
     char nm[32], json[40];
-    if (dev == PI_DEV_PAD)
+    if (dev == PI_DEV_PAD) {
         pad_name(code, nm, sizeof nm);
-    else
+    } else {
         key_name(code, nm, sizeof nm);
+    }
     snprintf(json, sizeof json, "\"%s\"", nm);
     pc_cfg_persist(key, json);
     parse_binding(dev, nm, &s_bind[dev][action]);

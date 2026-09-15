@@ -23,9 +23,10 @@ void pc_log_retired_instructions(const char *category) {
     for (int first = 0; first < count; first += TRACE_PER_LINE) {
         char line[256];
         int used = snprintf(line, sizeof line, "retired[%d]:", first);
-        for (int index = first; index < count && index < first + TRACE_PER_LINE; index++)
+        for (int index = first; index < count && index < first + TRACE_PER_LINE; index++) {
             used += snprintf(line + used, sizeof line - (size_t)used, " %06X/%04X",
                              program_counters[index], opcodes[index]);
+        }
         benefactor_log_write(BENEFACTOR_LOG_INFO, category, "%s", line);
     }
 }
@@ -35,9 +36,10 @@ size_t pc_format_retired_instructions(char *buffer, size_t capacity) {
     uint16_t opcodes[TRACE_DEPTH];
     int count = rt_insn_ring_entries(program_counters, opcodes, TRACE_DEPTH);
     size_t used = 0;
-    for (int index = 0; index < count && used + 16u < capacity; index++)
+    for (int index = 0; index < count && used + 16u < capacity; index++) {
         used += (size_t)snprintf(buffer + used, capacity - used, "%06X %04X\n",
                                  program_counters[index], opcodes[index]);
+    }
     return used;
 }
 
@@ -50,9 +52,10 @@ void pc_trap_vector_execution(M68KCtx *ctx) {
         const uint32_t sp = ctx->A[7];
         char line[256];
         int used = snprintf(line, sizeof line, "stack a7=$%06X:", sp);
-        for (int i = -4; i <= 4; i++)
+        for (int i = -4; i <= 4; i++) {
             used += snprintf(line + used, sizeof line - (size_t)used, " %s%08X", i == 0 ? ">" : "",
                              rt_read32(ctx, sp + (uint32_t)(i * 4)));
+        }
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "game", "%s", line);
     }
     pc_log_retired_instructions("game");

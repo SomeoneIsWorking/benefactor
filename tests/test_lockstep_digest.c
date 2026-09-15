@@ -18,8 +18,9 @@
 #define REGIONS 8u
 
 static void fill(unsigned char *memory, size_t bytes) {
-    for (size_t index = 0; index < bytes; index++)
+    for (size_t index = 0; index < bytes; index++) {
         memory[index] = (unsigned char)(index * 31u + 7u);
+    }
 }
 
 static void test_hash_notices_a_single_changed_byte(void) {
@@ -67,8 +68,9 @@ static void test_an_excluded_range_is_not_hashed(void) {
     lockstep_digest_regions_excluding(memory, sizeof memory, before, REGIONS, &skip);
     memory[0xC80] ^= 0xFFu; /* inside the excluded range */
     lockstep_digest_regions_excluding(memory, sizeof memory, after, REGIONS, &skip);
-    for (size_t index = 0; index < REGIONS; index++)
+    for (size_t index = 0; index < REGIONS; index++) {
         assert(before[index] == after[index]);
+    }
     memory[0xD00] ^= 0xFFu; /* one byte past it, in the same region */
     lockstep_digest_regions_excluding(memory, sizeof memory, after, REGIONS, &skip);
     assert(before[3] != after[3]);
@@ -97,10 +99,11 @@ static void test_a_change_moves_only_its_own_region(void) {
     memory[3100] ^= 0x80u;
     lockstep_digest_regions(memory, sizeof memory, after, REGIONS);
     for (size_t index = 0; index < REGIONS; index++) {
-        if (index == 3)
+        if (index == 3) {
             assert(before[index] != after[index]);
-        else
+        } else {
             assert(before[index] == after[index]);
+        }
     }
 }
 

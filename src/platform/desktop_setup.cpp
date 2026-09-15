@@ -25,11 +25,13 @@ constexpr const char *kApplicationName = "benefactor";
 
 std::optional<std::filesystem::path> user_data_directory() {
     auto directory = lucent::platform::user_data_directory(kApplicationName);
-    if (!directory)
+    if (!directory) {
         return std::nullopt;
+    }
     std::string error;
-    if (!lucent::platform::ensure_user_data_directory(*directory, error))
+    if (!lucent::platform::ensure_user_data_directory(*directory, error)) {
         return std::nullopt;
+    }
     return directory;
 }
 
@@ -44,8 +46,9 @@ void SDLCALL dialog_callback(void *userdata, const char *const *filelist, int) {
     auto &result = *static_cast<DialogResult *>(userdata);
     std::lock_guard lock(result.mutex);
     if (filelist != nullptr) {
-        for (const char *const *path = filelist; *path != nullptr; ++path)
+        for (const char *const *path = filelist; *path != nullptr; ++path) {
             result.paths.emplace_back(*path);
+        }
     }
     result.complete = true;
     result.condition.notify_one();
@@ -60,8 +63,9 @@ void request_selection(benefactor::platform::SetupDeliver deliver) {
     while (true) {
         {
             std::unique_lock lock(result->mutex);
-            if (result->complete)
+            if (result->complete) {
                 break;
+            }
         }
         SDL_PumpEvents();
         SDL_Delay(10);
@@ -72,11 +76,13 @@ void request_selection(benefactor::platform::SetupDeliver deliver) {
 } // namespace
 
 extern "C" int desktop_setup_disks(const char **disks, int capacity) {
-    if (disks == nullptr || capacity < 3 || !SDL_Init(SDL_INIT_VIDEO))
+    if (disks == nullptr || capacity < 3 || !SDL_Init(SDL_INIT_VIDEO)) {
         return 0;
+    }
     const auto directory = user_data_directory();
-    if (!directory)
+    if (!directory) {
         return 0;
+    }
 
     const auto store_root = *directory;
     std::array<std::filesystem::path, 3> committed;
@@ -92,8 +98,9 @@ extern "C" int desktop_setup_disks(const char **disks, int capacity) {
 
     auto flow =
         benefactor::platform::run_setup_flow(request_selection, *directory / "setup", store_root);
-    if (!flow.ok)
+    if (!flow.ok) {
         return 0;
+    }
     static std::array<std::string, 3> stable;
     for (std::size_t index = 0; index < flow.disks.size(); ++index) {
         stable[index] = flow.disks[index].string();

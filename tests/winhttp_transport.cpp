@@ -15,7 +15,9 @@
 #include <windows.h>
 
 // The policy compares against this build's version; this test states its own.
-extern "C" const char *pc_version(void) { return "0.0.1"; }
+extern "C" const char *pc_version(void) {
+    return "0.0.1";
+}
 
 int main() {
     // The shipping start path records that a check is running before the host
