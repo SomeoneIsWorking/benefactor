@@ -89,7 +89,15 @@ void native_end_of_level(M68KCtx *ctx) {
  * ($80) during gameplay and the in-game level card. Verified the ONLY writer is
  * `bset #6,$1093` at $578C84 (the game-over setup), so this never fires on a win
  * or normal play. Read it ABSOLUTE at $57FEA5, NOT a5-relative: by the time
- * $59C5B0 runs, $59BA7A has done `movea.l a6,a5` so a5 = $DFF000. */
+ * $59C5B0 runs, $59BA7A has done `movea.l a6,a5` so a5 = $DFF000.
+ *
+ * $59C5B0 is BRANCHED to (`bra.w $59c5b0` inside the level-6 music handler
+ * $59BA7A), never called. An earlier version of this completed its pass-through
+ * with rt_call($59C5B0), which gave the branch a subroutine frame it never had:
+ * the reentrant run corrupted the supervisor stack during an audio tick and the
+ * level card hung (docs/issues/0013). A tail-entered observer finishes with
+ * rt_continue_original — the guest resumes its own instruction in the run that
+ * was already going — and that is the only completion valid here. */
 void native_gameover_menu(M68KCtx *ctx) {
     uint8_t f = MR8(0x57FEA5u); /* $1093: bit6 game-over, bit5 menu-phase */
     benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow", "$59C5B0 $57FEA5=%02X cop1lc=%06X", f,
@@ -104,14 +112,18 @@ void native_gameover_menu(M68KCtx *ctx) {
         pc_request_level_restart(); /* respawn at $577000 (current level) → level card */
         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "game-flow",
                              "menu phase → reload current level (level card)");
-        /* Hand off to the host (the same boundary the $150 loader uses): we skip
-         * the menu render, and pc_step_threaded tears this thread down and
-         * respawns it at $577000. Returning without saying so would put the
-         * interpreter straight back into this override. */
-        rt_exit_to_host(ctx);
-        return;
+        /* The restart is only a pair of flags; pc_step_threaded acts on them on
+         * the main loop. On the game flow we also stop here, because that thread
+         * is about to be torn down and respawned at $577000 and there is nothing
+         * left for it to render. The same branch reached from the music interrupt
+         * runs on the host thread, which owns neither the flow's PC nor its
+         * stack — it finishes its interrupt and the restart lands regardless. */
+        if (pc_on_game_thread()) {
+            rt_exit_to_host(ctx);
+            return;
+        }
     }
-    rt_call(ctx, ctx->image, 0x0059C5B0u);
+    rt_continue_original(ctx, ctx->image);
 }
 
 /* ── $57DEAC — gameplay input read: re-gate item DROP onto the interact key ────

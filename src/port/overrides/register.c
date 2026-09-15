@@ -120,8 +120,13 @@ void pc_register_overrides(void) {
     /* Gameplay flow (overrides/gameplay.c) — native maps of game-flow
      * decisions. $578C3E is the end-of-level trigger (game-over vs next level). */
     rt_register_override_gp(0x00578C3Eu, native_end_of_level);
-    /* $59C5B0 is reached via branch (bra.w $59c5b0) inside the music interrupt
-     * handler $59BA7A, not JSR. Overrides here cannot use rt_call. */
+    /* $59C5B0 = the card/menu screen renderer, reached by branch (bra.w) inside
+     * the music interrupt handler $59BA7A rather than by JSR. It bypasses the
+     * CONTINUE/GAME OVER screen: once the menu phase begins (bit6+bit5 of
+     * $1093) the current level is reloaded instead, so death goes straight back
+     * to the level card. Its pass-through is rt_continue_original, not rt_call —
+     * see native_gameover_menu and docs/issues/0013. */
+    rt_register_override_gp(0x0059C5B0u, native_gameover_menu);
     rt_register_override_gp(0x0059DC02u, native_level_load);
     {
         rt_register_override_gp(0x0057EB20u, native_place_probe);

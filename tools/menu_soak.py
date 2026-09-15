@@ -12,6 +12,11 @@ MENU is taken, and the picker's `for (;;) hw_vblank_wait()` is the deepest place
 that happens from. A unit test cannot reach it: the bug needs a real thread, a
 real override, and a real teardown.
 
+Every fifth round it also runs the player out of lives and checks that the level
+card comes back rather than the CONTINUE/GAME OVER screen, because the override
+that does that is a registration one line long and has been silently lost once
+already (see `die_and_expect_the_level_card`).
+
 Run it against a build:
 
     uv run --frozen python -m tools.menu_soak --rounds 20
@@ -59,6 +64,19 @@ not move it — so the selection is made here instead of pretended at.
 LEVEL_SELECT = 1
 """The cursor value for LEVEL SELECT (0 is CONTINUE, 2 is OPTIONS)."""
 
+CARD_SCREEN = "003914"
+"""The copper list the card/menu bank renders from.
+
+The level card and the CONTINUE/GAME OVER screen share it, so seeing it says
+which bank is up, never which of the two. `GAMEOVER_FLAGS` tells them apart.
+"""
+
+CAVERN_SCREEN = "003484"
+"""The copper list the playfield renders from."""
+
+GAMEOVER_FLAGS = 0x57FEA5
+"""$1093 absolute: bit6 marks the game-over screen, bit5 its menu phase."""
+
 
 class GameDied(Exception):
     """The process exited while the soak was waiting for something."""
@@ -91,6 +109,9 @@ class Game:
 
     def poke(self, address: int, value: int) -> None:
         self.get(f"/poke?addr={address:X}&val={value:02X}")
+
+    def byte(self, address: int) -> int:
+        return int(json.loads(self.get(f"/mem?addr={address:X}&len=1"))["hex"], 16)
 
     def menu(self, nav: str | None = None) -> dict:
         path = f"/menu?nav={nav}" if nav else "/menu?show=1"
@@ -214,6 +235,51 @@ def choose_menu_row(game: Game, label: str) -> None:
     game.menu("select")
 
 
+def die_and_expect_the_level_card(game: Game, report) -> None:
+    """Run out of lives, and check the level card comes back — not GAME OVER.
+
+    The bypass is a native override on $59C5B0 (`native_gameover_menu`). It was
+    registered once, removed as collateral in a fix for an unrelated level-card
+    hang, and nobody noticed for months, because nothing here ever died. So the
+    soak dies on purpose now.
+
+    Both screens render from the same copper list, so the check is not "a card
+    appeared": it is that the game-over markers in $1093 are gone and that Fire
+    puts the player back in the cavern. The GAME OVER menu answers Fire with a
+    menu selection, so a bypass that had stopped working would sit on $003914
+    with bit6 still set and fail here rather than pass by looking similar.
+    """
+    keep_pressing(
+        game,
+        "the level card to be dismissed",
+        lambda s: s["cop1lc"] != CARD_SCREEN,
+        attempts=12,
+        fire=1,
+        frames=6,
+    )
+    game.get("/gameover")
+    # The skull banner plays in full before the menu phase the bypass takes —
+    # measured at about four seconds, so this waits far longer than that.
+    game.until(
+        "the card bank to come back after dying",
+        lambda s: s["cop1lc"] == CARD_SCREEN,
+        frames=900,
+    )
+    game.settle(100)
+    flags = game.byte(GAMEOVER_FLAGS)
+    if flags & 0x40:
+        raise StepMissed(f"the CONTINUE/GAME OVER screen is up: $1093={flags:02X}")
+    keep_pressing(
+        game,
+        "the reloaded level to start",
+        lambda s: s["cop1lc"] == CAVERN_SCREEN,
+        attempts=12,
+        fire=1,
+        frames=6,
+    )
+    report("died, back at the card")
+
+
 def round_trip(game: Game, number: int, choose: random.Random, report) -> None:
     reach_main_menu(game)
     game.settle(40)
@@ -243,6 +309,9 @@ def round_trip(game: Game, number: int, choose: random.Random, report) -> None:
     for _ in range(choose.randint(0, 3)):
         game.press(**{choose.choice(("l", "r")): 1, "frames": 6})
         game.settle(10)
+
+    if number % 5 == 0:
+        die_and_expect_the_level_card(game, report)
 
     # A RETRY every third round: it stops and respawns the game thread too,
     # from inside gameplay rather than from the title bank.
