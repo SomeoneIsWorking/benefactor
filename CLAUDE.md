@@ -69,6 +69,19 @@ show that fades and music advanced.
 - `rt_insn_ring_snapshot` / `rt_insn_ring_entries` hold the last 256 guest PCs
   and opcodes. Use `/trace` on the control server or
   `pc_log_retired_instructions` for a dump.
+- A fatal signal writes a report before the process goes: signal name, the
+  address that faulted, the guest PC / active call / last hardware read /
+  `cop1lc`, the retired-instruction ring, and the host backtrace
+  (`src/port/crash_report.c`). It goes to standard error and to a file, because
+  a player did not launch from a terminal — `scratch/crash.log` by default, or
+  wherever `crash_log` / `BENEFACTOR_CRASH_LOG` names. Read the guest PC and the
+  host stack together: a fault in a native override shows `$000150` on one side
+  and the C frame that died on the other.
+- `uv run --frozen python -m tools.menu_soak` drives level select → play → EXIT
+  TO MAIN MENU in a loop and fails if the game dies. It needs a window (the
+  headless path does not reproduce) and it is probabilistic: measured, a build
+  carrying the fault passed twelve rounds on three seeds and died in the tenth
+  of forty, so the default is forty and a short clean run has shown little.
 - The watchdog reports the guest PC, active call, last hardware-register read,
   `cop1lc`, and retired tail. `src/port/guest_profile.h` samples hot PCs by
   owner at every custom-chip access and reports them at screen end.
@@ -113,9 +126,20 @@ show that fades and music advanced.
   `--http N` passed through `run.sh` decides it directly. Any other launch of
   the binary needs `BENEFACTOR_HTTP` or `--http` to enable the Lucent-backed
   control server in `src/port/control/`. Its `/` page is interactive; `/state`, `/cpu`, `/mem`,
-  `/poke`, `/hold`, `/press?fire=1&frames=4`, `/pause`, `/resume`,
-  `/step?frames=N`, `/fb.ppm`, `/trace`, `/recent`, `/save`, and `/load`
-  expose live control and inspection. Its server thread can accept `/resume`
+  `/poke`, `/hold`, `/press?fire=1&frames=4`, `/key?name=escape`, `/pause`,
+  `/resume`, `/step?frames=N`, `/fb.ppm`, `/trace`, `/recent`, `/save`, and
+  `/load` expose live control and inspection. `/press` and `/hold` move the
+  emulated joystick, which is what the gameplay engine reads and nothing the
+  host's own UI does; `/key` delivers a key as the window would, which is the
+  only way to reach ESC dismissing the level picker and the save/load keys.
+  Neither moves the title menu's own option cursor — that is the engine's, read
+  through the joystick's quadrature encoding, so a driver pokes it (see
+  `tools/menu_soak.py`). `/state`'s `ui` block says which host overlay owns the
+  screen — main menu, level picker, toast, pause menu, and the level the picker
+  is on — because `level` stays 0 across the whole title flow and a run that
+  never left the menu otherwise looks exactly like one that did. `/menu` answers
+  with the page, the cursor and every row's label and value, so a walk is driven
+  by name instead of counted blind; `/menu?show=1` reads it without toggling. Its server thread can accept `/resume`
   while the game is held. `/fb.ppm` is the COMPOSED output — the wide surface
   the player sees, with the host's own overlays (pause menu, level picker, HUD
   icons, toast) drawn in — not the guest's 4:3 render. `/menu` opens and closes

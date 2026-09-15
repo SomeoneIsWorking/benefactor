@@ -74,3 +74,15 @@ src/port/port.h:extern declaration:g_native_render_delay
 src/port/port.h:extern declaration:g_pc_pending_load
 src/port/port.h:extern declaration:g_pc_pending_save
 src/runtime/guest_runtime.h:extern declaration:g_mem
+
+# The one per-thread owner, which is the opposite of a process-wide one.
+#
+# Runtime::frames holds the native override frames the CALLING thread is
+# inside, and each entry points into that thread's own C stack. It reads like
+# the sites above and means the reverse of them: the whole reason it is here is
+# that the state must NOT be shared. It was shared once, and the game thread
+# being stopped inside an override left the frames pointing at a stack that had
+# gone — the crash on entering a level, leaving to the main menu and entering
+# again. `thread_local` is how C++ says "one per thread"; there is no member
+# form of it, so a block-scope static is the only spelling available.
+src/runtime/guest_runtime.cpp:block-scope static:only
