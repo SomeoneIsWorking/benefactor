@@ -26,7 +26,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from tools.paths import ROOT
+from tools.paths import BESIDE, ROOT
 from tools.pinned_revisions import pinned_revisions
 
 LOGGER = logging.getLogger("benefactor.shared")
@@ -58,7 +58,7 @@ TREES = (
         name="amigaport",
         repository="SomeoneIsWorking/amigaport",
         variable="BENEFACTOR_AMIGAPORT_DIR",
-        candidates=(ROOT.parent / "shared/amigaport", ROOT / "shared/amigaport"),
+        candidates=(BESIDE / "shared/amigaport", ROOT / "shared/amigaport"),
         provision=ROOT / "shared/amigaport",
         submodules=True,
     ),
@@ -66,14 +66,14 @@ TREES = (
         name="lucent",
         repository="SomeoneIsWorking/lucent",
         variable="BENEFACTOR_LUCENT_DIR",
-        candidates=(ROOT.parent / "lucent", ROOT / "dependencies/lucent"),
+        candidates=(BESIDE / "lucent", ROOT / "dependencies/lucent"),
         provision=ROOT / "dependencies/lucent",
     ),
     SharedTree(
         name="setup-ui",
         repository="SomeoneIsWorking/setup-ui",
         variable="BENEFACTOR_SETUP_UI_DIR",
-        candidates=(ROOT.parent / "shared/setup-ui", ROOT / "shared/setup-ui"),
+        candidates=(BESIDE / "shared/setup-ui", ROOT / "shared/setup-ui"),
         provision=ROOT / "shared/setup-ui",
     ),
     SharedTree(
@@ -81,8 +81,8 @@ TREES = (
         repository="mikke89/RmlUi",
         variable="SETUP_UI_RMLUI_DIR",
         candidates=(
-            ROOT.parent / "shared/RmlUi",
-            ROOT.parent / "RmlUi",
+            BESIDE / "shared/RmlUi",
+            BESIDE / "RmlUi",
             ROOT / "dependencies/RmlUi",
         ),
         provision=ROOT / "dependencies/RmlUi",
@@ -294,7 +294,7 @@ FREETYPE = SharedTree(
     name="freetype",
     repository="freetype/freetype",
     variable="SETUP_UI_FREETYPE_DIR",
-    candidates=(ROOT.parent / "freetype", ROOT / "dependencies/freetype"),
+    candidates=(BESIDE / "freetype", ROOT / "dependencies/freetype"),
     provision=ROOT / "dependencies/freetype",
 )
 

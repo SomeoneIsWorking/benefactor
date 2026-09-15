@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from tools.launcher import runtime_blocker
-from tools.paths import setup_ui_dir
+from tools.paths import BESIDE, setup_ui_dir
 from tools.product_version import read_version, version_code
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +43,7 @@ def resolve_lucent_dir() -> Path:
         if not candidate.is_dir():
             refuse(f"BENEFACTOR_LUCENT_DIR is not a directory: {candidate}")
         return candidate
-    candidate = (ROOT.parent / "lucent").resolve()
+    candidate = (BESIDE / "lucent").resolve()
     if candidate.is_dir():
         return candidate
     refuse("BENEFACTOR_LUCENT_DIR must name its source checkout")
@@ -67,7 +67,7 @@ def android_ndk(sdk: Path) -> Path:
 def shared_android_port_tool():
     configured = os.environ.get("BENEFACTOR_ANDROID_PORT_DIR")
     candidates = (
-        [Path(configured).expanduser()] if configured else [ROOT.parent / "shared" / "android-port"]
+        [Path(configured).expanduser()] if configured else [BESIDE / "shared" / "android-port"]
     )
     for candidate in candidates:
         tool = candidate.resolve() / "tools" / "android_port.py"

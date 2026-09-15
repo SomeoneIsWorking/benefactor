@@ -12,13 +12,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from tools.paths import ROOT
+from tools.paths import BESIDE, ROOT
 
 #: Where the checkout is, in the order a developer is likely to have put it.
 #: `RE_HARNESS_DIR` overrides all of them.
 CANDIDATES = (
-    ROOT.parent / "re-harness",
-    ROOT.parent / "shared/re-harness",
+    BESIDE / "re-harness",
+    BESIDE / "shared/re-harness",
     ROOT / "shared/re-harness",
 )
 

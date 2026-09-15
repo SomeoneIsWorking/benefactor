@@ -35,12 +35,12 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from tools.paths import ROOT
+from tools.paths import BESIDE, ROOT
 
 LOGGER = logging.getLogger("benefactor.oracle")
 
 REFERENCE_COMMIT = "028be16"
-REFERENCE_WORKTREE = ROOT.parent / "benefactor-oracle"
+REFERENCE_WORKTREE = BESIDE / "benefactor-oracle"
 DISKS = ("Disk.1", "Disk.2", "Disk.3")
 PHASE_LINE = re.compile(r"phase: frame=(\d+) cop1lc=([0-9A-F]+)")
 #: any instrument line carrying a frame number — how far the run has got

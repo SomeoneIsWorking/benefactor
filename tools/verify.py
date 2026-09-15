@@ -10,6 +10,7 @@ from pathlib import Path
 from tools.harness_tools import harness_tool
 from tools.paths import ROOT, SCRATCH, amigaport_dir
 from tools.product_version import read_version
+from tools.shared_checkouts import TREES
 
 PYTHON_PATHS = ("bootstrap.py", "tools", "tests")
 C_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".m", ".mm"}
@@ -66,11 +67,21 @@ RASTERISERS = ("magick", "convert")
 
 
 def _lucent_root() -> Path:
-    """The lucent checkout this build uses, named when it is missing."""
-    configured = os.environ.get("BENEFACTOR_LUCENT_DIR")
-    candidates = ([Path(configured).expanduser().resolve()] if configured else []) + [
-        ROOT.parent / "lucent"
-    ]
+    """The lucent checkout this build uses, named when it is missing.
+
+    Where a shared tree may be is `tools/shared_checkouts.py`'s to know, and
+    this had grown a second, shorter copy of that list: it looked only beside
+    the repository, so in a worktree — where "beside" is .claude/worktrees —
+    verify could not find the checkout the resolver itself had just made, and
+    stopped before the C++ gates. The candidates come from the resolver now.
+    Resolving is all that is borrowed: verify reports what is on the machine and
+    never checks anything out or moves a checkout onto the pin.
+    """
+    tree = next(shared for shared in TREES if shared.name == "lucent")
+    configured = os.environ.get(tree.variable)
+    candidates = ([Path(configured).expanduser().resolve()] if configured else []) + list(
+        tree.candidates
+    )
     for candidate in candidates:
         if (candidate / "include" / "lucent" / "version.h").is_file():
             return candidate
