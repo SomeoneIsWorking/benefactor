@@ -24,9 +24,9 @@ from tools.paths import ROOT
 ANDROID_CHROME = "{http://schemas.android.com/apk/res/android}"
 LAUNCHER_SIZES = (16, 32, 48)
 MIN_MARK_FRACTION = 0.02
-"""Share of the icon that must read as the key gold at launcher sizes.
+"""Share of the icon that must read as the hero's amber at launcher sizes.
 
-Measured on this artwork with `--sheet`: 0.062 at 16 px, 0.055 at 32 px, 0.061 at
+Measured on this artwork with `--sheet`: 0.109 at 16 px, 0.103 at 32 px, 0.096 at
 48 px. The bar sits far below that because the property being defended is "the
 mark is there", not "the mark is exactly this big".
 """
@@ -270,12 +270,12 @@ class AppIconRasterTest(unittest.TestCase):
         grown = scale * 1.3
         dx, dy = draw_app_icon.centre_mark(grown, draw_app_icon.ANDROID_CANVAS)
         svg = self.temporary / "oversized.svg"
-        body = draw_app_icon.key_path(grown, dx, dy)
+        body = draw_app_icon.hero_path(grown, dx, dy)
         svg.write_text(
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{draw_app_icon.ANDROID_CANVAS}"'
             f' height="{draw_app_icon.ANDROID_CANVAS}" viewBox="0 0 {draw_app_icon.ANDROID_CANVAS}'
             f' {draw_app_icon.ANDROID_CANVAS}"><path fill="{draw_app_icon.GOLD}"'
-            f' fill-rule="evenodd" d="{body}"/></svg>',
+            f' d="{body}"/></svg>',
             encoding="utf-8",
         )
         frame = draw_app_icon.rasterise(
@@ -288,8 +288,8 @@ class AppIconRasterTest(unittest.TestCase):
             "the circle measurement passes for a mark drawn beyond the mask",
         )
 
-    def test_the_monochrome_layer_keeps_the_bow_hole_open(self) -> None:
-        """A themed icon must show the launcher's surface through the bow's hole."""
+    def test_the_monochrome_layer_keeps_the_gap_between_the_legs_open(self) -> None:
+        """A themed icon must show the launcher's surface between the hero's legs."""
         size = 432
         frame = self.preview("drawable/ic_launcher_monochrome.xml", size)
         scale = draw_app_icon.mark_scale(
@@ -299,18 +299,27 @@ class AppIconRasterTest(unittest.TestCase):
         )
         dx, dy = draw_app_icon.centre_mark(scale, draw_app_icon.ANDROID_CANVAS)
         sample = size / draw_app_icon.ANDROID_CANVAS
-        in_hole = draw_app_icon.scaled(draw_app_icon.KEY_CENTRE_X, scale, dx)
-        in_stem = draw_app_icon.scaled(draw_app_icon.KEY_CENTRE_X, scale, dx)
-        hole_row = round(
-            float(draw_app_icon.scaled(draw_app_icon.KEY_BOW_CENTRE_Y, scale, dy)) * sample
+
+        def at(x: float, y: float) -> tuple[int, int]:
+            return (
+                round(float(draw_app_icon.scaled(x, scale, dx)) * sample),
+                round(float(draw_app_icon.scaled(y, scale, dy)) * sample),
+            )
+
+        knee = (draw_app_icon.HERO_LEG_TOP + draw_app_icon.HERO_LEG_BOTTOM) / 2
+        leg = (
+            draw_app_icon.HERO_HEAD_X
+            + draw_app_icon.HERO_LEG_GAP_HALF
+            + draw_app_icon.HERO_LEG_HALF
         )
-        stem_row = round(
-            float(draw_app_icon.scaled(draw_app_icon.KEY_BOTTOM - 30, scale, dy)) * sample
+        self.assertEqual(
+            alpha_at(frame, *at(draw_app_icon.HERO_HEAD_X, knee)),
+            0.0,
+            "the gap between the legs is filled, not cut out",
         )
-        hole = (round(float(in_hole) * sample), hole_row)
-        stem = (round(float(in_stem) * sample), stem_row)
-        self.assertEqual(alpha_at(frame, *hole), 0.0, "the bow's hole is filled, not cut out")
-        self.assertEqual(alpha_at(frame, *stem), 1.0, "the stem is missing where it should be")
+        self.assertEqual(
+            alpha_at(frame, *at(leg, knee)), 1.0, "a leg is missing where it should be"
+        )
 
 
 if __name__ == "__main__":
