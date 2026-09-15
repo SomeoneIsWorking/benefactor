@@ -25,3 +25,9 @@ Checks: >
   readability-simplify-boolean-expr
 WarningsAsErrors: '*'
 HeaderFilterRegex: '^(.*/)?src/'
+CheckOptions:
+  # A shift distance is written as a plain `8`, which is an `int`. clang-tidy 20
+  # and later count that as a signed operand, so every `>> 8` in hardware-word
+  # code reads as a finding. The check still reports signed values, which is
+  # what it is here for.
+  bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: true

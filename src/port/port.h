@@ -10,21 +10,23 @@ extern uint8_t *g_chip;
 
 /* Read/write helpers for chip RAM */
 static inline uint8_t r8(uint32_t a) { return g_chip[a]; }
-static inline uint16_t r16(uint32_t a) { return (g_chip[a] << 8) | g_chip[a + 1]; }
+static inline uint16_t r16(uint32_t a) {
+    return (uint16_t)(((uint32_t)g_chip[a] << 8) | (uint32_t)g_chip[a + 1]);
+}
 static inline uint32_t r32(uint32_t a) {
     return ((uint32_t)g_chip[a] << 24) | ((uint32_t)g_chip[a + 1] << 16) |
-           ((uint32_t)g_chip[a + 2] << 8) | g_chip[a + 3];
+           ((uint32_t)g_chip[a + 2] << 8) | (uint32_t)g_chip[a + 3];
 }
 static inline void w8(uint32_t a, uint8_t v) { g_chip[a] = v; }
 static inline void w16(uint32_t a, uint16_t v) {
-    g_chip[a] = v >> 8;
-    g_chip[a + 1] = v;
+    g_chip[a] = (uint8_t)((uint32_t)v >> 8);
+    g_chip[a + 1] = (uint8_t)v;
 }
 static inline void w32(uint32_t a, uint32_t v) {
-    g_chip[a] = v >> 24;
-    g_chip[a + 1] = v >> 16;
-    g_chip[a + 2] = v >> 8;
-    g_chip[a + 3] = v;
+    g_chip[a] = (uint8_t)(v >> 24);
+    g_chip[a + 1] = (uint8_t)(v >> 16);
+    g_chip[a + 2] = (uint8_t)(v >> 8);
+    g_chip[a + 3] = (uint8_t)v;
 }
 
 /* Screen dimensions */

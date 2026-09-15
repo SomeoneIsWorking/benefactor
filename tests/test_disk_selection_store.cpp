@@ -27,6 +27,9 @@ void write_disks(const DiskSelectionStore::Paths &paths, const std::string &cont
 
 } // namespace
 
+// A throw out of a test's main is the failure being reported: the run dies
+// loudly, which is what every assert below does too.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char **argv) {
     assert(argc == 2);
     const std::filesystem::path root(argv[1]);
