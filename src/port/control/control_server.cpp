@@ -66,8 +66,9 @@ std::string parameter(const Request &request, std::string_view name) {
 
 int number(const Request &request, std::string_view name, int fallback = 0) {
     const std::string text = parameter(request, name);
-    if (text.empty())
+    if (text.empty()) {
         return fallback;
+    }
     return static_cast<int>(std::strtol(text.c_str(), nullptr, 10));
 }
 
@@ -187,50 +188,60 @@ Response route_cpu() {
 
     std::string body =
         formatted("{\"pc\":\"%06X\",\"sr\":\"%04X\",\"d\":[", program_counter, status);
-    for (int index = 0; index < 8; index++)
+    for (int index = 0; index < 8; index++) {
         body += formatted("%s\"%08X\"", index ? "," : "", data[index]);
+    }
     body += "],\"a\":[";
-    for (int index = 0; index < 8; index++)
+    for (int index = 0; index < 8; index++) {
         body += formatted("%s\"%08X\"", index ? "," : "", address[index]);
+    }
     body += "]}\n";
     return Response::json(200, "OK", body);
 }
 
 Response route_memory(const Request &request) {
-    if (!has(request, "addr"))
+    if (!has(request, "addr")) {
         return Response::text(400, "Bad Request", "need addr\n");
+    }
     unsigned addr = hex(request, "addr");
     unsigned length = has(request, "len") ? (unsigned)number(request, "len") : 16u;
-    if (length > 4096)
+    if (length > 4096) {
         length = 4096;
-    if (addr >= RT_MEM_SIZE)
+    }
+    if (addr >= RT_MEM_SIZE) {
         return Response::text(400, "Bad Request", "addr OOB\n");
-    if (addr + length > RT_MEM_SIZE)
+    }
+    if (addr + length > RT_MEM_SIZE) {
         length = RT_MEM_SIZE - addr;
+    }
 
     std::string body = formatted("{\"addr\":\"%06X\",\"len\":%u,\"hex\":\"", addr, length);
     body.reserve(body.size() + static_cast<std::size_t>(length) * 2u + 8u);
-    for (unsigned index = 0; index < length; index++)
+    for (unsigned index = 0; index < length; index++) {
         body += formatted("%02X", g_mem[addr + index]);
+    }
     body += "\"}\n";
     return Response::json(200, "OK", body);
 }
 
 Response route_poke(const Request &request) {
-    if (!has(request, "addr") || !has(request, "val"))
+    if (!has(request, "addr") || !has(request, "val")) {
         return Response::text(400, "Bad Request", "need addr&val\n");
+    }
     const unsigned addr = hex(request, "addr");
     const unsigned value = hex(request, "val") & 0xFFu;
-    if (addr >= RT_MEM_SIZE)
+    if (addr >= RT_MEM_SIZE) {
         return Response::text(400, "Bad Request", "addr OOB\n");
+    }
     g_mem[addr] = static_cast<std::uint8_t>(value);
     return Response::json(
         200, "OK", formatted("{\"ok\":true,\"addr\":\"%06X\",\"val\":\"%02X\"}\n", addr, value));
 }
 
 Response route_hold(const Request &request) {
-    if (has(request, "ffwd"))
+    if (has(request, "ffwd")) {
         hw_set_ffwd(number(request, "ffwd"));
+    }
     const Buttons buttons = buttons_from(request);
     InputScript::instance().hold(buttons);
     return Response::json(200, "OK",
@@ -243,8 +254,9 @@ Response route_hold(const Request &request) {
 Response route_press(const Request &request) {
     const int frames = number(request, "frames", 2);
     const Buttons buttons = buttons_from(request);
-    if (!buttons.any())
+    if (!buttons.any()) {
         return Response::text(400, "Bad Request", "need at least one button\n");
+    }
     InputScript::instance().press(buttons, frames);
     return Response::json(200, "OK", formatted("{\"ok\":true,\"frames\":%d}\n", frames));
 }
@@ -262,9 +274,10 @@ Response route_break(const Request &request) {
             cleared ? 200 : 404, cleared ? "OK" : "Not Found",
             formatted("{\"ok\":%s,\"cleared\":\"%06X\"}\n", cleared ? "true" : "false", address));
     }
-    if (!has(request, "at"))
+    if (!has(request, "at")) {
         return Response::text(400, "Bad Request",
                               "need at=<hex address>, or clear=<hex address>, or clear=all\n");
+    }
     const unsigned address = hex(request, "at");
     const bool added = debugger.set(address);
     /* Refused means already set or the set is full — say which, so a script
@@ -279,17 +292,19 @@ Response route_breaks() {
     Debugger &debugger = Debugger::instance();
     std::string list;
     for (const std::uint32_t address : debugger.addresses()) {
-        if (!list.empty())
+        if (!list.empty()) {
             list += ',';
+        }
         list += formatted("\"%06X\"", address);
     }
     const Stop stop = debugger.last_stop();
     std::string stopped = "null";
-    if (stop.valid)
+    if (stop.valid) {
         stopped = formatted("{\"at\":\"%06X\",\"pc\":\"%06X\",\"frame\":%d,"
                             "\"guest_cycles\":%llu}",
                             stop.address, stop.program_counter, stop.frame,
                             (unsigned long long)stop.guest_cycles);
+    }
     return Response::json(200, "OK",
                           formatted("{\"breakpoints\":[%s],\"capacity\":%d,\"paused\":%d,"
                                     "\"stopped\":%s}\n",
@@ -305,14 +320,16 @@ Response route_step(const Request &request) {
 
 Response route_framebuffer(bool as_ppm) {
     const std::uint32_t *framebuffer = hw_get_framebuffer();
-    if (framebuffer == nullptr)
+    if (framebuffer == nullptr) {
         return Response::text(503, "Unavailable", "no fb\n");
+    }
     const std::size_t pixels = (std::size_t)kFramebufferWidth * kFramebufferHeight;
 
-    if (!as_ppm)
+    if (!as_ppm) {
         return Response::binary(200, "OK", "application/octet-stream",
                                 std::string(reinterpret_cast<const char *>(framebuffer),
                                             pixels * sizeof(std::uint32_t)));
+    }
 
     std::string body = formatted("P6\n%d %d\n255\n", kFramebufferWidth, kFramebufferHeight);
     body.reserve(body.size() + pixels * 3);
@@ -389,24 +406,33 @@ tick();
 
 Response dispatch(const Request &request) {
     const std::string_view path = request.path();
-    if (path == "/state")
+    if (path == "/state") {
         return route_state();
-    if (path == "/cpu")
+    }
+    if (path == "/cpu") {
         return route_cpu();
-    if (path == "/mem")
+    }
+    if (path == "/mem") {
         return route_memory(request);
-    if (path == "/poke")
+    }
+    if (path == "/poke") {
         return route_poke(request);
-    if (path == "/hold" || path == "/input") /* /input kept: existing scripts use it */
+    }
+    if (path == "/hold" || path == "/input") { /* /input kept: existing scripts use it */
         return route_hold(request);
-    if (path == "/press")
+    }
+    if (path == "/press") {
         return route_press(request);
-    if (path == "/step")
+    }
+    if (path == "/step") {
         return route_step(request);
-    if (path == "/break")
+    }
+    if (path == "/break") {
         return route_break(request);
-    if (path == "/breaks")
+    }
+    if (path == "/breaks") {
         return route_breaks();
+    }
     /* The game's own pause menu, which only a key opens otherwise. Here so a
      * headless run can enter it and be measured: the paused loop has its own
      * clock, and "is the music still at tempo in there" is a question with an
@@ -423,13 +449,16 @@ Response dispatch(const Request &request) {
         InputScript::instance().resume();
         return Response::json(200, "OK", "{\"paused\":false}\n");
     }
-    if (path == "/fb.ppm")
+    if (path == "/fb.ppm") {
         return route_framebuffer(true);
-    if (path == "/fb.bin")
+    }
+    if (path == "/fb.bin") {
         return route_framebuffer(false);
+    }
     if (path == "/pickup") {
-        if (has(request, "extend"))
+        if (has(request, "extend")) {
             pc_cfg_set("interact_extend", parameter(request, "extend").c_str());
+        }
         return Response::json(
             200, "OK", formatted("{\"interact_extend\":%d}\n", pc_cfg_int("interact_extend", 0)));
     }
@@ -480,8 +509,9 @@ Response dispatch(const Request &request) {
         const auto &debugger = debug::Debugger::instance();
         if (debugger.last_stop().valid) {
             const std::size_t frozen = debugger.format_stop_trace(text, sizeof text);
-            if (frozen > 0)
+            if (frozen > 0) {
                 return Response::text(200, "OK", std::string(text, frozen) + "\n");
+            }
         }
         const std::size_t written = pc_format_retired_instructions(text, sizeof text);
         return Response::text(200, "OK", std::string(text, written));
@@ -490,12 +520,14 @@ Response dispatch(const Request &request) {
         std::uint32_t targets[48];
         const int found = rt_recent_snapshot(targets, 48);
         std::string body;
-        for (int index = 0; index < found; index++)
+        for (int index = 0; index < found; index++) {
             body += formatted("%06X\n", targets[index]);
+        }
         return Response::text(200, "OK", body);
     }
-    if (path == "/")
+    if (path == "/") {
         return Response{200, "OK", "text/html; charset=utf-8", kPlayPage, {}};
+    }
     return Response::text(404, "Not Found", "no such route\n");
 }
 
@@ -506,8 +538,9 @@ std::unique_ptr<lucent::http::Server> g_server;
 
 extern "C" void pc_control_server_start(void) {
     const int port = pc_cfg_int("http", 0);
-    if (port <= 0 || benefactor::control::g_server != nullptr)
+    if (port <= 0 || benefactor::control::g_server != nullptr) {
         return;
+    }
     benefactor::control::g_server = std::make_unique<lucent::http::Server>(
         lucent::http::ServerOptions{.port = static_cast<std::uint16_t>(port)},
         benefactor::control::dispatch);

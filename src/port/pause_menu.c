@@ -89,7 +89,9 @@ static int s_capture = 0, s_capture_dev = 0, s_capture_action = 0;
 enum { ACT_NONE = 0, ACT_RESUME, ACT_RETRY, ACT_EXIT_TO_MENU, ACT_QUIT };
 static int s_pending_action = ACT_NONE;
 
-int pc_pause_active(void) { return s_paused; }
+int pc_pause_active(void) {
+    return s_paused;
+}
 
 void pc_pause_toggle(void) {
     if (s_paused) {
@@ -107,8 +109,9 @@ void pc_pause_toggle(void) {
 /* ESC/Start OUTSIDE gameplay: open straight into the OPTIONS page (the game/
  * attract loop freezes exactly like the in-game pause; closing resumes it). */
 void pc_pause_open_options(void) {
-    if (s_paused)
+    if (s_paused) {
         return;
+    }
     s_paused = 1;
     s_title_mode = 1;
     s_page = PG_OPTIONS;
@@ -130,8 +133,9 @@ static int bind_rows(int dev, int *actions /* >= 14 */) {
     actions[n++] = PI_UP;
     actions[n++] = PI_DOWN;
     actions[n++] = PI_FIRE; /* jump/confirm */
-    if (modern)
+    if (modern) {
         actions[n++] = PI_INTERACT;
+    }
     actions[n++] = PI_FFWD;    /* hold-to-fast-forward, both schemes */
     actions[n++] = PI_FREECAM; /* free-cam toggle */
     actions[n++] = -1;         /* BACK */
@@ -140,8 +144,9 @@ static int bind_rows(int dev, int *actions /* >= 14 */) {
 
 static const char *bind_row_label(int dev, int action) {
     (void)dev;
-    if (action < 0)
+    if (action < 0) {
         return "BACK";
+    }
     return pc_input_action_name(action);
 }
 
@@ -156,8 +161,9 @@ static int options_rows(int *rows /* >= 14 */) {
     rows[n++] = OO_CONTROLS;
     rows[n++] = OO_EXTRA;
     rows[n++] = OO_BACK;
-    if (s_title_mode)
+    if (s_title_mode) {
         rows[n++] = OO_QUIT;
+    }
     return n;
 }
 
@@ -233,8 +239,9 @@ static int renderer_index(void) {
     char r[24] = "", p[24] = "";
     pc_cfg_show("renderer", r, sizeof r, NULL);
     pc_cfg_show("present", p, sizeof p, NULL);
-    if (strcasecmp(r, "benren") != 0)
-        return 0;                              /* VANILLA (or unset) */
+    if (strcasecmp(r, "benren") != 0) {
+        return 0; /* VANILLA (or unset) */
+    }
     return (!strcasecmp(p, "vulkan")) ? 2 : 1; /* HARDWARE : SOFTWARE */
 }
 
@@ -259,10 +266,12 @@ static const char *k_aspect_labels[NUM_ASPECTS] = {"STOCK 4:3", "16:9", "AUTO"};
 static int aspect_index(void) {
     char w[24] = "";
     pc_cfg_show("widescreen_mode", w, sizeof w, NULL);
-    if (!strcasecmp(w, "16:9") || !strcasecmp(w, "ultrawide"))
+    if (!strcasecmp(w, "16:9") || !strcasecmp(w, "ultrawide")) {
         return 1;
-    if (!strcasecmp(w, "auto"))
+    }
+    if (!strcasecmp(w, "auto")) {
         return 2;
+    }
     return 0; /* disabled / unset */
 }
 
@@ -275,7 +284,9 @@ static void aspect_set(int idx) {
 }
 
 /* GPU effects apply only on the HARDWARE renderer (index 2). */
-static int hardware_active(void) { return renderer_index() == 2; }
+static int hardware_active(void) {
+    return renderer_index() == 2;
+}
 
 /* The flattened EFFECTS rows map to the fx_* bool knobs the Vulkan lighting
  * pass reads. They are inert (greyed out) unless the HARDWARE renderer is on. */
@@ -305,11 +316,13 @@ static void graphics_cycle(int row, int dir) {
     }
     case RR_AMBIENT:
     case RR_SHADOW: {
-        if (!hardware_active())
-            break;                    /* greyed: HARDWARE only */
+        if (!hardware_active()) {
+            break; /* greyed: HARDWARE only */
+        }
         const char *k = fx_knob(row); /* bool toggles */
-        if (k)
+        if (k) {
             pc_cfg_persist(k, pc_cfg_bool(k, 0) ? "false" : "true");
+        }
         break;
     }
     default:
@@ -325,11 +338,14 @@ static const char *k_speed_labels[NUM_SPEEDS] = {"NORMAL", "TURBO (1.2X)", "HYPE
 
 static int speed_index(void) {
     char buf[16];
-    if (!pc_cfg_show("game_speed", buf, sizeof buf, NULL) || !buf[0])
+    if (!pc_cfg_show("game_speed", buf, sizeof buf, NULL) || !buf[0]) {
         return 0;
-    for (int i = 1; i < NUM_SPEEDS; i++)
-        if (!strcasecmp(buf, k_speed_vals[i]))
+    }
+    for (int i = 1; i < NUM_SPEEDS; i++) {
+        if (!strcasecmp(buf, k_speed_vals[i])) {
             return i;
+        }
+    }
     return 0;
 }
 
@@ -343,8 +359,12 @@ static void speed_set(int idx) {
 
 /* "Extend interaction range": disabled / enabled (enabled = 5 px). */
 #define INTERACT_EXTEND_ON 5
-static int interact_enabled(void) { return pc_cfg_int("interact_extend", 0) > 0; }
-static void interact_set(int on) { pc_cfg_persist("interact_extend", on ? "5" : "0"); }
+static int interact_enabled(void) {
+    return pc_cfg_int("interact_extend", 0) > 0;
+}
+static void interact_set(int on) {
+    pc_cfg_persist("interact_extend", on ? "5" : "0");
+}
 
 static void modern_set(int dev, int on) {
     pc_cfg_persist(dev == PI_DEV_PAD ? "modern_controls_controller" : "modern_controls_keyboard",
@@ -402,11 +422,14 @@ static const char *k_fall_dmg_labels[NUM_FALL_DMG] = {"VANILLA", "LIGHT", "NONE"
 
 static int fall_dmg_index(void) {
     char buf[16];
-    if (!pc_cfg_show("fall_damage", buf, sizeof buf, NULL) || !buf[0])
+    if (!pc_cfg_show("fall_damage", buf, sizeof buf, NULL) || !buf[0]) {
         return 0;
-    for (int i = 1; i < NUM_FALL_DMG; i++)
-        if (!strcasecmp(buf, k_fall_dmg_vals[i]))
+    }
+    for (int i = 1; i < NUM_FALL_DMG; i++) {
+        if (!strcasecmp(buf, k_fall_dmg_vals[i])) {
             return i;
+        }
+    }
     return 0;
 }
 
@@ -439,68 +462,80 @@ static void extra_cycle(int row) {
 /* ── Navigation (called from hw.c while paused) ───────────────────────────────── */
 
 void pc_pause_input_up(void) {
-    if (!s_paused || s_capture)
+    if (!s_paused || s_capture) {
         return;
+    }
     int n = page_rows(s_page);
     s_cursor = (s_cursor + n - 1) % n;
 }
 
 void pc_pause_input_down(void) {
-    if (!s_paused || s_capture)
+    if (!s_paused || s_capture) {
         return;
+    }
     int n = page_rows(s_page);
     s_cursor = (s_cursor + 1) % n;
 }
 
 void pc_pause_input_left(void) {
-    if (!s_paused || s_capture)
+    if (!s_paused || s_capture) {
         return;
+    }
     if (s_page == PG_OPTIONS) {
         int rows[14];
         int n = options_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             options_cycle(rows[s_cursor], -1);
+        }
     } else if (s_page == PG_GRAPHICS) {
         int rows[14];
         int n = graphics_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             graphics_cycle(rows[s_cursor], -1);
+        }
     } else if (s_page == PG_CONTROLS) {
         int rows[14];
         int n = controls_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             controls_cycle(rows[s_cursor], -1);
+        }
     } else if (s_page == PG_EXTRA) {
         int rows[14];
         int n = extra_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             extra_cycle(rows[s_cursor]);
+        }
     }
 }
 
 void pc_pause_input_right(void) {
-    if (!s_paused || s_capture)
+    if (!s_paused || s_capture) {
         return;
+    }
     if (s_page == PG_OPTIONS) {
         int rows[14];
         int n = options_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             options_cycle(rows[s_cursor], +1);
+        }
     } else if (s_page == PG_GRAPHICS) {
         int rows[14];
         int n = graphics_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             graphics_cycle(rows[s_cursor], +1);
+        }
     } else if (s_page == PG_CONTROLS) {
         int rows[14];
         int n = controls_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             controls_cycle(rows[s_cursor], +1);
+        }
     } else if (s_page == PG_EXTRA) {
         int rows[14];
         int n = extra_rows(rows);
-        if (s_cursor < n)
+        if (s_cursor < n) {
             extra_cycle(rows[s_cursor]);
+        }
     }
 }
 
@@ -509,27 +544,30 @@ static void enter_options_at(int row_id) {
     int rows[14];
     int n = options_rows(rows);
     enter_page(PG_OPTIONS);
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
         if (rows[i] == row_id) {
             s_cursor = i;
             break;
         }
+    }
 }
 
 static void enter_controls_at(int row_id) {
     int rows[14];
     int n = controls_rows(rows);
     enter_page(PG_CONTROLS);
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
         if (rows[i] == row_id) {
             s_cursor = i;
             break;
         }
+    }
 }
 
 void pc_pause_input_select(void) {
-    if (!s_paused || s_capture)
+    if (!s_paused || s_capture) {
         return;
+    }
     switch (s_page) {
     case PG_MAIN:
         switch (s_cursor) {
@@ -553,8 +591,9 @@ void pc_pause_input_select(void) {
     case PG_OPTIONS: {
         int rows[14];
         int n = options_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
+        }
         switch (rows[s_cursor]) {
         case OO_GRAPHICS:
             enter_page(PG_GRAPHICS);
@@ -566,9 +605,9 @@ void pc_pause_input_select(void) {
             enter_page(PG_EXTRA);
             break;
         case OO_BACK:
-            if (s_title_mode)
+            if (s_title_mode) {
                 s_pending_action = ACT_RESUME; /* close */
-            else {
+            } else {
                 enter_page(PG_MAIN);
                 s_cursor = OPT_OPTIONS;
             }
@@ -585,19 +624,22 @@ void pc_pause_input_select(void) {
     case PG_GRAPHICS: {
         int rows[14];
         int n = graphics_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
-        if (rows[s_cursor] == RR_BACK)
+        }
+        if (rows[s_cursor] == RR_BACK) {
             enter_options_at(OO_GRAPHICS);
-        else
+        } else {
             graphics_cycle(rows[s_cursor], +1);
+        }
         break;
     }
     case PG_CONTROLS: {
         int rows[14];
         int n = controls_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
+        }
         switch (rows[s_cursor]) {
         case CT_BIND_KB:
             enter_page(PG_BIND_KB);
@@ -617,12 +659,14 @@ void pc_pause_input_select(void) {
     case PG_EXTRA: {
         int rows[14];
         int n = extra_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
-        if (rows[s_cursor] == EX_BACK)
+        }
+        if (rows[s_cursor] == EX_BACK) {
             enter_options_at(OO_EXTRA);
-        else
+        } else {
             extra_cycle(rows[s_cursor]);
+        }
         break;
     }
     case PG_BIND_KB:
@@ -630,8 +674,9 @@ void pc_pause_input_select(void) {
         int acts[14];
         int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
         int n = bind_rows(dev, acts);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
+        }
         if (acts[s_cursor] < 0) { /* BACK */
             enter_controls_at(dev == PI_DEV_PAD ? CT_BIND_PAD : CT_BIND_KB);
         } else {
@@ -656,8 +701,9 @@ static void close_from_escape(void) {
  * In title mode (opened via ESC/Start outside gameplay) OPTIONS is the root —
  * backing out of it closes the menu. */
 void pc_pause_escape(void) {
-    if (!s_paused)
+    if (!s_paused) {
         return;
+    }
     if (s_capture) {
         s_capture = 0;
         return;
@@ -680,9 +726,9 @@ void pc_pause_escape(void) {
         enter_options_at(OO_EXTRA);
         break;
     case PG_OPTIONS:
-        if (s_title_mode)
+        if (s_title_mode) {
             close_from_escape();
-        else {
+        } else {
             enter_page(PG_MAIN);
             s_cursor = OPT_OPTIONS;
         }
@@ -695,19 +741,24 @@ void pc_pause_escape(void) {
 
 /* ── Bindings capture ─────────────────────────────────────────────────────────── */
 
-int pc_pause_capture_active(void) { return s_paused && s_capture; }
+int pc_pause_capture_active(void) {
+    return s_paused && s_capture;
+}
 
 void pc_pause_capture_code(int dev, int code) {
-    if (!pc_pause_capture_active())
+    if (!pc_pause_capture_active()) {
         return;
+    }
     if (dev == PI_DEV_KB && code == SDLK_ESCAPE) {
         s_capture = 0;
         return;
     }
-    if (dev != s_capture_dev)
+    if (dev != s_capture_dev) {
         return; /* press must come from the device being bound */
-    if (dev == PI_DEV_PAD && code == SDL_GAMEPAD_BUTTON_START)
+    }
+    if (dev == PI_DEV_PAD && code == SDL_GAMEPAD_BUTTON_START) {
         return; /* reserved: pause */
+    }
     pc_input_rebind(dev, s_capture_action, code);
     s_capture = 0;
 }
@@ -744,13 +795,16 @@ void pc_request_level_restart(void) {
     g_pc_screen = PC_SCR_GAMEPLAY;
 }
 
-static void do_retry_current_level(void) { pc_request_level_restart(); }
+static void do_retry_current_level(void) {
+    pc_request_level_restart();
+}
 
 /* Called at the TOP of pc_step. If there's a pending menu action, perform it
  * now — main-loop context, never from inside the game coroutine. */
 void pc_pause_tick(void) {
-    if (s_pending_action == ACT_NONE)
+    if (s_pending_action == ACT_NONE) {
         return;
+    }
     int act = s_pending_action;
     s_pending_action = ACT_NONE;
     benefactor_log_write(BENEFACTOR_LOG_INFO, "menu", "deferred menu action %d", act);
@@ -778,7 +832,9 @@ void pc_pause_tick(void) {
 void pc_pause_menu_overlay(uint32_t *fb);
 
 /* Text width in pixels: the overlay font is a fixed 6px cell. */
-static int text_width(const char *text) { return (int)strlen(text) * 6; }
+static int text_width(const char *text) {
+    return (int)strlen(text) * 6;
+}
 
 static void draw_panel(uint32_t *fb, int px, int py, int pw, int ph, const char *title) {
     pc_fill_rect(fb, px, py, pw, ph, 0xFF101830);
@@ -796,22 +852,26 @@ static void draw_panel(uint32_t *fb, int px, int py, int pw, int ph, const char 
 static void draw_row(uint32_t *fb, int px, int y, int selected, const char *label,
                      const char *value) {
     uint32_t colour = selected ? 0xFFFFFFFF : 0xFFB0B0C0;
-    if (selected)
+    if (selected) {
         pc_draw_text(fb, px + 6, y, ">", 1, 0xFFFFE070);
+    }
     pc_draw_text(fb, px + 16, y, label, 1, colour);
-    if (value)
+    if (value) {
         pc_draw_text(fb, px + 150, y, value, 1, selected ? 0xFFFFE070 : 0xFF90A0D0);
+    }
 }
 
 /* Like draw_row but rendered dimmed — for rows that are inert in the current
  * context (e.g. GPU effects when the HARDWARE renderer is off). */
 static void draw_row_disabled(uint32_t *fb, int px, int y, int selected, const char *label,
                               const char *value) {
-    if (selected)
+    if (selected) {
         pc_draw_text(fb, px + 6, y, ">", 1, 0xFF707058);
+    }
     pc_draw_text(fb, px + 16, y, label, 1, 0xFF606070);
-    if (value)
+    if (value) {
         pc_draw_text(fb, px + 150, y, value, 1, 0xFF505060);
+    }
 }
 
 /* Right-pointing triangle at the right edge of a row — marks a row that OPENS A
@@ -833,11 +893,13 @@ static void draw_submenu_arrow(uint32_t *fb, int px, int pw, int y, int selected
  * answer, and the player can turn the check off, in which case there is no
  * line at all. */
 static void draw_update_status(uint32_t *fb) {
-    if (!pc_cfg_bool("update_check", 1))
+    if (!pc_cfg_bool("update_check", 1)) {
         return;
+    }
     const char *line = pc_update_line();
-    if (line == NULL || line[0] == '\0')
+    if (line == NULL || line[0] == '\0') {
         return;
+    }
     const int ow = pc_overlay_w(), oh = pc_overlay_h();
     /* A failure carries its reason, which can be longer than the screen; the
      * sentence is clipped to what fits rather than drawn off the edge. */
@@ -896,16 +958,18 @@ static void draw_pause_page(uint32_t *fb) {
         static const char *labels[NUM_MAIN] = {
             "RESUME", "OPTIONS", "RETRY", "EXIT TO MAIN MENU", "QUIT TO DESKTOP",
         };
-        for (int i = 0; i < NUM_MAIN; i++)
+        for (int i = 0; i < NUM_MAIN; i++) {
             draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, labels[i], NULL);
+        }
         return;
     }
 
     if (s_page == PG_OPTIONS) {
         int rows[14];
         int n = options_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
+        }
         const int pw = 264; /* value col (x+150) must fit "WIDESCREEN 16:9" = 15ch*6px */
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
@@ -947,8 +1011,9 @@ static void draw_pause_page(uint32_t *fb) {
             }
             int y = py + 22 + i * row_h;
             draw_row(fb, px, y, i == s_cursor, label, value);
-            if (submenu)
+            if (submenu) {
                 draw_submenu_arrow(fb, px, pw, y, i == s_cursor);
+            }
         }
         return;
     }
@@ -956,8 +1021,9 @@ static void draw_pause_page(uint32_t *fb) {
     if (s_page == PG_GRAPHICS) {
         int rows[14];
         int n = graphics_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
+        }
         const int pw = 240;
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
@@ -993,10 +1059,11 @@ static void draw_pause_page(uint32_t *fb) {
                 label = "BACK";
                 break;
             }
-            if (disabled)
+            if (disabled) {
                 draw_row_disabled(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
-            else
+            } else {
                 draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+            }
         }
         return;
     }
@@ -1004,8 +1071,9 @@ static void draw_pause_page(uint32_t *fb) {
     if (s_page == PG_CONTROLS) {
         int rows[14];
         int n = controls_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
+        }
         const int pw = 264;
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
@@ -1048,8 +1116,9 @@ static void draw_pause_page(uint32_t *fb) {
             }
             int y = py + 22 + i * row_h;
             draw_row(fb, px, y, i == s_cursor, label, value);
-            if (submenu)
+            if (submenu) {
                 draw_submenu_arrow(fb, px, pw, y, i == s_cursor);
+            }
         }
         return;
     }
@@ -1057,8 +1126,9 @@ static void draw_pause_page(uint32_t *fb) {
     if (s_page == PG_EXTRA) {
         int rows[14];
         int n = extra_rows(rows);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1;
+        }
         const int pw = 230;
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
@@ -1106,9 +1176,10 @@ static void draw_pause_page(uint32_t *fb) {
         int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
         int acts[14];
         int n = bind_rows(dev, acts);
-        if (s_cursor >= n)
+        if (s_cursor >= n) {
             s_cursor = n - 1; /* modern toggle may shrink the list */
-        const int pw = 300;   /* room for multi-chord defaults ("Z, LCtrl, Space, Return") */
+        }
+        const int pw = 300; /* room for multi-chord defaults ("Z, LCtrl, Space, Return") */
         const int ph = 22 + n * row_h + 8;
         const int px = (ow - pw) / 2, py = (oh - ph) / 2;
         draw_panel(fb, px, py, pw, ph,
@@ -1118,10 +1189,11 @@ static void draw_pause_page(uint32_t *fb) {
             char val[64];
             const char *value = NULL;
             if (acts[i] >= 0) {
-                if (s_capture && i == s_cursor)
+                if (s_capture && i == s_cursor) {
                     value = dev == PI_DEV_PAD ? "PRESS A BUTTON..." : "PRESS A KEY...";
-                else
+                } else {
                     value = pc_input_binding_str(dev, acts[i], val, sizeof val);
+                }
             }
             draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, bind_row_label(dev, acts[i]),
                      value);
@@ -1130,8 +1202,9 @@ static void draw_pause_page(uint32_t *fb) {
 }
 
 void pc_pause_menu_overlay(uint32_t *fb) {
-    if (!s_paused)
+    if (!s_paused) {
         return;
+    }
     draw_pause_page(fb);
     draw_update_status(fb);
 }

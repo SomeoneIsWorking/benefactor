@@ -61,8 +61,9 @@ void benefactor_log_set_level(BenefactorLogLevel minimum_level) {
 }
 
 int benefactor_log_set_category_level(const char *category, BenefactorLogLevel minimum_level) {
-    if (!category || !category[0] || strlen(category) >= LOG_CATEGORY_NAME_CAPACITY)
+    if (!category || !category[0] || strlen(category) >= LOG_CATEGORY_NAME_CAPACITY) {
         return 0;
+    }
 
     for (size_t index = 0; index < LOG_CATEGORY_CAPACITY; ++index) {
         CategoryLevel *entry = &s_category_levels[index];
@@ -77,8 +78,9 @@ int benefactor_log_set_category_level(const char *category, BenefactorLogLevel m
         CategoryLevel *entry = &s_category_levels[index];
         int expected = 0;
         if (!atomic_compare_exchange_strong_explicit(&entry->state, &expected, 1,
-                                                     memory_order_acq_rel, memory_order_acquire))
+                                                     memory_order_acq_rel, memory_order_acquire)) {
             continue;
+        }
         memcpy(entry->name, category, strlen(category) + 1);
         atomic_store_explicit(&entry->minimum_level, minimum_level, memory_order_relaxed);
         atomic_store_explicit(&entry->state, 2, memory_order_release);
@@ -92,9 +94,10 @@ int benefactor_log_is_enabled(BenefactorLogLevel level, const char *category) {
         for (size_t index = 0; index < LOG_CATEGORY_CAPACITY; ++index) {
             const CategoryLevel *entry = &s_category_levels[index];
             if (atomic_load_explicit(&entry->state, memory_order_acquire) == 2 &&
-                strcmp(entry->name, category) == 0)
+                strcmp(entry->name, category) == 0) {
                 return (int)level >=
                        atomic_load_explicit(&entry->minimum_level, memory_order_acquire);
+            }
         }
     }
     return (int)level >= atomic_load_explicit(&s_minimum_level, memory_order_acquire);
@@ -102,16 +105,19 @@ int benefactor_log_is_enabled(BenefactorLogLevel level, const char *category) {
 
 void benefactor_log_write_va(BenefactorLogLevel level, const char *category, const char *format,
                              va_list arguments) {
-    if (!benefactor_log_is_enabled(level, category))
+    if (!benefactor_log_is_enabled(level, category)) {
         return;
+    }
 
     char message[LOG_MESSAGE_CAPACITY];
     int length = vsnprintf(message, sizeof message, format, arguments);
-    if (length < 0)
+    if (length < 0) {
         return;
+    }
     size_t used = (size_t)length < sizeof message ? (size_t)length : sizeof message - 1;
-    while (used > 0 && (message[used - 1] == '\n' || message[used - 1] == '\r'))
+    while (used > 0 && (message[used - 1] == '\n' || message[used - 1] == '\r')) {
         message[--used] = '\0';
+    }
 
     if (s_capture_buffer) {
         size_t available = s_capture_capacity - s_capture_used;
@@ -120,8 +126,9 @@ void benefactor_log_write_va(BenefactorLogLevel level, const char *category, con
             memcpy(s_capture_buffer + s_capture_used, message, copied);
             s_capture_used += copied;
         }
-        if (s_capture_used < s_capture_capacity)
+        if (s_capture_used < s_capture_capacity) {
             s_capture_buffer[s_capture_used++] = '\n';
+        }
         return;
     }
 
@@ -145,8 +152,9 @@ void benefactor_log_flush(void) {
 }
 
 int benefactor_log_capture_begin(char *buffer, size_t capacity) {
-    if (!buffer || capacity == 0 || s_capture_buffer)
+    if (!buffer || capacity == 0 || s_capture_buffer) {
         return 0;
+    }
     s_capture_buffer = buffer;
     s_capture_capacity = capacity;
     s_capture_used = 0;
@@ -162,10 +170,12 @@ size_t benefactor_log_capture_end(void) {
 }
 
 static size_t signal_append_text(char *output, size_t capacity, size_t used, const char *text) {
-    if (!text)
+    if (!text) {
         return used;
-    while (*text && used < capacity)
+    }
+    while (*text && used < capacity) {
         output[used++] = *text++;
+    }
     return used;
 }
 
@@ -183,9 +193,11 @@ void benefactor_log_signal_hex(const char *message, const uint32_t *values, size
     char output[SIGNAL_MESSAGE_CAPACITY];
     size_t used = signal_append_text(output, sizeof output, 0, "error: signal: ");
     used = signal_append_text(output, sizeof output, used, message);
-    for (size_t index = 0; values && index < value_count; ++index)
+    for (size_t index = 0; values && index < value_count; ++index) {
         used = signal_append_hex(output, sizeof output, used, values[index]);
-    if (used < sizeof output)
+    }
+    if (used < sizeof output) {
         output[used++] = '\n';
+    }
     (void)write(STDERR_FILENO, output, used);
 }

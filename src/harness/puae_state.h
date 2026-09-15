@@ -73,8 +73,9 @@ static inline uint32_t crc32_buf(const uint8_t *data, uint32_t len) {
     uint32_t crc = 0xFFFFFFFFu;
     for (uint32_t i = 0; i < len; i++) {
         crc ^= data[i];
-        for (int b = 0; b < 8; b++)
+        for (int b = 0; b < 8; b++) {
             crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+        }
     }
     return ~crc;
 }
@@ -94,13 +95,15 @@ static inline uint32_t bpl_data_region_crc(const uint8_t *mem, uint32_t size) {
     for (int r = 0; r < 3; r++) {
         uint32_t off = regions[r].start;
         uint32_t len = regions[r].len;
-        if (off + len > size)
+        if (off + len > size) {
             continue;
+        }
         const uint8_t *p = mem + off;
         for (uint32_t i = 0; i < len; i++) {
             crc ^= p[i];
-            for (int b = 0; b < 8; b++)
+            for (int b = 0; b < 8; b++) {
                 crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+            }
         }
     }
     return ~crc;

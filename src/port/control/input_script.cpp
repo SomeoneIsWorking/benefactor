@@ -28,16 +28,18 @@ void InputScript::hold(const Buttons &buttons) {
 }
 
 void InputScript::press(const Buttons &buttons, int frames) {
-    if (frames < 1)
+    if (frames < 1) {
         frames = 1;
+    }
     press_left_ = frames;
     apply(buttons);
     benefactor_log_write(BENEFACTOR_LOG_INFO, "control", "press for %d frame(s)", frames);
 }
 
 void InputScript::step(int frames) {
-    if (frames < 1)
+    if (frames < 1) {
         frames = 1;
+    }
     step_left_ = frames;
     paused_ = false;
 }
@@ -52,15 +54,20 @@ void InputScript::resume() {
     step_left_ = -1;
 }
 
-bool InputScript::paused() const { return paused_; }
+bool InputScript::paused() const {
+    return paused_;
+}
 
-int InputScript::press_frames_left() const { return press_left_; }
+int InputScript::press_frames_left() const {
+    return press_left_;
+}
 
 void InputScript::frame() {
     /* A press is released by the frame loop, so its length is in frames the
      * game actually saw — not in however long two HTTP round trips took. */
-    if (press_left_ > 0 && --press_left_ == 0)
+    if (press_left_ > 0 && --press_left_ == 0) {
         apply(held_);
+    }
 
     if (step_left_ > 0 && --step_left_ == 0) {
         step_left_ = -1;
@@ -74,7 +81,9 @@ void InputScript::frame() {
 
 extern "C" {
 
-void pc_control_frame(void) { benefactor::control::InputScript::instance().frame(); }
+void pc_control_frame(void) {
+    benefactor::control::InputScript::instance().frame();
+}
 
 int pc_control_paused(void) {
     return benefactor::control::InputScript::instance().paused() ? 1 : 0;

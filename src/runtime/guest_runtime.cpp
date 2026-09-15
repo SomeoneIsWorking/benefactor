@@ -49,23 +49,29 @@ template <typename T> amigaport::MemoryRead<T> unmapped() {
 
 class GuestMemory final : public amigaport::Memory {
   public:
-    explicit GuestMemory(std::vector<std::uint8_t> &bytes) : bytes_(bytes) {}
+    explicit GuestMemory(std::vector<std::uint8_t> &bytes) : bytes_(bytes) {
+    }
 
     amigaport::MemoryRead<std::uint8_t> read8(amigaport::GuestAddress address) override {
-        if (is_hardware_address(address))
+        if (is_hardware_address(address)) {
             return {.value = hw_read8(address), .fault = amigaport::MemoryFault::None};
-        if (address >= bytes_.size())
+        }
+        if (address >= bytes_.size()) {
             return unmapped<std::uint8_t>();
+        }
         return {.value = bytes_[address], .fault = amigaport::MemoryFault::None};
     }
 
     amigaport::MemoryRead<std::uint16_t> read16(amigaport::GuestAddress address) override {
-        if ((address & 1u) != 0u)
+        if ((address & 1u) != 0u) {
             return unmapped<std::uint16_t>();
-        if (is_hardware_address(address))
+        }
+        if (is_hardware_address(address)) {
             return {.value = hw_read16(address), .fault = amigaport::MemoryFault::None};
-        if (address > bytes_.size() - 2u)
+        }
+        if (address > bytes_.size() - 2u) {
             return unmapped<std::uint16_t>();
+        }
         return {.value =
                     static_cast<std::uint16_t>(static_cast<std::uint32_t>(bytes_[address]) << 8u |
                                                static_cast<std::uint32_t>(bytes_[address + 1u])),
@@ -73,12 +79,15 @@ class GuestMemory final : public amigaport::Memory {
     }
 
     amigaport::MemoryRead<std::uint32_t> read32(amigaport::GuestAddress address) override {
-        if ((address & 1u) != 0u)
+        if ((address & 1u) != 0u) {
             return unmapped<std::uint32_t>();
-        if (is_hardware_address(address))
+        }
+        if (is_hardware_address(address)) {
             return {.value = hw_read32(address), .fault = amigaport::MemoryFault::None};
-        if (address > bytes_.size() - 4u)
+        }
+        if (address > bytes_.size() - 4u) {
             return unmapped<std::uint32_t>();
+        }
         const std::uint32_t value = (static_cast<std::uint32_t>(bytes_[address]) << 24u) |
                                     (static_cast<std::uint32_t>(bytes_[address + 1u]) << 16u) |
                                     (static_cast<std::uint32_t>(bytes_[address + 2u]) << 8u) |
@@ -91,35 +100,40 @@ class GuestMemory final : public amigaport::Memory {
             hw_write8(write.address, write.value);
             return amigaport::MemoryFault::None;
         }
-        if (write.address >= bytes_.size())
+        if (write.address >= bytes_.size()) {
             return amigaport::MemoryFault::Unmapped;
+        }
         bytes_[write.address] = write.value;
         return amigaport::MemoryFault::None;
     }
 
     amigaport::MemoryFault write16(amigaport::MemoryWrite<std::uint16_t> write) override {
-        if ((write.address & 1u) != 0u)
+        if ((write.address & 1u) != 0u) {
             return amigaport::MemoryFault::Misaligned;
+        }
         if (is_hardware_address(write.address)) {
             hw_write16(write.address, write.value);
             return amigaport::MemoryFault::None;
         }
-        if (write.address > bytes_.size() - 2u)
+        if (write.address > bytes_.size() - 2u) {
             return amigaport::MemoryFault::Unmapped;
+        }
         bytes_[write.address] = static_cast<std::uint8_t>(write.value >> 8u);
         bytes_[write.address + 1u] = static_cast<std::uint8_t>(write.value);
         return amigaport::MemoryFault::None;
     }
 
     amigaport::MemoryFault write32(amigaport::MemoryWrite<std::uint32_t> write) override {
-        if ((write.address & 1u) != 0u)
+        if ((write.address & 1u) != 0u) {
             return amigaport::MemoryFault::Misaligned;
+        }
         if (is_hardware_address(write.address)) {
             hw_write32(write.address, write.value);
             return amigaport::MemoryFault::None;
         }
-        if (write.address > bytes_.size() - 4u)
+        if (write.address > bytes_.size() - 4u) {
             return amigaport::MemoryFault::Unmapped;
+        }
         bytes_[write.address] = static_cast<std::uint8_t>(write.value >> 24u);
         bytes_[write.address + 1u] = static_cast<std::uint8_t>(write.value >> 16u);
         bytes_[write.address + 2u] = static_cast<std::uint8_t>(write.value >> 8u);
@@ -170,21 +184,24 @@ class Runtime final {
   public:
     Runtime()
         : bytes(static_cast<std::size_t>(BENEFACTOR_GUEST_MEMORY_SIZE)), memory(bytes),
-          executor({.max_instructions_per_slice = 1'000'000u}, memory, logger) {}
+          executor({.max_instructions_per_slice = 1'000'000u}, memory, logger) {
+    }
 
     amigaport::ImageIdentity activate(BenefactorImageKind kind) {
         const auto image = executor.replace_image({.value = static_cast<std::uint32_t>(kind)});
         for (const Registration &registration : registrations) {
-            if ((registration.image_mask & image_mask(kind)) == 0u)
+            if ((registration.image_mask & image_mask(kind)) == 0u) {
                 continue;
+            }
             install(image, registration);
         }
         return image;
     }
 
     void bind(M68KCtx *ctx) {
-        if (ctx == nullptr)
+        if (ctx == nullptr) {
             throw std::invalid_argument("cannot bind a null M68K context");
+        }
         ctx->amigaport_runtime = this;
         ctx->D = executor.state().data.data();
         ctx->A = executor.state().address.data();
@@ -226,15 +243,20 @@ class Runtime final {
     std::uint64_t guest_cycles() noexcept {
         const std::uint64_t now = cycle_base + executor.state().elapsed_cycles;
         const std::uint64_t seen = cycles_seen.load(std::memory_order_relaxed);
-        if (now <= seen)
+        if (now <= seen) {
             return seen;
+        }
         cycles_seen.store(now, std::memory_order_relaxed);
         return now;
     }
 
-    void add_guest_cycles(std::uint64_t cycles) noexcept { cycle_base += cycles; }
+    void add_guest_cycles(std::uint64_t cycles) noexcept {
+        cycle_base += cycles;
+    }
 
-    [[nodiscard]] std::uint64_t cycle_base_value() const noexcept { return cycle_base; }
+    [[nodiscard]] std::uint64_t cycle_base_value() const noexcept {
+        return cycle_base;
+    }
     [[nodiscard]] std::uint64_t cycles_elapsed_value() const noexcept {
         return executor.state().elapsed_cycles;
     }
@@ -248,12 +270,14 @@ class Runtime final {
 
     void register_native(std::uint32_t image_mask, std::uint32_t address, NativeFn function,
                          bool replaces_subroutine = false) {
-        if (function == nullptr)
+        if (function == nullptr) {
             throw std::invalid_argument("native override function is null");
+        }
         registrations.push_back({image_mask, address, function, replaces_subroutine});
         const auto image = executor.image();
-        if ((image_mask & image_mask_for_tag(image.tag.value)) != 0u)
+        if ((image_mask & image_mask_for_tag(image.tag.value)) != 0u) {
             install(image, registrations.back());
+        }
     }
 
     void record_call(std::uint32_t address) noexcept {
@@ -263,16 +287,18 @@ class Runtime final {
     }
 
     int recent_calls(std::uint32_t *destination, int capacity) const noexcept {
-        if (destination == nullptr || capacity <= 0)
+        if (destination == nullptr || capacity <= 0) {
             return 0;
+        }
         const std::uint64_t written = calls_written.load(std::memory_order_relaxed);
         const std::uint64_t available = std::min<std::uint64_t>(written, kCallRingCapacity);
         const std::uint64_t wanted =
             std::min<std::uint64_t>(available, static_cast<std::uint64_t>(capacity));
         int count = 0;
-        for (std::uint64_t offset = wanted; offset > 0U; --offset)
+        for (std::uint64_t offset = wanted; offset > 0U; --offset) {
             destination[count++] =
                 calls[(written - offset) % kCallRingCapacity].load(std::memory_order_relaxed);
+        }
         return count;
     }
 
@@ -309,10 +335,11 @@ class Runtime final {
         auto boundary = amigaport::CallBoundary::GuestSubroutine;
         if (!native_frames.empty()) {
             const auto nested = call_policy.nested_boundary(native_frames.back(), address);
-            if (nested == benefactor::runtime::GuestCallBoundary::TailTransfer)
+            if (nested == benefactor::runtime::GuestCallBoundary::TailTransfer) {
                 boundary = amigaport::CallBoundary::TailTransfer;
-            else if (nested == benefactor::runtime::GuestCallBoundary::HostSubroutine)
+            } else if (nested == benefactor::runtime::GuestCallBoundary::HostSubroutine) {
                 boundary = amigaport::CallBoundary::HostSubroutine;
+            }
         }
         amigaport::CallContinuation continuation{};
         amigaport::ExecutionExit result = executor.call(address, boundary, {}, &continuation);
@@ -361,8 +388,9 @@ class Runtime final {
     }
 
     void exit_to_host() {
-        if (native_host_exits.empty())
+        if (native_host_exits.empty()) {
             throw std::logic_error("host exit requested outside an override");
+        }
         *native_host_exits.back() = true;
     }
 
@@ -370,8 +398,9 @@ class Runtime final {
         if ((address & 1u) != 0u || address >= bytes.size()) {
             throw std::invalid_argument("native continuation target is not a valid guest PC");
         }
-        if (native_continuations.empty())
+        if (native_continuations.empty()) {
             throw std::logic_error("native continuation requested outside an override");
+        }
         executor.state().pc = address;
         executor.state().prefetch_valid = false;
         *native_continuations.back() = true;
@@ -460,8 +489,9 @@ class Runtime final {
                  * exited to the host has already moved the PC and consumed whatever
                  * the guest stack owed. */
                 if (call_policy.completes_replacement(replaces_subroutine, continue_execution,
-                                                      exit_to_host, address, executor.state().pc))
+                                                      exit_to_host, address, executor.state().pc)) {
                     (void)return_from_native();
+                }
                 amigaport::ExecutionExit result{};
                 result.continue_execution = continue_execution;
                 result.hand_off_to_host = exit_to_host;
@@ -475,8 +505,9 @@ class Runtime final {
 
 std::unique_ptr<Runtime> g_runtime;
 Runtime &runtime() {
-    if (!g_runtime)
+    if (!g_runtime) {
         throw std::logic_error("Benefactor runtime is not initialized");
+    }
     return *g_runtime;
 }
 
@@ -593,9 +624,15 @@ uint32_t rt_read32(M68KCtx *, uint32_t address) {
     return result ? result.value : 0;
 }
 
-void rt_write8(M68KCtx *, uint32_t address, uint8_t value) { runtime().write8(address, value); }
-void rt_write16(M68KCtx *, uint32_t address, uint16_t value) { runtime().write16(address, value); }
-void rt_write32(M68KCtx *, uint32_t address, uint32_t value) { runtime().write32(address, value); }
+void rt_write8(M68KCtx *, uint32_t address, uint8_t value) {
+    runtime().write8(address, value);
+}
+void rt_write16(M68KCtx *, uint32_t address, uint16_t value) {
+    runtime().write16(address, value);
+}
+void rt_write32(M68KCtx *, uint32_t address, uint32_t value) {
+    runtime().write32(address, value);
+}
 
 void rt_register_native(uint32_t image_mask, uint32_t address, NativeFn function) {
     runtime().register_native(image_mask, address, function);
@@ -629,20 +666,26 @@ void rt_register_replacement_title(uint32_t address, NativeFn function) {
     runtime().register_native(BENEFACTOR_IMAGE_MASK_TITLE, address, function, true);
 }
 
-void rt_context_bind(M68KCtx *ctx) { runtime().bind(ctx); }
+void rt_context_bind(M68KCtx *ctx) {
+    runtime().bind(ctx);
+}
 
-void rt_context_reset(M68KCtx *ctx, BenefactorImageKind kind) { runtime().reset(ctx, kind); }
+void rt_context_reset(M68KCtx *ctx, BenefactorImageKind kind) {
+    runtime().reset(ctx, kind);
+}
 
 void rt_activate_image(M68KCtx *ctx, BenefactorImageKind kind) {
     runtime().activate(kind);
-    if (ctx != nullptr)
+    if (ctx != nullptr) {
         runtime().bind(ctx);
+    }
 }
 
 void rt_call(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     runtime().require_image(image);
-    if (ctx != nullptr)
+    if (ctx != nullptr) {
         rt_context_bind(ctx);
+    }
     const auto exit = runtime().execute(address);
     log_exit("execute", address, exit);
     if (exit.hand_off_to_host && !runtime().native_host_exits.empty()) {
@@ -660,15 +703,17 @@ void rt_continue_original(M68KCtx *ctx, BenefactorImageIdentity image) {
 
 void rt_call_interrupt(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     runtime().require_image(image);
-    if (ctx != nullptr)
+    if (ctx != nullptr) {
         rt_context_bind(ctx);
+    }
     log_exit("interrupt", address, runtime().call_interrupt(address));
 }
 
 void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
     runtime().require_image(image);
-    if (ctx != nullptr)
+    if (ctx != nullptr) {
         rt_context_bind(ctx);
+    }
     /* Native overrides return to the executor after this function returns.
      * Mutate that frame's PC instead of recursively starting a second PUAE
      * step; the embedded core owns one architectural context and is not
@@ -677,30 +722,35 @@ void rt_jump(M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
 }
 
 void rt_exit_to_host(M68KCtx *ctx) {
-    if (ctx != nullptr)
+    if (ctx != nullptr) {
         rt_context_bind(ctx);
+    }
     runtime().exit_to_host();
 }
 
 int rt_return_from_native(M68KCtx *ctx) {
-    if (ctx != nullptr)
+    if (ctx != nullptr) {
         rt_context_bind(ctx);
+    }
     return runtime().return_from_native();
 }
 
-void rt_reset_callstack(void) {}
+void rt_reset_callstack(void) {
+}
 
 int rt_init(const char *, uint32_t, uint32_t) {
-    if (g_runtime)
+    if (g_runtime) {
         return -1;
+    }
     const int result = boundary([] {
         g_runtime = std::make_unique<Runtime>();
         g_runtime->install_breakpoint_handler();
         g_runtime->activate(BENEFACTOR_IMAGE_MAIN);
         g_mem = g_runtime->bytes.data();
     });
-    if (result != 0)
+    if (result != 0) {
         g_runtime.reset();
+    }
     return result;
 }
 
@@ -719,60 +769,77 @@ int rt_has_guest_code(BenefactorImageIdentity image, uint32_t address) {
 }
 
 int rt_is_resume_point(const M68KCtx *ctx, BenefactorImageIdentity image, uint32_t address) {
-    if (ctx == nullptr || ctx->amigaport_runtime != g_runtime.get())
+    if (ctx == nullptr || ctx->amigaport_runtime != g_runtime.get()) {
         return 0;
+    }
     return runtime().image_matches(image) && runtime().executor.state().pc == address;
 }
 
-size_t rt_state_blob_size(void) { return sizeof(amigaport::CpuState); }
+size_t rt_state_blob_size(void) {
+    return sizeof(amigaport::CpuState);
+}
 
 int rt_state_blob_save(void *destination, size_t capacity) {
-    if (destination == nullptr || capacity < sizeof(amigaport::CpuState))
+    if (destination == nullptr || capacity < sizeof(amigaport::CpuState)) {
         return -1;
+    }
     std::memcpy(destination, &runtime().executor.state(), sizeof(amigaport::CpuState));
     return 0;
 }
 
 int rt_state_blob_load(const void *source, size_t size) {
-    if (source == nullptr || size != sizeof(amigaport::CpuState))
+    if (source == nullptr || size != sizeof(amigaport::CpuState)) {
         return -1;
+    }
     std::memcpy(&runtime().executor.state(), source, sizeof(amigaport::CpuState));
     return 0;
 }
 
-void rt_chip_rwatch_add(uint32_t, uint32_t) {}
-void rt_chip_rwatch_clear(void) {}
-void rt_chip_watch_add(uint32_t, uint32_t) {}
-void rt_chip_watch_clear(void) {}
-uint32_t rt_get_last_insn(void) { return runtime().last_pc.load(std::memory_order_relaxed); }
+void rt_chip_rwatch_add(uint32_t, uint32_t) {
+}
+void rt_chip_rwatch_clear(void) {
+}
+void rt_chip_watch_add(uint32_t, uint32_t) {
+}
+void rt_chip_watch_clear(void) {
+}
+uint32_t rt_get_last_insn(void) {
+    return runtime().last_pc.load(std::memory_order_relaxed);
+}
 uint32_t rt_get_active_call_address(void) {
     return runtime().last_call_address.load(std::memory_order_relaxed);
 }
-uint32_t rt_get_pc(void) { return g_runtime ? g_runtime->executor.state().pc : 0u; }
+uint32_t rt_get_pc(void) {
+    return g_runtime ? g_runtime->executor.state().pc : 0u;
+}
 
 /* Breakpoints. The executor owns the set and checks it once per instruction;
  * these only forward, so there is one place a breakpoint can be recorded. See
  * src/port/debug/debugger.h for what stops the game when one is reached. */
 int rt_set_breakpoint(uint32_t address) {
-    if (g_runtime == nullptr)
+    if (g_runtime == nullptr) {
         return 0;
+    }
     return g_runtime->executor.set_breakpoint(address) ? 1 : 0;
 }
 
 int rt_clear_breakpoint(uint32_t address) {
-    if (g_runtime == nullptr)
+    if (g_runtime == nullptr) {
         return 0;
+    }
     return g_runtime->executor.clear_breakpoint(address) ? 1 : 0;
 }
 
 void rt_clear_breakpoints(void) {
-    if (g_runtime != nullptr)
+    if (g_runtime != nullptr) {
         g_runtime->executor.clear_breakpoints();
+    }
 }
 
 int rt_breakpoints(uint32_t *addresses, int capacity) {
-    if (g_runtime == nullptr || addresses == nullptr || capacity <= 0)
+    if (g_runtime == nullptr || addresses == nullptr || capacity <= 0) {
         return 0;
+    }
     return static_cast<int>(
         g_runtime->executor.breakpoints(addresses, static_cast<std::size_t>(capacity)));
 }
@@ -783,22 +850,29 @@ int rt_breakpoint_capacity(void) {
 
 void rt_cpu_registers(uint32_t *data, uint32_t *address, uint32_t *program_counter,
                       uint16_t *status) {
-    if (g_runtime == nullptr)
+    if (g_runtime == nullptr) {
         return;
+    }
     const auto &cpu = g_runtime->executor.state();
     for (std::size_t index = 0; index < 8; ++index) {
-        if (data != nullptr)
+        if (data != nullptr) {
             data[index] = cpu.data[index];
-        if (address != nullptr)
+        }
+        if (address != nullptr) {
             address[index] = cpu.address[index];
+        }
     }
-    if (program_counter != nullptr)
+    if (program_counter != nullptr) {
         *program_counter = cpu.pc;
-    if (status != nullptr)
+    }
+    if (status != nullptr) {
         *status = cpu.sr;
+    }
 }
 
-uint64_t rt_get_guest_cycles(void) { return g_runtime ? g_runtime->guest_cycles() : 0u; }
+uint64_t rt_get_guest_cycles(void) {
+    return g_runtime ? g_runtime->guest_cycles() : 0u;
+}
 
 /* Charge guest time for work the host performs instantly on the guest's behalf.
  * The blitter is the case that matters: on hardware a blit occupies the bus for
@@ -806,43 +880,52 @@ uint64_t rt_get_guest_cycles(void) { return g_runtime ? g_runtime->guest_cycles(
  * long. Completing it for free made every blitter-paced screen run as fast as
  * the host could interpret. */
 void rt_add_guest_cycles(uint64_t cycles) {
-    if (g_runtime)
+    if (g_runtime) {
         g_runtime->add_guest_cycles(cycles);
+    }
 }
 
 /* Raw halves of the guest clock, for diagnosing a clock that disagrees with the
  * work actually done: the folded base plus the live executor counter, which an
  * interrupt that never reaches its RTE rolls backwards. */
-uint64_t rt_get_cycle_base(void) { return g_runtime ? g_runtime->cycle_base_value() : 0u; }
-uint64_t rt_get_cycles_elapsed(void) { return g_runtime ? g_runtime->cycles_elapsed_value() : 0u; }
+uint64_t rt_get_cycle_base(void) {
+    return g_runtime ? g_runtime->cycle_base_value() : 0u;
+}
+uint64_t rt_get_cycles_elapsed(void) {
+    return g_runtime ? g_runtime->cycles_elapsed_value() : 0u;
+}
 
 uint64_t rt_get_executed_instructions(void) {
     return g_runtime ? g_runtime->executor.state().executed_instructions : 0u;
 }
 
 int rt_insn_ring_snapshot(uint32_t *destination, int capacity) {
-    if (g_runtime == nullptr || destination == nullptr || capacity <= 0)
+    if (g_runtime == nullptr || destination == nullptr || capacity <= 0) {
         return 0;
+    }
     std::array<amigaport::ExecutionTraceEntry, 256> entries{};
     const std::size_t wanted =
         std::min<std::size_t>(static_cast<std::size_t>(capacity), entries.size());
     const std::size_t count = g_runtime->executor.recent_execution(entries.data(), wanted);
-    for (std::size_t index = 0; index < count; ++index)
+    for (std::size_t index = 0; index < count; ++index) {
         destination[index] = entries[index].pc;
+    }
     return static_cast<int>(count);
 }
 
 int rt_insn_ring_entries(uint32_t *program_counters, uint16_t *opcodes, int capacity) {
-    if (g_runtime == nullptr || program_counters == nullptr || capacity <= 0)
+    if (g_runtime == nullptr || program_counters == nullptr || capacity <= 0) {
         return 0;
+    }
     std::array<amigaport::ExecutionTraceEntry, 256> entries{};
     const std::size_t wanted =
         std::min<std::size_t>(static_cast<std::size_t>(capacity), entries.size());
     const std::size_t count = g_runtime->executor.recent_execution(entries.data(), wanted);
     for (std::size_t index = 0; index < count; ++index) {
         program_counters[index] = entries[index].pc;
-        if (opcodes != nullptr)
+        if (opcodes != nullptr) {
             opcodes[index] = entries[index].opcode;
+        }
     }
     return static_cast<int>(count);
 }

@@ -58,8 +58,12 @@ static BlitLogRec s_blitlog[BLIT_CAP_MAX];
 int s_blitlog_n = 0;
 static BlitLogRec s_blitlog_prev[BLIT_CAP_MAX];
 int s_blitlog_prev_n = 0;
-int hw_blitlog_count(void) { return s_blitlog_prev_n; }
-const BlitLogRec *hw_blitlog_recs(void) { return s_blitlog_prev; }
+int hw_blitlog_count(void) {
+    return s_blitlog_prev_n;
+}
+const BlitLogRec *hw_blitlog_recs(void) {
+    return s_blitlog_prev;
+}
 
 void hw_blit_capture_reset(void) /* end of frame: promote current → prev */
 {
@@ -70,8 +74,12 @@ void hw_blit_capture_reset(void) /* end of frame: promote current → prev */
     s_blitlog_prev_n = s_blitlog_n;
     s_blitlog_n = 0;
 }
-int hw_blit_capture_count(void) { return s_prev_n; }
-const BlitRec *hw_blit_capture_recs(void) { return s_prev; }
+int hw_blit_capture_count(void) {
+    return s_prev_n;
+}
+const BlitRec *hw_blit_capture_recs(void) {
+    return s_prev;
+}
 
 /* OCS register offsets (local copies of hw.c defines) */
 #define _BLTCON0 0x040
@@ -106,25 +114,29 @@ static int s_blit_serial = 0;
 static int s_trace_ready = 0;
 
 static void _trace_init(void) {
-    if (s_trace_ready)
+    if (s_trace_ready) {
         return;
+    }
     s_trace_ready = 1;
     char watch[32];
-    if (!pc_cfg_string("blit_watch", "", watch, sizeof watch) || !watch[0])
+    if (!pc_cfg_string("blit_watch", "", watch, sizeof watch) || !watch[0]) {
         return;
+    }
     s_watch_addr = (uint32_t)strtoul(watch, NULL, 16);
     s_trace_log = fopen("logs/blit_trace_pc.txt", "w"); /* gitignored logs/, not the repo root */
-    if (s_trace_log)
+    if (s_trace_log) {
         fprintf(s_trace_log,
                 "# PC blit trace — watching $%06X\n"
                 "# cols: serial frame dpt apt cpt con0 con1 bltsize afwm alwm "
                 "amod bmod cmod dmod prev_a_at_x0 watch_before watch_after\n",
                 s_watch_addr);
+    }
 }
 
 static inline uint16_t _mem16(uint32_t a) {
-    if (a + 1 < RT_MEM_SIZE)
+    if (a + 1 < RT_MEM_SIZE) {
         return (uint16_t)((g_mem[a] << 8) | g_mem[a + 1]);
+    }
     return 0;
 }
 
@@ -156,8 +168,9 @@ static inline uint16_t _minterm(uint16_t a, uint16_t b, uint16_t c, uint8_t lf) 
     for (int bit = 0; bit < 16; bit++) {
         int idx =
             ((a >> (15 - bit)) & 1) << 2 | ((b >> (15 - bit)) & 1) << 1 | ((c >> (15 - bit)) & 1);
-        if ((lf >> idx) & 1)
+        if ((lf >> idx) & 1) {
             d |= (uint16_t)(1 << (15 - bit));
+        }
     }
     return d;
 }
@@ -168,27 +181,31 @@ static inline uint16_t _minterm(uint16_t a, uint16_t b, uint16_t c, uint8_t lf) 
 static uint8_t s_filltable[256][4][2];
 static int s_filltable_ready = 0;
 static void _build_filltable(void) {
-    if (s_filltable_ready)
+    if (s_filltable_ready) {
         return;
+    }
     s_filltable_ready = 1;
-    for (unsigned d = 0; d < 256; d++)
+    for (unsigned d = 0; d < 256; d++) {
         for (int i = 0; i < 4; i++) {
             int fc = i & 1;
             unsigned data = d;
             for (unsigned m = 1; m != 0x100; m <<= 1) {
                 unsigned tmp = data;
                 if (fc) {
-                    if (i & 2)
+                    if (i & 2) {
                         data |= m;
-                    else
+                    } else {
                         data ^= m;
+                    }
                 }
-                if (tmp & m)
+                if (tmp & m) {
                     fc = !fc;
+                }
             }
             s_filltable[d][i][0] = (uint8_t)data;
             s_filltable[d][i][1] = (uint8_t)fc;
         }
+    }
 }
 
 /* Amiga OCS blitter LINE mode (Bresenham), ported from PUAE blitter.c
@@ -209,8 +226,9 @@ static void _build_filltable(void) {
 uint64_t g_hw_blit_cycles = 0; /* total charged, for /state */
 
 static void hw_charge_blit(int words, int height, int channels) {
-    if (words <= 0 || height <= 0 || channels <= 0)
+    if (words <= 0 || height <= 0 || channels <= 0) {
         return;
+    }
     const uint64_t cycles = (uint64_t)words * (uint64_t)height * (uint64_t)channels * 2u;
     g_hw_blit_cycles += cycles;
     rt_add_guest_cycles(cycles);
@@ -253,12 +271,14 @@ static void hw_do_line(uint16_t bltcon0, uint16_t bltcon1, uint16_t bltsize) {
             int dec =
                 (!sign && !(bltcon1 & BLT1_SUD)) ? (bltcon1 & BLT1_SUL) : (bltcon1 & BLT1_AUL);
             if (dec) {
-                if (ashift == 0)
+                if (ashift == 0) {
                     cpt -= 2;
+                }
                 ashift = (ashift - 1) & 15;
             } else {
-                if (ashift == 15)
+                if (ashift == 15) {
                     cpt += 2;
+                }
                 ashift = (ashift + 1) & 15;
             }
         }
@@ -282,10 +302,11 @@ static void hw_do_line(uint16_t bltcon0, uint16_t bltcon1, uint16_t bltsize) {
     /* Carry ASH/BSH/SIGN back so chained line segments continue cleanly. */
     s_regs[_BLTCON0 >> 1] = (uint16_t)((bltcon0 & 0x0FFF) | (ashift << 12));
     uint16_t nc1 = (uint16_t)((bltcon1 & 0x0FFF) | (bshift << 12));
-    if (sign)
+    if (sign) {
         nc1 |= BLT1_SIGN;
-    else
+    } else {
         nc1 &= (uint16_t)~BLT1_SIGN;
+    }
     s_regs[_BLTCON1 >> 1] = nc1;
     s_blt_bzero = 1;
 }
@@ -301,8 +322,9 @@ void hw_do_blit(void) {
     _trace_init();
 
     if (g_blit_skip_fn) {
-        if ((rt_get_active_call_address() & 0xFFFFFFu) == (g_blit_skip_fn & 0xFFFFFFu))
+        if ((rt_get_active_call_address() & 0xFFFFFFu) == (g_blit_skip_fn & 0xFFFFFFu)) {
             return;
+        }
     }
 
     uint16_t bltcon0 = s_regs[_BLTCON0 >> 1];
@@ -321,8 +343,9 @@ void hw_do_blit(void) {
     int fill_exclusive = (bltcon1 & BLT1_EFE) != 0;
     int fill_on = fill_inclusive || fill_exclusive;
     int fill_fci = (bltcon1 & BLT1_FCI) != 0;
-    if (fill_on)
+    if (fill_on) {
         _build_filltable();
+    }
     uint16_t afwm = s_regs[_BLTAFWM >> 1];
     uint16_t alwm = s_regs[_BLTALWM >> 1];
 
@@ -400,8 +423,9 @@ void hw_do_blit(void) {
     if (pc_cfg_bool("blit_log", 0)) {
         static FILE *bl = NULL;
         static long n = 0;
-        if (!bl)
+        if (!bl) {
             bl = fopen("logs/blit_log.txt", "w");
+        }
         if (bl) {
             fprintf(bl,
                     "%ld apt=%06X bpt=%06X cpt=%06X dpt=%06X w=%d h=%d con0=%04X con1=%04X amod=%d "
@@ -440,10 +464,12 @@ void hw_do_blit(void) {
         int32_t row_span = (int32_t)(width_words * 2) + dmod;
         uint32_t d_end = (row_span > 0) ? dpt + (uint32_t)(height * row_span)
                                         : dpt + (uint32_t)(width_words * 2);
-        if (s_watch_addr >= dpt && s_watch_addr < d_end + 2)
+        if (s_watch_addr >= dpt && s_watch_addr < d_end + 2) {
             watch_this = 1;
-        if (watch_this)
+        }
+        if (watch_this) {
             watch_before = _mem16(s_watch_addr);
+        }
     }
 
     /* A shift register starts at 0 every blit (PUAE resets bltaold per blit). */
@@ -478,18 +504,26 @@ void hw_do_blit(void) {
             uint16_t a_raw = 0, b_raw = 0, c = 0, d = 0;
             int32_t wo = dir * (int32_t)(x * 2); /* forward / backward */
 
-            if (use_a && (int32_t)apt + wo >= 0 && (uint32_t)((int32_t)apt + wo) + 1 < RT_MEM_SIZE)
+            if (use_a && (int32_t)apt + wo >= 0 &&
+                (uint32_t)((int32_t)apt + wo) + 1 < RT_MEM_SIZE) {
                 a_raw = _mem16((uint32_t)((int32_t)apt + wo));
-            if (use_b && (int32_t)bpt + wo >= 0 && (uint32_t)((int32_t)bpt + wo) + 1 < RT_MEM_SIZE)
+            }
+            if (use_b && (int32_t)bpt + wo >= 0 &&
+                (uint32_t)((int32_t)bpt + wo) + 1 < RT_MEM_SIZE) {
                 b_raw = _mem16((uint32_t)((int32_t)bpt + wo));
-            if (use_c && (int32_t)cpt + wo >= 0 && (uint32_t)((int32_t)cpt + wo) + 1 < RT_MEM_SIZE)
+            }
+            if (use_c && (int32_t)cpt + wo >= 0 &&
+                (uint32_t)((int32_t)cpt + wo) + 1 < RT_MEM_SIZE) {
                 c = _mem16((uint32_t)((int32_t)cpt + wo));
+            }
 
             uint16_t a_masked = a_raw;
-            if (x == 0)
+            if (x == 0) {
                 a_masked &= afwm;
-            if (x == width_words - 1)
+            }
+            if (x == width_words - 1) {
                 a_masked &= alwm;
+            }
 
             uint16_t a, b;
             if (desc) {
@@ -500,8 +534,9 @@ void hw_do_blit(void) {
                 b = (uint16_t)(((uint32_t)prev_b << 16 | b_raw) >> b_shift);
             }
 
-            if (y == 0 && x == 0)
+            if (y == 0 && x == 0) {
                 prev_a_at_x0 = prev_a;
+            }
 
             prev_a = a_masked;
             last_a_raw = a_masked;
@@ -514,8 +549,9 @@ void hw_do_blit(void) {
             for (int bit = 0; bit < 16; bit++) {
                 int idx = ((a >> (15 - bit)) & 1) << 2 | ((b >> (15 - bit)) & 1) << 1 |
                           ((c >> (15 - bit)) & 1);
-                if ((lf >> idx) & 1)
+                if ((lf >> idx) & 1) {
                     d |= (uint16_t)(1 << (15 - bit));
+                }
             }
 
             /* Area FILL: propagate a carry through each word (low byte then high,
@@ -532,8 +568,9 @@ void hw_do_blit(void) {
                 d = (uint16_t)((fhi << 8) | flo);
             }
 
-            if (s_bta_en)
+            if (s_bta_en) {
                 blit_cksum = blit_cksum * 31u + d;
+            }
 
             if (use_d && (int32_t)dpt + wo >= 0 &&
                 (uint32_t)((int32_t)dpt + wo) + 1 < RT_MEM_SIZE) {
@@ -554,14 +591,18 @@ void hw_do_blit(void) {
             }
         }
 
-        if (use_a)
+        if (use_a) {
             apt = (uint32_t)((int32_t)apt + dir * (amod + width_words * 2));
-        if (use_b)
+        }
+        if (use_b) {
             bpt = (uint32_t)((int32_t)bpt + dir * (bmod + width_words * 2));
-        if (use_c)
+        }
+        if (use_c) {
             cpt = (uint32_t)((int32_t)cpt + dir * (cmod + width_words * 2));
-        if (use_d)
+        }
+        if (use_d) {
             dpt = (uint32_t)((int32_t)dpt + dir * (dmod + width_words * 2));
+        }
     }
 
     /* Full per-blit trace (env BLIT_TRACE_ALL=1) → logs/pc_blit_trace.txt, for

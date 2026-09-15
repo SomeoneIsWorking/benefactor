@@ -83,20 +83,26 @@ static void call_fn_as(M68KCtx *ctx, uint32_t addr, GuestEntry entry) {
     rt_context_bind(ctx);
     uint32_t sa[8], sd[8];
     uint16_t sr = ctx->sr ? *ctx->sr : 0;
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 8; i++) {
         sa[i] = ctx->A[i];
-    for (int i = 0; i < 8; i++)
+    }
+    for (int i = 0; i < 8; i++) {
         sd[i] = ctx->D[i];
-    if (entry == GUEST_ENTRY_RTS)
+    }
+    if (entry == GUEST_ENTRY_RTS) {
         rt_call(ctx, ctx->image, addr);
-    else
+    } else {
         rt_call_interrupt(ctx, ctx->image, addr);
-    for (int i = 0; i < 8; i++)
+    }
+    for (int i = 0; i < 8; i++) {
         ctx->A[i] = sa[i];
-    for (int i = 0; i < 8; i++)
+    }
+    for (int i = 0; i < 8; i++) {
         ctx->D[i] = sd[i];
-    if (ctx->sr)
+    }
+    if (ctx->sr) {
         *ctx->sr = sr;
+    }
     benefactor_log_write(BENEFACTOR_LOG_TRACE, "irq", "<- $%06X", addr);
 }
 
@@ -109,8 +115,9 @@ int pc_run(void) {
      * the complete frame (game + IRQ/music + audio) so the PC behaves identically
      * however it is driven. */
     while (hw_running) {
-        if (pc_step())
+        if (pc_step()) {
             break;
+        }
     }
     PC_LOG("game loop exited\n");
     return 0;
@@ -132,8 +139,9 @@ void pc_music_tick(void);
  * makes the next main-loop pass take the win exactly as the real teleport-out
  * would. */
 void pc_debug_complete_level(void) {
-    if (!g_gameplay_active || !g_mem)
+    if (!g_gameplay_active || !g_mem) {
         return;
+    }
     g_mem[0x0057FEBEu] |= 0x20;
 }
 
@@ -141,8 +149,9 @@ void pc_debug_complete_level(void) {
  * $10AC(a5) = $0057FEBE; the state code routes that to the game-over handler
  * ($578C3E, $1E!=8 → banner → CONTINUE/GAME OVER menu). */
 void pc_debug_game_over(void) {
-    if (!g_gameplay_active || !g_mem)
+    if (!g_gameplay_active || !g_mem) {
         return;
+    }
     g_mem[0x0057FEBEu] |= 0x80;
 }
 
@@ -163,18 +172,22 @@ void pc_debug_game_over(void) {
 /* g_pc_start_level moved to g_state (see game_state.h). */
 
 void pc_set_start_level(int n) {
-    if (n < 1)
+    if (n < 1) {
         n = 1;
+    }
     int max = pc_num_levels_ui(); /* 60 + Disk.4 extras when present */
-    if (n > max)
+    if (n > max) {
         n = max;
+    }
     g_pc_start_level = n;
     benefactor_log_write(BENEFACTOR_LOG_INFO, "game",
                          "[level-select] start level := %d (applied at $150 hand-off)\n", n);
 }
 
 /* Read pending level-select choice (0 = none / pass-through). */
-int pc_get_start_level(void) { return g_pc_start_level > 0 ? g_pc_start_level : 1; }
+int pc_get_start_level(void) {
+    return g_pc_start_level > 0 ? g_pc_start_level : 1;
+}
 
 /* Deferred save/load: SDLK_S / SDLK_D fire from inside hw_present_frame, on the
  * MAIN thread. The keys set these flags and the work happens at the next pc_step
@@ -234,36 +247,43 @@ static int game_thread_yield(void) {
     pthread_mutex_lock(&s_hand_mtx);
     s_turn = 0; /* hand the turn back to main */
     pthread_cond_broadcast(&s_hand_cv);
-    while (s_turn == 0 && !s_game_exit_req)
+    while (s_turn == 0 && !s_game_exit_req) {
         pthread_cond_wait(&s_hand_cv, &s_hand_mtx);
+    }
     int exit_req = s_game_exit_req;
     pthread_mutex_unlock(&s_hand_mtx);
-    if (exit_req)
+    if (exit_req) {
         pthread_exit(NULL);
+    }
     return 1;
 }
 
 /* Which flow is executing guest code right now. The beam accounting needs it:
  * a frame boundary can only be taken by the parkable game flow, so a screen
  * that stalls has to say whether the guest work was on that flow at all. */
-int pc_on_game_thread(void) { return s_is_game_thread; }
+int pc_on_game_thread(void) {
+    return s_is_game_thread;
+}
 
 static void *game_thread_main(void *arg) {
     (void)arg;
     s_is_game_thread = 1;
     /* Wait for the host's first release before touching anything. */
     pthread_mutex_lock(&s_hand_mtx);
-    while (s_turn == 0 && !s_game_exit_req)
+    while (s_turn == 0 && !s_game_exit_req) {
         pthread_cond_wait(&s_hand_cv, &s_hand_mtx);
+    }
     int exit_req = s_game_exit_req;
     pthread_mutex_unlock(&s_hand_mtx);
-    if (exit_req)
+    if (exit_req) {
         return NULL;
+    }
 
-    if (s_game_resume)
+    if (s_game_resume) {
         rt_resume(&s_game_ctx, s_game_ctx.image, s_game_entry);
-    else
+    } else {
         rt_call(&s_game_ctx, s_game_ctx.image, s_game_entry);
+    }
 
     /* The cold-start flow is an endless state machine. A screen hand-off unwinds
      * it deliberately (the host then restarts this thread on the next image);
@@ -274,8 +294,9 @@ static void *game_thread_main(void *arg) {
         benefactor_log_write(handed_off ? BENEFACTOR_LOG_DEBUG : BENEFACTOR_LOG_WARNING, "game",
                              "[game] flow returned from $%06X (last insn $%06X)%s", s_game_entry,
                              rt_get_last_insn(), handed_off ? " — screen hand-off" : "");
-        if (!handed_off)
+        if (!handed_off) {
             pc_log_retired_instructions("game");
+        }
     }
     pthread_mutex_lock(&s_hand_mtx);
     s_game_done = 1;
@@ -299,8 +320,9 @@ static void game_thread_spawn(void) {
  * wait) and join it. Only valid to call from the main thread with the game
  * parked (s_turn == 0). */
 static void game_thread_stop(void) {
-    if (!s_game_thread_live)
+    if (!s_game_thread_live) {
         return;
+    }
     pthread_mutex_lock(&s_hand_mtx);
     s_game_exit_req = 1;
     s_turn = 1; /* wake it so it observes the exit flag */
@@ -314,13 +336,15 @@ static void game_thread_stop(void) {
  * wait), then block until it parks (or the flow finishes). On return the game is
  * parked and the main thread owns all shared state. */
 static void game_thread_run_one_frame(void) {
-    if (!s_game_thread_live)
+    if (!s_game_thread_live) {
         return;
+    }
     pthread_mutex_lock(&s_hand_mtx);
     s_turn = 1;
     pthread_cond_broadcast(&s_hand_cv);
-    while (s_turn == 1 && !s_game_done)
+    while (s_turn == 1 && !s_game_done) {
         pthread_cond_wait(&s_hand_cv, &s_hand_mtx);
+    }
     pthread_mutex_unlock(&s_hand_mtx);
 }
 
@@ -340,10 +364,12 @@ static void pc_credits_skip_tick(void) {
         confirm_frames = 0;
         return;
     }
-    if (confirm_frames > 0)
+    if (confirm_frames > 0) {
         confirm_frames--;
-    if (!edge)
+    }
+    if (!edge) {
         return;
+    }
     if (confirm_frames > 0) {
         confirm_frames = 0;
         pc_toast_show("", 0); /* drop the confirm toast */
@@ -363,8 +389,9 @@ static void pc_credits_skip_tick(void) {
  * normal tempo and the SDL queue receives exactly what it drains — speeding
  * the game no longer speeds (or garbles) the soundtrack. */
 static void pc_audio_frame(void) {
-    if (!hw_audio_frame_due())
+    if (!hw_audio_frame_due()) {
         return;
+    }
 
     short ab[PC_AUD_SPF * 2];
     if (g_overlay_active || g_gameplay_active || g_credits_active) {
@@ -404,20 +431,23 @@ int pc_step(void) {
     if (pc_update_state() != s_update_logged) {
         s_update_logged = pc_update_state();
         const char *update_line = pc_update_line();
-        if (update_line != NULL && update_line[0] != '\0')
+        if (update_line != NULL && update_line[0] != '\0') {
             benefactor_log_write(BENEFACTOR_LOG_INFO, "update", "%s", update_line);
+        }
     }
     pc_credits_skip_tick();
 
     if (g_pc_pending_load) {
         g_pc_pending_load = 0;
-        if (pc_loadstate("logs/savestate.bin") == 0)
+        if (pc_loadstate("logs/savestate.bin") == 0) {
             pc_toast_show("STATE LOADED", 0);
-        else
+        } else {
             pc_toast_show("LOAD FAILED (no/old savestate)", 1);
+        }
     }
-    if (!hw_running)
+    if (!hw_running) {
         return 1;
+    }
 
     /* While paused, freeze the game thread entirely — don't release it.
      * Still call hw_present_frame so the pause overlay stays visible and
@@ -427,17 +457,20 @@ int pc_step(void) {
          * music ISR is vblank/CIA-driven, independent of the game loop (same
          * as the original's pause). */
         pc_audio_frame();
-        if (g_harness_prerender_hook)
+        if (g_harness_prerender_hook) {
             g_harness_prerender_hook();
+        }
         /* hw_present_paused_frame, not hw_present_frame: with the guest parked
          * the beam barely moves, so the one-present-per-beam-frame rule would
          * decline nearly every call and skip the 50 Hz pacing inside it. This
          * loop would then run at host speed and take the music with it —
          * pc_audio_frame above ticks the music player once per pass. */
-        if (hw_present_paused_frame() != 0)
+        if (hw_present_paused_frame() != 0) {
             return 1;
-        if (g_harness_frame_hook)
+        }
+        if (g_harness_frame_hook) {
             g_harness_frame_hook();
+        }
         return 0;
     }
 
@@ -455,12 +488,13 @@ int pc_step(void) {
     if (g_pc_pending_save) {
         g_pc_pending_save = 0;
         const char *reason = NULL;
-        if (!pc_savestate_allowed(&reason))
+        if (!pc_savestate_allowed(&reason)) {
             pc_toast_show(reason ? reason : "Cannot save here", 1);
-        else if (pc_savestate("logs/savestate.bin") == 0)
+        } else if (pc_savestate("logs/savestate.bin") == 0) {
             pc_toast_show("STATE SAVED", 0);
-        else
+        } else {
             pc_toast_show("SAVE FAILED", 1);
+        }
     }
 
     pc_audio_frame();
@@ -507,14 +541,17 @@ int g_mute_music = 0;
 static void coro_call_vector(PcOwner owner, uint32_t addr);
 
 void pc_music_tick(void) {
-    if (g_mute_music)
+    if (g_mute_music) {
         return;
-    if (!g_overlay_active && !g_gameplay_active && !g_credits_active)
+    }
+    if (!g_overlay_active && !g_gameplay_active && !g_credits_active) {
         return;
-    if (!irq_level_enabled(INTENA_LVL6))
+    }
+    if (!irq_level_enabled(INTENA_LVL6)) {
         return;
+    }
     const uint32_t v6 = guest_vector_handler(GUEST_VECTOR_LEVEL6_TIMER);
-    if (v6)
+    if (v6) {
         /* Through the SAME door as the frame loop's own delivery. This used to
          * call the vector directly, which differed in two ways that both bit:
          * it recorded no owner, so the music player's cycles were charged to
@@ -526,6 +563,7 @@ void pc_music_tick(void) {
          * — the hazard issue 0007 describes, on the busier of the two paths.
          * See docs/issues/0008. */
         coro_call_vector(PC_OWNER_LEVEL6_TIMER, v6);
+    }
 }
 
 /* Deliver one interrupt vector, accounting its guest cycles to its level. */
@@ -537,13 +575,15 @@ static void coro_call_vector_as(PcOwner owner, uint32_t addr, GuestEntry entry) 
      * interrupt a copy and hand the flow's back. See docs/issues/0007. */
     uint16_t blt[HW_BLT_REGS];
     const int mid_blit = hw_blit_setup_open();
-    if (mid_blit)
+    if (mid_blit) {
         hw_blit_regs_save(blt);
+    }
     pc_set_running_owner(owner);
     call_fn_as(&s_game_ctx, addr, entry);
     pc_set_running_owner(PC_OWNER_FLOW);
-    if (mid_blit)
+    if (mid_blit) {
         hw_blit_regs_restore(blt);
+    }
     pc_account_owner(owner, rt_get_guest_cycles() - before);
 }
 
@@ -567,8 +607,9 @@ static void coro_deliver_timer_irq(void) {
          * pc_music_tick at the per-screen sub-frame rate, so firing it here too
          * would over-count it. */
         uint32_t v3 = guest_vector_handler(GUEST_VECTOR_LEVEL3_VBLANK);
-        if (v3 && irq_level_enabled(INTENA_LVL3))
+        if (v3 && irq_level_enabled(INTENA_LVL3)) {
             coro_call_vector(PC_OWNER_LEVEL3_VBLANK, v3);
+        }
         return;
     }
     /* Intro and title: deliver exactly what the game installed at the vectors.
@@ -585,8 +626,9 @@ static void coro_deliver_timer_irq(void) {
      * those bytes they are somebody else's data ($58C2 read as $FFFF at frame
      * 900 and trapped). See docs/issues/0008. */
     const uint32_t v3 = guest_vector_handler(GUEST_VECTOR_LEVEL3_VBLANK);
-    if (v3)
+    if (v3) {
         coro_call_vector(PC_OWNER_LEVEL3_VBLANK, v3);
+    }
     /* Deliver the WHOLE level-6 chain, not just its first link. Because the
      * handlers chain by rewriting $78, delivering one link per frame ran the
      * music driver on every OTHER frame, and the intro tune advanced at 56% of
@@ -606,13 +648,16 @@ static void coro_deliver_timer_irq(void) {
     unsigned links = 0;
     for (;;) {
         const uint32_t v6 = guest_vector_handler(GUEST_VECTOR_LEVEL6_TIMER);
-        if (!v6 || links >= PC_IRQ6_CHAIN_MAX)
+        if (!v6 || links >= PC_IRQ6_CHAIN_MAX) {
             break;
+        }
         int seen = 0;
-        for (unsigned i = 0; i < links && !seen; i++)
+        for (unsigned i = 0; i < links && !seen; i++) {
             seen = delivered[i] == v6;
-        if (seen)
+        }
+        if (seen) {
             break;
+        }
         delivered[links++] = v6;
         coro_call_vector(PC_OWNER_LEVEL6_TIMER, v6);
     }
@@ -623,10 +668,12 @@ static void coro_deliver_timer_irq(void) {
  * Returns 0 on success, -1 on failure. */
 static int pc_common_bringup(const char **disks, int n_disks) {
     pc_state_reset_defaults(); /* zero g_state + non-zero defaults */
-    if (hw_init("Benefactor (disk boot)", NULL, 0) < 0)
+    if (hw_init("Benefactor (disk boot)", NULL, 0) < 0) {
         return -1;
-    if (rt_init(NULL, 0, 0x080000) < 0)
+    }
+    if (rt_init(NULL, 0, 0x080000) < 0) {
         return -1; /* allocate g_mem, no chip dump */
+    }
     g_chip = g_mem;
     if (disk_boot_open(disks, n_disks) < 0) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game", "[pc] could not open disk images\n");
@@ -683,8 +730,9 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay, uint32_t 
     s_game_entry = entry;
     s_game_resume = 0;
     g_pc_screen = gameplay ? PC_SCR_GAMEPLAY : PC_SCR_OVERLAY;
-    if (gameplay)
+    if (gameplay) {
         hw_begin_gameplay_frame_sequence();
+    }
     rt_context_reset(&s_game_ctx, gameplay ? BENEFACTOR_IMAGE_GAMEPLAY
                                            : (g_credits_active ? BENEFACTOR_IMAGE_CREDITS
                                                                : BENEFACTOR_IMAGE_TITLE));
@@ -697,8 +745,9 @@ static void pc_cps_start_at(uint32_t entry, uint32_t a5, int gameplay, uint32_t 
 }
 
 int pc_init_from_disk(const char **disks, int n_disks) {
-    if (pc_common_bringup(disks, n_disks) < 0)
+    if (pc_common_bringup(disks, n_disks) < 0) {
         return -1;
+    }
     /* SKIP INTRO (OPTIONS → MORE): boot straight to the poster/main menu —
      * the exact entry "Exit to main menu" uses ($003330 attract, gp a5=$511E),
      * with the title overlay loaded the same way. */
@@ -769,8 +818,9 @@ void pc_request_cold_restart(void) {
  * we can drive any level immediately and compare to PUAE cleanly. */
 int pc_init_to_gameplay(const char **disks, int n_disks, int level) {
 
-    if (pc_common_bringup(disks, n_disks) < 0)
+    if (pc_common_bringup(disks, n_disks) < 0) {
         return -1;
+    }
 
     /* Gameplay-engine entry contract — observed from the natural title→$150
      * path and the original retail-image $577000 prologue (see gameplay_coro_entry):
@@ -799,10 +849,12 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level) {
     /* Pin the requested level. $20.w is the engine's level number; $5779AA
      * indexes (level-1)*4 into the 60-entry table at $57782E to pick a
      * (world, level_in_world) pair. */
-    if (level < 1)
+    if (level < 1) {
         level = 1;
-    if (level > 60)
+    }
+    if (level > 60) {
         level = 60;
+    }
     g_mem[0x20] = 0;
     g_mem[0x21] = (uint8_t)level;
 
@@ -822,8 +874,9 @@ int pc_init_to_gameplay(const char **disks, int n_disks, int level) {
  * next frame the game resumes). Present + IRQ run on the MAIN thread while the
  * game thread is parked, so there are no races. Returns 1 to quit. */
 int pc_step_threaded(void) {
-    if (s_game_done && !g_enter_gameplay)
+    if (s_game_done && !g_enter_gameplay) {
         return 1;
+    }
     const uint64_t frame_cycles_before = rt_get_guest_cycles();
 
     {
@@ -832,8 +885,9 @@ int pc_step_threaded(void) {
         pc_account_flow(rt_get_guest_cycles() - before);
     }
 
-    if (g_harness_prerender_hook)
+    if (g_harness_prerender_hook) {
         g_harness_prerender_hook();
+    }
     pc_set_frame_cycles(rt_get_guest_cycles() - frame_cycles_before);
     /* Did this iteration actually SHOW a frame? hw_present_frame declines a beam
      * frame it has already shown, and says so only by leaving the frame counter
@@ -848,21 +902,25 @@ int pc_step_threaded(void) {
         const uint64_t before = rt_get_guest_cycles();
         const int stop = hw_present_frame();
         pc_set_present_cycles(rt_get_guest_cycles() - before);
-        if (stop != 0)
+        if (stop != 0) {
             return 1;
+        }
     }
     const int presented = hw_get_frame_num() != frame_before_present;
-    if (g_harness_frame_hook)
+    if (g_harness_frame_hook) {
         g_harness_frame_hook();
+    }
 
     /* The $150 loader override (from the title main loop OR its IRQ) may have set
      * g_enter_gameplay. Restart the game thread at the gameplay entry. Checked
      * before s_game_done because the loader call unwinds the title flow. */
     if (!g_enter_gameplay) {
-        if (s_game_done)
+        if (s_game_done) {
             return 1;
-        if (presented)
+        }
+        if (presented) {
             coro_deliver_timer_irq(); /* level-3 vblank ISR (music via pc_music_tick) */
+        }
     }
     if (g_pc_enter_title) { /* title overlay loaded off-flow: host owns the restart */
         g_pc_enter_title = 0;

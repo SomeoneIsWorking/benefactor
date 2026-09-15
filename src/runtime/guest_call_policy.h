@@ -49,8 +49,9 @@ class GuestCallPolicy final {
         const bool branch_without_link =
             (opcode & 0xF000U) == 0x6000U && (opcode & 0x0F00U) != 0x0100U;
         const bool jump = (opcode & 0xFFC0U) == 0x4EC0U;
-        if (caller.address != target)
+        if (caller.address != target) {
             return GuestCallBoundary::HostSubroutine;
+        }
         return branch_without_link || jump ? GuestCallBoundary::TailTransfer
                                            : GuestCallBoundary::Subroutine;
     }

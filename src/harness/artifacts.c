@@ -10,10 +10,12 @@
 #include <unistd.h>
 
 static int ensure_directory(const char *path) {
-    if (mkdir(path, 0755) == 0)
+    if (mkdir(path, 0755) == 0) {
         return 1;
-    if (errno != EEXIST)
+    }
+    if (errno != EEXIST) {
         return 0;
+    }
     struct stat status;
     return stat(path, &status) == 0 && S_ISDIR(status.st_mode);
 }
@@ -37,12 +39,14 @@ int harness_artifact_path(const char *name, char *output, size_t capacity) {
 
 FILE *harness_artifact_open(const char *name, const char *mode) {
     char path[4096];
-    if (!harness_artifact_path(name, path, sizeof path))
+    if (!harness_artifact_path(name, path, sizeof path)) {
         return NULL;
+    }
     FILE *file = fopen(path, mode);
-    if (!file)
+    if (!file) {
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "harness", "cannot open %s: %s", path,
                              strerror(errno));
+    }
     return file;
 }
 
@@ -52,11 +56,13 @@ static int copy_file(const char *source_path, const char *destination_path) {
     if (stat(source_path, &source_status) == 0 &&
         stat(destination_path, &destination_status) == 0 &&
         source_status.st_dev == destination_status.st_dev &&
-        source_status.st_ino == destination_status.st_ino)
+        source_status.st_ino == destination_status.st_ino) {
         return 1;
+    }
     FILE *source = fopen(source_path, "rb");
-    if (!source)
+    if (!source) {
         return 0;
+    }
     FILE *destination = fopen(destination_path, "wb");
     if (!destination) {
         fclose(source);
@@ -71,13 +77,15 @@ static int copy_file(const char *source_path, const char *destination_path) {
             break;
         }
         if (count < sizeof buffer) {
-            if (ferror(source))
+            if (ferror(source)) {
                 ok = 0;
+            }
             break;
         }
     }
-    if (fclose(destination) != 0)
+    if (fclose(destination) != 0) {
         ok = 0;
+    }
     fclose(source);
     return ok;
 }
@@ -98,12 +106,14 @@ int harness_stage_puae_disks(const char *const *disk_paths, int disk_count) {
         int length = snprintf(destination, sizeof destination, "%s/Disk.%d", mount_path, index + 1);
         int staging_length = snprintf(staging, sizeof staging, "%s.incoming", destination);
         if (length < 0 || (size_t)length >= sizeof destination || staging_length < 0 ||
-            (size_t)staging_length >= sizeof staging)
+            (size_t)staging_length >= sizeof staging) {
             return 0;
+        }
         if (index >= disk_count) {
             if ((unlink(destination) != 0 && errno != ENOENT) ||
-                (unlink(staging) != 0 && errno != ENOENT))
+                (unlink(staging) != 0 && errno != ENOENT)) {
                 return 0;
+            }
             continue;
         }
         if (!disk_paths[index] || !copy_file(disk_paths[index], staging) ||

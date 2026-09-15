@@ -9,7 +9,9 @@
 
 static int s_gameplay_frame_start_pending = 0;
 
-void hw_begin_gameplay_frame_sequence(void) { s_gameplay_frame_start_pending = 1; }
+void hw_begin_gameplay_frame_sequence(void) {
+    s_gameplay_frame_start_pending = 1;
+}
 
 /* The two halves of the guest's own vertical-blank poll, as host waits. The
  * guest spins on VPOSR bit 8 — first until the beam has come DOWN past line
@@ -25,32 +27,38 @@ void hw_begin_gameplay_frame_sequence(void) { s_gameplay_frame_start_pending = 1
 #define BEAM_V8_LINE 256u
 
 void hw_beam_wait_below(void) {
-    if (!pc_on_game_thread())
+    if (!pc_on_game_thread()) {
         return;
+    }
     const uint64_t per_frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
     const uint64_t into = rt_get_guest_cycles() % per_frame;
     const uint64_t target = (uint64_t)BEAM_V8_LINE * BEAM_CYCLES_PER_LINE;
-    if (into < target)
+    if (into < target) {
         rt_add_guest_cycles(target - into);
+    }
 }
 
 void hw_beam_wait_above(void) {
-    if (!pc_on_game_thread())
+    if (!pc_on_game_thread()) {
         return;
+    }
     const uint64_t per_frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
     const uint64_t into = rt_get_guest_cycles() % per_frame;
     const uint64_t target = (uint64_t)BEAM_V8_LINE * BEAM_CYCLES_PER_LINE;
-    if (into < target)
+    if (into < target) {
         return; /* already above the line: nothing to wait for */
+    }
     /* The wrap IS a frame boundary, so this half ends where a frame ends. */
     rt_add_guest_cycles(per_frame - into);
-    if (g_hw_vblank_yield)
+    if (g_hw_vblank_yield) {
         (void)g_hw_vblank_yield();
+    }
 }
 
 void hw_beam_wait_scanline(uint8_t line) {
-    if (!pc_on_game_thread())
+    if (!pc_on_game_thread()) {
         return;
+    }
     const uint64_t per_frame = (uint64_t)BEAM_CYCLES_PER_LINE * BEAM_LINES_PER_FRAME;
     const uint64_t into = rt_get_guest_cycles() % per_frame;
 
@@ -72,8 +80,9 @@ void hw_beam_wait_scanline(uint8_t line) {
         rt_add_guest_cycles(target - into);
     } else {
         rt_add_guest_cycles((per_frame - into) + target);
-        if (g_hw_vblank_yield)
+        if (g_hw_vblank_yield) {
             (void)g_hw_vblank_yield();
+        }
     }
 }
 
@@ -101,6 +110,7 @@ void hw_vblank_wait(void) {
     /* Disk-boot coroutine mode: this is the per-frame yield point — hand control
      * back to the frame driver (render + input + IRQs), then resume the game.
      * Otherwise a no-op (the snapshot path drives frames from src/port/game_loop.c). */
-    if (g_hw_vblank_yield)
+    if (g_hw_vblank_yield) {
         (void)g_hw_vblank_yield();
+    }
 }

@@ -90,13 +90,16 @@ static inline uint32_t pc_wait_long(const uint8_t *memory, uint32_t at) {
  * rather than being the 8-bit form. */
 static inline int pc_wait_branch_target(const uint8_t *memory, uint32_t at, uint32_t *target) {
     const uint32_t op = pc_wait_word(memory, at);
-    if ((op & 0xF000u) != 0x6000u)
+    if ((op & 0xF000u) != 0x6000u) {
         return 0;
-    if (((op >> 8) & 0x0Fu) == 0u)
+    }
+    if (((op >> 8) & 0x0Fu) == 0u) {
         return 0; /* bra: unconditional */
+    }
     const uint32_t displacement = op & 0xFFu;
-    if (displacement == 0u || displacement == 0xFFu)
+    if (displacement == 0u || displacement == 0xFFu) {
         return 0; /* 16- or 32-bit displacement forms: not this shape */
+    }
     const int32_t offset = (int32_t)(int8_t)(uint8_t)displacement;
     *target = (uint32_t)((int32_t)at + 2 + offset);
     return 1;
@@ -106,40 +109,50 @@ static inline int pc_wait_branch_target(const uint8_t *memory, uint32_t at, uint
  * Returns 1 for beq, 2 for bne, 0 for anything else. */
 static inline int pc_wait_branch_back(const uint8_t *memory, uint32_t at, uint32_t top) {
     uint32_t target = 0u;
-    if (!pc_wait_branch_target(memory, at, &target) || target != top)
+    if (!pc_wait_branch_target(memory, at, &target) || target != top) {
         return 0;
+    }
     const uint32_t op = pc_wait_word(memory, at);
-    if ((op & 0xFF00u) == 0x6700u)
+    if ((op & 0xFF00u) == 0x6700u) {
         return 1; /* beq */
-    if ((op & 0xFF00u) == 0x6600u)
+    }
+    if ((op & 0xFF00u) == 0x6600u) {
         return 2; /* bne */
+    }
     return 0;
 }
 
 /* Is there a poll on the beam's bit 8 at `at`? 1 = beq form, 2 = bne form.
  * Accepts displacement $0003 (when a6=$DFF002) and $0005 (when a6=$DFF000). */
 static inline int pc_wait_vposr_poll(const uint8_t *memory, uint32_t size, uint32_t at) {
-    if (at + 8u > size)
+    if (at + 8u > size) {
         return 0;
+    }
     if (pc_wait_word(memory, at) != PC_WAIT_OP_VPOSR_0 ||
-        pc_wait_word(memory, at + 2u) != PC_WAIT_OP_VPOSR_1)
+        pc_wait_word(memory, at + 2u) != PC_WAIT_OP_VPOSR_1) {
         return 0;
+    }
     const uint32_t disp = pc_wait_word(memory, at + 4u);
-    if (disp != 0x0003u && disp != 0x0005u)
+    if (disp != 0x0003u && disp != 0x0005u) {
         return 0;
+    }
     return pc_wait_branch_back(memory, at + 6u, at);
 }
 
 /* Is there a scanline poll `cmpi.b #line,$6(a6); bne self` at `at`? */
 static inline int pc_wait_scanline_poll(const uint8_t *memory, uint32_t size, uint32_t at) {
-    if (at + 8u > size)
+    if (at + 8u > size) {
         return 0;
-    if (pc_wait_word(memory, at) != 0x0C2Eu)
+    }
+    if (pc_wait_word(memory, at) != 0x0C2Eu) {
         return 0;
-    if ((pc_wait_word(memory, at + 2u) & 0xFF00u) != 0u)
+    }
+    if ((pc_wait_word(memory, at + 2u) & 0xFF00u) != 0u) {
         return 0;
-    if (pc_wait_word(memory, at + 4u) != 0x0006u)
+    }
+    if (pc_wait_word(memory, at + 4u) != 0x0006u) {
         return 0;
+    }
     return pc_wait_branch_back(memory, at + 6u, at) == 2;
 }
 
@@ -171,20 +184,26 @@ static inline uint32_t pc_wait_blitter_poll(const uint8_t *memory, uint32_t size
  * reading; a `btst` on the register names a bit instead, and is deliberately
  * not accepted here. */
 static inline int pc_wait_fire_poll(const uint8_t *memory, uint32_t size, uint32_t at) {
-    if (at + 8u > size)
+    if (at + 8u > size) {
         return 0;
-    if (pc_wait_word(memory, at) != 0x4A39u)
+    }
+    if (pc_wait_word(memory, at) != 0x4A39u) {
         return 0; /* tst.b <abs>.l */
-    if (pc_wait_long(memory, at + 2u) != PC_WAIT_CIA_A_PRA)
+    }
+    if (pc_wait_long(memory, at + 2u) != PC_WAIT_CIA_A_PRA) {
         return 0;
+    }
     uint32_t target = 0u;
-    if (!pc_wait_branch_target(memory, at + 6u, &target) || target != at)
+    if (!pc_wait_branch_target(memory, at + 6u, &target) || target != at) {
         return 0;
+    }
     const uint32_t op = pc_wait_word(memory, at + 6u);
-    if ((op & 0xFF00u) == 0x6B00u)
+    if ((op & 0xFF00u) == 0x6B00u) {
         return 1; /* bmi: branch while the bit is set, i.e. while fire is up */
-    if ((op & 0xFF00u) == 0x6A00u)
+    }
+    if ((op & 0xFF00u) == 0x6A00u) {
         return 2; /* bpl: branch while the bit is clear, i.e. while fire is down */
+    }
     return 0;
 }
 

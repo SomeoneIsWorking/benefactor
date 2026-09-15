@@ -59,8 +59,9 @@ static void video_cb(const void *data, unsigned w, unsigned h, size_t pitch) {
     static int s_logged_geom = 0;
     static int s_crop_inited = 0;
     static int s_crop_x = 0, s_crop_y = 0, s_crop_w = 0, s_crop_h = 0;
-    if (!data)
+    if (!data) {
         return;
+    }
 
     /* Skip slow framebuffer copy during fast-forward boot phase */
     if (g_harness_fast_forward) {
@@ -107,14 +108,18 @@ static void video_cb(const void *data, unsigned w, unsigned h, size_t pitch) {
         s_crop_y = pc_cfg_int("puae_crop_y", s_crop_y);
         s_crop_w = pc_cfg_int("puae_crop_w", s_crop_w);
         s_crop_h = pc_cfg_int("puae_crop_h", s_crop_h);
-        if (s_crop_x < 0)
+        if (s_crop_x < 0) {
             s_crop_x = 0;
-        if (s_crop_y < 0)
+        }
+        if (s_crop_y < 0) {
             s_crop_y = 0;
-        if (s_crop_w < 1)
+        }
+        if (s_crop_w < 1) {
             s_crop_w = (int)w;
-        if (s_crop_h < 1)
+        }
+        if (s_crop_h < 1) {
             s_crop_h = (int)h;
+        }
         /* NOTE: deliberately do NOT clamp crop_w/crop_h to the frame here — the
          * copy loop renders source pixels beyond the frame edge as black border,
          * preserving the 2:1 scale instead of stretching a clamped crop. */
@@ -164,8 +169,9 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames) {
             s_apu = harness_artifact_open("audio_puae.raw", "wb");
             s_init = 1;
         }
-        if (s_apu)
+        if (s_apu) {
             fwrite(data, sizeof(int16_t), frames * 2, s_apu);
+        }
     }
     return frames;
 }
@@ -185,7 +191,9 @@ static void audio_cb(int16_t l, int16_t r) {
 }
 
 /* ── PUAE input callbacks (read from shared input state) ── */
-static void input_poll_cb(void) { input_poll(); }
+static void input_poll_cb(void) {
+    input_poll();
+}
 
 static int16_t input_state_cb(unsigned port, unsigned dev, unsigned idx, unsigned id) {
     (void)port;
@@ -214,12 +222,13 @@ static int16_t input_state_cb(unsigned port, unsigned dev, unsigned idx, unsigne
 /* ── log callback (libretro calls this for log messages) ── */
 static void harness_log_cb(enum retro_log_level level, const char *fmt, ...) {
     BenefactorLogLevel mapped_level = BENEFACTOR_LOG_INFO;
-    if (level == RETRO_LOG_DEBUG)
+    if (level == RETRO_LOG_DEBUG) {
         mapped_level = BENEFACTOR_LOG_DEBUG;
-    else if (level == RETRO_LOG_WARN)
+    } else if (level == RETRO_LOG_WARN) {
         mapped_level = BENEFACTOR_LOG_WARNING;
-    else if (level == RETRO_LOG_ERROR)
+    } else if (level == RETRO_LOG_ERROR) {
         mapped_level = BENEFACTOR_LOG_ERROR;
+    }
     va_list ap;
     va_start(ap, fmt);
     benefactor_log_write_va(mapped_level, "puae", fmt, ap);
@@ -281,8 +290,9 @@ static bool harness_environ_cb(unsigned cmd, void *data) {
 /* ── Combined side-by-side display ── */
 #ifdef SDL_DISPLAY
 void harness_combined_init(void) {
-    if (s_sdl_win)
+    if (s_sdl_win) {
         return; /* already initialized */
+    }
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[sdl] SDL_Init error: %s\n",
                              SDL_GetError());
@@ -321,20 +331,23 @@ void harness_combined_init(void) {
 }
 
 void harness_combined_present(void) {
-    if (!s_sdl_tex || !s_sdl_ren || !s_sdl_win)
+    if (!s_sdl_tex || !s_sdl_ren || !s_sdl_win) {
         return;
+    }
     /* Pump the window's event queue so it actually maps/appears and stays
      * responsive (without this the WM never shows the window and marks it "not
      * responding"). Quit the whole harness if the window is closed. */
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_EVENT_QUIT)
+        if (ev.type == SDL_EVENT_QUIT) {
             exit(0);
+        }
     }
     static uint32_t composite[FB_W * 2 * FB_H];
     const uint32_t *pc_fb = hw_get_framebuffer();
-    if (!pc_fb)
+    if (!pc_fb) {
         return;
+    }
 
     /* Show frame counter overlay */
     static int frame_count = 0;
@@ -347,8 +360,9 @@ void harness_combined_present(void) {
         }
     }
     /* Draw divider line */
-    for (int y = 0; y < FB_H; y++)
+    for (int y = 0; y < FB_H; y++) {
         composite[y * FB_W * 2 + FB_W - 1] = 0xFFFFFFFFu;
+    }
 
     SDL_UpdateTexture(s_sdl_tex, NULL, composite, FB_W * 2 * 4);
     SDL_RenderClear(s_sdl_ren);
@@ -358,14 +372,16 @@ void harness_combined_present(void) {
 
 /* PUAE-only present: show just PUAE's framebuffer (right half dimmed). */
 void harness_puae_present(void) {
-    if (!s_sdl_tex || !s_sdl_ren || !s_sdl_win)
+    if (!s_sdl_tex || !s_sdl_ren || !s_sdl_win) {
         return;
+    }
     static uint32_t composite[FB_W * 2 * FB_H];
-    for (int y = 0; y < FB_H; y++)
+    for (int y = 0; y < FB_H; y++) {
         for (int x = 0; x < FB_W; x++) {
             composite[y * FB_W * 2 + x] = s_puae_fb[y * FB_W + x];
             composite[y * FB_W * 2 + FB_W + x] = 0xFF101010u;
         }
+    }
     SDL_UpdateTexture(s_sdl_tex, NULL, composite, FB_W * 2 * 4);
     SDL_RenderClear(s_sdl_ren);
     SDL_RenderTexture(s_sdl_ren, s_sdl_tex, NULL, NULL);
@@ -373,12 +389,15 @@ void harness_puae_present(void) {
 }
 
 void harness_combined_fini(void) {
-    if (s_sdl_tex)
+    if (s_sdl_tex) {
         SDL_DestroyTexture(s_sdl_tex);
-    if (s_sdl_ren)
+    }
+    if (s_sdl_ren) {
         SDL_DestroyRenderer(s_sdl_ren);
-    if (s_sdl_win)
+    }
+    if (s_sdl_win) {
         SDL_DestroyWindow(s_sdl_win);
+    }
     s_sdl_tex = NULL;
     s_sdl_ren = NULL;
     s_sdl_win = NULL;
@@ -386,17 +405,24 @@ void harness_combined_fini(void) {
 }
 
 void harness_interactive_delay(int ms) {
-    if (ms > 0)
+    if (ms > 0) {
         SDL_Delay((uint32_t)ms);
+    }
 }
 #endif /* SDL_DISPLAY */
 
 #ifndef SDL_DISPLAY
-void harness_combined_init(void) {}
-void harness_combined_present(void) {}
-void harness_puae_present(void) {}
-void harness_combined_fini(void) {}
-void harness_interactive_delay(int ms) { (void)ms; }
+void harness_combined_init(void) {
+}
+void harness_combined_present(void) {
+}
+void harness_puae_present(void) {
+}
+void harness_combined_fini(void) {
+}
+void harness_interactive_delay(int ms) {
+    (void)ms;
+}
 #endif
 
 /* ── Called by harness_main before retro_init ── */

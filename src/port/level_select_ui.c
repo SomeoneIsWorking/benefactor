@@ -78,34 +78,48 @@ static const uint8_t s_font[][7] = {
 
 /* Map char to glyph index, -1 = unknown (drawn as space). */
 static int glyph_idx(char c) {
-    if (c == ' ')
+    if (c == ' ') {
         return 0;
-    if (c == '!')
+    }
+    if (c == '!') {
         return 1;
-    if (c == '"')
+    }
+    if (c == '"') {
         return 2;
-    if (c == '\'')
+    }
+    if (c == '\'') {
         return 3;
-    if (c == ',')
+    }
+    if (c == ',') {
         return 4;
-    if (c == '-')
+    }
+    if (c == '-') {
         return 5;
-    if (c == '.')
+    }
+    if (c == '.') {
         return 6;
-    if (c >= '0' && c <= '9')
+    }
+    if (c >= '0' && c <= '9') {
         return 7 + (c - '0');
-    if (c == ':')
+    }
+    if (c == ':') {
         return 17;
-    if (c == '?')
+    }
+    if (c == '?') {
         return 18;
-    if (c == '(')
+    }
+    if (c == '(') {
         return 19;
-    if (c == ')')
+    }
+    if (c == ')') {
         return 20;
-    if (c >= 'A' && c <= 'Z')
+    }
+    if (c >= 'A' && c <= 'Z') {
         return 21 + (c - 'A');
-    if (c >= 'a' && c <= 'z')
+    }
+    if (c >= 'a' && c <= 'z') {
         return 21 + (c - 'a');
+    }
     return -1;
 }
 
@@ -121,12 +135,17 @@ void pc_overlay_set_dims(int w, int h) {
     s_draw_w = (w > 0) ? w : FB_W;
     s_draw_h = (h > 0) ? h : FB_H;
 }
-int pc_overlay_w(void) { return s_draw_w; }
-int pc_overlay_h(void) { return s_draw_h; }
+int pc_overlay_w(void) {
+    return s_draw_w;
+}
+int pc_overlay_h(void) {
+    return s_draw_h;
+}
 
 static void put_pixel(uint32_t *fb, int x, int y, uint32_t argb) {
-    if (x < 0 || x >= s_draw_w || y < 0 || y >= s_draw_h)
+    if (x < 0 || x >= s_draw_w || y < 0 || y >= s_draw_h) {
         return;
+    }
     fb[y * s_draw_w + x] = argb;
 }
 
@@ -136,11 +155,13 @@ int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t 
 
 static void fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb) {
     for (int y = y0; y < y0 + h; y++) {
-        if (y < 0 || y >= s_draw_h)
+        if (y < 0 || y >= s_draw_h) {
             continue;
+        }
         for (int x = x0; x < x0 + w; x++) {
-            if (x < 0 || x >= s_draw_w)
+            if (x < 0 || x >= s_draw_w) {
                 continue;
+            }
             fb[y * s_draw_w + x] = argb;
         }
     }
@@ -148,8 +169,9 @@ static void fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb)
 
 /* Draw a string at (x, y) scaled by `scale` (1 or 2). Returns advance x. */
 static int draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb) {
-    if (scale < 1)
+    if (scale < 1) {
         scale = 1;
+    }
     for (; *s; s++) {
         int idx = glyph_idx(*s);
         if (idx >= 0) {
@@ -193,7 +215,9 @@ void pc_toast_show(const char *msg, int is_error) {
     s_toast_accent = is_error ? 0xFFFF6048u : 0xFF60FF80u;
 }
 
-int pc_toast_visible(void) { return s_toast_frames > 0 && s_toast[0] != 0; }
+int pc_toast_visible(void) {
+    return s_toast_frames > 0 && s_toast[0] != 0;
+}
 
 /* Menu small-text subsystem: small overlay text anchored in CONTENT coords (shifted
  * by the widescreen margin so it tracks the centred 352-wide menu) and dimmed by the
@@ -201,11 +225,13 @@ int pc_toast_visible(void) { return s_toast_frames > 0 && s_toast[0] != 0; }
  * instead of popping at full brightness or drifting in widescreen. */
 static void menu_small_text(uint32_t *fb, int content_x, int content_y, const char *s) {
     int margin = (s_draw_w - FB_W) / 2;
-    if (margin < 0)
+    if (margin < 0) {
         margin = 0;
+    }
     int fade = native_scanline_palette_luma(content_y) * 255 / 200; /* full once palette >=200 */
-    if (fade > 255)
+    if (fade > 255) {
         fade = 255;
+    }
     const uint32_t tint = 0xD8E8C0u;
     uint32_t r = (((tint >> 16) & 0xFF) * (uint32_t)fade) / 255;
     uint32_t g = (((tint >> 8) & 0xFF) * (uint32_t)fade) / 255;
@@ -218,10 +244,12 @@ static void menu_small_text(uint32_t *fb, int content_x, int content_y, const ch
  * to the menu layout and fade with it. Gated on the menu being on screen
  * (g_pc_menu_visible) + the menu copper list. */
 void pc_menu_subtext_overlay(uint32_t *fb) {
-    if (!g_pc_menu_visible || g_gameplay_active)
+    if (!g_pc_menu_visible || g_gameplay_active) {
         return;
-    if (hw_get_cop1lc() != 0x8302u)
+    }
+    if (hw_get_cop1lc() != 0x8302u) {
         return;
+    }
 
     /* CONTINUE target — anchored just below the CONTINUE item, left-aligned to it. */
     if (g_menu_continue_x >= 0) {
@@ -239,13 +267,15 @@ void pc_menu_subtext_overlay(uint32_t *fb) {
     }
 
     /* DISK.4 indicator — same subsystem, bottom-right just above the beach window. */
-    if (pc_extra_worlds_available() > 0)
+    if (pc_extra_worlds_available() > 0) {
         menu_small_text(fb, 238, 168, "DISK.4 LOADED");
+    }
 }
 
 void pc_toast_overlay(uint32_t *fb) {
-    if (s_toast_frames <= 0 || !s_toast[0])
+    if (s_toast_frames <= 0 || !s_toast[0]) {
         return;
+    }
     s_toast_frames--;
     int tlen = (int)strlen(s_toast) * 6; /* 6px / glyph at scale 1 */
     int pad = 8, ph = 16;
@@ -261,19 +291,23 @@ void pc_toast_overlay(uint32_t *fb) {
 }
 
 void pc_level_select_overlay(uint32_t *fb) {
-    if (!g_level_select_visible)
+    if (!g_level_select_visible) {
         return;
+    }
 
     int level = pc_get_start_level();
     int world = 0, liw = 0;
     pc_level_split(level, &world, &liw);
-    if (world < 0 || world >= pc_num_worlds_ui())
+    if (world < 0 || world >= pc_num_worlds_ui()) {
         world = 0;
+    }
     int liw_count = pc_levels_in_world(world);
-    if (liw < 0)
+    if (liw < 0) {
         liw = 0;
-    if (liw >= liw_count)
+    }
+    if (liw >= liw_count) {
         liw = liw_count - 1;
+    }
     const char *wn = pc_world_name(world);
 
     /* Panel: centered, large enough for header + world name + up to 10 rows. */
@@ -311,8 +345,9 @@ void pc_level_select_overlay(uint32_t *fb) {
         int completed = pc_profile_completed(row_level);
         uint32_t col = (i == liw) ? 0xFFFFD040 : unlocked ? 0xFFB0B0B0 : 0xFF606070;
         int ry = list_y0 + i * row_h;
-        if (i == liw)
+        if (i == liw) {
             draw_text(fb, px + 8, ry, ">", 1, col);
+        }
         char rbuf[64];
         const char *nm = unlocked ? pc_static_level_name(row_level) : "??????";
         snprintf(rbuf, sizeof rbuf, "%2d. %s", row_level, nm);

@@ -56,18 +56,23 @@ class HotProgramCounters {
         std::size_t found = 0;
         for (std::size_t at = 0; at < kSlots; ++at) {
             const std::uint32_t held = pc_[at].load(std::memory_order_relaxed);
-            if (held == kEmpty)
+            if (held == kEmpty) {
                 continue;
+            }
             all[found++] = Entry{held, count_[at].load(std::memory_order_relaxed)};
         }
         std::sort(all.begin(), all.begin() + static_cast<std::ptrdiff_t>(found),
-                  [](const Entry &left, const Entry &right) { return left.count > right.count; });
+                  [](const Entry &left, const Entry &right) {
+                      return left.count > right.count;
+                  });
         const std::size_t take = std::min(wanted, found);
         std::copy(all.begin(), all.begin() + static_cast<std::ptrdiff_t>(take), into);
         return take;
     }
 
-    std::uint64_t total() const { return total_.load(std::memory_order_relaxed); }
+    std::uint64_t total() const {
+        return total_.load(std::memory_order_relaxed);
+    }
 
   private:
     static constexpr std::uint32_t kEmpty = 0xFFFFFFFFu;
@@ -99,30 +104,35 @@ class GuestProfile {
     }
 
     GuestProfile() {
-        for (auto &table : tables_)
+        for (auto &table : tables_) {
             table.reset();
+        }
     }
 
     void sample(std::uint32_t program_counter, std::uint32_t owner) {
         HotProgramCounters *table = table_for(owner);
-        if (table != nullptr)
+        if (table != nullptr) {
             table->sample(program_counter);
+        }
     }
 
     void reset() {
-        for (auto &table : tables_)
+        for (auto &table : tables_) {
             table.reset();
+        }
     }
 
     int report(char *text, int capacity) const {
-        if (text == nullptr || capacity <= 0)
+        if (text == nullptr || capacity <= 0) {
             return 0;
+        }
         int written = 0;
         for (std::size_t index = 0; index < kOwners.size(); ++index) {
             const HotProgramCounters &table = tables_[index];
             const std::uint64_t total = table.total();
-            if (total == 0)
+            if (total == 0) {
                 continue;
+            }
             written += std::snprintf(text + written, static_cast<std::size_t>(capacity - written),
                                      "%s: %llu chip accesses", kOwners[index].name,
                                      static_cast<unsigned long long>(total));
@@ -135,9 +145,10 @@ class GuestProfile {
                     std::snprintf(text + written, static_cast<std::size_t>(capacity - written),
                                   " | $%06X %.0f%%", top[at].program_counter, share);
             }
-            if (written < capacity)
+            if (written < capacity) {
                 written += std::snprintf(text + written,
                                          static_cast<std::size_t>(capacity - written), "\n");
+            }
         }
         return written;
     }
@@ -146,9 +157,11 @@ class GuestProfile {
     static constexpr std::size_t kTop = 6;
 
     HotProgramCounters *table_for(std::uint32_t owner) {
-        for (std::size_t index = 0; index < kOwners.size(); ++index)
-            if (kOwners[index].id == owner)
+        for (std::size_t index = 0; index < kOwners.size(); ++index) {
+            if (kOwners[index].id == owner) {
                 return &tables_[index];
+            }
+        }
         return nullptr;
     }
 
@@ -168,5 +181,7 @@ int pc_profile_report(char *text, int capacity) {
     return benefactor::diag::GuestProfile::instance().report(text, capacity);
 }
 
-void pc_profile_reset(void) { benefactor::diag::GuestProfile::instance().reset(); }
+void pc_profile_reset(void) {
+    benefactor::diag::GuestProfile::instance().reset();
+}
 }

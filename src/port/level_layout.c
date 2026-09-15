@@ -22,28 +22,37 @@
  * diverge. Everything else derives from pc_levels_in_world(). */
 static int s_extra_worlds = -1; /* set by pc_preload_all_level_names */
 int pc_extra_worlds_available(void) {
-    if (s_extra_worlds < 0)
+    if (s_extra_worlds < 0) {
         pc_preload_all_level_names();
+    }
     return s_extra_worlds < 0 ? 0 : s_extra_worlds;
 }
-int pc_num_worlds_ui(void) { return PC_NUM_WORLDS + pc_extra_worlds_available(); }
-int pc_num_levels_ui(void) { return PC_NUM_LEVELS + 5 * pc_extra_worlds_available(); }
+int pc_num_worlds_ui(void) {
+    return PC_NUM_WORLDS + pc_extra_worlds_available();
+}
+int pc_num_levels_ui(void) {
+    return PC_NUM_LEVELS + 5 * pc_extra_worlds_available();
+}
 
 int pc_levels_in_world(int world) {
     static const int wcount[PC_NUM_WORLDS] = {9, 9, 10, 10, 10, 10, 2};
-    if (world >= PC_NUM_WORLDS && world < pc_num_worlds_ui())
+    if (world >= PC_NUM_WORLDS && world < pc_num_worlds_ui()) {
         return 5; /* Disk.4 extras */
-    if (world < 0 || world >= PC_NUM_WORLDS)
+    }
+    if (world < 0 || world >= PC_NUM_WORLDS) {
         return 0;
+    }
     return wcount[world];
 }
 
 int pc_world_first_level(int world) {
-    if (world < 0 || world >= pc_num_worlds_ui())
+    if (world < 0 || world >= pc_num_worlds_ui()) {
         return 0;
+    }
     int g = 1;
-    for (int w = 0; w < world; w++)
+    for (int w = 0; w < world; w++) {
         g += pc_levels_in_world(w);
+    }
     return g;
 }
 
@@ -63,10 +72,12 @@ void pc_level_split(int level, int *world_out, int *level_in_world_out) {
             n -= c;
         }
     }
-    if (world_out)
+    if (world_out) {
         *world_out = world;
-    if (level_in_world_out)
+    }
+    if (level_in_world_out) {
         *level_in_world_out = liw;
+    }
 }
 
 /* World names — preloaded from disk alongside the level names. They live
@@ -76,12 +87,15 @@ void pc_level_split(int level, int *world_out, int *level_in_world_out) {
 static char g_pc_preloaded_world_names[PC_NUM_WORLDS + PC_EXTRA_WORLDS][32];
 static int g_pc_preloaded_names_ready; /* defined below */
 const char *pc_world_name(int world) {
-    if (world < 0 || world >= PC_NUM_WORLDS + PC_EXTRA_WORLDS)
+    if (world < 0 || world >= PC_NUM_WORLDS + PC_EXTRA_WORLDS) {
         return "?";
-    if (!g_pc_preloaded_names_ready)
+    }
+    if (!g_pc_preloaded_names_ready) {
         pc_preload_all_level_names();
-    if (g_pc_preloaded_names_ready && g_pc_preloaded_world_names[world][0])
+    }
+    if (g_pc_preloaded_names_ready && g_pc_preloaded_world_names[world][0]) {
         return g_pc_preloaded_world_names[world];
+    }
     return "?";
 }
 
@@ -106,10 +120,12 @@ static char g_pc_preloaded_names[PC_MAX_LEVELS][32];
 void pc_preload_all_level_names(void) {
 
     static int in_progress; /* extras accessors call back into us */
-    if (g_pc_preloaded_names_ready || in_progress)
+    if (g_pc_preloaded_names_ready || in_progress) {
         return;
-    if (!g_mem)
+    }
+    if (!g_mem) {
         return;
+    }
     in_progress = 1;
     s_extra_worlds = 0;
 #define PRELOAD_WORLDS (PC_NUM_WORLDS + PC_EXTRA_WORLDS)
@@ -191,17 +207,21 @@ void pc_preload_all_level_names(void) {
             for (int ci = 0; ci < all_chunks_n[world]; ci++) {
                 uint32_t src = all_chunks_src[world][ci];
                 uint32_t len = all_chunks_len[world][ci];
-                if (src == 0 || len == 0 || len > 0x20000u)
+                if (src == 0 || len == 0 || len > 0x20000u) {
                     continue;
+                }
                 uint32_t off = src >> 8;
                 int disk = (int)(src & 0xFFu) + 1;
-                if (disk < 1 || disk > 3)
+                if (disk < 1 || disk > 3) {
                     continue;
-                if (disk_boot_load(disk, off, scratch, len) <= 0)
+                }
+                if (disk_boot_load(disk, off, scratch, len) <= 0) {
                     continue;
+                }
                 uint32_t out = atn_decrunch(scratch);
-                if (out == 0)
+                if (out == 0) {
                     continue;
+                }
                 char path[64];
                 snprintf(path, sizeof path, "logs/world_%d_chunk_%d.bin", world, ci);
                 FILE *f = fopen(path, "wb");
@@ -223,24 +243,29 @@ void pc_preload_all_level_names(void) {
     for (int world = 0; world < PRELOAD_WORLDS; world++) {
         uint32_t last_src = per_world_src[world];
         uint32_t last_len = per_world_len[world];
-        if (last_src == 0 || last_len == 0 || last_len > 0x20000u)
+        if (last_src == 0 || last_len == 0 || last_len > 0x20000u) {
             continue;
+        }
 
         /* src_encoded = (disk_offset << 8) | (zero-based disk index). */
         uint32_t disk_off = last_src >> 8;
         int disk_num = (int)(last_src & 0xFFu) + 1;
-        if (disk_num < 1 || disk_num > 4)
+        if (disk_num < 1 || disk_num > 4) {
             continue;
+        }
 
         int rc = disk_boot_load(disk_num, disk_off, scratch, last_len);
-        if (rc <= 0)
+        if (rc <= 0) {
             continue;
+        }
         uint32_t outlen = atn_decrunch(scratch);
-        if (outlen == 0)
+        if (outlen == 0) {
             continue;
+        }
         if (world >= PC_NUM_WORLDS) {
-            if (world - PC_NUM_WORLDS != s_extra_worlds)
+            if (world - PC_NUM_WORLDS != s_extra_worlds) {
                 continue; /* keep contiguous */
+            }
             s_extra_worlds = world - PC_NUM_WORLDS + 1;
         }
         /* (All-chunks dump for Pattern I happened earlier, before pass 2.) */
@@ -307,14 +332,16 @@ void pc_preload_all_level_names(void) {
                 }
                 seen[s] = 1;
             }
-            if (ok)
+            if (ok) {
                 tbl = (long)o;
+            }
         }
 
         for (int liw = 0; liw < n; liw++) {
             int slot = liw; /* identity fallback */
-            if (tbl >= 0)
+            if (tbl >= 0) {
                 slot = (int)(RD32(scratch + (uint32_t)tbl + (uint32_t)liw * 12u + 4u) / 44u);
+            }
             uint32_t entry = scratch + 0x60u + (uint32_t)slot * 44u;
             int qa = -1;
             for (int i = 0; i < 36; i++) {
@@ -323,8 +350,9 @@ void pc_preload_all_level_names(void) {
                     break;
                 }
             }
-            if (qa < 0)
+            if (qa < 0) {
                 continue;
+            }
             int gi = (pc_world_first_level(world) - 1) + liw;
             int j = 0;
             for (int i = qa + 1; i < 44 && g_mem[entry + i] != '"' && j < 31; i++) {
@@ -358,12 +386,15 @@ void pc_preload_all_level_names(void) {
 }
 
 const char *pc_static_level_name(int level) {
-    if (level < 1 || level > PC_MAX_LEVELS)
+    if (level < 1 || level > PC_MAX_LEVELS) {
         return "?";
-    if (!g_pc_preloaded_names_ready)
+    }
+    if (!g_pc_preloaded_names_ready) {
         pc_preload_all_level_names();
-    if (g_pc_preloaded_names_ready && g_pc_preloaded_names[level - 1][0])
+    }
+    if (g_pc_preloaded_names_ready && g_pc_preloaded_names[level - 1][0]) {
         return g_pc_preloaded_names[level - 1];
+    }
     return "?";
 }
 
@@ -375,11 +406,13 @@ const char *pc_static_level_name(int level) {
  * liw directly therefore mislabels e.g. world-0 L4/L8 and L7/L9. We defer
  * to the preloaded table, which already applies that permutation. */
 const char *pc_current_level_name(void) {
-    if (!g_mem)
+    if (!g_mem) {
         return "?";
+    }
     int level = ((int)g_mem[0x20] << 8) | g_mem[0x21];
-    if (level < 1 || level > PC_NUM_LEVELS)
+    if (level < 1 || level > PC_NUM_LEVELS) {
         return "?";
+    }
     return pc_static_level_name(level);
 }
 
@@ -395,14 +428,19 @@ const char *pc_current_level_name(void) {
  *
  * pc_is_banner_displayed(): true for any of the three banners (cop1lc).
  * pc_is_title_card_displayed(): true only for the world+level title card. */
-int pc_is_banner_displayed(void) { return hw_get_cop1lc() == 0x003914u; }
+int pc_is_banner_displayed(void) {
+    return hw_get_cop1lc() == 0x003914u;
+}
 
 int pc_is_title_card_displayed(void) {
-    if (!g_mem)
+    if (!g_mem) {
         return 0;
+    }
     uint16_t timer = ((uint16_t)g_mem[0x57FEF6u] << 8) | g_mem[0x57FEF7u];
     return timer > 0 && pc_is_banner_displayed();
 }
 
 /* Legacy alias — old code says "level card" but means "any banner". */
-int pc_is_level_card_displayed(void) { return pc_is_banner_displayed(); }
+int pc_is_level_card_displayed(void) {
+    return pc_is_banner_displayed();
+}

@@ -21,8 +21,9 @@ DiskSelectionStore::Paths paths_in(const std::filesystem::path &directory) {
 }
 
 void write_disks(const DiskSelectionStore::Paths &paths, const std::string &contents) {
-    for (const auto &path : paths)
+    for (const auto &path : paths) {
         write_file(path, contents);
+    }
 }
 
 } // namespace

@@ -29,12 +29,15 @@ static int run_vk_selftest(void) {
 #ifdef BENEFACTOR_HAVE_VULKAN
     int w = 480, h = 282;
     uint32_t *img = malloc((size_t)w * h * 4);
-    if (!img)
+    if (!img) {
         return 1;
-    for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++)
+    }
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
             img[y * w + x] = 0xFF000000u | ((uint32_t)(x * 255 / w) << 16) |
                              ((uint32_t)(y * 255 / h) << 8) | (uint32_t)((x ^ y) & 0xFF);
+        }
+    }
     int d = present_vulkan_selftest(img, w, h);
     free(img);
     if (d < 0) {
@@ -74,10 +77,12 @@ int main(int argc, char **argv) {
      * "--load <path>" loads a savestate immediately after init (replaces the
      * full intro/title boot; the game resumes at the saved coroutine yield). */
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--vk-selftest"))
+        if (!strcmp(argv[i], "--vk-selftest")) {
             return run_vk_selftest();
-        if (!strcmp(argv[i], "--disk"))
+        }
+        if (!strcmp(argv[i], "--disk")) {
             continue;
+        }
         if (!strcmp(argv[i], "--level") && i + 1 < argc) {
             direct_level = atoi(argv[++i]);
             continue;
@@ -94,22 +99,25 @@ int main(int argc, char **argv) {
             http_port = atoi(argv[++i]);
             continue;
         }
-        if (nd < 4)
+        if (nd < 4) {
             disks[nd++] = argv[i];
+        }
     }
 
 #ifdef BENEFACTOR_ANDROID
     if (nd == 0) {
-        if (!android_bridge_select_disks(disks, 4))
+        if (!android_bridge_select_disks(disks, 4)) {
             return 1;
+        }
         nd = 3;
     }
 #endif
 
 #ifndef BENEFACTOR_ANDROID
     if (nd == 0) {
-        if (!desktop_setup_disks(disks, 4))
+        if (!desktop_setup_disks(disks, 4)) {
             return 1;
+        }
         nd = 3;
     }
 #endif
@@ -141,8 +149,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 #ifdef BENEFACTOR_ANDROID
-    if (!android_bridge_enforce_window_policy())
+    if (!android_bridge_enforce_window_policy()) {
         return 1;
+    }
 #endif
 
     if (load_path) {

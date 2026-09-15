@@ -19,14 +19,17 @@ static SceneSdlCache s_scene_cache = {0}; /* persistent atlas/base for present_s
  * option in the pause menu / auto mode. Recreate the streaming texture and
  * logical size to match before the next upload. */
 static int sdl_ensure_content(int w, int h) {
-    if (w == s_content_w && h == s_content_h && s_texture)
+    if (w == s_content_w && h == s_content_h && s_texture) {
         return 0;
-    if (s_texture)
+    }
+    if (s_texture) {
         SDL_DestroyTexture(s_texture);
+    }
     s_texture =
         SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
-    if (!s_texture)
+    if (!s_texture) {
         return -1;
+    }
     SDL_SetRenderLogicalPresentation(s_renderer, w, h, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     s_content_w = w;
     s_content_h = h;
@@ -35,16 +38,19 @@ static int sdl_ensure_content(int w, int h) {
 
 static int sdl_init(const char *title, int content_w, int content_h) {
     s_window = SDL_CreateWindow(title, content_w * 2, content_h * 2, SDL_WINDOW_RESIZABLE);
-    if (!s_window)
+    if (!s_window) {
         return -1;
+    }
 
     /* No PRESENTVSYNC: vsync would lock the game to the monitor's refresh
      * (e.g. 60 Hz -> 20% too fast). hw_present_frame paces to PAL 50 Hz. */
     s_renderer = SDL_CreateRenderer(s_window, NULL);
-    if (!s_renderer)
+    if (!s_renderer) {
         s_renderer = SDL_CreateRenderer(s_window, "software");
-    if (!s_renderer)
+    }
+    if (!s_renderer) {
         return -1;
+    }
     /* SDL3 defaults texture scaling to linear filtering. The Amiga output is
      * indexed/pixel-authored artwork, so linear sampling creates the blurry
      * HiDPI result reported by users and also softens BenRen's per-sprite path.
@@ -65,8 +71,9 @@ static int sdl_init(const char *title, int content_w, int content_h) {
  * low-resolution frame's upscaling. Logical presentation is suspended for the
  * overlay pass and restored for the next frame's game blit. */
 static void sdl_draw_overlay(int content_w, int content_h) {
-    if (s_frame_overlay == NULL)
+    if (s_frame_overlay == NULL) {
         return;
+    }
     SDL_SetRenderLogicalPresentation(s_renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
     s_frame_overlay(s_renderer, s_window);
     SDL_SetRenderLogicalPresentation(s_renderer, content_w, content_h,
@@ -84,8 +91,9 @@ static void sdl_clear_frame(void) {
 }
 
 static void sdl_present(const uint32_t *argb, int w, int h) {
-    if (sdl_ensure_content(w, h) != 0)
+    if (sdl_ensure_content(w, h) != 0) {
         return;
+    }
     SDL_UpdateTexture(s_texture, NULL, argb, w * 4);
     sdl_clear_frame();
     SDL_RenderTexture(s_renderer, s_texture, NULL, NULL);
@@ -99,8 +107,9 @@ static void sdl_present(const uint32_t *argb, int w, int h) {
  * surface via scene_sdl_window_selftest (harness `scenewin`). */
 static void sdl_present_scene(const Scene *s, int y_lo, int y_hi, const uint32_t *base, int w,
                               int h, const PresentRect *rects, int nrects) {
-    if (sdl_ensure_content(w, h) != 0)
+    if (sdl_ensure_content(w, h) != 0) {
         return;
+    }
     sdl_clear_frame();
     if (scene_draw_sdl_window(s_renderer, s, y_lo, y_hi, base, w, h, &s_scene_cache) != 0) {
         /* SDL failure mid-frame: fall back to the plain blit so the user
@@ -121,16 +130,21 @@ static void sdl_present_scene(const Scene *s, int y_lo, int y_hi, const uint32_t
     SDL_RenderPresent(s_renderer);
 }
 
-static SDL_Window *sdl_window(void) { return s_window; }
+static SDL_Window *sdl_window(void) {
+    return s_window;
+}
 
 static void sdl_shutdown(void) {
     scene_sdl_cache_free(&s_scene_cache);
-    if (s_texture)
+    if (s_texture) {
         SDL_DestroyTexture(s_texture);
-    if (s_renderer)
+    }
+    if (s_renderer) {
         SDL_DestroyRenderer(s_renderer);
-    if (s_window)
+    }
+    if (s_window) {
         SDL_DestroyWindow(s_window);
+    }
     s_texture = NULL;
     s_renderer = NULL;
     s_window = NULL;
@@ -146,7 +160,9 @@ static const PresentBackend SDL_BACKEND = {
     sdl_window,
     sdl_shutdown};
 
-const PresentBackend *present_backend_sdl(void) { return &SDL_BACKEND; }
+const PresentBackend *present_backend_sdl(void) {
+    return &SDL_BACKEND;
+}
 
 void present_backend_set_frame_overlay(void (*overlay)(SDL_Renderer *, SDL_Window *)) {
     s_frame_overlay = overlay;
@@ -156,16 +172,18 @@ const PresentBackend *present_backend_select(const char *name) {
 #ifdef BENEFACTOR_HAVE_VULKAN
     if (name && !strcmp(name, "vulkan")) {
         const PresentBackend *vk = present_backend_vulkan();
-        if (vk)
+        if (vk) {
             return vk;
+        }
         benefactor_log_write(BENEFACTOR_LOG_WARNING, "render",
                              "Vulkan backend unavailable at runtime; using SDL");
         return present_backend_sdl();
     }
 #else
-    if (name && !strcmp(name, "vulkan"))
+    if (name && !strcmp(name, "vulkan")) {
         benefactor_log_write(BENEFACTOR_LOG_WARNING, "render",
                              "built without Vulkan support; using SDL");
+    }
 #endif
     return present_backend_sdl();
 }

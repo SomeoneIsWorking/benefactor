@@ -27,8 +27,9 @@ static void state_dump_load(void) {
     char spec[256];
     s_dump.loaded = 1;
     s_dump.anchor = -1;
-    if (!pc_cfg_string("state_dump", "", spec, sizeof spec) || spec[0] == 0)
+    if (!pc_cfg_string("state_dump", "", spec, sizeof spec) || spec[0] == 0) {
         return;
+    }
     char *colon = strchr(spec, ':');
     if (colon == NULL) {
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "state",
@@ -71,20 +72,24 @@ static void state_dump_write(int offset) {
 }
 
 void pc_note_state_dump(void) {
-    if (!s_dump.loaded)
+    if (!s_dump.loaded) {
         state_dump_load();
-    if (!s_dump.enabled || g_mem == NULL)
+    }
+    if (!s_dump.enabled || g_mem == NULL) {
         return;
+    }
     const int frame = hw_get_frame_num();
     if (s_dump.anchor < 0) {
-        if ((hw_get_cop1lc() & 0xFFFFFFu) != s_dump.screen)
+        if ((hw_get_cop1lc() & 0xFFFFFFu) != s_dump.screen) {
             return;
+        }
         s_dump.anchor = frame;
         benefactor_log_write(BENEFACTOR_LOG_INFO, "state", "screen $%06X reached at frame %d",
                              s_dump.screen, frame);
     }
     for (int i = 0; i < s_dump.count; i++) {
-        if (frame == s_dump.anchor + s_dump.offsets[i])
+        if (frame == s_dump.anchor + s_dump.offsets[i]) {
             state_dump_write(s_dump.offsets[i]);
+        }
     }
 }

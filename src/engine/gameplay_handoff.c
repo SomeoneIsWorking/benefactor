@@ -49,8 +49,9 @@ static int is_valid_difficulty(uint16_t mode_word) {
  * / game-over marker 8, or leftover garbage) with NORMAL — the same value the
  * engine's own inter-level path writes at $57720C. */
 static void normalise_gameplay_mode_word(void) {
-    if (!is_valid_difficulty(guest_read_word(GP_MODE_WORD)))
+    if (!is_valid_difficulty(guest_read_word(GP_MODE_WORD))) {
         guest_write_word(GP_MODE_WORD, GP_DIFFICULTY_NORMAL);
+    }
 }
 
 void gameplay_handoff_prepare_low_memory(void) {

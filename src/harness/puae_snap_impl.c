@@ -36,10 +36,11 @@ static void puae_log_4d(uaecptr addr, uae_u32 v, int sz, int indirect) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness", "[wlive] $%06X <- %08X (sz%d) %s\n",
                              (unsigned)addr, (unsigned)v, sz, indirect ? "BLIT" : "CPU");
     }
-    if (addr >= 0x4c000u && addr < 0x4e000u)
+    if (addr >= 0x4c000u && addr < 0x4e000u) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "harness",
                              "[w4d] $%06X <- %08X (sz%d) %s pc=$%06X\n", (unsigned)addr,
                              (unsigned)v, sz, indirect ? "BLIT" : "CPU", (unsigned)m68k_getpc());
+    }
 }
 
 static int _puae_is_state_watch_addr(uaecptr addr) {
@@ -149,16 +150,21 @@ static void REGPARAM2 puae_trace_lput_indirect(uaecptr addr, uae_u32 l) {
  * original handler when the current one isn't already our wrapper. */
 void puae_trace_init(void) {
     s_puae_trace_inited = 1;
-    if (chipmem_bank.bput != puae_trace_bput)
+    if (chipmem_bank.bput != puae_trace_bput) {
         orig_chipmem_bput = chipmem_bank.bput;
-    if (chipmem_bank.wput != puae_trace_wput)
+    }
+    if (chipmem_bank.wput != puae_trace_wput) {
         orig_chipmem_wput = chipmem_bank.wput;
-    if (chipmem_bank.lput != puae_trace_lput)
+    }
+    if (chipmem_bank.lput != puae_trace_lput) {
         orig_chipmem_lput = chipmem_bank.lput;
-    if (chipmem_wput_indirect != puae_trace_wput_indirect)
+    }
+    if (chipmem_wput_indirect != puae_trace_wput_indirect) {
         orig_chipmem_wput_indirect = chipmem_wput_indirect;
-    if (chipmem_lput_indirect != puae_trace_lput_indirect)
+    }
+    if (chipmem_lput_indirect != puae_trace_lput_indirect) {
         orig_chipmem_lput_indirect = chipmem_lput_indirect;
+    }
     chipmem_bank.bput = puae_trace_bput;
     chipmem_bank.wput = puae_trace_wput;
     chipmem_bank.lput = puae_trace_lput;
@@ -183,11 +189,13 @@ void puae_snap_state(FrameState *s) {
     s->ddfstrt = (uint16_t)ddfstrt;
     s->ddfstop = (uint16_t)ddfstop;
 
-    for (i = 0; i < 6; i++)
+    for (i = 0; i < 6; i++) {
         s->bplpt[i] = (uint32_t)bplpt[i];
+    }
 
-    for (i = 0; i < 8; i++)
+    for (i = 0; i < 8; i++) {
         s->sprpt[i] = (uint32_t)spr[i].pt;
+    }
 
     /* Use color_regs_aga if AGA mode is active, else color_regs_ecs */
     for (i = 0; i < 32; i++) {
@@ -206,21 +214,24 @@ void puae_snap_state(FrameState *s) {
     if (chipmem_bank.baseaddr &&
         cop1lc + HARNESS_COPLIST_WORDS * 2 <= (uaecptr)chipmem_bank.allocated_size) {
         uint8_t *p = chipmem_bank.baseaddr + cop1lc;
-        for (i = 0; i < HARNESS_COPLIST_WORDS; i++)
+        for (i = 0; i < HARNESS_COPLIST_WORDS; i++) {
             s->coplist[i] = (uint16_t)((p[i * 2] << 8) | p[i * 2 + 1]);
+        }
         s->coplist_valid = 1;
     }
 
     /* CRC32 of full chip RAM — catches bitplane/sprite data divergence */
     s->chipram_crc = 0;
-    if (chipmem_bank.baseaddr && chipmem_bank.allocated_size >= 524288)
+    if (chipmem_bank.baseaddr && chipmem_bank.allocated_size >= 524288) {
         s->chipram_crc = crc32_buf(chipmem_bank.baseaddr, 524288);
+    }
 
     /* CRC32 of active bitplane data regions only — used as DIFF trigger */
     s->bpl_data_crc = 0;
-    if (chipmem_bank.baseaddr)
+    if (chipmem_bank.baseaddr) {
         s->bpl_data_crc =
             bpl_data_region_crc(chipmem_bank.baseaddr, (uint32_t)chipmem_bank.allocated_size);
+    }
 
     /* Paula audio channels */
     puae_audio_snap(s->audio);
@@ -239,20 +250,26 @@ void puae_snap_state(FrameState *s) {
 
 /* Lightweight accessor — just returns cop1lc; used during fast-forward boot
  * to avoid a full puae_snap_state() (which CRC32s 512KB of chip RAM). */
-uint32_t puae_get_cop1lc(void) { return (uint32_t)cop1lc; }
+uint32_t puae_get_cop1lc(void) {
+    return (uint32_t)cop1lc;
+}
 
 /* Copy PUAE's chip RAM into a caller-supplied buffer.
  * Returns the number of bytes actually copied (≤ maxbytes). */
 /* Host pointer to Amiga chip RAM base — for GDB to set a hardware watchpoint on
  * a specific chip address (GDB can't resolve chipmem_bank.baseaddr directly). */
-void *puae_chip_baseaddr(void) { return chipmem_bank.baseaddr; }
+void *puae_chip_baseaddr(void) {
+    return chipmem_bank.baseaddr;
+}
 
 int puae_dump_chipram(void *buf, int maxbytes) {
-    if (!chipmem_bank.baseaddr || chipmem_bank.allocated_size <= 0)
+    if (!chipmem_bank.baseaddr || chipmem_bank.allocated_size <= 0) {
         return 0;
+    }
     int sz = (int)chipmem_bank.allocated_size;
-    if (sz > maxbytes)
+    if (sz > maxbytes) {
         sz = maxbytes;
+    }
     memcpy(buf, chipmem_bank.baseaddr, sz);
     return sz;
 }
@@ -263,8 +280,9 @@ int puae_dump_chipram(void *buf, int maxbytes) {
  * doesn't cover. */
 int puae_dump_mem(uint32_t addr, void *buf, int len) {
     uint8_t *b = (uint8_t *)buf;
-    for (int i = 0; i < len; i++)
+    for (int i = 0; i < len; i++) {
         b[i] = (uint8_t)get_byte(addr + (uint32_t)i);
+    }
     return len;
 }
 
@@ -273,8 +291,9 @@ int puae_dump_mem(uint32_t addr, void *buf, int len) {
  * PUAE loads an arbitrary level without a keyboard-driven password. */
 void puae_poke_mem(uint32_t addr, const void *buf, int len) {
     const uint8_t *b = (const uint8_t *)buf;
-    for (int i = 0; i < len; i++)
+    for (int i = 0; i < len; i++) {
         put_byte(addr + (uint32_t)i, b[i]);
+    }
 }
 
 /* Save PUAE audio channel state (raw register values) to a file.
@@ -291,4 +310,6 @@ void puae_dump_audio_regs(const char *path) {
 }
 
 /* Emulated CPU program counter — boot-progress heartbeat for run_puae_phase. */
-uint32_t puae_get_cpu_pc(void) { return (uint32_t)m68k_getpc(); }
+uint32_t puae_get_cpu_pc(void) {
+    return (uint32_t)m68k_getpc();
+}

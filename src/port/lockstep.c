@@ -23,8 +23,9 @@ static struct {
 static void lockstep_load(void) {
     char spec[64];
     s_lockstep.loaded = 1;
-    if (!pc_cfg_string("lockstep", "", spec, sizeof spec) || spec[0] == 0)
+    if (!pc_cfg_string("lockstep", "", spec, sizeof spec) || spec[0] == 0) {
         return;
+    }
     if (!lockstep_open(&s_lockstep.channel, spec, LOCKSTEP_REGIONS, (size_t)RT_MEM_SIZE)) {
         benefactor_log_write(BENEFACTOR_LOG_ERROR, "lockstep",
                              "lockstep=%s is not a <readfd>:<writefd> pair this process "
@@ -58,10 +59,12 @@ static void lockstep_gather(LockstepFrame *state) {
 }
 
 void pc_lockstep_frame(void) {
-    if (!s_lockstep.loaded)
+    if (!s_lockstep.loaded) {
         lockstep_load();
-    if (!s_lockstep.channel.enabled || g_mem == NULL)
+    }
+    if (!s_lockstep.channel.enabled || g_mem == NULL) {
         return;
+    }
 
     static uint64_t digests[LOCKSTEP_REGIONS];
     static char line[LOCKSTEP_LINE_BYTES];

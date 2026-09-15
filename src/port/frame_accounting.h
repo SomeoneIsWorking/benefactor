@@ -47,7 +47,9 @@ namespace benefactor::diag {
 using Counter = std::atomic<std::uint32_t>;
 static_assert(Counter::is_always_lock_free, "a signal handler reads these");
 
-inline void bump(Counter &counter) noexcept { counter.fetch_add(1, std::memory_order_relaxed); }
+inline void bump(Counter &counter) noexcept {
+    counter.fetch_add(1, std::memory_order_relaxed);
+}
 
 inline std::uint32_t load(const Counter &counter) noexcept {
     return counter.load(std::memory_order_relaxed);
@@ -62,8 +64,12 @@ class Span final {
             peak_ = cycles;
         }
     }
-    [[nodiscard]] std::uint64_t last() const noexcept { return last_; }
-    [[nodiscard]] std::uint64_t peak() const noexcept { return peak_; }
+    [[nodiscard]] std::uint64_t last() const noexcept {
+        return last_;
+    }
+    [[nodiscard]] std::uint64_t peak() const noexcept {
+        return peak_;
+    }
 
   private:
     std::uint64_t last_{};
@@ -81,8 +87,12 @@ class OwnerAccount final {
         bump(deliveries_);
         cycles_.record(cycles);
     }
-    [[nodiscard]] const Span &cycles() const noexcept { return cycles_; }
-    [[nodiscard]] std::uint32_t deliveries() const noexcept { return load(deliveries_); }
+    [[nodiscard]] const Span &cycles() const noexcept {
+        return cycles_;
+    }
+    [[nodiscard]] std::uint32_t deliveries() const noexcept {
+        return load(deliveries_);
+    }
 
   private:
     Span cycles_{};
@@ -93,12 +103,24 @@ class OwnerAccount final {
  * unparkable) and actually parked. */
 class WaitAccount final {
   public:
-    void reached() noexcept { bump(reached_); }
-    void refused() noexcept { bump(refused_); }
-    void parked() noexcept { bump(parked_); }
-    [[nodiscard]] std::uint32_t reached_count() const noexcept { return load(reached_); }
-    [[nodiscard]] std::uint32_t refused_count() const noexcept { return load(refused_); }
-    [[nodiscard]] std::uint32_t parked_count() const noexcept { return load(parked_); }
+    void reached() noexcept {
+        bump(reached_);
+    }
+    void refused() noexcept {
+        bump(refused_);
+    }
+    void parked() noexcept {
+        bump(parked_);
+    }
+    [[nodiscard]] std::uint32_t reached_count() const noexcept {
+        return load(reached_);
+    }
+    [[nodiscard]] std::uint32_t refused_count() const noexcept {
+        return load(refused_);
+    }
+    [[nodiscard]] std::uint32_t parked_count() const noexcept {
+        return load(parked_);
+    }
 
   private:
     Counter reached_{};
@@ -119,20 +141,42 @@ class FrameAccounting final {
     [[nodiscard]] OwnerAccount &owner(PcOwner which) noexcept;
     [[nodiscard]] const OwnerAccount &owner(PcOwner which) const noexcept;
 
-    [[nodiscard]] Span &flow() noexcept { return flow_; }
-    [[nodiscard]] const Span &flow() const noexcept { return flow_; }
-    [[nodiscard]] Span &iteration() noexcept { return iteration_; }
-    [[nodiscard]] const Span &iteration() const noexcept { return iteration_; }
-    [[nodiscard]] WaitAccount &waits() noexcept { return waits_; }
-    [[nodiscard]] const WaitAccount &waits() const noexcept { return waits_; }
+    [[nodiscard]] Span &flow() noexcept {
+        return flow_;
+    }
+    [[nodiscard]] const Span &flow() const noexcept {
+        return flow_;
+    }
+    [[nodiscard]] Span &iteration() noexcept {
+        return iteration_;
+    }
+    [[nodiscard]] const Span &iteration() const noexcept {
+        return iteration_;
+    }
+    [[nodiscard]] WaitAccount &waits() noexcept {
+        return waits_;
+    }
+    [[nodiscard]] const WaitAccount &waits() const noexcept {
+        return waits_;
+    }
 
-    [[nodiscard]] std::uint64_t frame_cycles() const noexcept { return frame_cycles_; }
-    void set_frame_cycles(std::uint64_t cycles) noexcept { frame_cycles_ = cycles; }
-    [[nodiscard]] std::uint64_t present_cycles() const noexcept { return present_cycles_; }
-    void set_present_cycles(std::uint64_t cycles) noexcept { present_cycles_ = cycles; }
+    [[nodiscard]] std::uint64_t frame_cycles() const noexcept {
+        return frame_cycles_;
+    }
+    void set_frame_cycles(std::uint64_t cycles) noexcept {
+        frame_cycles_ = cycles;
+    }
+    [[nodiscard]] std::uint64_t present_cycles() const noexcept {
+        return present_cycles_;
+    }
+    void set_present_cycles(std::uint64_t cycles) noexcept {
+        present_cycles_ = cycles;
+    }
 
     /* Which owner is running guest code right now. */
-    [[nodiscard]] PcOwner running() const noexcept { return static_cast<PcOwner>(load(running_)); }
+    [[nodiscard]] PcOwner running() const noexcept {
+        return static_cast<PcOwner>(load(running_));
+    }
     void set_running(PcOwner which) noexcept {
         running_.store(static_cast<std::uint32_t>(which), std::memory_order_relaxed);
     }
@@ -141,8 +185,12 @@ class FrameAccounting final {
      * it to the presented frame count: more than one draw per frame means the
      * screen is being stepped faster than it is shown, which is what "the
      * crawl is too fast" looks like from here. */
-    [[nodiscard]] std::uint32_t title_draws() const noexcept { return load(title_draws_); }
-    void note_title_draw() noexcept { bump(title_draws_); }
+    [[nodiscard]] std::uint32_t title_draws() const noexcept {
+        return load(title_draws_);
+    }
+    void note_title_draw() noexcept {
+        bump(title_draws_);
+    }
 
   private:
     FrameAccounting() = default;

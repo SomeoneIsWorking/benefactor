@@ -67,7 +67,9 @@ void run_check() {
 /* Called once per launch, by platform_update_check_start(). Detached on purpose:
  * the check outlives the call site and its only result is handed to
  * pc_update_report(), which the main thread adopts. */
-extern "C" void platform_update_check_begin(void) { std::thread(run_check).detach(); }
+extern "C" void platform_update_check_begin(void) {
+    std::thread(run_check).detach();
+}
 
 #else
 

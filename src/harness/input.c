@@ -12,10 +12,12 @@
 void input_poll(void) {
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_EVENT_QUIT)
+        if (ev.type == SDL_EVENT_QUIT) {
             exit(0);
-        if (hw_handle_sdl_event(&ev))
+        }
+        if (hw_handle_sdl_event(&ev)) {
             continue; /* controllers, window resize */
+        }
         if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_KEY_UP) {
             int d = (ev.type == SDL_EVENT_KEY_DOWN);
             /* ESC is handled inside hw_handle_key — it toggles the pause
@@ -26,13 +28,27 @@ void input_poll(void) {
 }
 
 /* PUAE reads these via input_state_cb; they mirror the shared hw input state. */
-int input_up(void) { return hw_joy_up(); }
-int input_down(void) { return hw_joy_down(); }
-int input_left(void) { return hw_joy_left(); }
-int input_right(void) { return hw_joy_right(); }
-int input_fire(void) { return hw_get_fire(); }
-int input_space(void) { return hw_get_mouse_lmb(); }
-int input_esc(void) { return 0; }
+int input_up(void) {
+    return hw_joy_up();
+}
+int input_down(void) {
+    return hw_joy_down();
+}
+int input_left(void) {
+    return hw_joy_left();
+}
+int input_right(void) {
+    return hw_joy_right();
+}
+int input_fire(void) {
+    return hw_get_fire();
+}
+int input_space(void) {
+    return hw_get_mouse_lmb();
+}
+int input_esc(void) {
+    return 0;
+}
 
 /* Programmatically force the action button (for headless harness driving).
  * Sets both joystick fire and the port-0/mouse button, since the title's

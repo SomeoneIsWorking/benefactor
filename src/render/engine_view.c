@@ -21,8 +21,9 @@ static int ev_r16s(uint32_t addr, int *ok) {
 int engine_view_capture(EngineView *ev) {
     int ok = 1;
     ev->valid = 0;
-    if (!g_mem)
+    if (!g_mem) {
         return 0;
+    }
 
     /* Camera: screen-left world X (a5+$0FA8), already engine-clamped to the
      * level edges. Signed (can be slightly negative at the left edge). */
@@ -39,22 +40,25 @@ int engine_view_capture(EngineView *ev) {
     {
         int rs = ev_r16s(EV_PHASETAB_ADDR + 4u, &ok);
         ev->row_stride = (rs < 0) ? -rs : rs;
-        if (ev->row_stride <= 0)
+        if (ev->row_stride <= 0) {
             ok = 0;
+        }
     }
 
     /* Tile graphics base table address (a constant pointer into the level data
      * region). Range-check it; the renderer dereferences it. */
     ev->gfxtab = EV_GFXTAB_ADDR;
-    if (EV_GFXTAB_ADDR + 4u >= RT_MEM_SIZE)
+    if (EV_GFXTAB_ADDR + 4u >= RT_MEM_SIZE) {
         ok = 0;
+    }
 
     /* Edges must bracket a real range, and the clamp must leave the camera
      * inside it — a cross-level invariant. A per-level fudge can't satisfy this
      * for all levels, so a violation means the derivation is wrong (RE it),
      * not "nudge a constant". */
-    if (ev->level_hi <= ev->level_lo)
+    if (ev->level_hi <= ev->level_lo) {
         ok = 0;
+    }
 
     ev->valid = ok;
     return ok;

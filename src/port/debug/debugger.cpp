@@ -18,11 +18,17 @@ Debugger &Debugger::instance() {
     return only;
 }
 
-bool Debugger::set(std::uint32_t address) { return rt_set_breakpoint(address) != 0; }
+bool Debugger::set(std::uint32_t address) {
+    return rt_set_breakpoint(address) != 0;
+}
 
-bool Debugger::clear(std::uint32_t address) { return rt_clear_breakpoint(address) != 0; }
+bool Debugger::clear(std::uint32_t address) {
+    return rt_clear_breakpoint(address) != 0;
+}
 
-void Debugger::clear_all() { rt_clear_breakpoints(); }
+void Debugger::clear_all() {
+    rt_clear_breakpoints();
+}
 
 std::vector<std::uint32_t> Debugger::addresses() const {
     std::vector<std::uint32_t> found(static_cast<std::size_t>(rt_breakpoint_capacity()));
@@ -31,7 +37,9 @@ std::vector<std::uint32_t> Debugger::addresses() const {
     return found;
 }
 
-int Debugger::capacity() const { return rt_breakpoint_capacity(); }
+int Debugger::capacity() const {
+    return rt_breakpoint_capacity();
+}
 
 void Debugger::reached(std::uint32_t address, std::uint32_t program_counter) {
     last_ = Stop{.address = address,
@@ -50,7 +58,9 @@ void Debugger::reached(std::uint32_t address, std::uint32_t program_counter) {
                          address, program_counter, last_.frame, (unsigned)pc_running_owner());
 }
 
-Stop Debugger::last_stop() const { return last_; }
+Stop Debugger::last_stop() const {
+    return last_;
+}
 
 std::size_t Debugger::format_stop_trace(char *buffer, std::size_t capacity) const {
     if (buffer == nullptr || capacity == 0) {
@@ -73,7 +83,9 @@ std::size_t Debugger::format_stop_trace(char *buffer, std::size_t capacity) cons
     return used;
 }
 
-void Debugger::forget_last_stop() { last_ = Stop{}; }
+void Debugger::forget_last_stop() {
+    last_ = Stop{};
+}
 
 } // namespace benefactor::debug
 

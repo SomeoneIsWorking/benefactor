@@ -28,14 +28,16 @@
  * human-readable explanation (for the on-screen toast). */
 int pc_savestate_allowed(const char **reason) {
     if (!g_gameplay_active) {
-        if (reason)
+        if (reason) {
             *reason = "Can only save during gameplay";
+        }
         return 0;
     }
     if (!rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577114u) &&
         !rt_is_resume_point(&s_game_ctx, s_game_ctx.image, 0x00577130u)) {
-        if (reason)
+        if (reason) {
             *reason = "Can't save here (level transition)";
+        }
         return 0;
     }
     return 1;
@@ -53,8 +55,9 @@ int pc_savestate_allowed(const char **reason) {
  *   uint8_t   g_mem[RT_MEM_SIZE] */
 
 int pc_savestate(const char *path) {
-    if (!g_mem || !path)
+    if (!g_mem || !path) {
         return -1;
+    }
     const char *last_slash = strrchr(path, '/');
     if (last_slash) {
         char dir[512];
@@ -101,8 +104,9 @@ int pc_savestate(const char *path) {
 }
 
 int pc_loadstate(const char *path) {
-    if (!g_mem || !path)
+    if (!g_mem || !path) {
         return -1;
+    }
     FILE *f = fopen(path, "rb");
     if (!f) {
         benefactor_log_write(BENEFACTOR_LOG_INFO, "game", "[pc] loadstate: open %s failed\n", path);
@@ -120,12 +124,15 @@ int pc_loadstate(const char *path) {
     int ok = 1;
     ok &= fread(&g_state, sizeof g_state, 1, f) == 1;
     uint8_t *runtime_blob = malloc(hdr[4]);
-    if (!runtime_blob)
+    if (!runtime_blob) {
         ok = 0;
-    if (ok)
+    }
+    if (ok) {
         ok &= fread(runtime_blob, hdr[4], 1, f) == 1;
-    if (ok)
+    }
+    if (ok) {
         ok &= rt_state_blob_load(runtime_blob, hdr[4]) == 0;
+    }
     free(runtime_blob);
     ok &= fread(g_mem, RT_MEM_SIZE, 1, f) == 1;
     fclose(f);

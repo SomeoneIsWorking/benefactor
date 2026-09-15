@@ -33,26 +33,42 @@ void pc_account_owner(PcOwner owner, uint64_t cycles) {
     FrameAccounting::instance().owner(owner).delivered(cycles);
 }
 
-void pc_account_flow(uint64_t cycles) { FrameAccounting::instance().flow().record(cycles); }
+void pc_account_flow(uint64_t cycles) {
+    FrameAccounting::instance().flow().record(cycles);
+}
 
 void pc_account_iteration(uint64_t cycles) {
     FrameAccounting::instance().iteration().record(cycles);
 }
 
-void pc_set_frame_cycles(uint64_t cycles) { FrameAccounting::instance().set_frame_cycles(cycles); }
+void pc_set_frame_cycles(uint64_t cycles) {
+    FrameAccounting::instance().set_frame_cycles(cycles);
+}
 
 void pc_set_present_cycles(uint64_t cycles) {
     FrameAccounting::instance().set_present_cycles(cycles);
 }
 
-PcOwner pc_running_owner(void) { return FrameAccounting::instance().running(); }
+PcOwner pc_running_owner(void) {
+    return FrameAccounting::instance().running();
+}
 
-void pc_set_running_owner(PcOwner owner) { FrameAccounting::instance().set_running(owner); }
+void pc_set_running_owner(PcOwner owner) {
+    FrameAccounting::instance().set_running(owner);
+}
 
-void pc_note_wait_reached(void) { FrameAccounting::instance().waits().reached(); }
-void pc_note_wait_refused(void) { FrameAccounting::instance().waits().refused(); }
-void pc_note_wait_parked(void) { FrameAccounting::instance().waits().parked(); }
-void pc_note_title_draw(void) { FrameAccounting::instance().note_title_draw(); }
+void pc_note_wait_reached(void) {
+    FrameAccounting::instance().waits().reached();
+}
+void pc_note_wait_refused(void) {
+    FrameAccounting::instance().waits().refused();
+}
+void pc_note_wait_parked(void) {
+    FrameAccounting::instance().waits().parked();
+}
+void pc_note_title_draw(void) {
+    FrameAccounting::instance().note_title_draw();
+}
 
 void pc_frame_accounting(PcFrameAccounting *out) {
     if (out == nullptr) {

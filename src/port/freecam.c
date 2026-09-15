@@ -39,14 +39,19 @@ static int s_x = 0;      /* camera follow-point (world X, like cam+16) */
 static int s_return = 0; /* snap-back pan toward the engine camera */
 static int s_fade = -1;  /* -1 idle, else 0..2*FREECAM_FADE_HALF */
 
-int pc_freecam_active(void) { return s_active; }
-int pc_freecam_x(void) { return s_x; }
+int pc_freecam_active(void) {
+    return s_active;
+}
+int pc_freecam_x(void) {
+    return s_x;
+}
 
 /* Whole-screen fade curtain (0 = none, 255 = black), applied by
  * hw_present_frame over the composed output during the fade return. */
 int pc_freecam_fade_alpha(void) {
-    if (s_fade < 0)
+    if (s_fade < 0) {
         return 0;
+    }
     int a = (s_fade <= FREECAM_FADE_HALF)
                 ? s_fade * 255 / FREECAM_FADE_HALF
                 : (2 * FREECAM_FADE_HALF - s_fade) * 255 / FREECAM_FADE_HALF;
@@ -54,7 +59,9 @@ int pc_freecam_fade_alpha(void) {
 }
 
 /* Game frozen while panning? Only when active AND the user picked pause mode. */
-int pc_freecam_paused(void) { return s_active && pc_cfg_bool("freecam_pause", 0); }
+int pc_freecam_paused(void) {
+    return s_active && pc_cfg_bool("freecam_pause", 0);
+}
 
 /* Turning the cam OFF returns to the player with whichever animation is
  * FASTER for the current distance: an animated snap-back pan
@@ -64,8 +71,9 @@ int pc_freecam_paused(void) { return s_active && pc_cfg_bool("freecam_pause", 0)
  * re-engages the free cam at the current position; the fade is too short
  * to bother interrupting. */
 void pc_freecam_toggle(void) {
-    if (s_fade >= 0)
+    if (s_fade >= 0) {
         return; /* mid-fade: let it finish */
+    }
     if (s_return) {
         s_return = 0;
         return;
@@ -75,19 +83,22 @@ void pc_freecam_toggle(void) {
         int dist = 0;
         if (engine_view_capture(&ev)) {
             dist = s_x - (ev.camera + 16);
-            if (dist < 0)
+            if (dist < 0) {
                 dist = -dist;
+            }
         }
-        if (dist > FREECAM_RETURN_STEP * 2 * FREECAM_FADE_HALF)
+        if (dist > FREECAM_RETURN_STEP * 2 * FREECAM_FADE_HALF) {
             s_fade = 0; /* fade is faster */
-        else if (dist > 0)
+        } else if (dist > 0) {
             s_return = 1; /* animated pan back */
-        else
+        } else {
             s_active = 0; /* already there: instant */
+        }
         return;
     }
-    if (!g_gameplay_active)
+    if (!g_gameplay_active) {
         return;
+    }
     /* Free cam needs the BenRen renderer (Software or Hardware): it re-derives the
      * off-screen tilemap, and hw_compose_output builds that draw list while freecam is
      * active even at 4:3. Only the Vanilla copper-blit renderer can't pan (it has only
@@ -97,8 +108,9 @@ void pc_freecam_toggle(void) {
         return;
     }
     EngineView ev;
-    if (!engine_view_capture(&ev))
+    if (!engine_view_capture(&ev)) {
         return;
+    }
     s_x = ev.camera + 16; /* start at the engine's follow-point */
     s_active = 1;
 }
@@ -112,12 +124,14 @@ void pc_freecam_tick(void) {
             s_active = 0;
             s_return = 0;
         }
-        if (s_fade >= 2 * FREECAM_FADE_HALF)
+        if (s_fade >= 2 * FREECAM_FADE_HALF) {
             s_fade = -1;
+        }
         return;
     }
-    if (!s_active)
+    if (!s_active) {
         return;
+    }
     if (!g_gameplay_active) {
         s_active = 0;
         s_return = 0;
@@ -131,21 +145,23 @@ void pc_freecam_tick(void) {
             return;
         }
         int target = rev.camera + 16;
-        if (s_x > target + FREECAM_RETURN_STEP)
+        if (s_x > target + FREECAM_RETURN_STEP) {
             s_x -= FREECAM_RETURN_STEP;
-        else if (s_x < target - FREECAM_RETURN_STEP)
+        } else if (s_x < target - FREECAM_RETURN_STEP) {
             s_x += FREECAM_RETURN_STEP;
-        else {
+        } else {
             s_active = 0;
             s_return = 0;
         } /* arrived: hand back to engine */
         return;
     }
     int step = pc_input_active(PI_FFWD) ? FREECAM_STEP_FAST : FREECAM_STEP;
-    if (pc_input_active(PI_LEFT))
+    if (pc_input_active(PI_LEFT)) {
         s_x -= step;
-    if (pc_input_active(PI_RIGHT))
+    }
+    if (pc_input_active(PI_RIGHT)) {
         s_x += step;
+    }
     /* Clamp to the follow range that actually MOVES the rendered view (the inverse
      * of ws_view_left's clamp, shared geometry). Clamping on different bounds let
      * s_x roam past where view_left is already pinned at the edge — an invisible

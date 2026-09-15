@@ -27,8 +27,9 @@ static void ensure_scratch_directory(void) {
 void hw_testrun_capture(int frame, const uint32_t *surface, int width, int height) {
     {
         static int dump_frame = -2;
-        if (dump_frame == -2)
+        if (dump_frame == -2) {
             dump_frame = pc_cfg_int("dump_frame", -1);
+        }
         if (dump_frame >= 0 && (uint32_t)frame == (uint32_t)dump_frame) {
             /* Dump the composed OUTPUT surface (s_out) — what is actually
              * presented, including the widescreen margins and overlays — not the
@@ -145,8 +146,9 @@ void hw_testrun_script(int frame) {
             press_frame = pc_cfg_int("press", press_frame);
             release_frame = pc_cfg_int("release", release_frame);
             frame_limit = pc_cfg_int("limit", frame_limit);
-            if (frame_limit > 0)
+            if (frame_limit > 0) {
                 hw_set_frame_limit(frame_limit);
+            }
         }
 
         if (press_frame >= 0 && (uint32_t)frame == (uint32_t)press_frame) {
@@ -174,20 +176,22 @@ void hw_testrun_script(int frame) {
                     int len = 16;
                     if (sscanf(tok, "%lx:%d", &addr, &len) >= 1) {
                         addr &= 0xFFFFFF;
-                        if (len > 256)
+                        if (len > 256) {
                             len = 256;
+                        }
                         benefactor_log_write(BENEFACTOR_LOG_DEBUG, "memory", "$%06lX %d bytes",
                                              addr, len);
                         for (int i = 0; i < len; i += 16) {
                             char line[96];
                             int used = snprintf(line, sizeof line, "%06lX:", addr + i);
                             for (int j = 0; j < 16 && i + j < len; j++) {
-                                if (addr + i + j < RT_MEM_SIZE)
+                                if (addr + i + j < RT_MEM_SIZE) {
                                     used += snprintf(line + used, sizeof line - (size_t)used,
                                                      " %02X", g_mem[addr + i + j]);
-                                else
+                                } else {
                                     used +=
                                         snprintf(line + used, sizeof line - (size_t)used, " --");
+                                }
                             }
                             benefactor_log_write(BENEFACTOR_LOG_DEBUG, "memory", "%s", line);
                         }

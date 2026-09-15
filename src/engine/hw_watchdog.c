@@ -59,8 +59,9 @@ static void hw_watchdog_handler(int sig) {
 
     uint32_t calls[WD_CALLS_MAX];
     int call_count = rt_recent_snapshot(calls, (int)(sizeof calls / sizeof calls[0]));
-    if (call_count > 0)
+    if (call_count > 0) {
         benefactor_log_signal_hex("recent guest calls", calls, (size_t)call_count);
+    }
     _exit(2);
 }
 #ifdef _WIN32
@@ -74,8 +75,9 @@ static VOID CALLBACK hw_watchdog_timer_callback(PVOID context, BOOLEAN timer_fir
 
 void hw_watchdog_arm(const char *what, int seconds) {
 #if defined(BENEFACTOR_ANDROID) || defined(__ANDROID__)
-    if (seconds > 0 && seconds < 30)
+    if (seconds > 0 && seconds < 30) {
         seconds = 30;
+    }
 #endif
 #ifdef _WIN32
     if (s_wd_timer != NULL) {
@@ -117,6 +119,7 @@ void hw_watchdog_disarm(void) {
  * not count: the caller disarms, holds, then re-arms through here so it does
  * not have to know what the frame was armed as. */
 void hw_watchdog_rearm(void) {
-    if (s_wd_what != NULL)
+    if (s_wd_what != NULL) {
         hw_watchdog_arm((const char *)s_wd_what, s_wd_seconds);
+    }
 }

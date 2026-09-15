@@ -316,7 +316,8 @@ class PuaeOracle final {
         return frames;
     }
 
-    static void input_poll_callback() {}
+    static void input_poll_callback() {
+    }
 
     static std::int16_t input_state_callback(unsigned port, unsigned device, unsigned index,
                                              unsigned id) {

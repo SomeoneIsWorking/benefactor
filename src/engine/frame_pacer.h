@@ -99,7 +99,9 @@ class FramePacer {
      * on the frame that is currently due, so the change does not produce one
      * short or long frame at the seam. */
     void set_speed_percent(unsigned percent) noexcept;
-    [[nodiscard]] unsigned speed_percent() const noexcept { return percent_; }
+    [[nodiscard]] unsigned speed_percent() const noexcept {
+        return percent_;
+    }
     [[nodiscard]] Nanoseconds target_period() const noexcept;
 
     /* Wait for this frame's deadline and return how long the frame actually

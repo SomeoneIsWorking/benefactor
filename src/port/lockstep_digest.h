@@ -115,22 +115,26 @@ typedef struct {
  * ranges were read; an absent or empty spec is none, which is the normal case. */
 static inline size_t lockstep_parse_ranges(LockstepRanges *ranges, const char *spec) {
     memset(ranges, 0, sizeof *ranges);
-    if (spec == NULL)
+    if (spec == NULL) {
         return 0u;
+    }
     const char *cursor = spec;
     while (*cursor && ranges->count < LOCKSTEP_MAX_RANGES) {
         char *end = NULL;
         const unsigned long low = strtoul(cursor, &end, 16);
-        if (end == cursor)
+        if (end == cursor) {
             break;
+        }
         unsigned long high = low;
-        if (*end == '-')
+        if (*end == '-') {
             high = strtoul(end + 1, &end, 16);
+        }
         ranges->start[ranges->count] = (uint32_t)low;
         ranges->end[ranges->count] = (uint32_t)(high + 1u);
         ranges->count++;
-        while (*end == ',' || *end == ' ')
+        while (*end == ',' || *end == ' ') {
             end++;
+        }
         cursor = end;
     }
     return ranges->count;
@@ -142,8 +146,9 @@ static inline size_t lockstep_parse_ranges(LockstepRanges *ranges, const char *s
 static inline void lockstep_digest_regions_excluding(const unsigned char *memory, size_t bytes,
                                                      uint64_t *digests, size_t regions,
                                                      const LockstepRanges *skip) {
-    if (regions == 0u)
+    if (regions == 0u) {
         return;
+    }
     const size_t span = bytes / regions;
     for (size_t index = 0; index < regions; index++) {
         const size_t start = index * span;
@@ -154,16 +159,18 @@ static inline void lockstep_digest_regions_excluding(const unsigned char *memory
             /* The next excluded range that begins at or after the cursor. */
             size_t next_start = stop, next_end = stop;
             for (size_t range = 0; skip && range < skip->count; range++) {
-                if (skip->end[range] <= cursor || skip->start[range] >= stop)
+                if (skip->end[range] <= cursor || skip->start[range] >= stop) {
                     continue;
+                }
                 const size_t begins = skip->start[range] < cursor ? cursor : skip->start[range];
                 if (begins < next_start) {
                     next_start = begins;
                     next_end = skip->end[range] > stop ? stop : skip->end[range];
                 }
             }
-            if (next_start > cursor)
+            if (next_start > cursor) {
                 hash = lockstep_hash_into(hash, memory + cursor, next_start - cursor);
+            }
             cursor = (next_end > next_start) ? next_end : next_start;
         }
         digests[index] = hash;
@@ -183,19 +190,23 @@ static inline void lockstep_digest_regions(const unsigned char *memory, size_t b
 static inline uint32_t lockstep_palette_hash(const unsigned char *memory, uint32_t cop1lc) {
     uint32_t hash = 2166136261u;
     const uint32_t list = cop1lc & 0xFFFFFFu;
-    if (!list || memory == NULL)
+    if (!list || memory == NULL) {
         return hash;
+    }
     for (uint32_t index = 0; index + 1u < LOCKSTEP_COPLIST_SCAN_WORDS; index += 2u) {
         const unsigned char *word = memory + list + index * 2u;
         const uint16_t control = (uint16_t)((word[0] << 8) | word[1]);
         const uint16_t value = (uint16_t)((word[2] << 8) | word[3]);
-        if (control == 0xFFFFu)
+        if (control == 0xFFFFu) {
             break;
-        if (control & 1u)
+        }
+        if (control & 1u) {
             continue; /* WAIT/SKIP — the colours after it still count */
+        }
         const uint16_t reg = control & 0x01FEu;
-        if (reg < 0x180u || reg > 0x1BEu)
+        if (reg < 0x180u || reg > 0x1BEu) {
             continue;
+        }
         hash ^= (uint32_t)reg;
         hash *= 16777619u;
         hash ^= (uint32_t)(value & 0x0FFFu);
@@ -226,13 +237,15 @@ static inline int lockstep_format_frame(char *out, size_t cap, const LockstepFra
                  state->audio_period[0], state->audio_period[1], state->audio_period[2],
                  state->audio_period[3], state->audio_volume[0], state->audio_volume[1],
                  state->audio_volume[2], state->audio_volume[3], state->dmacon, state->audio_dma);
-    if (written <= 0 || (size_t)written >= cap)
+    if (written <= 0 || (size_t)written >= cap) {
         return -1;
+    }
     for (size_t index = 0; index < regions; index++) {
         const int more = snprintf(out + written, cap - (size_t)written, "%s%016llX",
                                   index ? "," : "", (unsigned long long)digests[index]);
-        if (more <= 0 || (size_t)(written + more) >= cap)
+        if (more <= 0 || (size_t)(written + more) >= cap) {
             return -1;
+        }
         written += more;
     }
     return written;
@@ -261,22 +274,27 @@ typedef struct {
 static inline int lockstep_open(LockstepChannel *channel, const char *spec, size_t regions,
                                 size_t bytes) {
     memset(channel, 0, sizeof *channel);
-    if (spec == NULL || spec[0] == 0)
+    if (spec == NULL || spec[0] == 0) {
         return 0;
+    }
     char *end = NULL;
     const long read_fd = strtol(spec, &end, 10);
-    if (end == NULL || *end != ':')
+    if (end == NULL || *end != ':') {
         return 0;
+    }
     const long write_fd = strtol(end + 1, &end, 10);
-    if (end == NULL || *end != 0 || read_fd < 0 || write_fd < 0)
+    if (end == NULL || *end != 0 || read_fd < 0 || write_fd < 0) {
         return 0;
+    }
     channel->incoming = fdopen((int)read_fd, "r");
     channel->outgoing = fdopen((int)write_fd, "w");
-    if (channel->incoming == NULL || channel->outgoing == NULL)
+    if (channel->incoming == NULL || channel->outgoing == NULL) {
         return 0;
+    }
     char hello[128];
-    if (lockstep_format_hello(hello, sizeof hello, regions, bytes) < 0)
+    if (lockstep_format_hello(hello, sizeof hello, regions, bytes) < 0) {
         return 0;
+    }
     fprintf(channel->outgoing, "%s\n", hello);
     fflush(channel->outgoing);
     channel->enabled = 1;
@@ -284,10 +302,12 @@ static inline int lockstep_open(LockstepChannel *channel, const char *spec, size
 }
 
 static inline void lockstep_close(LockstepChannel *channel) {
-    if (channel->incoming)
+    if (channel->incoming) {
         fclose(channel->incoming);
-    if (channel->outgoing)
+    }
+    if (channel->outgoing) {
         fclose(channel->outgoing);
+    }
     channel->incoming = NULL;
     channel->outgoing = NULL;
     channel->enabled = 0;
@@ -299,8 +319,9 @@ static inline void lockstep_close(LockstepChannel *channel) {
  * matters. */
 static inline void lockstep_exchange(LockstepChannel *channel, const char *line,
                                      const unsigned char *memory, size_t bytes) {
-    if (!channel->enabled)
+    if (!channel->enabled) {
         return;
+    }
     fprintf(channel->outgoing, "%s\n", line);
     fflush(channel->outgoing);
     for (;;) {
@@ -310,13 +331,15 @@ static inline void lockstep_exchange(LockstepChannel *channel, const char *line,
             return;
         }
         char *newline = strchr(command, '\n');
-        if (newline)
+        if (newline) {
             *newline = 0;
+        }
         if (strncmp(command, "dump ", 5u) == 0) {
             FILE *sink = fopen(command + 5, "wb");
             const size_t wrote = sink ? fwrite(memory, 1u, bytes, sink) : 0u;
-            if (sink)
+            if (sink) {
                 fclose(sink);
+            }
             fprintf(channel->outgoing, "lockstep dumped bytes=%zu\n", wrote);
             fflush(channel->outgoing);
             continue;

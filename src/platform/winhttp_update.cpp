@@ -35,7 +35,8 @@ std::wstring widen(const char *text) {
  * return must still close what it opened. */
 class Internet {
   public:
-    explicit Internet(HINTERNET handle) : handle_(handle) {}
+    explicit Internet(HINTERNET handle) : handle_(handle) {
+    }
     ~Internet() {
         if (handle_ != nullptr) {
             WinHttpCloseHandle(handle_);
@@ -43,8 +44,12 @@ class Internet {
     }
     Internet(const Internet &) = delete;
     Internet &operator=(const Internet &) = delete;
-    [[nodiscard]] HINTERNET get() const { return handle_; }
-    [[nodiscard]] bool valid() const { return handle_ != nullptr; }
+    [[nodiscard]] HINTERNET get() const {
+        return handle_;
+    }
+    [[nodiscard]] bool valid() const {
+        return handle_ != nullptr;
+    }
 
   private:
     HINTERNET handle_;
@@ -121,4 +126,6 @@ void run_check() {
 } // namespace
 
 /* Called once per launch, by platform_update_check_start(). */
-extern "C" void platform_update_check_begin(void) { std::thread(run_check).detach(); }
+extern "C" void platform_update_check_begin(void) {
+    std::thread(run_check).detach();
+}
