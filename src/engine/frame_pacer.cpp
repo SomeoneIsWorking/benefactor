@@ -28,11 +28,39 @@ constexpr std::uint64_t kRebaseEvery = 50ULL * 60ULL * 60ULL;
 FramePacer::FramePacer(PacerHost &host) noexcept : host_(host) {
 }
 
+unsigned FramePacer::refreshes_per_frame() const noexcept {
+    if (refresh_ == 0) {
+        return 0;
+    }
+    const Nanoseconds asked = offset_of(1, percent_);
+    /* Nearest, not down: at 150% on a 120 Hz display the choice is between one
+     * refresh (240% of PAL) and two (120%), and two is the honest answer to
+     * "as close to what was asked as this display can hold steady". */
+    const std::uint64_t holds = std::max<std::uint64_t>(1, (asked + refresh_ / 2) / refresh_);
+    const Nanoseconds matched = holds * refresh_;
+    if (match_ == DisplayMatch::WhenFree) {
+        const Nanoseconds off = (matched > asked) ? matched - asked : asked - matched;
+        if (off * 100ULL > asked * kFreeMatchPct) {
+            return 0;
+        }
+    }
+    return (unsigned)holds;
+}
+
 Nanoseconds FramePacer::target_period() const noexcept {
-    return offset_of(1, percent_);
+    const unsigned holds = refreshes_per_frame();
+    return holds != 0 ? holds * refresh_ : offset_of(1, percent_);
 }
 
 Nanoseconds FramePacer::deadline_for(std::uint64_t frame) const noexcept {
+    /* A matched period is a whole number of nanoseconds — refreshes are — so
+     * the frame index multiplies it directly. A speed is not: 120% of 50 Hz is
+     * 16,666,666.67 ns, and multiplying a rounded period would give back the
+     * drift `offset_of` exists to avoid. */
+    const unsigned holds = refreshes_per_frame();
+    if (holds != 0) {
+        return epoch_ + frame * holds * refresh_;
+    }
     return epoch_ + offset_of(frame, percent_);
 }
 
@@ -54,6 +82,28 @@ void FramePacer::set_speed_percent(unsigned percent) noexcept {
         rebase(deadline_for(frames_));
     }
     percent_ = wanted;
+}
+
+void FramePacer::set_display_refresh(Nanoseconds refresh) noexcept {
+    if (refresh == refresh_) {
+        return;
+    }
+    /* Same seam as a speed change: rebase onto the deadline now due so the
+     * frame that spans the change is a whole frame of the old period. */
+    if (started_) {
+        rebase(deadline_for(frames_));
+    }
+    refresh_ = refresh;
+}
+
+void FramePacer::set_display_match(DisplayMatch match) noexcept {
+    if (match == match_) {
+        return;
+    }
+    if (started_) {
+        rebase(deadline_for(frames_));
+    }
+    match_ = match;
 }
 
 void FramePacer::resync() noexcept {
@@ -166,6 +216,8 @@ PacingReport FramePacer::report() const noexcept {
     out.longest = longest_;
     out.on_target = on_target_;
     out.resyncs = resyncs_;
+    out.display_refresh = refresh_;
+    out.refreshes_per_frame = refreshes_per_frame();
     return out;
 }
 

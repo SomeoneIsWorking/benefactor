@@ -290,6 +290,170 @@ void the_measurement_can_be_started_again_without_disturbing_the_pacing() {
     assert(pacer.report().frames == 1);
 }
 
+void a_matched_display_holds_every_frame_for_the_same_whole_number_of_refreshes() {
+    /* The judder the pacer cannot otherwise reach. 150% of PAL is 13.333 ms and
+     * a 120 Hz refresh is 8.333 ms, so a frame is shown for 1.6 refreshes —
+     * 2, 2, 1 over and over, whatever the pacing does. Matching rounds the
+     * period to two whole refreshes, and every frame is then held the same. */
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(150);
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    assert(pacer.target_period() == NS_PER_SECOND * 100ULL / (50ULL * 150ULL));
+
+    pacer.set_display_refresh(refresh120);
+    assert(pacer.refreshes_per_frame() == 2);
+    assert(pacer.target_period() == 2 * refresh120);
+    /* And the speed asked for is still reported as asked for: the setting the
+     * player chose has not silently become a different one. */
+    assert(pacer.speed_percent() == 150);
+}
+
+void a_matched_frame_is_paced_to_the_matched_period_not_the_speed() {
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(150);
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    pacer.set_display_refresh(refresh120);
+    pacer.wait();
+    const Nanoseconds period = pacer.wait();
+    assert(host.slept.size() == 1);
+    assert(host.slept[0] == 2 * refresh120);
+    assert(period == 2 * refresh120);
+}
+
+void a_matched_cadence_does_not_drift_over_a_long_run() {
+    /* A refresh interval is a whole number of nanoseconds, so a minute of
+     * frames must arrive on an exact multiple of it. The point of matching is
+     * that a frame lands on a refresh; a cadence that slid by a microsecond a
+     * minute would slide off one every few minutes and stutter. */
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(150);
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    pacer.set_display_refresh(refresh120);
+    pacer.wait();
+    constexpr std::uint64_t frames = 3600;
+    for (std::uint64_t i = 0; i < frames; i++) {
+        pacer.wait();
+    }
+    assert(host.now() == 1000000000ULL + frames * 2 * refresh120);
+}
+
+void a_display_that_already_divides_the_speed_changes_nothing() {
+    /* 120% of PAL is 60 frames a second and a 120 Hz display shows each of them
+     * for exactly two refreshes already. Matching must be a no-op there, not a
+     * rounding that nudges the period by a nanosecond. */
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(120);
+    const Nanoseconds before = pacer.target_period();
+    pacer.set_display_refresh(refresh120);
+    assert(pacer.refreshes_per_frame() == 2);
+    assert(pacer.target_period() == before);
+}
+
+void a_speed_faster_than_the_refresh_is_still_held_for_one_whole_refresh() {
+    /* 500% of PAL is 4 ms, less than half a 120 Hz refresh. There is no
+     * fraction of a refresh to hold a frame for, so the floor is one. In the
+     * product a fast-forward passes no refresh at all and is never matched;
+     * this only says the arithmetic cannot divide by zero or ask for none. */
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(500);
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    pacer.set_display_refresh(refresh120);
+    assert(pacer.refreshes_per_frame() == 1);
+    assert(pacer.target_period() == refresh120);
+}
+
+void letting_go_of_the_display_returns_to_the_exact_speed() {
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(150);
+    const Nanoseconds unmatched = pacer.target_period();
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    pacer.set_display_refresh(refresh120);
+    pacer.set_display_refresh(0);
+    assert(pacer.refreshes_per_frame() == 0);
+    assert(pacer.target_period() == unmatched);
+    assert(pacer.report().display_refresh == 0);
+}
+
+void matching_the_display_does_not_produce_a_short_frame_at_the_seam() {
+    /* Same seam as a speed change, and the same rule: the frame spanning the
+     * change is a whole frame of the OLD period. A display change arrives when
+     * the window is dragged to another monitor, mid-game and mid-frame. */
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(150);
+    pacer.wait();
+    pacer.wait();
+    const Nanoseconds at_change = host.now();
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    pacer.set_display_refresh(refresh120);
+    const Nanoseconds first = pacer.wait();
+    assert(first == 2 * refresh120);
+    assert(host.now() == at_change + 2 * refresh120);
+}
+
+void the_report_says_what_the_display_is_doing() {
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(150);
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    pacer.set_display_refresh(refresh120);
+    const PacingReport report = pacer.report();
+    assert(report.display_refresh == refresh120);
+    assert(report.refreshes_per_frame == 2);
+    assert(report.target == 2 * refresh120);
+}
+
+void a_match_that_would_cost_real_speed_is_refused_by_default() {
+    /* PAL on a 120 Hz display: the nearest whole-refresh period is 16.667 ms,
+     * which is the game running twenty percent fast. Nobody asked for that, so
+     * the default limit leaves the speed exactly where it was and the player
+     * keeps the judder they can at least recognise as the display's. */
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_display_refresh(refresh120);
+    assert(pacer.refreshes_per_frame() == 0);
+    assert(pacer.target_period() == kPal);
+}
+
+void a_match_that_costs_almost_nothing_is_taken_by_default() {
+    /* 144 Hz: three refreshes is 20.833 ms, four percent slow. That is inside
+     * the default limit, so it happens without anyone choosing it, and the
+     * judder of 2.88 refreshes a frame goes away for free. */
+    constexpr Nanoseconds refresh144 = NS_PER_SECOND / 144;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_display_refresh(refresh144);
+    assert(pacer.refreshes_per_frame() == 3);
+    assert(pacer.target_period() == 3 * refresh144);
+}
+
+void asking_for_it_takes_the_match_the_default_refused() {
+    constexpr Nanoseconds refresh120 = NS_PER_SECOND / 120;
+    FakeHost host;
+    FramePacer pacer(host);
+    pacer.set_speed_percent(150);
+    pacer.set_display_refresh(refresh120);
+    assert(pacer.refreshes_per_frame() == 0); /* 150% -> 120% costs 25% of the period */
+    pacer.set_display_match(FramePacer::DisplayMatch::Always);
+    assert(pacer.refreshes_per_frame() == 2);
+    assert(pacer.target_period() == 2 * refresh120);
+}
+
 } // namespace
 
 int main() {
@@ -309,5 +473,16 @@ int main() {
     the_audio_and_display_samples_do_not_consume_each_other();
     the_audio_cadence_does_not_drift_over_a_long_fast_forward();
     the_measurement_can_be_started_again_without_disturbing_the_pacing();
+    a_matched_display_holds_every_frame_for_the_same_whole_number_of_refreshes();
+    a_matched_frame_is_paced_to_the_matched_period_not_the_speed();
+    a_matched_cadence_does_not_drift_over_a_long_run();
+    a_display_that_already_divides_the_speed_changes_nothing();
+    a_speed_faster_than_the_refresh_is_still_held_for_one_whole_refresh();
+    letting_go_of_the_display_returns_to_the_exact_speed();
+    matching_the_display_does_not_produce_a_short_frame_at_the_seam();
+    the_report_says_what_the_display_is_doing();
+    a_match_that_would_cost_real_speed_is_refused_by_default();
+    a_match_that_costs_almost_nothing_is_taken_by_default();
+    asking_for_it_takes_the_match_the_default_refused();
     return 0;
 }

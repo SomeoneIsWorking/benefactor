@@ -69,7 +69,17 @@ static int s_title_mode = 0;
 
 enum { OPT_RESUME = 0, OPT_OPTIONS, OPT_RETRY, OPT_EXIT_TO_MENU, OPT_QUIT, NUM_MAIN };
 /* OPTIONS-page row ids (rows are built per-mode by options_rows). */
-enum { OO_GRAPHICS = 0, OO_SPEED, OO_PHYSICS, OO_FREECAM, OO_CONTROLS, OO_EXTRA, OO_BACK, OO_QUIT };
+enum {
+    OO_GRAPHICS = 0,
+    OO_SPEED,
+    OO_MATCH_DISPLAY,
+    OO_PHYSICS,
+    OO_FREECAM,
+    OO_CONTROLS,
+    OO_EXTRA,
+    OO_BACK,
+    OO_QUIT
+};
 /* GRAPHICS-page row ids. EFFECTS rows (AMBIENT/SHADOW) are flattened in here —
  * they apply only on the HARDWARE renderer and are greyed out otherwise. */
 enum { RR_RENDERER = 0, RR_ASPECT, RR_FULLSCREEN, RR_AMBIENT, RR_SHADOW, RR_BACK };
@@ -153,6 +163,7 @@ static int options_rows(int *rows /* >= 14 */) {
     int n = 0;
     rows[n++] = OO_GRAPHICS;
     rows[n++] = OO_SPEED;
+    rows[n++] = OO_MATCH_DISPLAY;
     rows[n++] = OO_PHYSICS;
     rows[n++] = OO_FREECAM;
     rows[n++] = OO_CONTROLS;
@@ -354,6 +365,39 @@ static void speed_set(int idx) {
     hw_speed_refresh();
 }
 
+/* Matching the display: off / when it is free / whatever it costs.
+ *
+ * A game frame is almost never a whole number of the display's refreshes — 50
+ * frames a second on a 120 Hz panel is 2.4 of them — so frames are held for
+ * uneven lengths of time and slow steady motion wobbles however exactly they
+ * are paced. Rounding the frame to a whole number of refreshes fixes that, and
+ * costs the difference between the speed asked for and the nearest one the
+ * display can hold steady. On a 144 Hz panel that difference is about four
+ * percent and IF FREE takes it by itself; on a 60 or 120 Hz one it is twenty,
+ * so ALWAYS is there to be chosen rather than assumed. */
+#define NUM_MATCH 3
+static const char *k_match_vals[NUM_MATCH] = {"off", "free", "always"};
+static const char *k_match_labels[NUM_MATCH] = {"OFF", "IF FREE", "ALWAYS"};
+
+static int match_index(void) {
+    char buf[16];
+    if (!pc_cfg_show("pace_to_display", buf, sizeof buf, NULL) || !buf[0]) {
+        return 1; /* the default: take the free matches, leave the costly ones */
+    }
+    for (int i = 0; i < NUM_MATCH; i++) {
+        if (!strcasecmp(buf, k_match_vals[i])) {
+            return i;
+        }
+    }
+    return 1;
+}
+
+static void match_set(int idx) {
+    char json[16];
+    snprintf(json, sizeof json, "\"%s\"", k_match_vals[(idx % NUM_MATCH + NUM_MATCH) % NUM_MATCH]);
+    pc_cfg_persist("pace_to_display", json);
+}
+
 /* "Extend interaction range": disabled / enabled (enabled = 5 px). */
 #define INTERACT_EXTEND_ON 5
 static int interact_enabled(void) {
@@ -381,6 +425,9 @@ static void options_cycle(int row, int dir) {
      * select), not value cycles. */
     case OO_SPEED:
         speed_set(speed_index() + dir);
+        break;
+    case OO_MATCH_DISPLAY:
+        match_set(match_index() + dir);
         break;
     case OO_PHYSICS:
         bool_knob_toggle("platformer_physics");
@@ -865,6 +912,9 @@ static int build_options(PcPauseView *view) {
             break;
         case OO_SPEED:
             view_row(row, "GAME SPEED", k_speed_labels[speed_index()]);
+            break;
+        case OO_MATCH_DISPLAY:
+            view_row(row, "MATCH DISPLAY", k_match_labels[match_index()]);
             break;
         case OO_PHYSICS:
             view_row(row, "JUMP PHYSICS",

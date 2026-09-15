@@ -52,6 +52,15 @@ unsigned pc_pace_speed_percent(void) {
     return pacer().speed_percent();
 }
 
+void pc_pace_set_display_refresh(uint64_t refresh_ns) {
+    pacer().set_display_refresh(refresh_ns);
+}
+
+void pc_pace_set_display_match_at_any_speed(int always) {
+    pacer().set_display_match(always ? benefactor::engine::FramePacer::DisplayMatch::Always
+                                     : benefactor::engine::FramePacer::DisplayMatch::WhenFree);
+}
+
 uint64_t pc_pace_frame_wait(void) {
     return pacer().wait();
 }
@@ -80,6 +89,8 @@ void pc_pace_report(PcPacingReport *out) {
     out->longest_ns = report.longest;
     out->on_target = report.on_target;
     out->resyncs = report.resyncs;
+    out->display_refresh_ns = report.display_refresh;
+    out->refreshes_per_frame = report.refreshes_per_frame;
 }
 
 void pc_pace_forget_measurements(void) {
