@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from tools.paths import ROOT
+from tools.shared_checkouts import cmake_arguments, ensure_shared_checkouts
 
 
 def build_product() -> Path:
@@ -20,10 +21,21 @@ def build_product() -> Path:
         )
         raise RuntimeError(f"required native build tools are missing: {missing}")
 
+    shared = ensure_shared_checkouts(cmake)
     build = ROOT / "build" / "run"
     build.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        [cmake, "-S", str(ROOT), "-B", str(build), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"],
+        [
+            cmake,
+            "-S",
+            str(ROOT),
+            "-B",
+            str(build),
+            "-G",
+            "Ninja",
+            "-DCMAKE_BUILD_TYPE=Release",
+            *cmake_arguments(shared),
+        ],
         cwd=ROOT,
         check=True,
     )

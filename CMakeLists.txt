@@ -163,14 +163,32 @@ if(ANDROID)
 endif()
 set(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DEFAULT}"
     CACHE PATH "Path to the setup-ui library")
+if("${BENEFACTOR_SETUP_UI_DIR}" STREQUAL "")
+    # A configure that ran before the checkout existed cached an empty path.
+    # Re-resolve it, so checking the tree out is enough to recover.
+    set(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DEFAULT}"
+        CACHE PATH "Path to the setup-ui library" FORCE)
+endif()
+# An empty path resolves to this source directory, which is a directory, so it
+# would pass the check below and add Benefactor to itself as a subdirectory.
+# That reports duplicate binary directories and targets instead of the miss.
+if("${BENEFACTOR_SETUP_UI_DIR}" STREQUAL "")
+    message(FATAL_ERROR
+        "Benefactor requires shared/setup-ui; tried "
+        "${BENEFACTOR_SETUP_UI_CANDIDATES}. "
+        "Run ./run.sh, which checks the pinned shared trees out, or provide "
+        "-DBENEFACTOR_SETUP_UI_DIR=<checkout> (and set SETUP_UI_RMLUI_DIR to "
+        "an RmlUi checkout).")
+endif()
 get_filename_component(BENEFACTOR_SETUP_UI_DIR "${BENEFACTOR_SETUP_UI_DIR}"
     ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 if(NOT IS_DIRECTORY "${BENEFACTOR_SETUP_UI_DIR}")
     message(FATAL_ERROR
         "Benefactor requires shared/setup-ui; tried "
         "${BENEFACTOR_SETUP_UI_CANDIDATES}. "
-        "Provide -DBENEFACTOR_SETUP_UI_DIR=<checkout> (and set "
-        "SETUP_UI_RMLUI_DIR to an RmlUi checkout).")
+        "Run ./run.sh, which checks the pinned shared trees out, or provide "
+        "-DBENEFACTOR_SETUP_UI_DIR=<checkout> (and set SETUP_UI_RMLUI_DIR to "
+        "an RmlUi checkout).")
 endif()
 set(SETUP_UI_LUCENT_DIR "${BENEFACTOR_LUCENT_DIR}" CACHE PATH "" FORCE)
 add_subdirectory("${BENEFACTOR_SETUP_UI_DIR}" "${CMAKE_BINARY_DIR}/setup-ui")

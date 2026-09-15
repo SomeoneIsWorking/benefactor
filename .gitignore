@@ -41,3 +41,7 @@ profile.json
 # WHDLoad content dir (copyrighted disks) — only needed for BENEFACTOR_REFREEZE
 /whdload/
 *.measuring
+
+# Shared trees run.sh checks out at their pinned revisions
+/shared/
+/dependencies/

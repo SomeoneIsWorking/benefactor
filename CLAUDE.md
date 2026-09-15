@@ -118,5 +118,15 @@ cmake --build build/run --target benefactor_product --parallel
 uv run --frozen python -m tools.verify
 ```
 
-`./run.sh` is the player launcher. The adjacent `shared/amigaport` checkout
-must match the ref pinned in `.github/workflows/release.yml`.
+`./run.sh` is the player launcher, and it resolves the shared trees first:
+`tools/shared_checkouts.py` reads the revisions `.github/workflows/release.yml`
+pins and gives CMake a path for amigaport, lucent, setup-ui and RmlUi (and a
+Freetype checkout when the host has no font engine). A checkout that is already
+there is used; one that is clean and only behind the pin is fast-forwarded onto
+it; one carrying its own work is used untouched and reported; nothing at all is
+checked out at the pin under `shared/` or `dependencies/`. `BENEFACTOR_*_DIR`
+and `SETUP_UI_*_DIR` override any of them.
+
+The cmake invocation above builds against whatever the adjacent checkouts hold,
+so it needs those to match the pinned refs itself — `uv run --frozen python -m
+tools.shared_checkouts` prints the paths it resolves and aligns them.
