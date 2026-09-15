@@ -39,11 +39,13 @@ from tools.paths import ROOT
 
 ANDROID_NAMESPACE = "{http://schemas.android.com/apk/res/android}"
 
-# Sampled from the game's own frames: the amber of the key that opens the cells,
-# the cave's deep brown, and the teal line where the water surface runs beneath
-# the cave. Flat fills, because an icon is read at 16 px.
+# Sampled from the game's own frames: the cave's deep brown, the amber the game
+# lights its gold with, the red of the hero's tunic, and the teal line where the
+# water surface runs beneath the cave. Flat fills, because an icon is read at
+# 16 px.
 CAVE = "#33210b"
 GOLD = "#f5b52a"
+RED = "#d2382c"
 TEAL = "#2fa89e"
 WHITE = "#ffffff"
 
@@ -53,20 +55,29 @@ CORNER_FRACTION = 0.219
 MARK_SCALE = 1.08
 """How much of the tile the mark fills; tuned by looking, not by arithmetic."""
 
-#: The mark's coordinate system: the game's key hanging above the water line.
-#: The bow is a ring with its hole cut out, the stem hangs from the bow's outer
-#: arc, and the teeth sit on the stem's right side near the foot, as the game's
-#: sprite does. The bar underneath is the water surface.
-KEY_CENTRE_X = 256.0
-KEY_BOW_CENTRE_Y = 168.0
-KEY_BOW_RADIUS = 58.0
-KEY_HOLE_RADIUS = 28.0
-KEY_STEM_HALF = 24.0
-KEY_BOTTOM = 364.0
-KEY_TOOTH_TOP_REACH = 32.0
-KEY_TOOTH_TOP_Y = 298.0
-KEY_TOOTH_BOTTOM_REACH = 24.0
-KEY_TOOTH_BOTTOM_Y = 346.0
+#: The mark's coordinate system: the hero standing on the water line, one arm
+#: up. He is the thing a player recognises, so the mark is his silhouette — head,
+#: arms and legs in the game's amber, the tunic in its red — and the gap between
+#: his legs is a real hole, which is what lets the same shape serve as Android's
+#: monochrome layer.
+HERO_HEAD_X = 256.0
+HERO_HEAD_Y = 150.0
+HERO_HEAD_RADIUS = 46.0
+
+HERO_SHOULDER_Y = 192.0
+HERO_HIP_Y = 300.0
+HERO_SHOULDER_HALF = 46.0
+HERO_HIP_HALF = 60.0
+
+HERO_ARM_HALF = 16.0
+HERO_ARM_RAISED = (302.0, 216.0, 352.0, 138.0)
+HERO_ARM_LOWERED = (210.0, 216.0, 168.0, 278.0)
+
+HERO_LEG_TOP = HERO_HIP_Y
+HERO_LEG_BOTTOM = 368.0
+HERO_LEG_GAP_HALF = 13.0
+HERO_LEG_HALF = 29.0
+
 WATERLINE_TOP = 384.0
 WATERLINE_BOTTOM = 410.0
 WATERLINE_RADIUS = 13.0
@@ -119,46 +130,88 @@ def _radius(value: float, scale: float) -> str:
     return plain(value * scale)
 
 
-def key_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
-    """The key as one path: the bow's ring, the hanging stem, and its teeth.
+def _disc(cx: float, cy: float, radius: float, scale: float, dx: float, dy: float) -> str:
+    arc = f"A{_radius(radius, scale)} {_radius(radius, scale)} 0 0 1"
+    return (
+        f"M{_point(cx - radius, cy, scale, dx, dy)} "
+        f"{arc} {_point(cx + radius, cy, scale, dx, dy)} "
+        f"{arc} {_point(cx - radius, cy, scale, dx, dy)} Z"
+    )
 
-    The stem hangs from the bow's outer arc rather than from a straight edge, so
-    the two shapes share their boundary without overlapping — which, with
-    `fill-rule="evenodd"`, is what lets the bow's hole be a cut-out rather than a
-    painted patch. That is what makes this same path work as Android's
-    monochrome layer, where the hole has to be transparent.
+
+def _polygon(corners: tuple[tuple[float, float], ...], scale: float, dx: float, dy: float) -> str:
+    first, *rest = corners
+    lines = " ".join(f"L{_point(x, y, scale, dx, dy)}" for x, y in rest)
+    return f"M{_point(*first, scale, dx, dy)} {lines} Z"
+
+
+def _limb(
+    start: tuple[float, float, float, float],
+    half: float,
+    scale: float,
+    dx: float,
+    dy: float,
+) -> str:
+    """A straight limb of constant thickness, as the quad it sweeps out."""
+    x1, y1, x2, y2 = start
+    length = math.hypot(x2 - x1, y2 - y1)
+    nx = -(y2 - y1) / length * half
+    ny = (x2 - x1) / length * half
+    return _polygon(
+        ((x1 + nx, y1 + ny), (x2 + nx, y2 + ny), (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)),
+        scale,
+        dx,
+        dy,
+    )
+
+
+def hero_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
+    """The hero without his tunic colour: head, both arms, both legs.
+
+    Separate subpaths rather than one outline, because they only have to read as
+    one shape once they are filled — and drawn this way the gap between the legs
+    is left open, which is what the themed Android layer shows the launcher's
+    own surface through.
     """
-    cx = KEY_CENTRE_X
-    cy = KEY_BOW_CENTRE_Y
-    bow = KEY_BOW_RADIUS
-    half = KEY_STEM_HALF
-    junction = cy + math.sqrt(bow * bow - half * half)
-    stem_right = cx + half
-    stem_left = cx - half
-    outline = (
-        f"M{_point(cx, cy - bow, scale, dx, dy)} "
-        f"A{_radius(bow, scale)} {_radius(bow, scale)} 0 0 1 "
-        f"{_point(stem_right, junction, scale, dx, dy)} "
-        f"L{_point(stem_right, KEY_TOOTH_TOP_Y, scale, dx, dy)} "
-        f"L{_point(stem_right + KEY_TOOTH_TOP_REACH, KEY_TOOTH_TOP_Y, scale, dx, dy)} "
-        f"L{_point(stem_right + KEY_TOOTH_TOP_REACH, KEY_TOOTH_TOP_Y + 34, scale, dx, dy)} "
-        f"L{_point(stem_right, KEY_TOOTH_TOP_Y + 34, scale, dx, dy)} "
-        f"L{_point(stem_right, KEY_TOOTH_BOTTOM_Y, scale, dx, dy)} "
-        f"L{_point(stem_right + KEY_TOOTH_BOTTOM_REACH, KEY_TOOTH_BOTTOM_Y, scale, dx, dy)} "
-        f"L{_point(stem_right + KEY_TOOTH_BOTTOM_REACH, KEY_BOTTOM, scale, dx, dy)} "
-        f"L{_point(stem_left, KEY_BOTTOM, scale, dx, dy)} "
-        f"L{_point(stem_left, junction, scale, dx, dy)} "
-        f"A{_radius(bow, scale)} {_radius(bow, scale)} 0 0 1 "
-        f"{_point(cx, cy - bow, scale, dx, dy)} Z"
+    inner = HERO_LEG_GAP_HALF
+    outer = inner + 2 * HERO_LEG_HALF
+    legs = [
+        _polygon(
+            (
+                (HERO_HEAD_X + side * inner, HERO_LEG_TOP),
+                (HERO_HEAD_X + side * outer, HERO_LEG_TOP),
+                (HERO_HEAD_X + side * outer, HERO_LEG_BOTTOM),
+                (HERO_HEAD_X + side * inner, HERO_LEG_BOTTOM),
+            ),
+            scale,
+            dx,
+            dy,
+        )
+        for side in (-1.0, 1.0)
+    ]
+    return " ".join(
+        [
+            _disc(HERO_HEAD_X, HERO_HEAD_Y, HERO_HEAD_RADIUS, scale, dx, dy),
+            _limb(HERO_ARM_RAISED, HERO_ARM_HALF, scale, dx, dy),
+            _limb(HERO_ARM_LOWERED, HERO_ARM_HALF, scale, dx, dy),
+            *legs,
+        ]
     )
-    hole = (
-        f"M{_point(cx - KEY_HOLE_RADIUS, cy, scale, dx, dy)} "
-        f"A{_radius(KEY_HOLE_RADIUS, scale)} {_radius(KEY_HOLE_RADIUS, scale)} 0 0 1 "
-        f"{_point(cx + KEY_HOLE_RADIUS, cy, scale, dx, dy)} "
-        f"A{_radius(KEY_HOLE_RADIUS, scale)} {_radius(KEY_HOLE_RADIUS, scale)} 0 0 1 "
-        f"{_point(cx - KEY_HOLE_RADIUS, cy, scale, dx, dy)} Z"
+
+
+def tunic_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
+    """The tunic, which is the one thing about him that is red."""
+    return _polygon(
+        (
+            (HERO_HEAD_X - HERO_SHOULDER_HALF, HERO_SHOULDER_Y),
+            (HERO_HEAD_X + HERO_SHOULDER_HALF, HERO_SHOULDER_Y),
+            (HERO_HEAD_X + HERO_HIP_HALF, HERO_HIP_Y),
+            (HERO_HEAD_X - HERO_HIP_HALF, HERO_HIP_Y),
+        ),
+        scale,
+        dx,
+        dy,
     )
-    return f"{outline} {hole}"
 
 
 def waterline_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
@@ -177,12 +230,19 @@ def waterline_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
 
 
 def mark_extent() -> tuple[float, float, float, float]:
-    left = KEY_CENTRE_X - KEY_BOW_RADIUS
-    right = max(
-        KEY_CENTRE_X + KEY_BOW_RADIUS,
-        KEY_CENTRE_X + KEY_STEM_HALF + KEY_TOOTH_TOP_REACH,
+    """What the mark occupies, arms included, down to the water line."""
+    reach = math.hypot(HERO_ARM_HALF, HERO_ARM_HALF)
+    left = min(
+        HERO_HEAD_X - HERO_HEAD_RADIUS,
+        HERO_HEAD_X - HERO_HIP_HALF,
+        HERO_ARM_LOWERED[2] - reach,
     )
-    return (left, KEY_BOW_CENTRE_Y - KEY_BOW_RADIUS, right, WATERLINE_BOTTOM)
+    right = max(
+        HERO_HEAD_X + HERO_HEAD_RADIUS,
+        HERO_HEAD_X + HERO_HIP_HALF,
+        HERO_ARM_RAISED[2] + reach,
+    )
+    return (left, HERO_HEAD_Y - HERO_HEAD_RADIUS, right, WATERLINE_BOTTOM)
 
 
 def centre_mark(scale: float, canvas: float) -> tuple[float, float]:
@@ -201,7 +261,8 @@ def master_svg() -> str:
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}" height="{CANVAS}"'
             f' viewBox="0 0 {CANVAS} {CANVAS}">',
             f'  <rect width="{CANVAS}" height="{CANVAS}" rx="{radius}" fill="{CAVE}"/>',
-            f'  <path fill="{GOLD}" fill-rule="evenodd" d="{key_path(MARK_SCALE, dx, dy)}"/>',
+            f'  <path fill="{RED}" d="{tunic_path(MARK_SCALE, dx, dy)}"/>',
+            f'  <path fill="{GOLD}" d="{hero_path(MARK_SCALE, dx, dy)}"/>',
             f'  <path fill="{TEAL}" d="{waterline_path(MARK_SCALE, dx, dy)}"/>',
             "</svg>",
             "",
@@ -274,7 +335,8 @@ def android_foreground() -> str:
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
     body = "\n".join(
         [
-            path_element(key_path(scale, dx, dy), GOLD, "evenOdd"),
+            path_element(tunic_path(scale, dx, dy), RED),
+            path_element(hero_path(scale, dx, dy), GOLD),
             path_element(waterline_path(scale, dx, dy), TEAL),
         ]
     )
@@ -286,7 +348,8 @@ def android_monochrome() -> str:
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
     body = "\n".join(
         [
-            path_element(key_path(scale, dx, dy), WHITE, "evenOdd"),
+            path_element(tunic_path(scale, dx, dy), WHITE),
+            path_element(hero_path(scale, dx, dy), WHITE),
             path_element(waterline_path(scale, dx, dy), WHITE),
         ]
     )
@@ -302,7 +365,8 @@ def android_legacy() -> str:
     body = "\n".join(
         [
             path_element(tile, CAVE),
-            path_element(key_path(scale, dx, dy), GOLD, "evenOdd"),
+            path_element(tunic_path(scale, dx, dy), RED),
+            path_element(hero_path(scale, dx, dy), GOLD),
             path_element(waterline_path(scale, dx, dy), TEAL),
         ]
     )
@@ -540,7 +604,7 @@ def ink_fraction(path: Path) -> float:
 def mark_fraction(path: Path) -> float:
     """Share of an icon's pixels that read as the gold mark rather than its tile.
 
-    Measured as the share within reach of the key gold, because the tile is warm
+    Measured as the share within reach of the hero's amber, because the tile is warm
     too — the game's cave is brown — so warmth alone cannot separate the mark
     from the tile. `--sheet` prints this and the retained-source test asserts it,
     so both measure the icon the same way.
