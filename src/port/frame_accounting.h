@@ -192,6 +192,18 @@ class FrameAccounting final {
         bump(title_draws_);
     }
 
+    /* Whether the copper list changed since the last frame, which is how a
+     * screen change is recognised. It belongs here with the rest of the
+     * frame's state rather than in the function that reports it: one frame,
+     * one place that remembers what the last one looked like. */
+    [[nodiscard]] bool screen_changed(std::uint32_t cop1lc) noexcept {
+        if (cop1lc == last_cop1lc_) {
+            return false;
+        }
+        last_cop1lc_ = cop1lc;
+        return true;
+    }
+
   private:
     FrameAccounting() = default;
 
@@ -204,6 +216,7 @@ class FrameAccounting final {
     std::uint64_t present_cycles_{};
     Counter running_{PC_OWNER_FLOW};
     Counter title_draws_{};
+    std::uint32_t last_cop1lc_{0xFFFFFFFFu};
 };
 
 } // namespace benefactor::diag

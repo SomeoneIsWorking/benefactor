@@ -8,8 +8,6 @@
 
 namespace benefactor::platform {
 
-const char *const kDiskNames[3] = {"Disk.1", "Disk.2", "Disk.3"};
-
 namespace {
 
 constexpr std::array<std::uintmax_t, 3> kDiskSizes = {1003520, 1003520, 1003520};
