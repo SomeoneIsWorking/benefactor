@@ -15,7 +15,8 @@
  *   /cpu                      the guest's D0-D7, A0-A7, PC and SR
  *   /mem?addr=HEX&len=N       guest memory as hex
  *   /poke?addr=HEX&val=HEX    write one byte
- *   /fb.ppm  /fb.bin          the presented screen, as PPM or raw ARGB
+ *   /fb.ppm  /fb.bin          the presented screen — the composed output, host
+ *                             overlays included — as PPM or raw ARGB
  *   /trace   /recent          retired guest instructions, recent call targets
  *
  * Routes — playing it:
@@ -23,6 +24,8 @@
  *   /press?fire=1&frames=3    set for exactly N frames, released by the frame
  *                             loop — a press is not a race against two round
  *                             trips any more
+ *   /menu                     open or close the game's own pause menu
+ *   /menu?nav=down|select|…   walk it: up, down, left, right, select, back
  *   /step?frames=N            run N frames, then hold still
  *   /pause  /resume           hold still / carry on
  *   /save   /load   /gameover

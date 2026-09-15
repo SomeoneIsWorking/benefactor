@@ -326,12 +326,23 @@ Response route_step(const Request &request) {
     return Response::json(200, "OK", formatted("{\"ok\":true,\"stepping\":%d}\n", frames));
 }
 
+/* The COMPOSED output surface, not the guest's 4:3 render: the pause menu, the
+ * level picker, the HUD icons and the toast are drawn into the wide output
+ * after the playfield, so a shot of s_fb shows the game with every host overlay
+ * missing and no sign that anything was left out. A screenshot route that
+ * cannot show what is on screen is worse than none. Falls back to the 4:3
+ * surface only when there is no output surface yet. */
 Response route_framebuffer(bool as_ppm) {
-    const std::uint32_t *framebuffer = hw_get_framebuffer();
+    const std::uint32_t *framebuffer = hw_get_output_framebuffer();
+    int width = hw_output_width();
+    if (framebuffer == nullptr) {
+        framebuffer = hw_get_framebuffer();
+        width = kFramebufferWidth;
+    }
     if (framebuffer == nullptr) {
         return Response::text(503, "Unavailable", "no fb\n");
     }
-    const std::size_t pixels = (std::size_t)kFramebufferWidth * kFramebufferHeight;
+    const std::size_t pixels = (std::size_t)width * kFramebufferHeight;
 
     if (!as_ppm) {
         return Response::binary(200, "OK", "application/octet-stream",
@@ -339,7 +350,7 @@ Response route_framebuffer(bool as_ppm) {
                                             pixels * sizeof(std::uint32_t)));
     }
 
-    std::string body = formatted("P6\n%d %d\n255\n", kFramebufferWidth, kFramebufferHeight);
+    std::string body = formatted("P6\n%d %d\n255\n", width, kFramebufferHeight);
     body.reserve(body.size() + pixels * 3);
     for (std::size_t index = 0; index < pixels; index++) {
         const std::uint32_t pixel = framebuffer[index];
@@ -448,6 +459,35 @@ Response dispatch(const Request &request) {
      * clock, and "is the music still at tempo in there" is a question with an
      * answer (/state irq_calls.irq6 against wall time). */
     if (path == "/menu") {
+        /* ?nav= walks the menu the way the keyboard does, so every page — the
+         * option values, the greyed-out GPU effects, a bindings list — can be
+         * reached and shot from here. Without it the channel could open the
+         * menu and then only ever see its first page. */
+        const std::string nav = parameter(request, "nav");
+        if (!nav.empty()) {
+            if (!pc_pause_active()) {
+                return Response::text(409, "Conflict", "menu is not open\n");
+            }
+            if (nav == "up") {
+                pc_pause_input_up();
+            } else if (nav == "down") {
+                pc_pause_input_down();
+            } else if (nav == "left") {
+                pc_pause_input_left();
+            } else if (nav == "right") {
+                pc_pause_input_right();
+            } else if (nav == "select") {
+                pc_pause_input_select();
+            } else if (nav == "back") {
+                pc_pause_escape();
+            } else {
+                return Response::text(400, "Bad Request",
+                                      "nav is up|down|left|right|select|back\n");
+            }
+            return Response::json(200, "OK",
+                                  formatted("{\"menu\":%d,\"nav\":\"%s\"}\n",
+                                            pc_pause_active() ? 1 : 0, nav.c_str()));
+        }
         pc_pause_toggle();
         return Response::json(200, "OK", formatted("{\"menu\":%d}\n", pc_pause_active() ? 1 : 0));
     }
