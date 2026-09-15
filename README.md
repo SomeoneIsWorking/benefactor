@@ -82,9 +82,12 @@ the page to choose different disks after the game starts or startup fails.
 ## Build and run status
 
 `./run.sh` is the fresh-clone interface and delegates to a locked Python
-initializer. It validates the player's three disks, builds the native product,
-and launches it; `./run.sh --browse` opens a desktop file picker for selecting
-the disk set. Tests and oracle runs remain separate commands.
+initializer. It checks out the shared trees the build consumes — the 68000
+runtime, the logging and control library, the setup screen and its renderer —
+at the revisions the release workflow pins, validates the player's three disks,
+builds the native product, and launches it; `./run.sh --browse` opens a desktop
+file picker for selecting the disk set. Tests and oracle runs remain separate
+commands.
 
 ## Intended runtime
 

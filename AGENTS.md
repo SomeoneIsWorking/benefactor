@@ -113,6 +113,7 @@ issues before re-deriving an address, ABI, state transition, or failed approach.
   `.string()` and, when a Windows job reports such a conversion error, syntax-check the
   Windows-relevant sources with a Windows cross-compiler before pushing again.
 
-The adapter and product now build. CMake and `./run.sh` must refuse a missing
-`shared/amigaport` boundary by name; they must never launch a diagnostic
-emulator or the deleted static implementation.
+The adapter and product now build. `./run.sh` checks the `shared/amigaport`
+boundary out at the revision `.github/workflows/release.yml` pins when it is
+absent, and CMake must refuse a missing one by name; neither may ever launch a
+diagnostic emulator or the deleted static implementation.

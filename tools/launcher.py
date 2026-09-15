@@ -9,6 +9,7 @@ from tools.config import parse_launch_config
 from tools.disk_browse import browse_for_disks
 from tools.disk_identity import validate_disk_set
 from tools.paths import AMIGAPORT, amigaport_dir
+from tools.shared_checkouts import ensure_shared_checkouts
 
 LOGGER = logging.getLogger("benefactor.launcher")
 
@@ -26,6 +27,13 @@ def runtime_blocker(amigaport: Path = AMIGAPORT) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    try:
+        # A fresh clone has none of the shared trees the build consumes, so they
+        # are resolved before anything reports one of them missing.
+        ensure_shared_checkouts()
+    except RuntimeError as error:
+        LOGGER.error("shared checkouts: %s", error)
+        return 2
     blocker = runtime_blocker()
     if blocker:
         LOGGER.error("Benefactor gameplay product unavailable: %s", blocker)
