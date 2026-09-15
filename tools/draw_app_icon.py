@@ -39,48 +39,55 @@ from tools.paths import ROOT
 
 ANDROID_NAMESPACE = "{http://schemas.android.com/apk/res/android}"
 
-# Sampled from the game's own frames: the cave's deep brown, the amber the game
-# lights its gold with, the red of the hero's tunic, and the teal line where the
-# water surface runs beneath the cave. Flat fills, because an icon is read at
-# 16 px.
-CAVE = "#33210b"
-GOLD = "#f5b52a"
-RED = "#d2382c"
-TEAL = "#2fa89e"
+# Every colour here is read off the frame named below rather than picked: the
+# lit brown of the cave wall the game paints behind him for the tile, and for
+# the hero his outline, the dark of his hair, his boot, two tones of skin, and
+# three reds. Flat fills, because an icon is read at 16 px.
+CAVE = "#524531"
 WHITE = "#ffffff"
+
+#: The hero as the game itself draws him, read pixel for pixel off
+#: `screenshots/gameplay-minniat.png` at x276-281, y66-74, where he stands
+#: against open sky with nothing in front of him. One letter per pixel, a dot
+#: for the sky behind him.
+HERO_SPRITE = (
+    "..##..",
+    ".#dd#.",
+    "#bsdd#",
+    "#slhd#",
+    ".#rsr#",
+    "#rlhr#",
+    "#rmRd#",
+    "#dRm#.",
+    "#lss#.",
+)
+
+HERO_INK = {
+    "#": "#210000",
+    "d": "#211010",
+    "b": "#522000",
+    "s": "#ad6521",
+    "l": "#bd7531",
+    "h": "#734510",
+    "r": "#8c0000",
+    "m": "#bd0000",
+    "R": "#ff1000",
+}
+
+SPRITE_WIDTH = float(len(HERO_SPRITE[0]))
+SPRITE_HEIGHT = float(len(HERO_SPRITE))
+
+#: Every pixel is its own rectangle, and two rectangles sharing an edge
+#: rasterise with a seam of whatever is behind them showing through. Each one
+#: reaches this far past its right and bottom edge to close that seam; the
+#: reach is clipped at the sprite's own edge, so the mark still measures 6 by 9.
+SPRITE_OVERLAP = 0.02
 
 CANVAS = 512
 CORNER_FRACTION = 0.219
 
-MARK_SCALE = 1.08
-"""How much of the tile the mark fills; tuned by looking, not by arithmetic."""
-
-#: The mark's coordinate system: the hero standing on the water line, one arm
-#: up. He is the thing a player recognises, so the mark is his silhouette — head,
-#: arms and legs in the game's amber, the tunic in its red — and the gap between
-#: his legs is a real hole, which is what lets the same shape serve as Android's
-#: monochrome layer.
-HERO_HEAD_X = 256.0
-HERO_HEAD_Y = 150.0
-HERO_HEAD_RADIUS = 46.0
-
-HERO_SHOULDER_Y = 192.0
-HERO_HIP_Y = 300.0
-HERO_SHOULDER_HALF = 46.0
-HERO_HIP_HALF = 60.0
-
-HERO_ARM_HALF = 16.0
-HERO_ARM_RAISED = (302.0, 216.0, 352.0, 138.0)
-HERO_ARM_LOWERED = (210.0, 216.0, 168.0, 278.0)
-
-HERO_LEG_TOP = HERO_HIP_Y
-HERO_LEG_BOTTOM = 368.0
-HERO_LEG_GAP_HALF = 13.0
-HERO_LEG_HALF = 29.0
-
-WATERLINE_TOP = 384.0
-WATERLINE_BOTTOM = 410.0
-WATERLINE_RADIUS = 13.0
+MARK_FILL = 0.7
+"""How tall the hero stands on his tile, as a share of it; tuned by looking."""
 
 # Android's adaptive canvas is 108 units, and the tightest mask a launcher may
 # apply is the circle of diameter 66 that it guarantees is visible. The mark is
@@ -126,123 +133,78 @@ def _point(x: float, y: float, scale: float, dx: float, dy: float) -> str:
     return f"{scaled(x, scale, dx)} {scaled(y, scale, dy)}"
 
 
-def _radius(value: float, scale: float) -> str:
-    return plain(value * scale)
-
-
-def _disc(cx: float, cy: float, radius: float, scale: float, dx: float, dy: float) -> str:
-    arc = f"A{_radius(radius, scale)} {_radius(radius, scale)} 0 0 1"
-    return (
-        f"M{_point(cx - radius, cy, scale, dx, dy)} "
-        f"{arc} {_point(cx + radius, cy, scale, dx, dy)} "
-        f"{arc} {_point(cx - radius, cy, scale, dx, dy)} Z"
-    )
-
-
 def _polygon(corners: tuple[tuple[float, float], ...], scale: float, dx: float, dy: float) -> str:
     first, *rest = corners
     lines = " ".join(f"L{_point(x, y, scale, dx, dy)}" for x, y in rest)
     return f"M{_point(*first, scale, dx, dy)} {lines} Z"
 
 
-def _limb(
-    start: tuple[float, float, float, float],
-    half: float,
-    scale: float,
-    dx: float,
-    dy: float,
+def _pixel_rect(
+    x: float, y: float, width: float, height: float, scale: float, dx: float, dy: float
 ) -> str:
-    """A straight limb of constant thickness, as the quad it sweeps out."""
-    x1, y1, x2, y2 = start
-    length = math.hypot(x2 - x1, y2 - y1)
-    nx = -(y2 - y1) / length * half
-    ny = (x2 - x1) / length * half
     return _polygon(
-        ((x1 + nx, y1 + ny), (x2 + nx, y2 + ny), (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)),
-        scale,
-        dx,
-        dy,
+        ((x, y), (x + width, y), (x + width, y + height), (x, y + height)), scale, dx, dy
     )
+
+
+def sprite_runs(letters: str) -> list[tuple[float, float, float, float]]:
+    """The sprite's pixels of the given letters, merged into horizontal runs.
+
+    One rectangle per run rather than per pixel: the same shape in a fraction of
+    the path data, which matters because these paths are also Android vector
+    resources parsed at every launch.
+    """
+    runs: list[tuple[float, float, float, float]] = []
+    for row, line in enumerate(HERO_SPRITE):
+        column = 0
+        while column < len(line):
+            if line[column] not in letters:
+                column += 1
+                continue
+            start = column
+            while column < len(line) and line[column] in letters:
+                column += 1
+            width = min(column - start + SPRITE_OVERLAP, SPRITE_WIDTH - start)
+            height = min(1 + SPRITE_OVERLAP, SPRITE_HEIGHT - row)
+            runs.append((float(start), float(row), width, height))
+    return runs
+
+
+def sprite_paths(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> list[tuple[str, str]]:
+    """The hero as one path per colour, in the order his colours first appear."""
+    order: list[str] = []
+    for line in HERO_SPRITE:
+        for letter in line:
+            if letter in HERO_INK and letter not in order:
+                order.append(letter)
+    return [
+        (
+            HERO_INK[letter],
+            " ".join(
+                _pixel_rect(x, y, width, height, scale, dx, dy)
+                for x, y, width, height in sprite_runs(letter)
+            ),
+        )
+        for letter in order
+    ]
 
 
 def hero_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
-    """The hero without his tunic colour: head, both arms, both legs.
+    """Everything the hero covers, as one shape, whatever colour it is drawn in.
 
-    Separate subpaths rather than one outline, because they only have to read as
-    one shape once they are filled — and drawn this way the gap between the legs
-    is left open, which is what the themed Android layer shows the launcher's
-    own surface through.
+    Android's themed icon gets a single colour, so it gets this: his outline,
+    and with it the notch at his side where the sky shows between his arm and
+    his body, which is what the launcher's own surface comes through.
     """
-    inner = HERO_LEG_GAP_HALF
-    outer = inner + 2 * HERO_LEG_HALF
-    legs = [
-        _polygon(
-            (
-                (HERO_HEAD_X + side * inner, HERO_LEG_TOP),
-                (HERO_HEAD_X + side * outer, HERO_LEG_TOP),
-                (HERO_HEAD_X + side * outer, HERO_LEG_BOTTOM),
-                (HERO_HEAD_X + side * inner, HERO_LEG_BOTTOM),
-            ),
-            scale,
-            dx,
-            dy,
-        )
-        for side in (-1.0, 1.0)
-    ]
     return " ".join(
-        [
-            _disc(HERO_HEAD_X, HERO_HEAD_Y, HERO_HEAD_RADIUS, scale, dx, dy),
-            _limb(HERO_ARM_RAISED, HERO_ARM_HALF, scale, dx, dy),
-            _limb(HERO_ARM_LOWERED, HERO_ARM_HALF, scale, dx, dy),
-            *legs,
-        ]
-    )
-
-
-def tunic_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
-    """The tunic, which is the one thing about him that is red."""
-    return _polygon(
-        (
-            (HERO_HEAD_X - HERO_SHOULDER_HALF, HERO_SHOULDER_Y),
-            (HERO_HEAD_X + HERO_SHOULDER_HALF, HERO_SHOULDER_Y),
-            (HERO_HEAD_X + HERO_HIP_HALF, HERO_HIP_Y),
-            (HERO_HEAD_X - HERO_HIP_HALF, HERO_HIP_Y),
-        ),
-        scale,
-        dx,
-        dy,
-    )
-
-
-def waterline_path(scale: float = 1.0, dx: float = 0.0, dy: float = 0.0) -> str:
-    """The water line alone, so it can carry its own colour."""
-    left, _, right, _ = mark_extent()
-    radius = _radius(WATERLINE_RADIUS, scale)
-    return (
-        f"M{_point(left + WATERLINE_RADIUS, WATERLINE_TOP, scale, dx, dy)} "
-        f"L{_point(right - WATERLINE_RADIUS, WATERLINE_TOP, scale, dx, dy)} "
-        f"A{radius} {radius} 0 0 1 "
-        f"{_point(right - WATERLINE_RADIUS, WATERLINE_BOTTOM, scale, dx, dy)} "
-        f"L{_point(left + WATERLINE_RADIUS, WATERLINE_BOTTOM, scale, dx, dy)} "
-        f"A{radius} {radius} 0 0 1 "
-        f"{_point(left + WATERLINE_RADIUS, WATERLINE_TOP, scale, dx, dy)} Z"
+        _pixel_rect(x, y, width, height, scale, dx, dy)
+        for x, y, width, height in sprite_runs("".join(HERO_INK))
     )
 
 
 def mark_extent() -> tuple[float, float, float, float]:
-    """What the mark occupies, arms included, down to the water line."""
-    reach = math.hypot(HERO_ARM_HALF, HERO_ARM_HALF)
-    left = min(
-        HERO_HEAD_X - HERO_HEAD_RADIUS,
-        HERO_HEAD_X - HERO_HIP_HALF,
-        HERO_ARM_LOWERED[2] - reach,
-    )
-    right = max(
-        HERO_HEAD_X + HERO_HEAD_RADIUS,
-        HERO_HEAD_X + HERO_HIP_HALF,
-        HERO_ARM_RAISED[2] + reach,
-    )
-    return (left, HERO_HEAD_Y - HERO_HEAD_RADIUS, right, WATERLINE_BOTTOM)
+    """What the mark occupies: the sprite's own box, in pixels of the sprite."""
+    return (0.0, 0.0, SPRITE_WIDTH, SPRITE_HEIGHT)
 
 
 def centre_mark(scale: float, canvas: float) -> tuple[float, float]:
@@ -255,15 +217,17 @@ def centre_mark(scale: float, canvas: float) -> tuple[float, float]:
 
 def master_svg() -> str:
     radius = plain(CORNER_FRACTION * CANVAS)
-    dx, dy = centre_mark(MARK_SCALE, CANVAS)
+    scale = mark_scale(CANVAS * MARK_FILL)
+    dx, dy = centre_mark(scale, CANVAS)
     return "\n".join(
         [
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}" height="{CANVAS}"'
             f' viewBox="0 0 {CANVAS} {CANVAS}">',
             f'  <rect width="{CANVAS}" height="{CANVAS}" rx="{radius}" fill="{CAVE}"/>',
-            f'  <path fill="{RED}" d="{tunic_path(MARK_SCALE, dx, dy)}"/>',
-            f'  <path fill="{GOLD}" d="{hero_path(MARK_SCALE, dx, dy)}"/>',
-            f'  <path fill="{TEAL}" d="{waterline_path(MARK_SCALE, dx, dy)}"/>',
+            *(
+                f'  <path fill="{colour}" d="{body}"/>'
+                for colour, body in sprite_paths(scale, dx, dy)
+            ),
             "</svg>",
             "",
         ]
@@ -333,26 +297,14 @@ def android_background() -> str:
 def android_foreground() -> str:
     scale = mark_scale(fit_height(ANDROID_SAFE_DIAMETER - ANDROID_FIT_MARGIN))
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
-    body = "\n".join(
-        [
-            path_element(tunic_path(scale, dx, dy), RED),
-            path_element(hero_path(scale, dx, dy), GOLD),
-            path_element(waterline_path(scale, dx, dy), TEAL),
-        ]
-    )
+    body = "\n".join(path_element(body, colour) for colour, body in sprite_paths(scale, dx, dy))
     return android_vector(body)
 
 
 def android_monochrome() -> str:
     scale = mark_scale(fit_height(ANDROID_SAFE_DIAMETER - ANDROID_FIT_MARGIN))
     dx, dy = centre_mark(scale, ANDROID_CANVAS)
-    body = "\n".join(
-        [
-            path_element(tunic_path(scale, dx, dy), WHITE),
-            path_element(hero_path(scale, dx, dy), WHITE),
-            path_element(waterline_path(scale, dx, dy), WHITE),
-        ]
-    )
+    body = path_element(hero_path(scale, dx, dy), WHITE)
     return android_vector(body)
 
 
@@ -365,9 +317,7 @@ def android_legacy() -> str:
     body = "\n".join(
         [
             path_element(tile, CAVE),
-            path_element(tunic_path(scale, dx, dy), RED),
-            path_element(hero_path(scale, dx, dy), GOLD),
-            path_element(waterline_path(scale, dx, dy), TEAL),
+            *(path_element(body, colour) for colour, body in sprite_paths(scale, dx, dy)),
         ]
     )
     return android_vector(body)
@@ -602,23 +552,27 @@ def ink_fraction(path: Path) -> float:
 
 
 def mark_fraction(path: Path) -> float:
-    """Share of an icon's pixels that read as the gold mark rather than its tile.
+    """Share of an icon's pixels that read as the hero rather than as his tile.
 
-    Measured as the share within reach of the hero's amber, because the tile is warm
-    too — the game's cave is brown — so warmth alone cannot separate the mark
-    from the tile. `--sheet` prints this and the retained-source test asserts it,
-    so both measure the icon the same way.
+    He is nine colours and the tile is one, so the measurement is distance from
+    the tile: a pixel far enough from the cave's brown is him. The tile's rounded
+    corners are transparent, and they are flattened onto the tile's own colour
+    rather than onto white, so a corner does not count as the hero. `--sheet`
+    prints this and the retained-source test asserts it, so both measure it the
+    same way.
     """
-    red, green, blue = (int(GOLD[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    red, green, blue = (int(CAVE[i : i + 2], 16) / 255 for i in (1, 3, 5))
     distance = f"(abs(r-{red:.3f})+abs(g-{green:.3f})+abs(b-{blue:.3f}))"
     result = subprocess.run(
         [
             rasteriser(),
             str(path),
+            "-background",
+            CAVE,
             "-alpha",
             "remove",
             "-fx",
-            f"{distance} < 0.35 ? 1 : 0",
+            f"{distance} > 0.2 ? 1 : 0",
             "-format",
             "%[fx:mean]",
             "info:",

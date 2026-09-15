@@ -24,9 +24,9 @@ from tools.paths import ROOT
 ANDROID_CHROME = "{http://schemas.android.com/apk/res/android}"
 LAUNCHER_SIZES = (16, 32, 48)
 MIN_MARK_FRACTION = 0.02
-"""Share of the icon that must read as the hero's amber at launcher sizes.
+"""Share of the icon that must read as the hero rather than as his tile.
 
-Measured on this artwork with `--sheet`: 0.109 at 16 px, 0.103 at 32 px, 0.096 at
+Measured on this artwork with `--sheet`: 0.340 at 16 px, 0.294 at 32 px, 0.292 at
 48 px. The bar sits far below that because the property being defended is "the
 mark is there", not "the mark is exactly this big".
 """
@@ -208,7 +208,7 @@ class AppIconRasterTest(unittest.TestCase):
             svg, size, self.temporary / f"preview-{size}.png", viewport=draw_app_icon.ANDROID_CANVAS
         )
 
-    def test_the_gold_mark_is_present_at_every_launcher_size(self) -> None:
+    def test_the_hero_is_present_at_every_launcher_size(self) -> None:
         for size in LAUNCHER_SIZES:
             frame = draw_app_icon.rasterise(
                 draw_app_icon.ICON_SVG, size, self.temporary / f"icon-{size}.png"
@@ -274,7 +274,7 @@ class AppIconRasterTest(unittest.TestCase):
         svg.write_text(
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{draw_app_icon.ANDROID_CANVAS}"'
             f' height="{draw_app_icon.ANDROID_CANVAS}" viewBox="0 0 {draw_app_icon.ANDROID_CANVAS}'
-            f' {draw_app_icon.ANDROID_CANVAS}"><path fill="{draw_app_icon.GOLD}"'
+            f' {draw_app_icon.ANDROID_CANVAS}"><path fill="{draw_app_icon.WHITE}"'
             f' d="{body}"/></svg>',
             encoding="utf-8",
         )
@@ -288,8 +288,8 @@ class AppIconRasterTest(unittest.TestCase):
             "the circle measurement passes for a mark drawn beyond the mask",
         )
 
-    def test_the_monochrome_layer_keeps_the_gap_between_the_legs_open(self) -> None:
-        """A themed icon must show the launcher's surface between the hero's legs."""
+    def test_the_monochrome_layer_keeps_the_notch_at_the_hero_s_side_open(self) -> None:
+        """A themed icon must show the launcher's surface where the sprite does."""
         size = 432
         frame = self.preview("drawable/ic_launcher_monochrome.xml", size)
         scale = draw_app_icon.mark_scale(
@@ -300,25 +300,21 @@ class AppIconRasterTest(unittest.TestCase):
         dx, dy = draw_app_icon.centre_mark(scale, draw_app_icon.ANDROID_CANVAS)
         sample = size / draw_app_icon.ANDROID_CANVAS
 
-        def at(x: float, y: float) -> tuple[int, int]:
+        def at(column: float, row: float) -> tuple[int, int]:
+            """The middle of one sprite pixel, in pixels of the rasterised layer."""
             return (
-                round(float(draw_app_icon.scaled(x, scale, dx)) * sample),
-                round(float(draw_app_icon.scaled(y, scale, dy)) * sample),
+                round(float(draw_app_icon.scaled(column + 0.5, scale, dx)) * sample),
+                round(float(draw_app_icon.scaled(row + 0.5, scale, dy)) * sample),
             )
 
-        knee = (draw_app_icon.HERO_LEG_TOP + draw_app_icon.HERO_LEG_BOTTOM) / 2
-        leg = (
-            draw_app_icon.HERO_HEAD_X
-            + draw_app_icon.HERO_LEG_GAP_HALF
-            + draw_app_icon.HERO_LEG_HALF
-        )
+        # The sky pixel at his left side, between his raised arm and his body,
+        # and the body pixel immediately right of it.
         self.assertEqual(
-            alpha_at(frame, *at(draw_app_icon.HERO_HEAD_X, knee)),
-            0.0,
-            "the gap between the legs is filled, not cut out",
+            draw_app_icon.HERO_SPRITE[4][0], ".", "the sprite no longer has that notch"
         )
+        self.assertEqual(alpha_at(frame, *at(0, 4)), 0.0, "the notch at his side is filled in")
         self.assertEqual(
-            alpha_at(frame, *at(leg, knee)), 1.0, "a leg is missing where it should be"
+            alpha_at(frame, *at(1, 4)), 1.0, "his side is missing where it should be drawn"
         )
 
 
