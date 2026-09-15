@@ -1,8 +1,9 @@
 /* src/port/pause_menu.c — ESC-triggered in-game pause menu + OPTIONS submenus.
  *
- * Drawn into the framebuffer AFTER native_render_frame composes the game's
- * frame, same hook point as pc_level_select_overlay (called from
- * hw_present_frame in hw.c).
+ * This file is the menu itself: which page is open, where the cursor is, what
+ * each row is worth, and what a keypress does to any of that. The pixels are
+ * src/port/pause_menu_draw.c's, which gets a PcPauseView snapshot built at the
+ * bottom of this file (port/pause_menu_view.h) and never sees the statics.
  *
  * Pages:
  *   MAIN     — RESUME / OPTIONS / RETRY / EXIT TO MAIN MENU / QUIT TO DESKTOP
@@ -37,11 +38,11 @@
 #include "common/game_state.h" /* g_state + g_gameplay_active / g_credits_active /
                            * g_enter_gameplay / g_gameplay_entry macros */
 #include "common/log.h"
-#include "common/version.h"
 #include "engine/hw.h"
 #include "port/config.h"
 #include "port/input.h"
 #include "port/overlay_ui.h"
+#include "port/pause_menu_view.h"
 #include "port/update_check.h"
 #include <SDL3/SDL.h> /* SDLK_/SDL_GAMEPAD_ constants only */
 #include <stdint.h>
@@ -50,17 +51,13 @@
 #include <string.h>
 #include <strings.h> /* strcasecmp */
 
-extern void pc_fill_rect(uint32_t *fb, int x0, int y0, int w, int h, uint32_t argb);
-extern int pc_draw_text(uint32_t *fb, int x, int y, const char *s, int scale, uint32_t argb);
 extern void hw_widescreen_refresh(void);
 extern int hw_pad_count(void);
 
-#define FB_W 352
-#define FB_H 282
-
 /* ── State ─────────────────────────────────────────────────────────────────── */
 
-enum { PG_MAIN = 0, PG_OPTIONS, PG_GRAPHICS, PG_CONTROLS, PG_EXTRA, PG_BIND_KB, PG_BIND_PAD };
+/* The pages themselves (PG_*) are named in port/pause_menu_view.h, which the
+ * drawing half shares. */
 
 static int s_paused = 0;
 static int s_page = PG_MAIN;
@@ -826,385 +823,244 @@ void pc_pause_tick(void) {
     }
 }
 
-/* ── Overlay rendering ─────────────────────────────────────────────────── */
+/* ── View snapshot ─────────────────────────────────────────────────────────
+ * Resolving a row into the words on screen is row-model work — it reads the
+ * same config knobs and index helpers the cycling above writes — so it happens
+ * here, and src/port/pause_menu_draw.c is handed the result. Each builder
+ * fills the page's rows and its panel heading and returns the row count. */
 
-/* The page's own drawing, then the one line that is not part of any page. */
-void pc_pause_menu_overlay(uint32_t *fb);
-
-/* Text width in pixels: the overlay font is a fixed 6px cell. */
-static int text_width(const char *text) {
-    return (int)strlen(text) * 6;
-}
-
-static void draw_panel(uint32_t *fb, int px, int py, int pw, int ph, const char *title) {
-    pc_fill_rect(fb, px, py, pw, ph, 0xFF101830);
-    pc_fill_rect(fb, px, py, pw, 1, 0xFFFFD040);
-    pc_fill_rect(fb, px, py + ph - 1, pw, 1, 0xFFFFD040);
-    pc_fill_rect(fb, px, py, 1, ph, 0xFFFFD040);
-    pc_fill_rect(fb, px + pw - 1, py, 1, ph, 0xFFFFD040);
-    pc_draw_text(fb, px + 8, py + 6, title, 1, 0xFFFFE070);
-    /* Which build this is, where a player reporting a problem will see it. */
-    char version[32];
-    snprintf(version, sizeof version, "v%s", pc_version());
-    pc_draw_text(fb, px + pw - 8 - text_width(version), py + 6, version, 1, 0xFF90A0D0);
-}
-
-static void draw_row(uint32_t *fb, int px, int y, int selected, const char *label,
-                     const char *value) {
-    uint32_t colour = selected ? 0xFFFFFFFF : 0xFFB0B0C0;
-    if (selected) {
-        pc_draw_text(fb, px + 6, y, ">", 1, 0xFFFFE070);
-    }
-    pc_draw_text(fb, px + 16, y, label, 1, colour);
-    if (value) {
-        pc_draw_text(fb, px + 150, y, value, 1, selected ? 0xFFFFE070 : 0xFF90A0D0);
+static void view_row(PcPauseRow *row, const char *label, const char *value) {
+    snprintf(row->label, sizeof row->label, "%s", label);
+    if (value != NULL) {
+        snprintf(row->value, sizeof row->value, "%s", value);
+        row->has_value = 1;
     }
 }
 
-/* Like draw_row but rendered dimmed — for rows that are inert in the current
- * context (e.g. GPU effects when the HARDWARE renderer is off). */
-static void draw_row_disabled(uint32_t *fb, int px, int y, int selected, const char *label,
-                              const char *value) {
-    if (selected) {
-        pc_draw_text(fb, px + 6, y, ">", 1, 0xFF707058);
-    }
-    pc_draw_text(fb, px + 16, y, label, 1, 0xFF606070);
-    if (value) {
-        pc_draw_text(fb, px + 150, y, value, 1, 0xFF505060);
-    }
+static void view_title(PcPauseView *view, const char *title) {
+    snprintf(view->title, sizeof view->title, "%s", title);
 }
 
-/* Right-pointing triangle at the right edge of a row — marks a row that OPENS A
- * SUBMENU (vs one that cycles a value in place). Drawn right-aligned inside the
- * panel; `pw` is the panel width, `y` the row's text baseline. 7px tall to match
- * the glyph height; the left edge is vertical and it narrows to a tip on the
- * right (the "there's more this way" affordance). */
-static void draw_submenu_arrow(uint32_t *fb, int px, int pw, int y, int selected) {
-    uint32_t argb = selected ? 0xFFFFE070 : 0xFF90A0D0;
-    int rx = px + pw - 12;
-    for (int r = 0; r < 7; r++) {
-        int wdt = (r <= 3) ? (r + 1) : (7 - r);
-        pc_fill_rect(fb, rx, y + r, wdt, 1, argb);
+static int build_main(PcPauseView *view) {
+    static const char *k_main_labels[NUM_MAIN] = {
+        "RESUME", "OPTIONS", "RETRY", "EXIT TO MAIN MENU", "QUIT TO DESKTOP",
+    };
+    view_title(view, "PAUSED");
+    for (int i = 0; i < NUM_MAIN; i++) {
+        view_row(&view->rows[i], k_main_labels[i], NULL);
     }
+    return NUM_MAIN;
 }
 
-/* The update check's state as one line under the panel. A check that could not
- * run says so: "up to date" is a claim this port only makes when it has an
- * answer, and the player can turn the check off, in which case there is no
- * line at all. */
-static void draw_update_status(uint32_t *fb) {
-    if (!pc_cfg_bool("update_check", 1)) {
-        return;
-    }
-    const char *line = pc_update_line();
-    if (line == NULL || line[0] == '\0') {
-        return;
-    }
-    const int ow = pc_overlay_w(), oh = pc_overlay_h();
-    /* A failure carries its reason, which can be longer than the screen; the
-     * sentence is clipped to what fits rather than drawn off the edge. */
-    char clipped[64];
-    const int max_chars = (ow - 16) / 6;
-    snprintf(clipped, sizeof clipped, "%s", line);
-    if ((int)strlen(clipped) > max_chars) {
-        clipped[max_chars] = '\0';
-        if (max_chars >= 3) {
-            clipped[max_chars - 3] = '.';
-            clipped[max_chars - 2] = '.';
-            clipped[max_chars - 1] = '.';
+static int build_options(PcPauseView *view) {
+    int rows[14];
+    int n = options_rows(rows);
+    view_title(view, "OPTIONS");
+    for (int i = 0; i < n; i++) {
+        PcPauseRow *row = &view->rows[i];
+        switch (rows[i]) {
+        case OO_GRAPHICS:
+            view_row(row, "GRAPHICS", NULL); /* renderer/aspect/fullscreen/effects live inside */
+            row->submenu = 1;
+            break;
+        case OO_SPEED:
+            view_row(row, "GAME SPEED", k_speed_labels[speed_index()]);
+            break;
+        case OO_PHYSICS:
+            view_row(row, "JUMP PHYSICS",
+                     pc_cfg_bool("platformer_physics", 0) ? "PLATFORMER" : "CLASSIC");
+            break;
+        case OO_FREECAM:
+            view_row(row, "FREE CAM", pc_cfg_bool("freecam_pause", 0) ? "PAUSED" : "REALTIME");
+            break;
+        case OO_CONTROLS:
+            view_row(row, "CONTROLS", NULL);
+            row->submenu = 1;
+            break;
+        case OO_EXTRA:
+            view_row(row, "EXTRA", NULL);
+            row->submenu = 1;
+            break;
+        case OO_BACK:
+            view_row(row, "BACK", NULL);
+            break;
+        case OO_QUIT:
+            view_row(row, "QUIT TO DESKTOP", NULL);
+            break;
         }
     }
-    line = clipped;
-    const int width = text_width(line);
-    const int x = (ow - width) / 2;
-    const int y = oh - 22;
-    pc_fill_rect(fb, x - 6, y - 4, width + 12, 15, 0xFF101830);
-    pc_fill_rect(fb, x - 6, y - 4, width + 12, 1, 0xFF35516A);
-    pc_fill_rect(fb, x - 6, y + 10, width + 12, 1, 0xFF35516A);
-    const PcUpdateState state = pc_update_state();
-    uint32_t colour = 0xFF90A0D0;
-    if (state == PC_UPDATE_AVAILABLE) {
-        colour = 0xFFFFD040;
-    } else if (state == PC_UPDATE_FAILED) {
-        colour = 0xFFE08080;
-    } else if (state == PC_UPDATE_CURRENT) {
-        colour = 0xFF80D090;
-    }
-    pc_draw_text(fb, x, y, line, 1, colour);
+    return n;
 }
 
-static void draw_pause_page(uint32_t *fb) {
-
-    /* Dim the background by overlaying ~50%-black across the whole frame. Use the live
-     * overlay target size (the wide output), so the dim spans the full widescreen view. */
-    const int ow = pc_overlay_w(), oh = pc_overlay_h();
-    for (int i = 0; i < ow * oh; i++) {
-        uint32_t p = fb[i];
-        uint32_t r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
-        r >>= 1;
-        g >>= 1;
-        b >>= 1;
-        fb[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+static int build_graphics(PcPauseView *view) {
+    int rows[14];
+    int n = graphics_rows(rows);
+    const int hw = hardware_active();
+    view_title(view, "GRAPHICS");
+    for (int i = 0; i < n; i++) {
+        PcPauseRow *row = &view->rows[i];
+        switch (rows[i]) {
+        case RR_RENDERER:
+            view_row(row, "RENDERER", k_rend_labels[renderer_index()]);
+            break;
+        case RR_ASPECT:
+            view_row(row, "ASPECT RATIO", k_aspect_labels[aspect_index()]);
+            break;
+        case RR_FULLSCREEN:
+            view_row(row, "FULLSCREEN", pc_cfg_bool("fullscreen", 0) ? "ON" : "OFF");
+            break;
+        case RR_AMBIENT:
+            view_row(row, "AMBIENT DARKNESS", pc_cfg_bool("fx_ambient", 0) ? "ON" : "OFF");
+            row->disabled = !hw;
+            break;
+        case RR_SHADOW:
+            view_row(row, "DROP SHADOW", pc_cfg_bool("fx_shadow", 0) ? "ON" : "OFF");
+            row->disabled = !hw;
+            break;
+        case RR_BACK:
+            view_row(row, "BACK", NULL);
+            break;
+        }
     }
+    return n;
+}
 
-    const int row_h = 11;
-
-    if (s_page == PG_MAIN) {
-        /* Panel — sized for the longest option label "EXIT TO MAIN MENU" (17ch). */
-        const int pw = 160;
-        const int ph = 22 + NUM_MAIN * row_h + 8;
-        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph, "PAUSED");
-        static const char *labels[NUM_MAIN] = {
-            "RESUME", "OPTIONS", "RETRY", "EXIT TO MAIN MENU", "QUIT TO DESKTOP",
-        };
-        for (int i = 0; i < NUM_MAIN; i++) {
-            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, labels[i], NULL);
-        }
-        return;
-    }
-
-    if (s_page == PG_OPTIONS) {
-        int rows[14];
-        int n = options_rows(rows);
-        if (s_cursor >= n) {
-            s_cursor = n - 1;
-        }
-        const int pw = 264; /* value col (x+150) must fit "WIDESCREEN 16:9" = 15ch*6px */
-        const int ph = 22 + n * row_h + 8;
-        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph, "OPTIONS");
-        for (int i = 0; i < n; i++) {
-            const char *label = "", *value = NULL;
-            int submenu = 0; /* opens a submenu → draw the arrow, not a value */
-            switch (rows[i]) {
-            case OO_GRAPHICS:
-                label = "GRAPHICS"; /* renderer/aspect/fullscreen/effects live inside */
-                submenu = 1;
-                break;
-            case OO_SPEED:
-                label = "GAME SPEED";
-                value = k_speed_labels[speed_index()];
-                break;
-            case OO_PHYSICS:
-                label = "JUMP PHYSICS";
-                value = pc_cfg_bool("platformer_physics", 0) ? "PLATFORMER" : "CLASSIC";
-                break;
-            case OO_FREECAM:
-                label = "FREE CAM";
-                value = pc_cfg_bool("freecam_pause", 0) ? "PAUSED" : "REALTIME";
-                break;
-            case OO_CONTROLS:
-                label = "CONTROLS";
-                submenu = 1;
-                break;
-            case OO_EXTRA:
-                label = "EXTRA";
-                submenu = 1;
-                break;
-            case OO_BACK:
-                label = "BACK";
-                break;
-            case OO_QUIT:
-                label = "QUIT TO DESKTOP";
-                break;
-            }
-            int y = py + 22 + i * row_h;
-            draw_row(fb, px, y, i == s_cursor, label, value);
-            if (submenu) {
-                draw_submenu_arrow(fb, px, pw, y, i == s_cursor);
-            }
-        }
-        return;
-    }
-
-    if (s_page == PG_GRAPHICS) {
-        int rows[14];
-        int n = graphics_rows(rows);
-        if (s_cursor >= n) {
-            s_cursor = n - 1;
-        }
-        const int pw = 240;
-        const int ph = 22 + n * row_h + 8;
-        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph, "GRAPHICS");
-        const int hw = hardware_active();
-        for (int i = 0; i < n; i++) {
-            const char *label = "", *value = NULL;
-            int disabled = 0;
-            switch (rows[i]) {
-            case RR_RENDERER:
-                label = "RENDERER";
-                value = k_rend_labels[renderer_index()];
-                break;
-            case RR_ASPECT:
-                label = "ASPECT RATIO";
-                value = k_aspect_labels[aspect_index()];
-                break;
-            case RR_FULLSCREEN:
-                label = "FULLSCREEN";
-                value = pc_cfg_bool("fullscreen", 0) ? "ON" : "OFF";
-                break;
-            case RR_AMBIENT:
-                label = "AMBIENT DARKNESS";
-                value = pc_cfg_bool("fx_ambient", 0) ? "ON" : "OFF";
-                disabled = !hw;
-                break;
-            case RR_SHADOW:
-                label = "DROP SHADOW";
-                value = pc_cfg_bool("fx_shadow", 0) ? "ON" : "OFF";
-                disabled = !hw;
-                break;
-            case RR_BACK:
-                label = "BACK";
-                break;
-            }
-            if (disabled) {
-                draw_row_disabled(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+static int build_controls(PcPauseView *view) {
+    int rows[14];
+    int n = controls_rows(rows);
+    view_title(view, "CONTROLS");
+    for (int i = 0; i < n; i++) {
+        PcPauseRow *row = &view->rows[i];
+        char vbuf[24];
+        switch (rows[i]) {
+        case CT_INTERACT:
+            view_row(row, "INTERACT RANGE", interact_enabled() ? "EXTENDED" : "VANILLA");
+            break;
+        case CT_MODERN_KB:
+            view_row(row, "MODERN KEYBOARD", pc_modern_kb() ? "ON" : "OFF");
+            break;
+        case CT_MODERN_PAD:
+            view_row(row, "MODERN CONTROLLER", pc_modern_pad() ? "ON" : "OFF");
+            break;
+        case CT_BIND_KB:
+            view_row(row, "KEYBOARD BINDINGS", NULL);
+            row->submenu = 1;
+            break;
+        case CT_BIND_PAD:
+            if (hw_pad_count() == 0) {
+                view_row(row, "CONTROLLER BINDINGS", "NONE FOUND");
             } else {
-                draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
+                snprintf(vbuf, sizeof vbuf, "%d PAD%s", hw_pad_count(),
+                         hw_pad_count() > 1 ? "S" : "");
+                view_row(row, "CONTROLLER BINDINGS", vbuf);
             }
-        }
-        return;
-    }
-
-    if (s_page == PG_CONTROLS) {
-        int rows[14];
-        int n = controls_rows(rows);
-        if (s_cursor >= n) {
-            s_cursor = n - 1;
-        }
-        const int pw = 264;
-        const int ph = 22 + n * row_h + 8;
-        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph, "CONTROLS");
-        for (int i = 0; i < n; i++) {
-            const char *label = "", *value = NULL;
-            int submenu = 0; /* opens a per-device bindings page */
-            char vbuf[24];
-            switch (rows[i]) {
-            case CT_INTERACT:
-                label = "INTERACT RANGE";
-                value = interact_enabled() ? "EXTENDED" : "VANILLA";
-                break;
-            case CT_MODERN_KB:
-                label = "MODERN KEYBOARD";
-                value = pc_modern_kb() ? "ON" : "OFF";
-                break;
-            case CT_MODERN_PAD:
-                label = "MODERN CONTROLLER";
-                value = pc_modern_pad() ? "ON" : "OFF";
-                break;
-            case CT_BIND_KB:
-                label = "KEYBOARD BINDINGS";
-                submenu = 1;
-                break;
-            case CT_BIND_PAD:
-                label = "CONTROLLER BINDINGS";
-                submenu = 1;
-                if (hw_pad_count() == 0) {
-                    value = "NONE FOUND";
-                } else {
-                    snprintf(vbuf, sizeof vbuf, "%d PAD%s", hw_pad_count(),
-                             hw_pad_count() > 1 ? "S" : "");
-                    value = vbuf;
-                }
-                break;
-            case CT_BACK:
-                label = "BACK";
-                break;
-            }
-            int y = py + 22 + i * row_h;
-            draw_row(fb, px, y, i == s_cursor, label, value);
-            if (submenu) {
-                draw_submenu_arrow(fb, px, pw, y, i == s_cursor);
-            }
-        }
-        return;
-    }
-
-    if (s_page == PG_EXTRA) {
-        int rows[14];
-        int n = extra_rows(rows);
-        if (s_cursor >= n) {
-            s_cursor = n - 1;
-        }
-        const int pw = 230;
-        const int ph = 22 + n * row_h + 8;
-        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph, "EXTRA");
-        for (int i = 0; i < n; i++) {
-            const char *label = "", *value = NULL;
-            switch (rows[i]) {
-            case EX_SKIP_INTRO:
-                label = "SKIP INTRO";
-                value = pc_cfg_bool("skip_intro", 0) ? "ON" : "OFF";
-                break;
-            case EX_UNLOCK_ALL:
-                label = "UNLOCK ALL LEVELS";
-                value = pc_cfg_bool("unlock_all_levels", 0) ? "ON" : "OFF";
-                break;
-            case EX_FALL_DMG:
-                label = "FALL DAMAGE";
-                value = k_fall_dmg_labels[fall_dmg_index()];
-                break;
-            case EX_UPDATE: {
-                label = "UPDATE CHECK";
-                const PcUpdateState state = pc_update_state();
-                if (state == PC_UPDATE_AVAILABLE) {
-                    value = pc_update_latest();
-                } else if (state == PC_UPDATE_CHECKING) {
-                    value = "CHECKING";
-                } else if (state == PC_UPDATE_FAILED) {
-                    value = "FAILED";
-                } else {
-                    value = pc_cfg_bool("update_check", 1) ? "ON" : "OFF";
-                }
-                break;
-            }
-            case EX_BACK:
-                label = "BACK";
-                break;
-            }
-            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, label, value);
-        }
-        return;
-    }
-
-    /* Bindings page (keyboard / controller). */
-    {
-        int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
-        int acts[14];
-        int n = bind_rows(dev, acts);
-        if (s_cursor >= n) {
-            s_cursor = n - 1; /* modern toggle may shrink the list */
-        }
-        const int pw = 300; /* room for multi-chord defaults ("Z, LCtrl, Space, Return") */
-        const int ph = 22 + n * row_h + 8;
-        const int px = (ow - pw) / 2, py = (oh - ph) / 2;
-        draw_panel(fb, px, py, pw, ph,
-                   dev == PI_DEV_PAD ? "CONTROLLER BINDINGS" : "KEYBOARD BINDINGS");
-        pc_input_load();
-        for (int i = 0; i < n; i++) {
-            char val[64];
-            const char *value = NULL;
-            if (acts[i] >= 0) {
-                if (s_capture && i == s_cursor) {
-                    value = dev == PI_DEV_PAD ? "PRESS A BUTTON..." : "PRESS A KEY...";
-                } else {
-                    value = pc_input_binding_str(dev, acts[i], val, sizeof val);
-                }
-            }
-            draw_row(fb, px, py + 22 + i * row_h, i == s_cursor, bind_row_label(dev, acts[i]),
-                     value);
+            row->submenu = 1;
+            break;
+        case CT_BACK:
+            view_row(row, "BACK", NULL);
+            break;
         }
     }
+    return n;
 }
 
-void pc_pause_menu_overlay(uint32_t *fb) {
-    if (!s_paused) {
-        return;
+static int build_extra(PcPauseView *view) {
+    int rows[14];
+    int n = extra_rows(rows);
+    view_title(view, "EXTRA");
+    for (int i = 0; i < n; i++) {
+        PcPauseRow *row = &view->rows[i];
+        switch (rows[i]) {
+        case EX_SKIP_INTRO:
+            view_row(row, "SKIP INTRO", pc_cfg_bool("skip_intro", 0) ? "ON" : "OFF");
+            break;
+        case EX_UNLOCK_ALL:
+            view_row(row, "UNLOCK ALL LEVELS", pc_cfg_bool("unlock_all_levels", 0) ? "ON" : "OFF");
+            break;
+        case EX_FALL_DMG:
+            view_row(row, "FALL DAMAGE", k_fall_dmg_labels[fall_dmg_index()]);
+            break;
+        case EX_UPDATE: {
+            const PcUpdateState state = pc_update_state();
+            const char *value;
+            if (state == PC_UPDATE_AVAILABLE) {
+                value = pc_update_latest();
+            } else if (state == PC_UPDATE_CHECKING) {
+                value = "CHECKING";
+            } else if (state == PC_UPDATE_FAILED) {
+                value = "FAILED";
+            } else {
+                value = pc_cfg_bool("update_check", 1) ? "ON" : "OFF";
+            }
+            view_row(row, "UPDATE CHECK", value);
+            break;
+        }
+        case EX_BACK:
+            view_row(row, "BACK", NULL);
+            break;
+        }
     }
-    draw_pause_page(fb);
-    draw_update_status(fb);
+    return n;
+}
+
+/* Bindings page (keyboard / controller). The row being captured shows the
+ * prompt in place of its current binding. */
+static int build_bindings(PcPauseView *view) {
+    int dev = (s_page == PG_BIND_PAD) ? PI_DEV_PAD : PI_DEV_KB;
+    int acts[14];
+    int n = bind_rows(dev, acts);
+    view_title(view, dev == PI_DEV_PAD ? "CONTROLLER BINDINGS" : "KEYBOARD BINDINGS");
+    pc_input_load();
+    /* The capture prompt belongs to the row under the cursor, which the
+     * clamping below may still move; clamp here so both agree. */
+    int cursor = (s_cursor >= n) ? n - 1 : s_cursor; /* modern toggle may shrink the list */
+    for (int i = 0; i < n; i++) {
+        char val[64];
+        const char *value = NULL;
+        if (acts[i] >= 0) {
+            if (s_capture && i == cursor) {
+                value = dev == PI_DEV_PAD ? "PRESS A BUTTON..." : "PRESS A KEY...";
+            } else {
+                value = pc_input_binding_str(dev, acts[i], val, sizeof val);
+            }
+        }
+        view_row(&view->rows[i], bind_row_label(dev, acts[i]), value);
+    }
+    return n;
+}
+
+int pc_pause_view_build(PcPauseView *view) {
+    if (!s_paused) {
+        return 0;
+    }
+    memset(view, 0, sizeof *view);
+    view->page = s_page;
+    switch (s_page) {
+    case PG_MAIN:
+        view->row_count = build_main(view);
+        break;
+    case PG_OPTIONS:
+        view->row_count = build_options(view);
+        break;
+    case PG_GRAPHICS:
+        view->row_count = build_graphics(view);
+        break;
+    case PG_CONTROLS:
+        view->row_count = build_controls(view);
+        break;
+    case PG_EXTRA:
+        view->row_count = build_extra(view);
+        break;
+    default:
+        view->row_count = build_bindings(view);
+        break;
+    }
+    /* A page whose row list shrank under the cursor (the modern-controls
+     * toggle does this) leaves it past the end; pull it back, on the state
+     * itself, so the next keypress moves from where the player sees it. */
+    if (s_cursor >= view->row_count) {
+        s_cursor = view->row_count - 1;
+    }
+    view->cursor = s_cursor;
+    return 1;
 }

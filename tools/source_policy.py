@@ -32,13 +32,6 @@ LEGACY_SOURCE_LINE_LIMITS = {
     "src/harness/harness_main.c": 2813,
     "src/port/game_loop.c": 1058,
     "src/port/overrides/gameplay.c": 1410,
-    # The braces pushed this one past the 1200-line default. It is recorded
-    # here at the headroom it already had rather than left to fail on a change
-    # that added no code, and it is the one entry in this table that should not
-    # be re-expressed again: its menu state, its input routing, and its drawing
-    # are three responsibilities in one file, and the way it comes back under
-    # the default is by being split.
-    "src/port/pause_menu.c": 1269,
     "src/render/native_renderer.c": 1876,
     "src/render/present_vulkan.c": 1892,
 }
