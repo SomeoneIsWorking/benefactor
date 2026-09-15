@@ -257,6 +257,46 @@ Response route_poke(const Request &request) {
         200, "OK", formatted("{\"ok\":true,\"addr\":\"%06X\",\"val\":\"%02X\"}\n", addr, value));
 }
 
+/* The pacer's numbers on their own, and optionally a fresh start.
+ *
+ * /state carries them too, but only ever since boot, and a total since boot
+ * cannot answer "does the main menu pace worse than a level does": one bad
+ * stretch is a rounding error against twenty thousand good frames, and the
+ * worst frame is whichever disk load happened first. ?reset=1 reports and then
+ * forgets, so a stretch can be measured as a stretch. The deadline itself is
+ * untouched — forgetting the measurements is not a resync.
+ *
+ * `speed_pct` is the speed the player asked for and `shown_pct_of_pal` the one
+ * being run, which differ when the period has been rounded to a whole number of
+ * display refreshes. `refreshes_per_frame` is 0 when the display is not being
+ * matched at all; anything other than a whole number of refreshes a frame is
+ * judder no pacing can remove, so this is the field that says whether the
+ * picture can be smooth before any of the others say whether it is.
+ */
+Response route_pacing(const Request &request) {
+    PcPacingReport pacing;
+    pc_pace_report(&pacing);
+    if (has(request, "reset")) {
+        pc_pace_forget_measurements();
+    }
+    const double target = pacing.target_ns ? (double)pacing.target_ns : 1.0;
+    return Response::json(
+        200, "OK",
+        formatted("{\"frames\":%llu,\"target_ns\":%llu,\"mean_ns\":%llu,"
+                  "\"shortest_ns\":%llu,\"longest_ns\":%llu,\"on_target\":%llu,"
+                  "\"on_target_pct\":%.1f,\"mean_pct_of_target\":%.1f,\"resyncs\":%llu,"
+                  "\"speed_pct\":%u,\"display_hz\":%.3f,\"refreshes_per_frame\":%u,"
+                  "\"shown_pct_of_pal\":%.1f}\n",
+                  (unsigned long long)pacing.frames, (unsigned long long)pacing.target_ns,
+                  (unsigned long long)pacing.mean_ns, (unsigned long long)pacing.shortest_ns,
+                  (unsigned long long)pacing.longest_ns, (unsigned long long)pacing.on_target,
+                  pacing.frames ? 100.0 * (double)pacing.on_target / (double)pacing.frames : 0.0,
+                  100.0 * (double)pacing.mean_ns / target, (unsigned long long)pacing.resyncs,
+                  pc_pace_speed_percent(),
+                  pacing.display_refresh_ns ? 1e9 / (double)pacing.display_refresh_ns : 0.0,
+                  pacing.refreshes_per_frame, 100.0 * 20000000.0 / target));
+}
+
 /* A key, as the window would have delivered it. /press and /hold move the
  * emulated joystick, which is everything the gameplay engine reads and nothing
  * the host's own UI does: ESC dismissing the level picker, the save and load
@@ -526,6 +566,9 @@ Response dispatch(const Request &request) {
     }
     if (path == "/key") {
         return route_key(request);
+    }
+    if (path == "/pacing") {
+        return route_pacing(request);
     }
     if (path == "/step") {
         return route_step(request);

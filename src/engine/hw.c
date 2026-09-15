@@ -432,6 +432,83 @@ int hw_ffwd_active(void) {
  * untouched). Faster, game frames outpace real time; music ticks + PCM render
  * only fire on the 50Hz wall-clock grid, so the soundtrack keeps its normal
  * tempo and the SDL queue is fed at exactly the rate it drains. */
+/* The refresh interval to hold frames to a whole number of, or 0 for "pace to
+ * the speed alone and let the frames fall where they fall".
+ *
+ * A PAL-rate game on a modern panel is almost never a whole number of refreshes
+ * per frame: 150% of PAL is 75 frames a second, a 120 Hz display shows 120, and
+ * 120/75 is 1.6 — so each frame is held for 2, 2, 1, 2, 2, 1 refreshes and slow
+ * steady motion wobbles no matter how exact the pacing is. Measured on this
+ * port before this existed: the pacer was on target for 100% of frames on the
+ * main menu, in the picker and walking through a level, and the picture still
+ * juddered, because the pacer was never the thing that was wrong.
+ *
+ * Nothing measured is matched. The harness, the oracle comparison and every
+ * headless run keep the exact PAL-derived period they are compared against, and
+ * so does a fast-forward, whose whole point is to outrun the display. */
+static uint64_t hw_display_refresh_to_match(void) {
+    if (s_headless || s_ffwd_held || g_harness_frame_hook || s_ext_input || !s_backend) {
+        return 0;
+    }
+    /* "free" (the default) matches only when the speed barely changes, "always"
+     * matches whatever it costs, "off" never does. The middle state is not a
+     * fudge: on most displays a whole-refresh period sits within a percent or
+     * two of PAL and matching is free, and on the ones where it does not — 60
+     * and 120 Hz, where PAL lands on 2.4 refreshes — the only match available
+     * runs the game twenty percent fast, which is a thing to be offered and
+     * not a thing to be done to someone. */
+    char how[16];
+    int always = 0;
+    if (pc_cfg_show("pace_to_display", how, sizeof how, NULL) && how[0]) {
+        if (!strcasecmp(how, "off") || !strcasecmp(how, "false") || !strcasecmp(how, "0")) {
+            return 0;
+        }
+        always = !strcasecmp(how, "always") || !strcasecmp(how, "true") || !strcasecmp(how, "1");
+    }
+    pc_pace_set_display_match_at_any_speed(always);
+    SDL_Window *window = s_backend->window();
+    if (!window) {
+        return 0;
+    }
+    /* Asked every frame rather than cached: the answer changes when the window
+     * is dragged to another monitor or the panel changes mode, and SDL keeps
+     * the current mode to hand, so asking costs a pointer chase. */
+    const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+    if (!mode || mode->refresh_rate <= 0.0f) {
+        return 0;
+    }
+    return (uint64_t)(1000000000.0 / (double)mode->refresh_rate + 0.5);
+}
+
+/* Say what the display is doing to the pacing, once each time it changes: which
+ * panel the window is on, whether a frame lands on a whole number of its
+ * refreshes, and what speed that works out as. Without this the one number a
+ * player would want after reporting judder — "is a frame a whole number of
+ * refreshes on my screen?" — is not written down anywhere. */
+static void hw_note_display_pacing(void) {
+    PcPacingReport pacing;
+    pc_pace_report(&pacing);
+    static uint64_t s_said_refresh = 0;
+    static unsigned s_said_holds = 0;
+    if (pacing.display_refresh_ns == s_said_refresh && pacing.refreshes_per_frame == s_said_holds) {
+        return;
+    }
+    s_said_refresh = pacing.display_refresh_ns;
+    s_said_holds = pacing.refreshes_per_frame;
+    if (pacing.refreshes_per_frame == 0) {
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "speed",
+                             "not pacing to the display; frames are %d%% of PAL and land where "
+                             "they land (pace_to_display=always to hold them to whole refreshes)",
+                             hw_speed_eff_pct());
+        return;
+    }
+    benefactor_log_write(BENEFACTOR_LOG_INFO, "speed",
+                         "pacing to the display: %.3f Hz, %u refreshes a frame, %.1f%% of PAL",
+                         pacing.display_refresh_ns ? 1e9 / (double)pacing.display_refresh_ns : 0.0,
+                         pacing.refreshes_per_frame,
+                         pacing.target_ns ? 100.0 * 20000000.0 / (double)pacing.target_ns : 0.0);
+}
+
 /* Pace one frame to PAL 50 Hz scaled by the effective speed (microsecond
  * accumulator so fractional targets like turbo 120% = 16.67ms pace exactly;
  * self-corrects and resyncs if we fall far behind). Called for EVERY game
@@ -456,6 +533,8 @@ static void hw_pace_frame(void) {
         return;
     }
     pc_pace_set_speed_percent((unsigned)hw_speed_eff_pct());
+    pc_pace_set_display_refresh(hw_display_refresh_to_match());
+    hw_note_display_pacing();
     pc_pace_frame_wait();
 }
 

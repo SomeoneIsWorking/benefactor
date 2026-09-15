@@ -145,6 +145,19 @@ show that fades and music advanced.
   icons, toast) drawn in — not the guest's 4:3 render. `/menu` opens and closes
   the pause menu and `/menu?nav=up|down|left|right|select|back` walks it, so
   every page can be reached and shot headlessly.
+- Judder is usually not the pacer. `/pacing` reports the frame period, how
+  many frames landed on it, and — the field that decides the question —
+  `refreshes_per_frame`: how many of the display's refreshes each frame is held
+  for. Anything other than a whole number there is judder no pacing can remove,
+  because the picture is being shown for uneven lengths of time. Measured at
+  150% on a 120 Hz panel: the pacer was on target for 100% of frames on the
+  poster, the main menu, the picker, idle and walking, and every frame was still
+  1.6 refreshes. `MATCH DISPLAY` in OPTIONS (`pace_to_display`: `off` / `free`,
+  the default / `always`) rounds the period to whole refreshes; `free` only does
+  it when the speed barely changes, so on 60 and 120 Hz panels, where the only
+  whole-refresh period is 20% off PAL, nothing happens until `always` is chosen.
+  `/pacing?reset=1` reports and then forgets, which is how one screen is
+  measured rather than everything since boot.
 - `BENEFACTOR_PRESSES=7300:8,7420:8,7560:8` supplies frame-indexed fire
   input for reproducible menu and gameplay comparison with `oracle_diff --play`.
 - For headless interaction, launch the built `Benefactor` with `--headless`

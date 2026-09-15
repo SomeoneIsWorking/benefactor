@@ -74,8 +74,10 @@ struct PacingReport {
     Nanoseconds mean = 0;   /* what it did take */
     Nanoseconds shortest = 0;
     Nanoseconds longest = 0;
-    std::uint64_t on_target = 0; /* frames within `kOnTarget` of the target */
-    std::uint64_t resyncs = 0;   /* deadlines abandoned because the host stalled */
+    std::uint64_t on_target = 0;      /* frames within `kOnTarget` of the target */
+    std::uint64_t resyncs = 0;        /* deadlines abandoned because the host stalled */
+    Nanoseconds display_refresh = 0;  /* 0 when the display is not being matched */
+    unsigned refreshes_per_frame = 0; /* how long each frame is held, in refreshes */
 };
 
 class FramePacer {
@@ -102,6 +104,53 @@ class FramePacer {
     [[nodiscard]] unsigned speed_percent() const noexcept {
         return percent_;
     }
+
+    /* How often the display actually puts a picture up, so a frame can be held
+     * for a whole number of those instead of a fraction of one.
+     *
+     * This is the judder the pacer cannot otherwise reach, and it is not a
+     * pacing error: a frame period of 13.333 ms on a 120 Hz display is 1.6
+     * refreshes, so frames are shown for 2, 2, 1, 2, 2, 1 refreshes however
+     * exactly they are produced, and slow steady motion wobbles. The period is
+     * rounded to the nearest whole number of refreshes — 2 here, 16.667 ms, 60
+     * frames a second — and every frame is then shown for the same length of
+     * time. It costs the difference between the speed asked for and the nearest
+     * one the display can show evenly, which is why the caller decides whether
+     * to ask: `set_display_refresh(0)` means "do not", and is also what an
+     * unknown refresh rate, a fast-forward and every headless run pass.
+     *
+     * `speed_percent()` keeps reporting what was asked for; `target_period()`
+     * reports what is being held to. */
+    void set_display_refresh(Nanoseconds refresh) noexcept;
+    [[nodiscard]] Nanoseconds display_refresh() const noexcept {
+        return refresh_;
+    }
+
+    /* Whether a match may change the speed of the game to get it.
+     *
+     * This is what makes matching safe to leave on. On a 144 Hz display the
+     * nearest whole-refresh period to PAL is 20.833 ms — four percent slow,
+     * nobody can tell, and the judder is gone for nothing. On a 120 Hz display
+     * it is 16.667 ms, which is PAL run twenty percent FAST, and a port that
+     * did that to a player who picked "normal" would be lying about the speed
+     * of the game. So the free match happens by itself and the expensive one is
+     * the player's to ask for. */
+    enum class DisplayMatch : std::uint8_t {
+        WhenFree, /* only when the speed barely changes (kFreeMatchPct) */
+        Always,   /* smoothness is worth whatever the speed change costs */
+    };
+    /* How far a `WhenFree` match may move the frame period, in percent. Four
+     * percent is the 144 Hz case and has to be inside it; twenty is the 120 Hz
+     * one and has to be outside. */
+    static constexpr unsigned kFreeMatchPct = 10;
+
+    void set_display_match(DisplayMatch match) noexcept;
+    [[nodiscard]] DisplayMatch display_match() const noexcept {
+        return match_;
+    }
+    /* How many refreshes each frame is held for, or 0 when not matching. */
+    [[nodiscard]] unsigned refreshes_per_frame() const noexcept;
+
     [[nodiscard]] Nanoseconds target_period() const noexcept;
 
     /* Wait for this frame's deadline and return how long the frame actually
@@ -163,6 +212,8 @@ class FramePacer {
 
     PacerHost &host_;
     unsigned percent_ = 100;
+    Nanoseconds refresh_ = 0; /* the display's, or 0 for "do not match it" */
+    DisplayMatch match_ = DisplayMatch::WhenFree;
     Nanoseconds epoch_ = 0;    /* the deadline frame 0 of this run was due at */
     std::uint64_t frames_ = 0; /* frames paced since the epoch */
     bool started_ = false;
@@ -199,6 +250,14 @@ extern "C" {
 void pc_pace_set_speed_percent(unsigned percent);
 unsigned pc_pace_speed_percent(void);
 
+/* The display's refresh interval in nanoseconds, or 0 to pace to the speed
+ * alone. See FramePacer::set_display_refresh. */
+void pc_pace_set_display_refresh(uint64_t refresh_ns);
+
+/* Non-zero to match the display even when doing so changes the speed of the
+ * game; zero to match only when it is free. See FramePacer::DisplayMatch. */
+void pc_pace_set_display_match_at_any_speed(int always);
+
 /* Wait out the rest of this frame. Returns the frame's measured length in
  * nanoseconds, or 0 for the first frame of a run. */
 uint64_t pc_pace_frame_wait(void);
@@ -222,6 +281,8 @@ typedef struct {
     uint64_t longest_ns;
     uint64_t on_target;
     uint64_t resyncs;
+    uint64_t display_refresh_ns;
+    unsigned refreshes_per_frame;
 } PcPacingReport;
 
 void pc_pace_report(PcPacingReport *out);
