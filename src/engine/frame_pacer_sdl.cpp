@@ -26,12 +26,18 @@ void SdlPacerHost::sleep_for(Nanoseconds duration) {
 
 namespace {
 
-/* One game loop, one deadline. Function-local so the construction order is
- * defined and nothing can reach them before this file has initialised. */
+/* One game loop, one deadline, and the clock it runs on held with it: as one
+ * object the host cannot outlive the pacer that borrows it, which two separate
+ * statics would leave to declaration order. Function-local so it is built on
+ * first use and nothing can reach it before this file has initialised. */
+struct GamePacer {
+    benefactor::engine::SdlPacerHost host;
+    benefactor::engine::FramePacer pacer{host};
+};
+
 benefactor::engine::FramePacer &pacer() {
-    static benefactor::engine::SdlPacerHost host;
-    static benefactor::engine::FramePacer instance(host);
-    return instance;
+    static GamePacer only;
+    return only.pacer;
 }
 
 } // namespace
