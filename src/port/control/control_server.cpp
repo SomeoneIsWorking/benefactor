@@ -10,6 +10,8 @@
 #include <string_view>
 #include <vector>
 
+#include <SDL3/SDL_keycode.h>
+
 #include <lucent/http.h>
 
 #include "engine/frame_pacer.h"
@@ -26,6 +28,7 @@ extern "C" {
 #include "port/guest_trace.h"
 #include "port/input.h"
 #include "port/overlay_ui.h"
+#include "port/pause_menu_view.h"
 #include "port/port.h"
 #include "port/update_check.h"
 #include "runtime/guest_runtime.h"
@@ -143,6 +146,12 @@ Response route_state() {
             "{\"frame\":%u,\"frames\":{\"presented\":%u,\"game\":%u,\"beam\":%u},"
             "\"level\":%u,\"cop1lc\":\"%06X\","
             "\"gameplay_active\":%d,\"overlay_active\":%d,\"credits_active\":%d,"
+            /* Which host overlay owns the screen. Without these a script
+             * driving the game from here is blind between the poster and the
+             * level picker: `level` stays 0 through both, so a run that never
+             * left the menu looks exactly like one that did. */
+            "\"ui\":{\"main_menu\":%d,\"level_select\":%d,\"start_level\":%d,"
+            "\"toast\":%d,\"pause_menu\":%d},"
             "\"saveable\":%d,\"save_reason\":\"%s\",\"paused\":%d,\"script_paused\":%d,"
             "\"freecam\":%d,\"press_left\":%d,"
             "\"instructions\":%llu,"
@@ -164,9 +173,11 @@ Response route_state() {
             "\"shortest_ns\":%llu,\"longest_ns\":%llu,\"on_target\":%llu,"
             "\"resyncs\":%llu}}\n",
             frame.frames_presented, frame.frames_presented, frame.frames_game, g_hw_beam_crossed,
-            level, cop1lc, g_gameplay_active, g_overlay_active, g_credits_active, saveable,
-            why ? why : "", pc_pause_active() ? 1 : 0, InputScript::instance().paused() ? 1 : 0,
-            pc_freecam_active() ? 1 : 0, InputScript::instance().press_frames_left(),
+            level, cop1lc, g_gameplay_active, g_overlay_active, g_credits_active, g_pc_menu_visible,
+            g_level_select_visible, pc_get_start_level(), pc_toast_visible() ? 1 : 0,
+            pc_pause_active() ? 1 : 0, saveable, why ? why : "", pc_pause_active() ? 1 : 0,
+            InputScript::instance().paused() ? 1 : 0, pc_freecam_active() ? 1 : 0,
+            InputScript::instance().press_frames_left(),
             (unsigned long long)rt_get_executed_instructions(),
             (unsigned long long)rt_get_guest_cycles(), (unsigned long long)g_hw_blit_cycles,
             g_hw_perf.fps, s_regs[0x096 >> 1], hw_get_intena(), s_regs[0x0A8 >> 1],
@@ -244,6 +255,74 @@ Response route_poke(const Request &request) {
     g_mem[addr] = static_cast<std::uint8_t>(value);
     return Response::json(
         200, "OK", formatted("{\"ok\":true,\"addr\":\"%06X\",\"val\":\"%02X\"}\n", addr, value));
+}
+
+/* A key, as the window would have delivered it. /press and /hold move the
+ * emulated joystick, which is everything the gameplay engine reads and nothing
+ * the host's own UI does: ESC dismissing the level picker, the save and load
+ * keys, the pause menu's own bindings all arrive through hw_handle_key and were
+ * unreachable from here. A driver that cannot press ESC cannot walk the paths a
+ * player walks, and a path nobody can drive is a path nobody can reproduce. */
+struct NamedKey {
+    const char *name;
+    int sym;
+};
+
+const NamedKey kNamedKeys[] = {
+    {"escape", SDLK_ESCAPE}, {"return", SDLK_RETURN}, {"space", SDLK_SPACE}, {"up", SDLK_UP},
+    {"down", SDLK_DOWN},     {"left", SDLK_LEFT},     {"right", SDLK_RIGHT}, {"tab", SDLK_TAB},
+    {"s", SDLK_S},           {"d", SDLK_D},           {"z", SDLK_Z},         {"p", SDLK_P},
+};
+
+Response route_key(const Request &request) {
+    const std::string name = parameter(request, "name");
+    if (name.empty()) {
+        std::string known;
+        for (const NamedKey &key : kNamedKeys) {
+            known += known.empty() ? "" : "|";
+            known += key.name;
+        }
+        return Response::text(400, "Bad Request", "need name=" + known + "\n");
+    }
+    for (const NamedKey &key : kNamedKeys) {
+        if (name == key.name) {
+            /* Down-then-up by default: a key the caller never releases would
+             * stay held for the rest of the run. ?down=1 / ?down=0 holds or
+             * releases it deliberately. */
+            if (has(request, "down")) {
+                hw_handle_key(key.sym, number(request, "down") ? 1 : 0);
+            } else {
+                hw_handle_key(key.sym, 1);
+                hw_handle_key(key.sym, 0);
+            }
+            return Response::json(200, "OK", formatted("{\"ok\":true,\"key\":\"%s\"}\n", key.name));
+        }
+    }
+    return Response::text(404, "Not Found", "no key called " + name + "\n");
+}
+
+/* What the pause menu looks like right now. The nav routes used to answer with
+ * nothing but `{"menu":1}`, so a script walking the menu had to count keypresses
+ * against a layout it could not see, and a page whose rows differ by context
+ * (the greyed GPU effects, the per-mode OPTIONS rows) silently moved under it.
+ * Reporting the page, the cursor and the rows makes the walk checkable. */
+std::string menu_view_json() {
+    PcPauseView view;
+    if (!pc_pause_view_build(&view)) {
+        return "{\"open\":false}";
+    }
+    std::string body = formatted("{\"open\":true,\"page\":%d,\"title\":\"%s\","
+                                 "\"cursor\":%d,\"rows\":[",
+                                 view.page, view.title, view.cursor);
+    for (int index = 0; index < view.row_count; index++) {
+        const PcPauseRow &row = view.rows[index];
+        body += formatted("%s{\"label\":\"%s\",\"value\":\"%s\",\"submenu\":%d,"
+                          "\"disabled\":%d}",
+                          index ? "," : "", row.label, row.has_value ? row.value : "", row.submenu,
+                          row.disabled);
+    }
+    body += "]}";
+    return body;
 }
 
 Response route_hold(const Request &request) {
@@ -445,6 +524,9 @@ Response dispatch(const Request &request) {
     if (path == "/press") {
         return route_press(request);
     }
+    if (path == "/key") {
+        return route_key(request);
+    }
     if (path == "/step") {
         return route_step(request);
     }
@@ -485,11 +567,19 @@ Response dispatch(const Request &request) {
                                       "nav is up|down|left|right|select|back\n");
             }
             return Response::json(200, "OK",
-                                  formatted("{\"menu\":%d,\"nav\":\"%s\"}\n",
-                                            pc_pause_active() ? 1 : 0, nav.c_str()));
+                                  formatted("{\"menu\":%d,\"nav\":\"%s\",\"view\":%s}\n",
+                                            pc_pause_active() ? 1 : 0, nav.c_str(),
+                                            menu_view_json().c_str()));
         }
-        pc_pause_toggle();
-        return Response::json(200, "OK", formatted("{\"menu\":%d}\n", pc_pause_active() ? 1 : 0));
+        /* ?show=1 reads the menu without touching it. A GET that toggles is not
+         * something a script can poll, and polling is exactly what a driver
+         * needs between a keypress and the frame that acts on it. */
+        if (!has(request, "show")) {
+            pc_pause_toggle();
+        }
+        return Response::json(200, "OK",
+                              formatted("{\"menu\":%d,\"view\":%s}\n", pc_pause_active() ? 1 : 0,
+                                        menu_view_json().c_str()));
     }
     if (path == "/pause") {
         InputScript::instance().pause();

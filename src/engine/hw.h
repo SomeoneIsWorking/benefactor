@@ -30,6 +30,11 @@ int hw_init(const char *title, const char **disk_paths, int n_disks);
 void hw_request_headless(void); /* call before hw_init: render fb but open no window */
 void hw_fini(void);
 
+/* Report everything the guest was doing, using only async-signal-safe calls.
+ * `why` names the occasion. Used by the frame watchdog and by the crash
+ * reporter — see port/crash_report.h. */
+void hw_report_guest_state(const char *why);
+
 /* Frame watchdog: arm before a single-frame step; if the frame hangs longer than
  * `seconds`, the platform timer reports the likely cause (last hw register read
  * + cop1lc) and kills the app. Disarm after the frame returns. */

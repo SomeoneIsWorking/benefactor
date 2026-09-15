@@ -5,6 +5,7 @@
 #include "platform/update_transport.h"
 #include "port/config.h"
 #include "port/control/control_server.h"
+#include "port/crash_report.h"
 #include "port/port.h"
 #ifndef BENEFACTOR_ANDROID
 #include "platform/desktop_setup.h"
@@ -136,6 +137,16 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, handler);
     signal(SIGTERM, handler);
+    /* Before anything can fault. A crash that reports nothing is a crash nobody
+     * can act on, and until this was installed that was every crash. */
+    if (pc_crash_report_install()) {
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "app", "crash reports append to %s",
+                             pc_crash_report_path());
+    } else {
+        benefactor_log_write(BENEFACTOR_LOG_INFO, "app",
+                             "crash reports go to standard error only; no crash file could be "
+                             "opened (set BENEFACTOR_CRASH_LOG to name one)");
+    }
     (void)s_running;
 
     if (headless) {

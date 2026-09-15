@@ -52,6 +52,16 @@ size_t benefactor_log_capture_end(void);
  * bypasses the configured sink because the process cannot resume safely. */
 void benefactor_log_signal_hex(const char *message, const uint32_t *values, size_t value_count);
 
+/* Also write signal-time reports to this file, appending. Call it before any
+ * handler can run: a handler must not open a file. Returns 0 when the path
+ * cannot be opened, and the reports still reach standard error. */
+int benefactor_log_signal_file(const char *path);
+
+/* The descriptor that file was opened on, or -1. For a signal-time writer that
+ * formats its own bytes — a stack backtrace — and still has to reach both
+ * destinations. */
+int benefactor_log_signal_fd(void);
+
 #define GLOBAL_LOG(...) benefactor_log_write(BENEFACTOR_LOG_INFO, "app", __VA_ARGS__)
 #define GLOBAL_LOG_FLUSH() benefactor_log_flush()
 

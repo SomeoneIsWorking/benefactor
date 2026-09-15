@@ -42,12 +42,15 @@ static void hw_watchdog_report_trace(void) {
     }
 }
 
-static void hw_watchdog_handler(int sig) {
-    (void)sig;
+/* Everything the guest was doing, written with nothing but `write`. Shared with
+ * the crash reporter: a frame that never finished and a frame that faulted are
+ * answered by the same evidence, and there is no reason for one of them to be
+ * told less than the other. */
+void hw_report_guest_state(const char *why) {
     uint32_t cop = ((uint32_t)s_regs[0x080 >> 1] << 16) | s_regs[0x082 >> 1];
     const uint32_t values[] = {rt_get_pc(), rt_get_active_call_address(), g_hw_last_read, cop};
-    benefactor_log_signal_hex(s_wd_what ? (const char *)s_wd_what : "frame watchdog", NULL, 0);
-    benefactor_log_signal_hex("frame never finished: pc / call / last hw read / cop1lc", values,
+    benefactor_log_signal_hex(why ? why : "guest state", NULL, 0);
+    benefactor_log_signal_hex("pc / call / last hw read / cop1lc", values,
                               sizeof values / sizeof values[0]);
 
     const uint32_t beam[] = {g_hw_beam_crossed, g_hw_beam_taken, g_hw_beam_declined,
@@ -62,6 +65,12 @@ static void hw_watchdog_handler(int sig) {
     if (call_count > 0) {
         benefactor_log_signal_hex("recent guest calls", calls, (size_t)call_count);
     }
+}
+
+static void hw_watchdog_handler(int sig) {
+    (void)sig;
+    hw_report_guest_state(s_wd_what ? (const char *)s_wd_what
+                                    : "frame watchdog: frame never finished");
     _exit(2);
 }
 #ifdef _WIN32

@@ -1,5 +1,6 @@
 #include "common/log.h"
 
+#include <fcntl.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -189,6 +190,33 @@ static size_t signal_append_hex(char *output, size_t capacity, size_t used, uint
     return used;
 }
 
+/* A second place the signal-time report lands. Standard error is only read by
+ * whoever launched from a terminal, and a crash reported nowhere else is a
+ * crash nobody can act on: the player who hit it has closed the window. Opened
+ * once, before any handler runs, because opening a file is not something a
+ * signal handler may do. -1 until then, and it stays -1 when no file can be
+ * named, which costs the report nothing. */
+static atomic_int s_signal_file = -1;
+
+int benefactor_log_signal_file(const char *path) {
+    if (!path) {
+        return 0;
+    }
+    int handle = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    if (handle < 0) {
+        return 0;
+    }
+    int previous = atomic_exchange(&s_signal_file, handle);
+    if (previous >= 0) {
+        (void)close(previous);
+    }
+    return 1;
+}
+
+int benefactor_log_signal_fd(void) {
+    return atomic_load(&s_signal_file);
+}
+
 void benefactor_log_signal_hex(const char *message, const uint32_t *values, size_t value_count) {
     char output[SIGNAL_MESSAGE_CAPACITY];
     size_t used = signal_append_text(output, sizeof output, 0, "error: signal: ");
@@ -200,4 +228,8 @@ void benefactor_log_signal_hex(const char *message, const uint32_t *values, size
         output[used++] = '\n';
     }
     (void)write(STDERR_FILENO, output, used);
+    const int handle = atomic_load(&s_signal_file);
+    if (handle >= 0) {
+        (void)write(handle, output, used);
+    }
 }
