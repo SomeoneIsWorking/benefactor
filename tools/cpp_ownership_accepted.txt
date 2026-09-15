@@ -1,0 +1,76 @@
+# Ownership the C boundary still holds, and why each site passes today.
+#
+# `tools/verify.py` runs re-harness's cpp_policy.py against this list: every
+# site named here passes, anything else fails. The list is a ratchet, not an
+# exemption — nothing new joins it without the reason being written down, and a
+# site that stops occurring is reported so the list cannot rot.
+#
+# Format: path:rule:symbol. No line number, so editing a file does not
+# invalidate its entries.
+
+# One owner per module, reached through a function-local static.
+#
+# Each of these files is a C++ implementation behind an `extern "C"` shim that
+# C code calls. There is exactly one of the thing for the process, it is
+# constructed on first use so nothing can reach it before its file has
+# initialised, and it is never destroyed because a signal handler or a
+# shutdown path may still read it. A namespace-scope object would give the same
+# state a worse guarantee: static initialisation order across translation
+# units. This is the idiom the boundary needs, not an accident.
+
+src/engine/frame_pacer_sdl.cpp:block-scope static:only
+src/platform/desktop_setup.cpp:block-scope static:paths
+src/port/control/input_script.cpp:block-scope static:only
+src/port/debug/debugger.cpp:block-scope static:only
+src/port/frame_accounting.cpp:block-scope static:the_accounting
+src/port/guest_profile.cpp:block-scope static:only
+
+# A once-guard on a C entry point.
+#
+# `platform_update_check_start` is called from the frame loop and must do its
+# work once per run; the flag is that "once", and it is not state anyone else
+# reads.
+src/platform/update_transport.cpp:block-scope static:started
+
+# Globals the C side of the port owns.
+#
+# These are declared in headers that C translation units include: the
+# interpreter core, the hardware layer, the frame loop and the overlay UI are
+# C, and a global is how C shares one instance. Each is defined once in the
+# matching .c file. Giving them owners means moving the C modules that hold
+# them to C++, which is a port-wide change and not something a rule can ask for
+# one file at a time. They are listed individually so the list shrinks visibly
+# as modules move across.
+src/common/game_state.h:extern declaration:g_state
+src/engine/hw.h:extern declaration:g_harness_frame_hook
+src/engine/hw.h:extern declaration:g_harness_prerender_hook
+src/engine/hw.h:extern declaration:g_hw_beam_by_flow
+src/engine/hw.h:extern declaration:g_hw_beam_by_host
+src/engine/hw.h:extern declaration:g_hw_beam_by_irq
+src/engine/hw.h:extern declaration:g_hw_beam_crossed
+src/engine/hw.h:extern declaration:g_hw_beam_declined
+src/engine/hw.h:extern declaration:g_hw_beam_declined_off_flow
+src/engine/hw.h:extern declaration:g_hw_beam_taken
+src/engine/hw.h:extern declaration:g_hw_blit_cycles
+src/engine/hw.h:extern declaration:g_hw_blt_last_reg
+src/engine/hw.h:extern declaration:g_hw_boot_handoff
+src/engine/hw.h:extern declaration:g_hw_cop1lc_present
+src/engine/hw.h:extern declaration:g_hw_frame_audio
+src/engine/hw.h:extern declaration:g_hw_pc_owns_present
+src/engine/hw.h:extern declaration:g_hw_perf
+src/engine/hw.h:extern declaration:g_hw_perf_overlay
+src/engine/hw.h:extern declaration:g_hw_present_calls
+src/engine/hw.h:extern declaration:g_hw_present_reentrant
+src/engine/hw.h:extern declaration:g_hw_vblank_yield
+src/engine/hw.h:extern declaration:hw_running
+src/port/overlay_ui.h:extern declaration:g_level_select_visible
+src/port/overlay_ui.h:extern declaration:g_menu_continue_x
+src/port/overlay_ui.h:extern declaration:g_menu_continue_y
+src/port/overlay_ui.h:extern declaration:g_pc_menu_visible
+src/port/overlay_ui.h:extern declaration:g_pc_restart_reinit
+src/port/port.h:extern declaration:g_chip
+src/port/port.h:extern declaration:g_mute_music
+src/port/port.h:extern declaration:g_native_render_delay
+src/port/port.h:extern declaration:g_pc_pending_load
+src/port/port.h:extern declaration:g_pc_pending_save
+src/runtime/guest_runtime.h:extern declaration:g_mem

@@ -125,6 +125,14 @@ cmake --build build/run --target benefactor_product --parallel
 uv run --frozen python -m tools.verify
 ```
 
+`tools.verify` runs re-harness's two C++ gates. The configuration audit always
+runs; the ownership scan needs a configured build, because it reads the real
+compile commands, and it says so rather than passing when there is none. The
+sites the C boundary still holds are named with their reasons in
+`tools/cpp_ownership_accepted.txt` — anything not on that list fails, and a
+listed site that stops occurring fails too, so the list shrinks as C modules
+move to C++ instead of quietly outliving them.
+
 `./run.sh` is the player launcher, and it resolves the shared trees first:
 `tools/shared_checkouts.py` reads the revisions `.github/workflows/release.yml`
 pins and gives CMake a path for amigaport, lucent, setup-ui and RmlUi (and a

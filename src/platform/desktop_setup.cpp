@@ -73,6 +73,24 @@ void request_selection(benefactor::platform::SetupDeliver deliver) {
     deliver(result->paths);
 }
 
+/* The C caller is handed `const char *` and keeps them for the rest of the run,
+ * so the strings behind them have to outlive this call. One owner holds them,
+ * named once, rather than a separate hidden array per path through the
+ * function: two owners for one set of three disks is two chances to hand out a
+ * pointer into the wrong one. */
+std::array<std::string, 3> &disk_paths() {
+    static std::array<std::string, 3> paths;
+    return paths;
+}
+
+void publish(const char **disks, const std::array<std::string, 3> &chosen) {
+    std::array<std::string, 3> &paths = disk_paths();
+    for (std::size_t index = 0; index < paths.size(); ++index) {
+        paths[index] = chosen[index];
+        disks[index] = paths[index].c_str();
+    }
+}
+
 } // namespace
 
 extern "C" int desktop_setup_disks(const char **disks, int capacity) {
@@ -88,11 +106,7 @@ extern "C" int desktop_setup_disks(const char **disks, int capacity) {
     std::array<std::filesystem::path, 3> committed;
     std::string error;
     if (benefactor::platform::committed_disks(store_root, committed, error)) {
-        static std::array<std::string, 3> stable;
-        for (std::size_t index = 0; index < committed.size(); ++index) {
-            stable[index] = committed[index].string();
-            disks[index] = stable[index].c_str();
-        }
+        publish(disks, {committed[0].string(), committed[1].string(), committed[2].string()});
         return 1;
     }
 
@@ -101,10 +115,6 @@ extern "C" int desktop_setup_disks(const char **disks, int capacity) {
     if (!flow.ok) {
         return 0;
     }
-    static std::array<std::string, 3> stable;
-    for (std::size_t index = 0; index < flow.disks.size(); ++index) {
-        stable[index] = flow.disks[index].string();
-        disks[index] = stable[index].c_str();
-    }
+    publish(disks, {flow.disks[0].string(), flow.disks[1].string(), flow.disks[2].string()});
     return 1;
 }

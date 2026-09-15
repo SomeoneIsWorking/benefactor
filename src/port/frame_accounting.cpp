@@ -88,12 +88,10 @@ void pc_frame_accounting(PcFrameAccounting *out) {
 }
 
 void pc_note_frame_phase(void) {
-    static std::uint32_t last = 0xFFFFFFFFu;
     const std::uint32_t cop1lc = hw_get_cop1lc() & 0xFFFFFFu;
-    if (cop1lc == last) {
+    if (!FrameAccounting::instance().screen_changed(cop1lc)) {
         return;
     }
-    last = cop1lc;
     /* Screen-change diagnostics, not progress: the attract sequence alternates
      * two copper lists every frame, and at info level that is a two-line-per-
      * frame flood that buries everything else a host writes — including, on the

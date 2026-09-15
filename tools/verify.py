@@ -223,13 +223,22 @@ def _run(
     subprocess.run(arguments, cwd=cwd, check=True, env=environment)
 
 
-def _run_cpp_policy() -> None:
-    """The shared ownership gate: does this project's clang policy say what it must.
+#: Where a configure step leaves a compile database. The ownership scan reads
+#: the real commands the compiler was given, so it cannot run without one.
+COMPILE_DATABASES = ("build/run/compile_commands.json", "build/debug/compile_commands.json")
+#: The C boundary this port still holds, each site with its reason.
+ACCEPTED_OWNERSHIP = "tools/cpp_ownership_accepted.txt"
 
-    `re-harness` owns the rule — braces on every body, no disabled defaults, and
-    warnings as errors — and this is the project end of it. The gate is skipped
-    on a host without that checkout, and says so by name: a check nobody can see
-    failing is worse than one that is absent.
+
+def _run_cpp_policy() -> None:
+    """The shared gates: the clang policy this project declares, and who owns what.
+
+    `re-harness` owns both rules — braces on every body, no disabled defaults,
+    warnings as errors; and no global function, header `extern` or hidden
+    function-local static outside the sites this project has named in
+    `tools/cpp_ownership_accepted.txt`. Either gate is skipped on a host that
+    cannot run it, and says so by name: a check nobody can see failing is worse
+    than one that is absent.
     """
     tool = harness_tool("cpp_policy.py")
     if tool is None:
@@ -240,6 +249,27 @@ def _run_cpp_policy() -> None:
         )
         return
     _run([sys.executable, str(tool), "--audit-config", "."])
+    database = next((ROOT / name for name in COMPILE_DATABASES if (ROOT / name).is_file()), None)
+    if database is None:
+        print(
+            "cpp ownership: not run (no compile database at "
+            f"{' or '.join(COMPILE_DATABASES)}; configure a build first); "
+            "C++ ownership was NOT checked",
+            flush=True,
+        )
+        return
+    _run(
+        [
+            sys.executable,
+            str(tool),
+            "--root",
+            str(ROOT),
+            "--compile-commands",
+            str(database),
+            "--accept",
+            str(ROOT / ACCEPTED_OWNERSHIP),
+        ]
+    )
 
 
 def _compile_and_run_c_test(compiler: list[str], name: str, sources: list[str]) -> None:

@@ -47,6 +47,13 @@ jobs:
           ref: 209e4b8ef3bea92401ba44a55da4351bec295895
           path: dependencies/lucent
           persist-credentials: false
+      - name: Check out the shared harness the verifier gates on
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SomeoneIsWorking/re-harness
+          token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
+          path: shared/re-harness
+          persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
