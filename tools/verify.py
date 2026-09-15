@@ -31,6 +31,8 @@ C_TIDY_PATHS = (
 )
 
 CXX_TIDY_PATHS = (
+    "src/engine/frame_pacer.cpp",
+    "tests/test_frame_pacer.cpp",
     "src/runtime/guest_runtime.cpp",
     "src/runtime/guest_call_policy.cpp",
     "src/platform/disk_selection_store.cpp",
@@ -325,6 +327,14 @@ def main() -> int:
     )
     _compile_and_run_cpp_test(
         cpp_compiler, "guest-call-policy", ["tests/test_guest_call_policy.cpp"]
+    )
+    # The frame deadline is arithmetic against an injected clock, so it needs no
+    # SDL and no product objects — which is the point of keeping the rule out of
+    # the file that binds it to SDL.
+    _compile_and_run_cpp_test(
+        cpp_compiler,
+        "frame-pacer",
+        ["src/engine/frame_pacer.cpp", "tests/test_frame_pacer.cpp"],
     )
     # The picker report is the boundary between Android's staged documents and
     # the title's disk-set validation, and needs no product objects.
