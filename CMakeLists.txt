@@ -235,6 +235,7 @@ set(BENEFACTOR_SOURCES
     src/engine/hw_watchdog.c
     src/engine/overlay_load.c
     src/port/config.c
+    src/port/crash_report.c
     src/port/freecam.c
     src/port/frame_accounting.cpp
     src/port/frame_signature.c
