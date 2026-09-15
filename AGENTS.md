@@ -22,8 +22,11 @@ recreate them here as a bridge, cache, fallback, or convenience; the existing
 | `docs/re-frontier.md` | ordered binary-grounded facts and gaps |
 | `docs/issues/` | atomic work, findings, blockers, and dead ends |
 
-Start with `../shared/re-harness/tools/info.py brief <terms>` and consult the
+Start with the shared harness's `tools/info.py brief <terms>` and consult the
 issues before re-deriving an address, ABI, state transition, or failed approach.
+`tools/harness_tools.py` resolves that checkout — `../re-harness` by default,
+or `RE_HARNESS_DIR` — and `uv run --frozen python -m tools.harness_tools` prints
+where it found it.
 
 ## Execution contract
 
