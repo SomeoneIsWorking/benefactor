@@ -12,6 +12,7 @@
 
 #include <lucent/http.h>
 
+#include "engine/frame_pacer.h"
 #include "port/control/input_script.h"
 #include "port/debug/debugger.h"
 #include "port/frame_accounting.h"
@@ -121,6 +122,13 @@ Response route_state() {
     PcFrameAccounting frame;
     pc_frame_accounting(&frame);
 
+    /* What the frame pacer actually delivered. A frame that is 20 ms on paper
+     * and anywhere between 11 and 25 ms in practice is judder, and it is not
+     * visible in any other number here — the frame count and the cycle totals
+     * are both right while the game stutters. */
+    PcPacingReport pacing;
+    pc_pace_report(&pacing);
+
     return Response::json(
         200, "OK",
         formatted(
@@ -142,7 +150,10 @@ Response route_state() {
             "\"irq_calls\":{\"irq3\":%u,\"irq6\":%u},"
             "\"exec\":{\"on_game_thread\":%d,\"owner\":%u},"
             "\"yield\":{\"calls\":%u,\"refused\":%u,\"parks\":%u},\"title_draws\":%u,"
-            "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u}}\n",
+            "\"us\":{\"game\":%u,\"render\":%u,\"compose\":%u,\"present\":%u},"
+            "\"pacing\":{\"frames\":%llu,\"target_ns\":%llu,\"mean_ns\":%llu,"
+            "\"shortest_ns\":%llu,\"longest_ns\":%llu,\"on_target\":%llu,"
+            "\"resyncs\":%llu}}\n",
             hw_get_frame_num(), level, cop1lc, g_gameplay_active, g_overlay_active,
             g_credits_active, saveable, why ? why : "", pc_pause_active() ? 1 : 0,
             InputScript::instance().paused() ? 1 : 0, pc_freecam_active() ? 1 : 0,
@@ -162,7 +173,11 @@ Response route_state() {
             (unsigned long long)frame.irq6_peak, g_hw_present_calls, g_hw_present_reentrant,
             frame.irq3_deliveries, frame.irq6_deliveries, pc_on_game_thread(), frame.running_owner,
             frame.waits_reached, frame.waits_refused, frame.waits_parked, frame.title_draws,
-            g_hw_perf.game_us, g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us));
+            g_hw_perf.game_us, g_hw_perf.render_us, g_hw_perf.compose_us, g_hw_perf.present_us,
+            (unsigned long long)pacing.frames, (unsigned long long)pacing.target_ns,
+            (unsigned long long)pacing.mean_ns, (unsigned long long)pacing.shortest_ns,
+            (unsigned long long)pacing.longest_ns, (unsigned long long)pacing.on_target,
+            (unsigned long long)pacing.resyncs));
 }
 
 Response route_cpu() {

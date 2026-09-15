@@ -6,6 +6,7 @@
  */
 
 #include "common/log.h"
+#include "engine/frame_pacer.h"
 #include "engine/hw_private.h"
 #include "engine/hw_testrun.h"
 #include "port/control/input_script.h"
@@ -417,16 +418,13 @@ static void hw_pace_frame(void) {
         while (pc_control_paused() && hw_running)
             SDL_Delay(5);
         hw_watchdog_rearm();
+        /* However long the hold was, it is not a backlog of frames owed. */
+        pc_pace_resync();
     }
     if (s_no_pace)
         return;
-    static uint64_t s_next_frame_us = 0;
-    uint64_t now_us = SDL_GetTicks() * 1000ull;
-    if (s_next_frame_us == 0 || now_us > s_next_frame_us + 100000ull)
-        s_next_frame_us = now_us; /* first frame or big stall: resync */
-    s_next_frame_us += 2000000ull / (unsigned)hw_speed_eff_pct();
-    if (now_us < s_next_frame_us)
-        SDL_Delay((uint32_t)((s_next_frame_us - now_us) / 1000ull));
+    pc_pace_set_speed_percent((unsigned)hw_speed_eff_pct());
+    pc_pace_frame_wait();
 }
 
 /* ── Frame-time profiler (F3 overlay) ─────────────────────────────────────────

@@ -224,6 +224,8 @@ set(BENEFACTOR_SOURCES
     src/common/log.c
     src/engine/disk_boot.c
     src/engine/gameplay_handoff.c
+    src/engine/frame_pacer.cpp
+    src/engine/frame_pacer_sdl.cpp
     src/engine/hw.c
     src/engine/hw_beam.c
     src/engine/hw_audio.c
