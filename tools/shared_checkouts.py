@@ -299,6 +299,25 @@ FREETYPE = SharedTree(
 )
 
 
+def vendored_subtrees() -> tuple[Path, ...]:
+    """Every place a shared tree can sit INSIDE this repository.
+
+    Consumed code, not this project's: the CI layout checks the shared trees
+    out under `shared/` and `dependencies/`, and a developer who has none
+    beside the repository gets the same. A gate that reads this project's own
+    compile database then sees RmlUi, lucent and setup-ui as first-party source
+    and holds them to rules they were never written against. Name them here,
+    from the same list that puts them there, so a gate can skip exactly the
+    paths the resolver may fill and nothing else.
+    """
+    inside = []
+    for tree in (*TREES, FREETYPE):
+        for path in (*tree.candidates, tree.provision):
+            if path.is_relative_to(ROOT) and path != ROOT and path not in inside:
+                inside.append(path)
+    return tuple(inside)
+
+
 def ensure_shared_checkouts(cmake: str | None = None) -> dict[str, Path]:
     """Every shared tree the desktop build needs, as CMake cache entries."""
     resolved = {tree.variable: resolve_tree(tree) for tree in TREES}

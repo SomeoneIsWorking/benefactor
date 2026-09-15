@@ -8,10 +8,12 @@ from unittest.mock import patch
 
 from tools import shared_checkouts
 from tools.shared_checkouts import (
+    TREES,
     SharedTree,
     _align_checkout,
     pinned_revision,
     resolve_tree,
+    vendored_subtrees,
 )
 
 
@@ -142,6 +144,21 @@ class AlignTests(unittest.TestCase):
 
             logger.warning.assert_not_called()
             self.assertEqual(_git("rev-parse", "HEAD", cwd=checkout), ahead)
+
+
+class VendoredSubtreeTests(unittest.TestCase):
+    """What a first-party gate has to be told to skip."""
+
+    def test_every_in_repository_layout_is_named(self) -> None:
+        inside = set(vendored_subtrees())
+        for tree in TREES:
+            self.assertIn(tree.provision, inside, tree.name)
+
+    def test_nothing_outside_the_repository_is_named(self) -> None:
+        """A path beside the repository is already outside any `--root`."""
+        for subtree in vendored_subtrees():
+            self.assertTrue(subtree.is_relative_to(shared_checkouts.ROOT), subtree)
+            self.assertNotEqual(subtree, shared_checkouts.ROOT)
 
 
 if __name__ == "__main__":
