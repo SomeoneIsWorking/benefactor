@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -189,24 +190,41 @@ def check(root: Path) -> tuple[list[Finding], int]:
                     Finding(path, _line_number(text, match.start()), "getenv outside config owner")
                 )
 
-    excluded_tree_names = {".git", ".venv", "build", "dependencies", "scratch", "vendor"}
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root)
-        if any(part in excluded_tree_names for part in relative.parts) or relative == Path(
-            "run.sh"
-        ):
-            continue
-        is_shell_path = path.suffix == ".sh"
-        try:
-            with path.open("rb") as source:
-                first_line = source.readline(256).decode("utf-8", errors="ignore")
-        except OSError:
-            first_line = ""
-        is_shell_program = bool(re.match(r"^#!.*\b(?:ba|z|da|k)?sh\b", first_line))
-        if is_shell_path or is_shell_program:
-            findings.append(Finding(path, 1, "non-launcher shell tooling is forbidden"))
+    excluded_tree_names = {
+        ".claude",
+        ".git",
+        ".venv",
+        "build",
+        "dependencies",
+        "scratch",
+        "vendor",
+    }
+    for directory, subdirectories, names in os.walk(root):
+        here = Path(directory)
+        # A directory carrying its own `.git` is a separate checkout parked in
+        # the tree — a worktree or a submodule — and its files are somebody
+        # else's work in progress. Reporting them blames this repository for
+        # what another checkout holds, which is how a clean tree fails.
+        subdirectories[:] = sorted(
+            name
+            for name in subdirectories
+            if name not in excluded_tree_names and not (here / name / ".git").exists()
+        )
+        for name in sorted(names):
+            path = here / name
+            if not path.is_file():
+                continue
+            if path.relative_to(root) == Path("run.sh"):
+                continue
+            is_shell_path = path.suffix == ".sh"
+            try:
+                with path.open("rb") as source:
+                    first_line = source.readline(256).decode("utf-8", errors="ignore")
+            except OSError:
+                first_line = ""
+            is_shell_program = bool(re.match(r"^#!.*\b(?:ba|z|da|k)?sh\b", first_line))
+            if is_shell_path or is_shell_program:
+                findings.append(Finding(path, 1, "non-launcher shell tooling is forbidden"))
 
     return findings, len(product_sources)
 

@@ -72,6 +72,30 @@ class SourcePolicyTests(unittest.TestCase):
             findings, _ = check(root)
             self.assertIn("non-launcher shell tooling is forbidden", {f.message for f in findings})
 
+    def test_excludes_a_checkout_parked_inside_the_tree(self) -> None:
+        """A worktree or submodule under the repository is a different checkout.
+
+        An agent's worktree lives at `.claude/worktrees/<name>/`, holds a full
+        copy of this repository including its `run.sh`, and is work in progress
+        somebody else owns. Walking into it turns a clean tree into a failure
+        that nothing in this checkout can fix.
+        """
+        temporary, root = self._fixture()
+        with temporary:
+            parked = root / ".claude/worktrees/some-branch"
+            parked.mkdir(parents=True)
+            (parked / ".git").write_text("gitdir: ../../../.git/worktrees/x\n", encoding="utf-8")
+            (parked / "run.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            (parked / "tools/scratch").mkdir(parents=True)
+            (parked / "tools/scratch/build.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            self.assertEqual([], check(root)[0])
+
+            submodule = root / "shared/thing"
+            submodule.mkdir(parents=True)
+            (submodule / ".git").mkdir()
+            (submodule / "release.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            self.assertEqual([], check(root)[0])
+
     def test_rejects_static_and_diagnostic_emulator_product_paths(self) -> None:
         temporary, root = self._fixture()
         with temporary:
