@@ -116,7 +116,11 @@ show that fades and music advanced.
   `/poke`, `/hold`, `/press?fire=1&frames=4`, `/pause`, `/resume`,
   `/step?frames=N`, `/fb.ppm`, `/trace`, `/recent`, `/save`, and `/load`
   expose live control and inspection. Its server thread can accept `/resume`
-  while the game is held.
+  while the game is held. `/fb.ppm` is the COMPOSED output — the wide surface
+  the player sees, with the host's own overlays (pause menu, level picker, HUD
+  icons, toast) drawn in — not the guest's 4:3 render. `/menu` opens and closes
+  the pause menu and `/menu?nav=up|down|left|right|select|back` walks it, so
+  every page can be reached and shot headlessly.
 - `BENEFACTOR_PRESSES=7300:8,7420:8,7560:8` supplies frame-indexed fire
   input for reproducible menu and gameplay comparison with `oracle_diff --play`.
 - For headless interaction, launch the built `Benefactor` with `--headless`
