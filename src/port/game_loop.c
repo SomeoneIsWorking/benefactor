@@ -184,9 +184,31 @@ void pc_set_start_level(int n) {
                          "[level-select] start level := %d (applied at $150 hand-off)\n", n);
 }
 
-/* Read pending level-select choice (0 = none / pass-through). */
+/* Which level is selected right now — what the picker opens its cursor on, and
+ * what /state reports.
+ *
+ * Two things can answer, and the order matters. A pending host override is the
+ * player's own choice and wins. With none, the answer is the guest's own $20.w,
+ * because that is the level the GAME is on and the host variable is not: EXIT
+ * TO MAIN MENU goes through pc_request_cold_restart, whose state reset zeroes
+ * g_pc_start_level while $20.w keeps the level just played. Reading only the
+ * host side put the cursor back on level 1 while the game sat on level 4, and
+ * confirming there would then have started 4 — the cursor saying one thing and
+ * the hand-off doing another. This also follows a level the engine advanced on
+ * its own, so after a win the picker opens on the level that comes next.
+ *
+ * 0 in $20.w is a fresh boot, before any level: level 1, as before. */
 int pc_get_start_level(void) {
-    return g_pc_start_level > 0 ? g_pc_start_level : 1;
+    if (g_pc_start_level > 0) {
+        return g_pc_start_level;
+    }
+    if (g_mem) {
+        const int guest = ((int)g_mem[0x20] << 8) | g_mem[0x21];
+        if (guest >= 1 && guest <= pc_num_levels_ui()) {
+            return guest;
+        }
+    }
+    return 1;
 }
 
 /* Deferred save/load: SDLK_S / SDLK_D fire from inside hw_present_frame, on the
