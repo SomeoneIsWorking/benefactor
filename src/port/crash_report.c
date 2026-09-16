@@ -31,7 +31,9 @@
  * loader and says nothing about which line of it died. backtrace_symbols_fd is
  * the one symbolising call that writes with write() and allocates nothing, so
  * it is the one that may run here. */
-#if defined(__APPLE__) || defined(__linux__)
+/* Android is __linux__ but bionic has no execinfo: there is no backtrace() to
+ * call, so the report there is the guest state and the signal alone. */
+#if (defined(__APPLE__) || defined(__linux__)) && !defined(__ANDROID__)
 #define CRASH_HOST_BACKTRACE 1
 #include <execinfo.h>
 #endif

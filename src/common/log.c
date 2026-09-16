@@ -198,6 +198,13 @@ static size_t signal_append_hex(char *output, size_t capacity, size_t used, uint
  * named, which costs the report nothing. */
 static atomic_int s_signal_file = -1;
 
+/* Keep the report file out of anything the game spawns. The Windows C runtime
+ * has no O_CLOEXEC — and no fork for it to matter across — so there it is
+ * simply nothing. */
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+
 int benefactor_log_signal_file(const char *path) {
     if (!path) {
         return 0;
