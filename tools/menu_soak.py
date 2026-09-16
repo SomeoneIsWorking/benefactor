@@ -77,6 +77,9 @@ CAVERN_SCREEN = "003484"
 GAMEOVER_FLAGS = 0x57FEA5
 """$1093 absolute: bit6 marks the game-over screen, bit5 its menu phase."""
 
+GUEST_LEVEL = 0x20
+"""$20.w: the level the gameplay dispatcher at $5779AA reads."""
+
 
 class GameDied(Exception):
     """The process exited while the soak was waiting for something."""
@@ -112,6 +115,9 @@ class Game:
 
     def byte(self, address: int) -> int:
         return int(json.loads(self.get(f"/mem?addr={address:X}&len=1"))["hex"], 16)
+
+    def word(self, address: int) -> int:
+        return int(json.loads(self.get(f"/mem?addr={address:X}&len=2"))["hex"], 16)
 
     def menu(self, nav: str | None = None) -> dict:
         path = f"/menu?nav={nav}" if nav else "/menu?show=1"
@@ -212,6 +218,16 @@ def open_picker(game: Game) -> None:
     keep_pressing(
         game, "the level picker to open", lambda s: s["ui"]["level_select"], fire=1, frames=4
     )
+    # The cursor has to open on the level the GAME is on. It used not to: the
+    # cursor wrote its choice into a host variable that EXIT TO MAIN MENU's
+    # state reset then zeroed, so the picker reopened on level 1 while $20.w
+    # still held the level just played — and confirming without moving started
+    # that one, not the one shown. Both sides are read here because agreeing on
+    # a wrong number is the only other way this can go.
+    guest = game.word(GUEST_LEVEL)
+    shown = game.state()["ui"]["start_level"]
+    if guest and shown != guest:
+        raise StepMissed(f"the picker opened on level {shown}, but the game is on {guest}")
 
 
 def choose_menu_row(game: Game, label: str) -> None:
