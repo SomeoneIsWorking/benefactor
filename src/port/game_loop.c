@@ -502,7 +502,10 @@ int pc_step(void) {
         pc_account_iteration(last_exit_cycles ? now - last_exit_cycles : 0);
         last_exit_cycles = now;
     }
-    hw_watchdog_arm("PC", 2); /* catch an infinite loop in one frame */
+    /* The label is the report's headline, so it says what happened rather than
+     * which side hung: "PC" on its own read as a crash in a signal report that
+     * a watchdog trip shares with the crash handler. */
+    hw_watchdog_arm("frame watchdog: the game's own frame never finished", 2);
     uint64_t perf_t = hw_perf_now_us();
     int r = pc_step_threaded(); /* release the game thread for one frame */
     hw_perf_acc(&g_hw_perf.game_us, perf_t);

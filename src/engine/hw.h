@@ -37,7 +37,11 @@ void hw_report_guest_state(const char *why);
 
 /* Frame watchdog: arm before a single-frame step; if the frame hangs longer than
  * `seconds`, the platform timer reports the likely cause (last hw register read
- * + cop1lc) and kills the app. Disarm after the frame returns. */
+ * + cop1lc) and kills the app. Disarm after the frame returns.
+ *
+ * `what` is the report's first line, and a watchdog trip is written by the same
+ * signal-safe writer as a fault, so make it a sentence that says a frame hung.
+ * A bare tag there is indistinguishable from a crash in the log. */
 void hw_watchdog_arm(const char *what, int seconds);
 void hw_watchdog_disarm(void);
 void hw_watchdog_rearm(void);

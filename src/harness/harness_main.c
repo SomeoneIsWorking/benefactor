@@ -418,7 +418,7 @@ int main(int argc, char **argv) {
         g_harness_compared_frame++;                                                                \
         input_force_fire(fire);                                                                    \
         input_force_dir(ju, jd, jl, jr);                                                           \
-        hw_watchdog_arm("PUAE", 2);                                                                \
+        hw_watchdog_arm("frame watchdog: the PUAE reference frame never finished", 2);             \
         retro_run();                                                                               \
         hw_watchdog_disarm();                                                                      \
         if (headed)                                                                                \
@@ -435,7 +435,7 @@ int main(int argc, char **argv) {
         for (;;) {
             input_poll(); /* keyboard -> PC + PUAE; exit() on close/ESC */
             pc_step();
-            hw_watchdog_arm("PUAE", 2);
+            hw_watchdog_arm("frame watchdog: the PUAE reference frame never finished", 2);
             retro_run();
             hw_watchdog_disarm();
             harness_combined_present();
@@ -517,7 +517,7 @@ int main(int argc, char **argv) {
                 input_poll(); /* keyboard -> PC (hw_set_joystick) + PUAE (s_in); exit() on close/ESC
                                */
                 pc_step();    /* one PC frame with live input */
-                hw_watchdog_arm("PUAE", 2);
+                hw_watchdog_arm("frame watchdog: the PUAE reference frame never finished", 2);
                 retro_run(); /* one PUAE frame (reads the same live input) */
                 hw_watchdog_disarm();
                 harness_combined_present();
