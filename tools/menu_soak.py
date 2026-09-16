@@ -141,21 +141,40 @@ class Game:
         time.sleep(frames * PAL_FRAME_SECONDS)
 
 
-def start(port: int, log: Path, output: Path, *, windowed: bool) -> Game:
+def start(
+    port: int,
+    log: Path,
+    output: Path,
+    *,
+    windowed: bool,
+    shown: bool = False,
+    executable: Path | None = None,
+) -> Game:
     disks = list(DISK_NAMES)
     missing = [name for name in disks if not (ROOT / name).exists()]
     if missing:
         raise SystemExit(f"need the disk images in {ROOT}: {', '.join(missing)}")
-    executable = ROOT / "build/run/Benefactor.app/Contents/MacOS/Benefactor"
-    if not executable.exists():
-        executable = ROOT / "build/run/benefactor-pc"
+    if executable is None:
+        executable = ROOT / "build/run/Benefactor.app/Contents/MacOS/Benefactor"
+        if not executable.exists():
+            executable = ROOT / "build/run/benefactor-pc"
     if not executable.exists():
         raise SystemExit(f"no built game at {executable}; build benefactor_product first")
 
-    environment = dict(os.environ, BENEFACTOR_HTTP=str(port), BENEFACTOR_CRASH_LOG=str(log))
+    # SDL's dummy audio device: the mixer is opened, fed and drained exactly as
+    # usual, and nothing reaches the speakers. A soak that sang for ten minutes
+    # while someone was working is a soak that gets turned off.
+    environment = dict(
+        os.environ,
+        BENEFACTOR_HTTP=str(port),
+        BENEFACTOR_CRASH_LOG=str(log),
+        SDL_AUDIO_DRIVER="dummy",
+    )
     command = [str(executable)]
     if not windowed:
         command.append("--headless")
+    elif not shown:
+        command.append("--hidden")
     command += ["--disk", *disks]
     handle = output.open("w")
     process = subprocess.Popen(
@@ -351,17 +370,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--port", type=int, default=0, help="0 picks a free one")
-    # A window by default, because headless does not reproduce the crash this
-    # exists for: measured on a build with the fix removed, twenty rounds
+    # A real window by default, because headless does not reproduce the crash
+    # this exists for: measured on a build with the fix removed, twenty rounds
     # headless passed and the same twenty windowed died on the eighth. The
     # present path is part of the timing that puts the game thread inside the
-    # picker's override when EXIT TO MAIN MENU stops it.
+    # picker's override when EXIT TO MAIN MENU stops it. So the window is made
+    # and rendered into and presented to — it is just HIDDEN, and the audio goes
+    # to SDL's dummy device, so a soak never takes over the screen or the
+    # speakers of whoever started it. --show puts it back on screen to watch.
+    parser.add_argument(
+        "--show", action="store_true", help="put the window on screen to watch a run"
+    )
     parser.add_argument(
         "--headless",
         action="store_true",
-        help="no window — faster, but does NOT exercise the teardown path this checks",
+        help="no window at all — faster, but does NOT exercise the teardown path this checks",
     )
     parser.add_argument("--out", type=Path, default=ROOT / "build/menu-soak")
+    # Proving this soak still catches the fault means running it against a build
+    # with the fix taken out, and that build must not be the one the player
+    # launches. Measured the hard way: a control run left a knowingly-broken
+    # binary in build/run and the next ./run.sh crashed on it. Build the control
+    # somewhere else and name it here.
+    parser.add_argument(
+        "--exe", type=Path, default=None, help="a different built game to drive (for control runs)"
+    )
     arguments = parser.parse_args(argv)
 
     arguments.out.mkdir(parents=True, exist_ok=True)
@@ -370,7 +403,14 @@ def main(argv: list[str] | None = None) -> int:
     log.unlink(missing_ok=True)
 
     port = arguments.port or choose_port(9100)
-    game = start(port, log, output, windowed=not arguments.headless)
+    game = start(
+        port,
+        log,
+        output,
+        windowed=not arguments.headless,
+        shown=arguments.show,
+        executable=arguments.exe,
+    )
     choose = random.Random(arguments.seed)
 
     def report(step: str) -> None:
@@ -405,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nFAILED in round {reached} of {arguments.rounds}: {failure}")
         print(f"the game's own output is in {output}")
         return 1
-    where = "headless" if arguments.headless else "windowed"
+    where = "headless" if arguments.headless else ("on screen" if arguments.show else "hidden")
     print(f"\n{arguments.rounds} rounds in and out of a level ({where}), no crash")
     return 0
 

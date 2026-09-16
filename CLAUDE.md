@@ -82,6 +82,11 @@ show that fades and music advanced.
   headless path does not reproduce) and it is probabilistic: measured, a build
   carrying the fault passed twelve rounds on three seeds and died in the tenth
   of forty, so the default is forty and a short clean run has shown little.
+  The window it needs is HIDDEN and the audio goes to SDL's dummy device, so a
+  soak never takes the screen or the speakers off whoever started it; `--show`
+  puts it back on screen to watch. Proving the soak still catches the fault
+  means driving a build with the fix taken out, and that build must not be the
+  one `./run.sh` launches — build it somewhere else and name it with `--exe`.
 - The watchdog reports the guest PC, active call, last hardware-register read,
   `cop1lc`, and retired tail. `src/port/guest_profile.h` samples hot PCs by
   owner at every custom-chip access and reports them at screen end.

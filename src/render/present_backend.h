@@ -61,6 +61,24 @@ typedef struct PresentBackend {
  * Never returns NULL. */
 const PresentBackend *present_backend_select(const char *name);
 
+/* Make the window HIDDEN: it is created, rendered into and presented to exactly
+ * as a shown one, but never appears on screen and never takes the focus.
+ *
+ * This is what an automated driver wants and `--headless` is not. Headless
+ * skips render, compose and present altogether, and the teardown defect
+ * tools/menu_soak.py exists to catch only reproduces when those run — measured,
+ * twenty headless rounds passed on a build carrying it and the same twenty
+ * windowed died on the eighth. A hidden window keeps every one of those steps
+ * and only takes the picture off the screen.
+ *
+ * Set before the backend's init; afterwards it has no effect.
+ *
+ * present_window_flags carries it: the flags every backend's window wants, so
+ * whether the game is on screen is decided in one place and not once per
+ * backend. A backend adds whatever else its own surface needs. */
+void present_backend_set_hidden(int hidden);
+SDL_WindowFlags present_window_flags(void);
+
 /* Install a callback that draws an in-game overlay over the presented frame —
  * the on-screen touch controls — after the game image and before present. The
  * SDL backend calls it in output pixels; a backend that cannot host an SDL

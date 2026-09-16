@@ -36,8 +36,20 @@ static int sdl_ensure_content(int w, int h) {
     return 0;
 }
 
+/* Lives here because this file is always built, Vulkan or not, and both
+ * backends have to read the same answer before they create their window. */
+static int s_hidden = 0;
+
+void present_backend_set_hidden(int hidden) {
+    s_hidden = !!hidden;
+}
+
+SDL_WindowFlags present_window_flags(void) {
+    return s_hidden ? SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE;
+}
+
 static int sdl_init(const char *title, int content_w, int content_h) {
-    s_window = SDL_CreateWindow(title, content_w * 2, content_h * 2, SDL_WINDOW_RESIZABLE);
+    s_window = SDL_CreateWindow(title, content_w * 2, content_h * 2, present_window_flags());
     if (!s_window) {
         return -1;
     }
