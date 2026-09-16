@@ -96,6 +96,13 @@ int main(int argc, char **argv) {
             headless = 1;
             continue;
         }
+        /* Not the same thing as --headless: the game still renders, composes
+         * and presents, the window just never appears. See
+         * present_backend_set_hidden. */
+        if (!strcmp(argv[i], "--hidden")) {
+            present_backend_set_hidden(1);
+            continue;
+        }
         if (!strcmp(argv[i], "--http") && i + 1 < argc) {
             http_port = atoi(argv[++i]);
             continue;
