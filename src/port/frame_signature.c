@@ -6,46 +6,11 @@
 #include "common/log.h"
 #include "engine/hw.h"
 #include "port/frame_accounting.h"
+#include "port/lockstep_digest.h"
 #include "runtime/guest_runtime.h"
 
 /* AUD0..AUD3 base offsets in the custom-chip register file. */
 static const unsigned kAudioBase[4] = {0x0A0u, 0x0B0u, 0x0C0u, 0x0D0u};
-
-/* The fade instrument reads the COPPER LIST, not the s_palette shadow: the
- * renderer takes the frame's colours from the copper writes and only falls
- * back to the shadow for a register the list never writes. Measured against
- * the reference product, the shadow did not change once in 9000 frames while
- * the logos were visibly fading. Scan the list for MOVEs to COLOR00..31 and
- * fold register and value into the hash. */
-#define COPLIST_SCAN_WORDS 2048u
-
-static uint32_t palette_hash(void) {
-    const uint32_t list = hw_get_cop1lc() & 0xFFFFFFu;
-    uint32_t hash = 2166136261u;
-    if (!list || !g_mem) {
-        return hash;
-    }
-    for (uint32_t i = 0; i + 1 < COPLIST_SCAN_WORDS; i += 2) {
-        const uint8_t *word = g_mem + list + i * 2u;
-        const uint16_t control = (uint16_t)((word[0] << 8) | word[1]);
-        const uint16_t value = (uint16_t)((word[2] << 8) | word[3]);
-        if (control == 0xFFFFu) {
-            break;
-        }
-        if (control & 1u) {
-            continue; /* WAIT/SKIP — the colours after it still count */
-        }
-        const uint16_t reg = control & 0x01FEu;
-        if (reg < 0x180u || reg > 0x1BEu) {
-            continue;
-        }
-        hash ^= (uint32_t)reg;
-        hash *= 16777619u;
-        hash ^= (uint32_t)(value & 0x0FFFu);
-        hash *= 16777619u;
-    }
-    return hash;
-}
 
 static uint32_t audio_pointer(unsigned channel) {
     const unsigned base = kAudioBase[channel];
@@ -59,7 +24,15 @@ void pc_note_frame_signature(void) {
         per[c] = s_regs[(kAudioBase[c] + 6) >> 1];
         vol[c] = s_regs[(kAudioBase[c] + 8) >> 1];
     }
-    const uint32_t pal = palette_hash();
+    /* The fade instrument reads the COPPER LIST, not the s_palette shadow: the
+     * renderer takes the frame's colours from the copper writes and only
+     * falls back to the shadow for a register the list never writes.
+     * Measured against the reference product, the shadow did not change once
+     * in 9000 frames while the logos were visibly fading.
+     * `lockstep_palette_hash` owns the scan (it must already stay
+     * byte-identical to the reference's copy of the same header), so this
+     * file calls it instead of keeping a second copy. */
+    const uint32_t pal = g_mem ? lockstep_palette_hash(g_mem, hw_get_cop1lc()) : 2166136261u;
     const uint32_t dma = (uint32_t)(s_dmacon & 0x020Fu);
 
     /* One emitted line per change — and while music plays, that is every frame,
