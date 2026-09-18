@@ -32,6 +32,7 @@ setup_ui::Config setup_config() {
                                    kDiskNames[index] + ")"});
     }
     config.accepts_archive = true;
+    config.accepted_message = "Disk set accepted.";
     return config;
 }
 
