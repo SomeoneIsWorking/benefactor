@@ -66,7 +66,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
+          ref: d4ca35e501733966229b49d49716e00a31e2ad69
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -155,7 +155,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
+          ref: d4ca35e501733966229b49d49716e00a31e2ad69
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -233,7 +233,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
+          ref: d4ca35e501733966229b49d49716e00a31e2ad69
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -354,7 +354,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
+          ref: d4ca35e501733966229b49d49716e00a31e2ad69
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -429,7 +429,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 965f4f1c96339b27ea9cda2681ee27984997951a
+          ref: d4ca35e501733966229b49d49716e00a31e2ad69
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
