@@ -29,7 +29,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 8050b197e14e9e4c583d255c80d958d8c859b4fa
+          ref: 724411733b59c313c7ca0afb906bb4ebe7f4a8fc
           path: shared/amigaport
           persist-credentials: false
       - name: Check out pinned SDL3 headers
@@ -44,7 +44,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
+          ref: 9b3b2b661cfa92d2539c39df1c97f92c1bdf142b
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out the shared harness the verifier gates on

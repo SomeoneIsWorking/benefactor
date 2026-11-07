@@ -41,7 +41,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 8050b197e14e9e4c583d255c80d958d8c859b4fa
+          ref: 724411733b59c313c7ca0afb906bb4ebe7f4a8fc
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -58,7 +58,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
+          ref: 9b3b2b661cfa92d2539c39df1c97f92c1bdf142b
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -66,7 +66,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: d4ca35e501733966229b49d49716e00a31e2ad69
+          ref: 70474ea3f4f2732f3f0bf6d951c2d88f681ebe94
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -130,7 +130,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 8050b197e14e9e4c583d255c80d958d8c859b4fa
+          ref: 724411733b59c313c7ca0afb906bb4ebe7f4a8fc
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -147,7 +147,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
+          ref: 9b3b2b661cfa92d2539c39df1c97f92c1bdf142b
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -155,7 +155,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: d4ca35e501733966229b49d49716e00a31e2ad69
+          ref: 70474ea3f4f2732f3f0bf6d951c2d88f681ebe94
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -208,7 +208,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 8050b197e14e9e4c583d255c80d958d8c859b4fa
+          ref: 724411733b59c313c7ca0afb906bb4ebe7f4a8fc
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -225,7 +225,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
+          ref: 9b3b2b661cfa92d2539c39df1c97f92c1bdf142b
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -233,7 +233,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: d4ca35e501733966229b49d49716e00a31e2ad69
+          ref: 70474ea3f4f2732f3f0bf6d951c2d88f681ebe94
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -313,7 +313,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 8050b197e14e9e4c583d255c80d958d8c859b4fa
+          ref: 724411733b59c313c7ca0afb906bb4ebe7f4a8fc
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -322,7 +322,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/android-port
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: fcdb9e849766d06e095d62c53e2ccea6c8bdda60
+          ref: 195684c35a109bdd58029830121828bb1274908e
           path: shared/android-port
           persist-credentials: false
       - name: Check out pinned Lucent
@@ -330,7 +330,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
+          ref: 9b3b2b661cfa92d2539c39df1c97f92c1bdf142b
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared touch controls
@@ -338,7 +338,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/touch-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: be758197648944f03625e2516299445b09427645
+          ref: c02acec8824e36755cbe9bf8f08adbd8d11667f9
           path: shared/touch-ui
           persist-credentials: false
       - name: Check out pinned shared port art
@@ -346,7 +346,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/port-assets
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 991514cb8a40a570d3ee11d2b35eca088aacb13b
+          ref: 02ff9ff5b7dd9ba753108c9d6ca6356169ff2895
           path: shared/port-assets
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -354,7 +354,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: d4ca35e501733966229b49d49716e00a31e2ad69
+          ref: 70474ea3f4f2732f3f0bf6d951c2d88f681ebe94
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
@@ -404,7 +404,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/amigaport
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 8050b197e14e9e4c583d255c80d958d8c859b4fa
+          ref: 724411733b59c313c7ca0afb906bb4ebe7f4a8fc
           path: shared/amigaport
           submodules: recursive
           persist-credentials: false
@@ -421,7 +421,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/lucent
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: 209e4b8ef3bea92401ba44a55da4351bec295895
+          ref: 9b3b2b661cfa92d2539c39df1c97f92c1bdf142b
           path: dependencies/lucent
           persist-credentials: false
       - name: Check out pinned shared setup screen
@@ -429,7 +429,7 @@ jobs:
         with:
           repository: SomeoneIsWorking/setup-ui
           token: ${{ secrets.SHARED_REPO_TOKEN || github.token }}
-          ref: d4ca35e501733966229b49d49716e00a31e2ad69
+          ref: 70474ea3f4f2732f3f0bf6d951c2d88f681ebe94
           path: shared/setup-ui
           persist-credentials: false
       - name: Check out pinned RmlUi
