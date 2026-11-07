@@ -121,3 +121,5 @@ This unofficial project distributes only original port/runtime code and
 documentation. SDL, Lucent, and libretro-uae/PUAE retain their respective
 licenses; PUAE is a development oracle, not part of the gameplay product.
 The port's own code is released under the MIT licence (`LICENSE`).
+
+Built with AI assistance (Claude and other LLMs).
